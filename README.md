@@ -7,6 +7,7 @@ https://gitlab.ethz.ch/netsec/dns-formalization-maude/-/tree/main/Testbed?ref_ty
 
 Iodine source code
 https://github.com/yarrick/iodine
+Iodine client and server flowcharts under docs/figures
 
 Actors2PMaude tool
 https://zenodo.org/records/7071693
