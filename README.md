@@ -15,13 +15,20 @@ git clone git@github.com:jkhourybbn/maude-hcs.git
 Setup the submodule, use sparse checkout
 ```shell
 cd maude-hcs
-git submodule add https://gitlab.ethz.ch/netsec/dns-formalization-maude.git maude_hcs/deps/dns_formalization
+mkdir -p maude_hcs/deps
+git submodule add -f git@github.com:jkhourybbn/dns-formalization-maude.git maude_hcs/deps/dns_formalization
 cd maude_hcs/deps/dns_formalization
 git sparse-checkout init --cone
 git sparse-checkout set "Maude/src" "Maude/test"
+cd ../../../
+git reset .gitmodules
+git reset maude_hcs/deps/dns_formalization
 ```
-This should create a new file named sparse-checkout under .git/modules/maude_hcs/deps/dns_formalization/info/
 
+Teh above should create a new file named sparse-checkout under .git/modules/maude_hcs/deps/dns_formalization/info/ 
+and tell it to only include `Maude/src` and `Maude/test` directories.
+
+At this point `git status` should show a clean start.
 
 # References
 
