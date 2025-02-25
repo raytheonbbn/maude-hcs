@@ -12,11 +12,11 @@ Clone the main repo
 git clone git@github.com:jkhourybbn/maude-hcs.git
 ```
 
-Setup the submodule, use sparse checkout
+Setup the dns submodule using our clone of the code so we can track changes made to the original source, use sparse checkout
 ```shell
 cd maude-hcs
 mkdir -p maude_hcs/deps
-git submodule add -f git@github.com:jkhourybbn/dns-formalization-maude.git maude_hcs/deps/dns_formalization
+git submodule add -b pwnd -f git@github.com:jkhourybbn/dns-formalization-maude.git maude_hcs/deps/dns_formalization
 cd maude_hcs/deps/dns_formalization
 git sparse-checkout init --cone
 git sparse-checkout set "Maude/src" "Maude/test"
