@@ -2,6 +2,29 @@
 
 Formal Analysis of Hidden Communications Systems at Scale
 
+## Install
+We will install the dependencies (such as DNS formalization) as submodules
+where we use sparse checkout to avoid needing to checkout the massive repositories
+and only get the directories we need.
+
+Clone the main repo
+```shell
+git clone git@github.com:jkhourybbn/maude-hcs.git
+```
+
+Setup the submodule, use sparse checkout
+```shell
+cd maude-hcs
+git submodule add https://gitlab.ethz.ch/netsec/dns-formalization-maude.git maude_hcs/deps/dns_formalization
+cd maude_hcs/deps/dns_formalization
+git sparse-checkout init --cone
+git sparse-checkout set "Maude/src" "Maude/test"
+```
+This should create a new file named sparse-checkout under .git/modules/maude_hcs/deps/dns_formalization/info/
+
+
+# References
+
 DNS model
 https://gitlab.ethz.ch/netsec/dns-formalization-maude/-/tree/main/Testbed?ref_type=heads
 
