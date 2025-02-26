@@ -59,7 +59,9 @@ maude-hcs --verbose --run-args=./use-cases/corporate-base.json generate nondet
 # References
 
 DNS model
-https://gitlab.ethz.ch/netsec/dns-formalization-maude/-/tree/main/Testbed?ref_type=heads
+https://gitlab.ethz.ch/netsec/dns-formalization-maude
+
+DNS Corporate use case (visualize with exalidraw) `docs/corporate-base.exalidraw`
 
 Iodine source code
 https://github.com/yarrick/iodine
