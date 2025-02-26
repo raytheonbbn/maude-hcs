@@ -3,10 +3,14 @@
 import logging
 import os
 import sys
+
 from pathlib import Path
 
 import argcomplete
 import argparse
+from maude_hcs.cli import handle_command
+
+from Maude.attack_exploration.src.zone import Record
 
 TOPLEVELDIR = Path(os.path.dirname(__file__))
 
@@ -36,6 +40,18 @@ def is_valid_file(parser, arg):
 def build_cli_parser():
     parser = argparse.ArgumentParser("maude-hcs")
     parser.add_argument('--verbose', action='store_true', help='turn on logging')    
+    parser.add_argument('--run-args-file', dest='run_args', type=lambda x: is_valid_file(parser, x),
+                        metavar='FILE', required=False, help=f'File containing all of the run arguments')
+
+    cmd_parser = parser.add_subparsers(title='command', dest='command')    
+    cmd_parser.required = True
+
+    generate_parser = cmd_parser.add_parser('generate')
+    generator = generate_parser.add_subparsers(title='generator', dest='generator',
+                                              description='Generate Maude file(s) to run', help="Add help")
+    generator.required = True
+    generator.add_parser('nondet', description='Generate non-deterministic model', help='nondet for nondeterministic')
+    generator.add_parser('prob', description='Generate probabilistic model', help='prob for probabilistic')
     
     argcomplete.autocomplete(parser)
     return parser
@@ -46,9 +62,12 @@ def main():
     Run 'maude-hcs --help' for command line usage information.
 
     """
+
     parser = build_cli_parser()
     args = parser.parse_args()
     init_logging(args.verbose)    
+    
+    handle_command(args.command, parser, args)
 
 
 if __name__ == "__main__":
