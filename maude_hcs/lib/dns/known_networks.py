@@ -1,5 +1,6 @@
+from maude_hcs.lib.dns.DNSConfig import DNSConfig
+
 from Maude.attack_exploration.src.zone import Record, Zone
-from Maude.attack_exploration.src.config import Config
 from Maude.attack_exploration.src.actors import Resolver, Nameserver
 from Maude.attack_exploration.src.conversion_utils import config_to_maude_file
 
@@ -20,7 +21,8 @@ class KnownUNetworks:
         return make
     
 
-def corporate(args) -> Config:
+def corporate(args) -> DNSConfig:
+    
     # root zone
     zoneRoot = Zone('', None,
         [
@@ -85,4 +87,4 @@ def corporate(args) -> Config:
 
     root_nameservers = {'a.root-servers.net.': 'addrNSroot'}
 
-    return Config([], [resolver], [nameserverRoot, nameserverCom, nameserverNet, nameserverExample], root_nameservers)
+    return DNSConfig([], [resolver], [nameserverRoot, nameserverCom, nameserverNet, nameserverExample], root_nameservers)

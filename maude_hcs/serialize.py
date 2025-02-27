@@ -11,7 +11,7 @@ class MaudeHCSMaudeEncoder(object):
         return self.generate_maude(o)
     
     def generate_maude(self, o):
-        return o.to_maude_nondet({})
+        return o.to_maude()
 
 
 class MaudeHCSEncoder(object):
