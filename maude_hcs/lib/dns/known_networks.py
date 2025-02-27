@@ -7,7 +7,8 @@ class KnownUNetworks:
         }
     
     def create(self, run_args):
-        conf = self.constructors[run_args["underlying_network"]["config"]](run_args)        
+        args = run_args["underlying_network"].get(run_args["underlying_network"]["config"], {})
+        conf = self.constructors[run_args["underlying_network"]["config"]](args)
         return conf
     
     def _fixed_network(self, Cls):

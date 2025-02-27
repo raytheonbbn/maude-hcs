@@ -2,10 +2,26 @@ from maude_hcs.lib.dns.DNSConfig import DNSConfig
 from Maude.attack_exploration.src.zone import Record, Zone
 from Maude.attack_exploration.src.actors import Resolver, Nameserver, Client
 from Maude.attack_exploration.src.query import Query
-from Maude.attack_exploration.src.conversion_utils import config_to_maude_file
+from maude_hcs.lib.dns import GLOBALS
+import logging
+
+logger = logging.getLogger(__name__)
+
+def createAuthZone(NAME:str, parent:Zone, num_records:int) -> Zone:
+        GLOBALS.counter += 1
+        records = [Record(f'www{index}.{NAME}.com.', 'A', 3600, f'{GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
+        zone_records  = [ 
+            Record(f'{NAME}.com.', 'SOA', 3600, '3600'),
+            Record(f'{NAME}.com.', 'NS', 3600, f'ns.{NAME}.com.'),
+            Record(f'ns.{NAME}.com.', 'A', 3600, f'addrNS{NAME}')]
+        zone_records.extend(records)
+        zone_records.append(Record(f'*.{NAME}.com.', 'TXT', 3600, '...'))
+        return Zone(f'{NAME}.com.', parent, zone_records)
 
 def corporate(args) -> DNSConfig:
-    
+    EE_NAME = args.get('everythingelse_name', 'everythingelse')
+    PWND2_NAME = args.get('pwnd2_name', 'pwnd2')
+    num_records = args.get('everythingelse_num_records', 1)
     # root zone
     zoneRoot = Zone('', None,
         [
@@ -17,8 +33,6 @@ def corporate(args) -> DNSConfig:
             Record('a.root-servers.net.', 'A', 3600, 'addrNSroot'),
             Record('com.', 'NS', 3600, 'ns.com.'),
             Record('ns.com.', 'A', 3600, 'addrNScom'),
-            Record('net.', 'NS', 3600, 'ns.net.'),
-            Record('ns.net.', 'A', 3600, 'addrNSnet'),
         ])
 
     # com zone
@@ -29,48 +43,26 @@ def corporate(args) -> DNSConfig:
             Record('ns.com.', 'A', 3600, 'addrNScom'),
 
             # delegations and glue
-            Record('example.com.', 'NS', 3600, 'ns.example.com.'),
-            Record('ns.example.com.', 'A', 3600, 'addrNSexample'),
+            Record(f'{EE_NAME}.com.', 'NS', 3600, f'ns.{EE_NAME}.com.'),
+            Record(f'ns.{EE_NAME}.com.', 'A', 3600, f'addrNS{EE_NAME}'),
+            Record(f'{PWND2_NAME}.com.', 'NS', 3600, f'ns.{PWND2_NAME}.com.'),
+            Record(f'ns.{PWND2_NAME}.com.', 'A', 3600, f'addrNS{PWND2_NAME}'),
         ])
 
-    zoneNet = Zone('net.', zoneRoot,
-        [
-            Record('net.', 'SOA', 3600, '3600'),
-            Record('net.', 'NS', 3600, 'ns.net.'),
-            Record('ns.net.', 'A', 3600, 'addrNSnet'),
-
-            # delegations and glue
-            Record('root-servers.net.', 'NS', 3600, 'a.root-servers.net.'),
-            Record('a.root-servers.net.', 'A', 3600, 'addrNSroot'),
-        ])
-
-    zoneRootServers = Zone('root-servers.net.', zoneNet,
-        [
-            Record('root-servers.net.', 'SOA', 3600, '3600'),
-            Record('root-servers.net.', 'NS', 3600, 'a.root-servers.net.'),
-            Record('a.root-servers.net.', 'A', 3600, 'addrNSroot'),
-        ])
-
-    # example.com zone
-    zoneExample = Zone('example.com.', zoneCom,
-        [ 
-            Record('example.com.', 'SOA', 3600, '3600'),
-            Record('example.com.', 'NS', 3600, 'ns.example.com.'),
-            Record('ns.example.com.', 'A', 3600, 'addrNSexample'),
-            Record('www.example.com.', 'A', 3600, '1.2.3.4'),
-            Record('*.example.com.', 'TXT', 3600, '...'),
-        ])
-
+    # EverythingElse EE zone
+    zoneEverythingelse = createAuthZone(EE_NAME, zoneCom, num_records)
+    zonepwnd2 = createAuthZone(PWND2_NAME, zoneCom, num_records)  
+    
     resolver = Resolver('rAddr')
 
-    query = Query(1, 'www.example.com.', 'A')
+    query = Query(1, f'www0.{EE_NAME}.com.', 'A')
     client = Client('cAddr', [query], resolver)    
 
-    nameserverRoot = Nameserver('addrNSroot', [zoneRoot, zoneRootServers])
+    nameserverRoot = Nameserver('addrNSroot', [zoneRoot])
     nameserverCom = Nameserver('addrNScom', [zoneCom])
-    nameserverNet = Nameserver('addrNSnet', [zoneNet])
-    nameserverExample = Nameserver('addrNSexample', [zoneExample])
+    nameserverEE = Nameserver(f'addrNS{EE_NAME}', [zoneEverythingelse])
+    nameserverPWND2 = Nameserver(f'addrNS{PWND2_NAME}', [zonepwnd2])
 
     root_nameservers = {'a.root-servers.net.': 'addrNSroot'}
 
-    return DNSConfig([client], [resolver], [nameserverRoot, nameserverCom, nameserverNet, nameserverExample], root_nameservers)
+    return DNSConfig([client], [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverPWND2], root_nameservers)
