@@ -13,6 +13,9 @@ class DNSConfig(Config):
         self.path = str(TOPLEVELDIR.joinpath(DNS_MAUDE_ROOT)) + os.path.sep
         super().__init__(clients, resolvers, nameservers, root_nameservers)
 
+    def set_params(self, params : dict):
+        self.params = params
+
     def to_maude(self):
         return self.to_maude_nondet(self.params, self.path)
 

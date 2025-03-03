@@ -68,4 +68,6 @@ def corporate(args) -> DNSConfig:
 
     root_nameservers = {'a.root-servers.net.': 'addrNSroot'}
 
-    return DNSConfig([client], [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverPWND2, nameserverCORP], root_nameservers)
+    C = DNSConfig([client], [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverPWND2, nameserverCORP], root_nameservers)
+    C.set_params(args.get('nondeterministic_parameters', {}))
+    return C
