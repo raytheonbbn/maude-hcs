@@ -21,6 +21,7 @@ def createAuthZone(NAME:str, parent:Zone, num_records:int) -> Zone:
 def corporate(args) -> DNSConfig:
     EE_NAME = args.get('everythingelse_name', 'everythingelse')
     PWND2_NAME = args.get('pwnd2_name', 'pwnd2')
+    CORP_NAME = args.get('corporate_name', 'corp')
     num_records = args.get('everythingelse_num_records', 1)
     # root zone
     zoneRoot = Zone('', None,
@@ -52,6 +53,7 @@ def corporate(args) -> DNSConfig:
     # EverythingElse EE zone
     zoneEverythingelse = createAuthZone(EE_NAME, zoneCom, num_records)
     zonepwnd2 = createAuthZone(PWND2_NAME, zoneCom, num_records)  
+    zonecorp = createAuthZone(CORP_NAME, zoneCom, num_records)
     
     resolver = Resolver('rAddr')
 
@@ -61,8 +63,9 @@ def corporate(args) -> DNSConfig:
     nameserverRoot = Nameserver('addrNSroot', [zoneRoot])
     nameserverCom = Nameserver('addrNScom', [zoneCom])
     nameserverEE = Nameserver(f'addrNS{EE_NAME}', [zoneEverythingelse])
+    nameserverCORP = Nameserver(f'addrNS{CORP_NAME}', [zonecorp])
     nameserverPWND2 = Nameserver(f'addrNS{PWND2_NAME}', [zonepwnd2])
 
     root_nameservers = {'a.root-servers.net.': 'addrNSroot'}
 
-    return DNSConfig([client], [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverPWND2], root_nameservers)
+    return DNSConfig([client], [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverPWND2, nameserverCORP], root_nameservers)
