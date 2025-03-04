@@ -55,16 +55,16 @@ def corporate(args) -> DNSConfig:
     zonepwnd2 = createAuthZone(PWND2_NAME, zoneCom, num_records)  
     zonecorp = createAuthZone(CORP_NAME, zoneCom, num_records)
     
-    resolver = Resolver('rAddr')
-
-    query = Query(1, f'www0.{EE_NAME}.com.', 'A')
-    client = Client('cAddr', [query], resolver)    
+    resolver = Resolver('rAddr')    
 
     nameserverRoot = Nameserver('addrNSroot', [zoneRoot])
     nameserverCom = Nameserver('addrNScom', [zoneCom])
     nameserverEE = Nameserver(f'addrNS{EE_NAME}', [zoneEverythingelse])
-    nameserverCORP = Nameserver(f'addrNS{CORP_NAME}', [zonecorp])
+    nameserverCORP = Nameserver(f'addrNS{CORP_NAME}', [zonecorp], forwardonly=resolver.address)
     nameserverPWND2 = Nameserver(f'addrNS{PWND2_NAME}', [zonepwnd2])
+
+    query = Query(1, f'www0.{EE_NAME}.com.', 'A')
+    client = Client('cAddr', [query], nameserverCORP)    
 
     root_nameservers = {'a.root-servers.net.': 'addrNSroot'}
 
