@@ -1,0 +1,572 @@
+load ../nondet-model/dns
+
+mod DNS-TUNNEL is  
+  inc DNS .
+  
+  op wc : Qid -> Content .  **** weird msgs are just qids
+
+**** sorts for wrapper attributes
+  sort MsgL .  subsort Msg < MsgL .
+  op nilMsgL : -> MsgL [ctor] .
+  op _;_ : MsgL MsgL -> MsgL [ctor assoc id: nilMsgL] .
+ 
+  sort  QidList .  subsort Qid < QidList .
+  op nilQidL : -> QidList .
+  op _!_ : QidList QidList -> QidList [ctor assoc id: nilQidL] .
+
+  sorts MapIdMsg  IdMsg .
+  subsort IdMsg < MapIdMsg .
+  op _<~_ : Id Msg -> IdMsg [ctor] .
+  op mtIdMsg : -> MapIdMsg .
+  op  _!!_ : MapIdMsg MapIdMsg -> MapIdMsg 
+                 [ctor assoc comm id: mtIdMsg] .
+  op updateMap : MapIdMsg Id Msg -> MapIdMsg .
+  eq updateMap(wdb !! (ID <~ msg0), ID, msg) 
+          = wdb !! (ID <~ msg) .
+  eq updateMap(wdb,ID,msg) = wdb !! (ID <~ msg) [owise] .
+
+  vars C MC : Config .   --- MC for Msg Config
+  vars CL RSV NS ADDR ADDR' sADDR rADDR clADDR MON 
+          : Address .
+  vars ID ID' : Id .      ---- Nat < Id
+  vars NAME NAME' WNAME SNAME : Name .
+  vars Q1 Q : Query .
+  var QTYPE : RType .
+  var QS : List{Query} .
+  var R : Record .
+  vars ANS ANS' RS RS' AUTH ADD : List{Record} .
+  var RCODE : Nat .
+  vars N N'  : Nat .
+  var B : Bool .
+  vars F TTL : Float .
+  var RESP : Response .
+  var RTYPE : RType .
+  
+  vars attrs wattrs attrs0 wattrs0  wattrs1 : 
+             AttributeSet .
+  vars qidl qidl0  : QidList .
+  vars appA nsA : Actor .
+  var n : Nat .
+  
+  vars wmsg  wmsg0 : Qid .
+  vars msgl msgl0 msgl1 : MsgL .
+  var  wdb : MapIdMsg . 
+  vars msgs msgs0 : Config .   ---- MsgConfig
+  vars msg msg0 msg1 : Msg .
+  
+  
+ --------  Nesting/Meta configuration  attribute
+  op conf:_ : Config -> Attribute [ctor] .
+
+  op getName : Query -> Name .
+  eq getName(query(ID,NAME,RTYPE)) = NAME .
+
+****** Structure for processing a message and returning
+****** the updated attribute set and resulting messages
+ sort AttributeSetMsgS .
+ op `{_`,_`} : AttributeSet Config ->
+                  AttributeSetMsgS [ctor] .
+
+***** wrapper functions for receiving a piggy backed msg
+ op embed : Address AttributeSet Msg -> AttributeSetMsgS .
+ op extract : AttributeSet Msg -> AttributeSetMsgS .
+ 
+     
+  ----------------
+  --- [WCLIENT] ---  Client wrapper  -- alternate view
+**** wclient = < clId : WDNSClient | wattrs 
+****              conf: (< appId : WApp | attrs >  msgs) ?
+**** contains app used by Alice to generate hidden msgs
+----------------
+**** wrapper attributes and auxiliary functions
+  op WCL : -> ActorType [ctor] .
+
+**** the Weird DNS server - should be know to weird client
+  op resv:_ : Address -> Attribute [ctor] . 
+****  the base name to which hidden msg is attached
+  op wDom:_ : Name -> Attribute [ctor] .
+****  each query needs a unique id   
+  op ctr:_ : Nat -> Attribute [ctor] .
+**** store info about query  sent, pending response
+*****  id <~ (to bAddr from aAddr : wmsg)
+  op wDb:_ : MapIdMsg -> Attribute [ctor] .
+
+*** Cmerlin:
+  op current-fragment-number:_ : Nat -> Attribute [ctor] .
+  op num-transmission-attempts:_ : Nat -> Attribute [ctor] .
+  op seqno:_ : Nat -> Attribute [ctor] .
+  op length:_ : Nat -> Attribute [ctor] .
+  op fragments:_ : List{Qid} -> Attribute [ctor] .
+*** Cmerlin - End
+
+
+  op getResolver : AttributeSet ~> Address . 
+  eq getResolver(wattrs, resv: ADDR) = ADDR .
+  
+  op getCtr : AttributeSet ~> Nat . 
+  eq getCtr(wattrs, ctr: n) = n .
+  
+  op incCtr : AttributeSet -> AttributeSet . 
+  eq incCtr(wattrs, ctr: n) = wattrs, (ctr: s n) .
+  eq incCtr(wattrs) = wattrs [owise] .
+  
+  op getWDom : AttributeSet Address ~> Name .
+  eq getWDom((wattrs, wDom: NAME), ADDR) = NAME .
+  
+  op addPending : AttributeSet Id Msg -> AttributeSet .
+  eq addPending((wattrs, wDb: wdb), ID, msg) = wattrs, 
+                wDb: updateMap(wdb,ID,msg) .
+  eq addPending( wattrs, ID, msg) = wattrs [owise] .
+         
+*** Cmerlin:
+  op moveFragmentUp : AttributeSet -> AttributeSet .
+  eq moveFragmentUp(wattrs, fragments: (Qid, List{Qid}), current-fragment-number: m, num-transmission-attempts: ntx) = wattrs, (fragments: List{Qid}), (current-fragment-number: s m), (num-transmission-attempts: 0) . *** Move to the next fragment, trying to "dequeue" the fragments list by the fragment at the head.
+  eq moveFragmentUp(wattrs) = wattrs [owise] .
+
+  op incrNumTransmissionAttempts : AttributeSet -> AttributeSet .
+  eq incrNumTransmissionAttempts(wattrs, num-transmission-attempts: ntx) = wattrs, (num-transmission-attempts: s ntx) if ntx < 3 .
+  eq incrNumTransmissionAttempts(wattrs) = wattrs [owise] .
+
+  op bailOnCurrentPacket : AttributeSet -> AttributeSet .
+  eq bailOnCurrentPacket(wattrs, current-fragment-number: m, num-transmission-attempts: ntx, length: l, fragments: f) = wattrs, (current-fragment-number: 0, num-transmission-attempts: 0, length: 0, fragments: nilQidList) . *** Empty list?
+  eq bailOnCurrentPacket(wattrs) = wattrs [owise] .
+
+  op handleNewPacket : AttributeSet -> AttributeSet .
+  eq handleNewPacket((wattrs, seqno: m, length: l, fragments: f),LENGTH,QID) = (wattrs, (seqno: s m),  (length: LENGTH), fragments: fragmentPacket(LENGTH,QID)) .
+  eq handleNewPacket(wattrs) = wattrs [owise] .
+
+  *** op getPacketLength : HELP I do not know how to do this.  Would need length of a packet coming from App in a msg.
+
+  op getCurrentFragment : AttributeSet ~> Qid .
+  eq getCurrentFragment((wattrs, fragments:(headFragment otherFragments))) = headFragment . *** HELP Is this correct?  Trying to get head.
+  eq getCurrentFragment((wattrs, fragments: f)) = f . *** HELP Is this correct? Trying to get head when there is only one element.
+  eq getCurrentFragment(wattrs) = nilQidL .
+
+  op fragmentPacket : Nat Qid -> List{Qid} .
+  *** op fragmentPacket : Nat Qid -> List{FragmentContent} .
+  ***eq fragmentPacket(LENGTH, QID) = *** HELP not sure how to fragment a packet??
+
+  op txComplete : AttributeSet -> Bool .
+  eq isTxComplete(wattrs, fragments: (f otherFragments)) = true . *** HELP Is this correct?  Trying to see if list of fragments is empty.
+  eq isTxComplete(wattrs) = false [owise] .
+
+*** Cmerlin - End
+
+         
+******  app attributes      
+  op SndApp : -> ActorType [ctor] .
+  op toSend:_ : QidList -> Attribute  [ctor] .
+  op bAddr:_ : Address -> Attribute [ctor] .
+  op rcvd:_ : MsgL -> Attribute [ctor] .
+  op sent:_ : MsgL -> Attribute [ctor] .
+              --- for debigging
+
+***** app actor constructor
+  op mkSndApp : Address Address QidList -> Actor [ctor]  .
+  eq mkSndApp(ADDR,ADDR',qidl) =
+    < ADDR : SndApp | 
+          bAddr: ADDR', 
+          toSend: qidl,
+          rcvd: nilMsgL,
+          sent: nilMsgL
+     >  .       
+
+***** wrapped client actor constructor
+  op mkWClient : Address Address Name  Address QidList
+                  -> Actor [ctor]  .
+ ceq mkWClient(CL,RSV,NAME,ADDR,qidl) =
+    < CL :  WCL | 
+      (resv: RSV ),
+      (wDom: NAME) ,
+      (ctr: 0),
+      (wDb: mtIdMsg) ,
+      (conf: appA )
+   > 
+  if appA := mkSndApp(CL,ADDR,qidl)
+  .        
+  
+************  app/wrapper rules for DNS tunnel **********  
+*****  wrapper receives start message and forwards to app
+ rl [startClient]: 
+  < CL : WCL | wattrs,  conf: appA   >
+  (to CL : start) 
+=>
+  < CL : WCL | wattrs,
+               conf: (appA (to CL : start) ) 
+   >
+[print "startClient" ]
+ .
+
+***** app receives start message  
+*****    sends first weird message in its queue
+*****    records the message sent
+ rl [startApp]: 
+  < CL : SndApp | toSend: (wmsg  ! qidl),  sent: msgl,
+                    bAddr: ADDR,  attrs >
+  (to CL : start) 
+=>
+  < CL : SndApp | toSend: qidl,  
+          (sent: (msgl ; (to ADDR from CL : wc(wmsg)))) ,
+              bAddr: ADDR,  attrs >
+  (to ADDR from CL : wc(wmsg))
+  [print "startSndApp: wmsg: " wmsg ]
+ .
+
+***** wrapper converts app message to dns (tunnel) query
+***** records that a response is pending
+ crl [wClientEmbedd]: 
+ *** Cmerlin
+ *** < CL : WCL | wattrs,
+ < CL : WCL | (wattrs,length),
+ *** Cmerlin - End
+                  conf: (appA
+                  (to ADDR' from CL : wc(wmsg))  msgs ) 
+  >  
+=>
+  < CL : WCL | wattrs0, conf: (appA msgs)
+   >
+ msg  **** (to RSV from WCL : Q)    
+ *** Cmerlin - Check if there is no current transmission before we even do anything about the message from the App.
+ if length > 0
+   /\ {wattrs0,msg} := 
+ ***if {wattrs0,msg}  := 
+*** Cmerlin - End
+      embed(CL,wattrs, (to ADDR' from CL : wc(wmsg)))  
+[print "wClientEmbedd msg "  msg]
+ .
+ 
+**** this is the tunnel specific function 
+**** it pairs with the nameserver wrapper extract function
+**** this simple version just uses the weird msg as the
+**** last element of the domain name list
+ceq embed(CL, wattrs, (to ADDR' from CL : wc(wmsg))) 
+  =  {wattrs0,(to RSV from CL : Q)} 
+ if RSV := getResolver(wattrs)
+ *** Cmerlin
+ /\ wattrs1 := handleNewPacket(wattrs, getPacketLength(wc(wmsg)), wc)
+ /\ FRAGMENT := getCurrentFragment(incrNumTransmissionAttempts(wattrs1))
+ *** Cmerlin - End
+ /\ ID := getCtr(wattrs)
+ /\ NAME := getWDom(wattrs,ADDR')
+ *** cmerlin
+ ***/\ WNAME := encode(wattrs,wmsg,NAME)
+ /\ WNAME := encode(wattrs,FRAGMENT,NAME) 
+ *** Cmerlin - End
+ /\ Q := query(ID,WNAME,a)
+ /\ wattrs0 :=
+ *** cmerlin
+      addPending(incCtr(wattrs1),ID, (to ADDR' from CL : FRAGMENT))
+ ***  addPending(incCtr(wattrs),ID,
+ ***             (to ADDR' from CL : wc(wmsg)))  
+ *** cmerlin - End
+.
+
+*** Cmerlin
+ceq embedFragment(CL, (wattrs, wDom)) = {wattrs0, (to RSV from CL : Q)}
+  if RSV := getResolver(wattrs)
+  /\ ID := getCtr(wattrs)
+  /\ wattrs0 := incrNumTransmissionAttempts(wattrs)
+  /\ FRAGMENT := getCurrentFragment(wattrs0)
+  /\ NAME := getWDom(wattrs0,ADDR') *** HELP No ADDR' here, but it should be possible to get it from somewhere else...
+  /\ WNAME := encode(wattrs0,FRAGMENT,NAME)
+  /\ Q := query(ID,WNAME,a)
+  .
+*** Cmerlin - End
+    
+op encode : AttributeSet Qid Name -> Name .
+eq encode(wattrs,wmsg, NAME)  = (wmsg . NAME) .
+
+*****  wrapper receives response   
+*****   extracts any piggybacked info and passes to app
+*****   removes the pending item IF _packet transmission is complete_.
+ crl [wClientResponse]: 
+  < CL : WCL | wattrs, resv: RSV,
+                   conf: (appA msgs)
+   >
+ (to CL from RSV : RESP)
+***** expect RESP is response(ID,SNAME,ANS,AUTH,ADD,RCODE)
+ => 
+ < CL : WCL | wattrs0, resv: RSV,
+                  conf: (appA msgs msg)
+  >
+ *** Cmerlin - Check if transmission is complete
+ if isTxComplete(wattrs) /\ {wattrs0, msg} := 
+ ***if {wattrs0, msg} :=
+ *** Cmerlin - End
+     extract(wattrs,  (to CL from RSV : RESP))
+ [print "wClientResponse: response " RESP "\n msg   " msg]
+ .
+ 
+ *****  simple case the wrapper just sends success code
+ ceq extract(wattrs,(to CL from RSV : RESP)) =
+    *** Cmerlin
+    *** {wattrs0, msg} 
+    {wattrsSuccess, msg}
+    *** Cmerlin - End
+ if response(ID, SNAME, ANS, AUTH, ADD, RCODE) := RESP
+  *** TODO: Should check that wclient is sending anything (check e.g., length > 0)
+ *** Cmerlin
+ /\ wattrsSuccess := moveFragmentUp(wattrs0)
+ ***/\ wDb: (wdb !! ((ID <~ (to ADDR from CL : wc(wmsg)) ) )),
+ ***          wattrs1 := wattrs
+ /\ wDb: (wdb !! ((ID <~ (to ADDR from CL : wc(wmsg)) ) )),
+          wattrs1 := wattrsSuccess
+ *** Cmerlin - End
+ /\ msg := (to CL from ADDR : wc('0))
+ /\ wattrs0 := wattrs1, wDb: wdb
+ .
+
+*** Cmerlin
+*** Rule for a message is received from the server, but the packet transmission is still incomlete (more fragments remaining).
+crl [wClientResponseWithRemainingFragments]:
+  < CL : WCL | wattrs, resv: RSV, conf : (appA msgs) >
+  (to CL from RSV : RESP)
+  =>
+  < CL : WCL | wattrs0, conf : (appA ????) >
+  *** Send the next fragment to RSV.
+  if not isTxComplete(wattrs)
+    /\ {wattrs0, msg} := embedFragment(CL,moveFragmentUp(wattrs)), (to ADDR' from CL : wc(wmsg))
+)
+
+*** HELP Rule for a ??? representing when the timer expires and checks if the current fragment should be retransmitted.
+crl [wClientFragmentTimeoutRetx] :
+  < CL : WCL | (wattrs, num-transmission-attempts), conf : (appA msgs) >
+  *** ???? HELP
+  =>
+  < CL : WCL | wattrs0, conf: (appA msgs) >
+  msg
+  if not isTxComplete(wattrs) 
+    /\ num-transmission-attempts < 3
+    /\ {wattrs0, msg} := embedFragment(CL,wattrs)), (to ADDR' from CL : wc(wmsg))
+
+crl [wClientFragmentTimeoutBail] :
+  < CL : WCL | (wattrs, num-transmission-attempts), conf : (appA msgs) >
+  *** ???? HELP
+  =>
+  < CL : WCL | wattrs0, conf: (appA msgs) >
+  if not isTxComplete(wattrs)
+    /\ num-transmission-attempts >= 3
+    /\ {wattrs0} := bailOnCurrentPacket(wattrs)
+
+*** Cmerlin - End
+    
+***** app receives response, records in rcvd;: attribute 
+*****    sends the next message in its queue
+  crl [appResponseNext]: 
+   < ADDR : SndApp | toSend: (wmsg ! qidl),  
+                     rcvd: msgl,
+                     sent: msgl0,
+                     bAddr: ADDR',  attrs >
+    msg 
+ =>
+   < ADDR : SndApp | toSend: qidl,  
+                     bAddr: ADDR', 
+                     rcvd: (msgl ; msg),
+                     sent: (msgl0 ; msg0),
+                     attrs >
+       msg0                     
+   if (to ADDR from ADDR' : wc(wmsg0)) := msg
+   /\ msg0 :=  (to ADDR' from ADDR : wc(wmsg))
+
+ [print "appResponseNext: msg " msg ]
+  .
+ 
+***** app receives response, records in rcvd;: attribute 
+*****    the queue is empty, app is done
+  crl [appResponseDone]: 
+   < ADDR : SndApp | toSend: nilQidL,  bAddr: ADDR' ,
+                     rcvd:  msgl,
+                     attrs >
+   msg
+ =>
+   < ADDR : SndApp | toSend: nilQidL, bAddr: ADDR' ,
+                     rcvd: (msgl ; msg ),
+                     attrs >
+  if (to ADDR from ADDR' : wc(wmsg)) := msg
+ [print "appResponseDone: msg " msg ]
+  .
+ 
+------------------------------------------
+  --- [WNAMESERVER] ---
+  ---- wraps the name server for the weird zone
+ ***(
+ wzoneNS  = [znsId : WNS |  wattrs,
+              conf: ([znsId : NS | zattrs] 
+                     [appId : rApp | rattrs]
+                     msgs) ]
+       -- wrapped zone NS for weird.net zone
+       -- also contains receiver app used by Bob
+  wattrs  bAddr, qrcd  if twoway rsppend toSend
+ op toSend: QidList -> Attribute [ctor] .
+     --- msgs from bob to embed in responses
+ )
+ 
+ ****** attributes for nameserver wrapper
+  op WNS : -> ActorType [ctor] .
+  op rcvAddr:_ : Address -> Attribute  [ctor] .
+  op sndAddr:_ : Address -> Attribute  [ctor] .
+  op clAddr:_ : Address -> Attribute  [ctor] .
+  op qRcd:_ : Config ->  Attribute [ctor] .  --- msgConf
+       --- query msg pending response
+
+**** auxiliary functions
+  op getRcvAddr : AttributeSet -> Address  . ---rcvAddr
+  eq getRcvAddr(attrs, rcvAddr: ADDR) = ADDR .
+
+  op getSndAddr : AttributeSet -> Address  . ---- sndAddr
+  eq getSndAddr(attrs, sndAddr: ADDR) = ADDR .
+
+  op addQM : AttributeSet Msg -> AttributeSet . ---- qRcd
+  eq addQM((attrs, (qRcd: msgs)),msg) = 
+              (attrs, qRcd: (msgs msg)) .
+       
+  op updateQRcd : AttributeSet Msg 
+                  -> AttributeSet .
+       --- remove corresponding pending query           
+       --- msg ~ (to rADDR from ADDR : RESP) 
+  ceq updateQRcd( (wattrs, (qRcd: (msg0 msgs)) ),  msg) =
+                (wattrs, (qRcd: msgs))
+  if matchQR(msg0,msg) 
+   .
+  eq updateQRcd( wattrs,  msg) = wattrs [owise] .
+  
+  op matchQR : Msg Msg -> Bool .
+  ceq matchQR(msg0,msg) = true  
+  if (to ADDR from rADDR : query(ID,NAME,RTYPE)) := msg0
+  /\ (to rADDR from ADDR : 
+      response(ID, SNAME, ANS, AUTH, ADD, RCODE)) :=  msg
+  .       
+  eq matchQR(msg0,msg) = false [owise]  .
+  
+  op isMyClient : AttributeSet Address -> Bool .
+  eq isMyClient((wattrs, sndAddr: ADDR),ADDR) = true .
+  eq isMyClient(wattrs,ADDR) = false [owise] .
+    
+***** attributes for receiver application    
+  op RcvApp : -> ActorType [ctor] .
+  op rcvd : MsgL  -> Attribute [ctor] .  --- for debigging
+              
+**** constructor for receiver app actor
+  op mkRcvApp : Address  -> Actor [ctor] .
+  eq mkRcvApp(rADDR) =
+    < rADDR : RcvApp | rcvd: nilMsgL > .       
+
+**** constructor for nameserver wrapper
+**** for encapsulation, both ns and app are in the 
+**** wrapped configuration 
+  op mkWNS : Address Address Address Actor -> Actor  .
+  ceq mkWNS(ADDR, sADDR, rADDR, nsA) =
+    < ADDR : WNS | sndAddr: sADDR , rcvAddr: rADDR , 
+                   qRcd: null, conf: (appA  nsA)       
+    > 
+    if appA := mkRcvApp(rADDR) .       
+ 
+
+***(
+-----------------------------------------------
+---- WNameServer Rules
+----------------------------------------------
+--- WNS rcv resolver req
+--- this NS is owned by HCS member,
+)
+****  receivs query from tunnel client
+****   extract weird message and send to target
+****  replace weird message to make valid domain name
+****  and forwad to the wrapped nameserver
+crl [WNSrcvQmyCl]:
+    < ADDR : WNS | wattrs, 
+                     conf: (appA  nsA  **** msgs
+                            )       
+    >       
+  (to ADDR from  ADDR' : Q)
+=>
+   < ADDR : WNS | wattrs0, 
+           conf: (appA  nsA  msgs0 )  **** msgs
+    >       
+  if  isMyClient(wattrs,ADDR')
+  /\ query(ID,NAME,QTYPE) := Q  
+  /\ {wattrs0,msgs0} := 
+       extractQ(wattrs, (to ADDR from ADDR' : Q))
+  .
+
+****  receives query from non-tunnel/regular client
+****  just forward to nameserver
+crl [WNSrcvQnotMyCl]:
+    < ADDR : WNS | wattrs, 
+                     conf: (appA  nsA  **** msgs
+                            )       
+    >       
+   (to ADDR from  ADDR' : Q)
+=>
+   < ADDR : WNS | wattrs, 
+           conf: (appA  nsA  (to ADDR from  ADDR' : Q) )  
+    >       
+  if not(isMyClient(wattrs,ADDR'))
+  .
+  
+  **** this pairs with the client embed function
+  
+  op extractQ : AttributeSet Msg -> AttributeSetMsgS .
+      ---- record querymsg
+      ---- extract wmsg and send to rcvr
+      ---- fwd deextracted query to ns
+  ceq extractQ(wattrs, msg) = {wattrs0,msg0 msg1}
+  if  (to ADDR from ADDR' : Q) := msg
+  /\ query(ID,NAME,a) := Q
+  /\ wmsg := extractW(wattrs,NAME)
+  /\ msg0 := (to getRcvAddr(wattrs) 
+              from getSndAddr(wattrs) :
+                  wc(wmsg))
+  /\ NAME' := revert(wattrs,NAME) 
+  /\ Q1 :=  query(ID,NAME',a)                
+  /\ msg1 := (to ADDR from ADDR' : Q1)
+  /\ wattrs0 := addQM(wattrs,msg)
+  . 
+
+***** invert message encoding
+  op extractW : AttributeSet Name -> Qid . --- WeirdContent
+  eq extractW(attrs, wmsg . NAME)   =  wmsg .
+
+**** turns weird domain name into valid one
+  op revert : AttributeSet Name -> Name .
+  eq revert(wattrs, wmsg . NAME) = 'www . NAME .
+
+**** name server sends response  
+**** if response is to the tunnel client, remove from
+**** pending attribute,
+**** in any case, forward the response
+crl [WNSfwdRsp]:
+    < ADDR : WNS | wattrs, 
+           conf: (appA  nsA  **** msgs
+           (to  ADDR' from ADDR : RESP ) )
+    >       
+ =>
+    < ADDR : WNS | wattrs0, 
+           conf: (appA  nsA  **** msgs 
+                 )
+    >       
+   (to ADDR' from ADDR : RESP ) 
+   if wattrs0 :=
+      (if isMyClient(wattrs,ADDR')
+      then updateQRcd(wattrs,(to ADDR' from ADDR : RESP))
+      else wattrs fi)
+  .
+
+**** receiver app just adds the message reeived to its list
+ rl [RcvAppRcv] :
+    < ADDR : RcvApp | attrs, rcvd: msgl > 
+    (to ADDR from ADDR' : wc(wmsg))
+   =>
+   < ADDR : RcvApp | attrs,
+      rcvd: (msgl ; (to ADDR from ADDR' : wc(wmsg))) > 
+   .
+
+***** abstract address constants     
+op tgtAddr : -> Address .
+op cAddr : -> Address .
+     
+endm
+eof
+
+
+
