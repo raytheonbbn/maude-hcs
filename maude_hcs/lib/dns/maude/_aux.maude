@@ -1,0 +1,96 @@
+load ../../../deps/dns_formalization/Maude/src/nondet-model/_aux
+
+mod IODINE_SORTS is   
+  inc AUX .
+  pr CONVERSION .
+  
+  vars A B : Address . 
+  vars QID1 QID2 : Qid . 
+  vars N N1 N2 N3 : Nat .
+ 
+  ---- Alice sends "UDP packets" to the TUN IFace
+  ---- Each packet has a data len (application bytes being sent), and an id for tracking
+  ---- The len determines how many "fragments" are needed to send the packet over DNS
+  ---- A packet gets fragmented into 1 or more fragments
+  ---- A fragment is what gets embedded into a DNS query
+  ----   recall subsort Nat < Id 
+  sorts Packet Fragment .
+  subsorts Packet Fragment < Content . 
+  ----        Packet# DataLenBytes  
+  op packet : Nat Nat -> Packet .
+  ----          ClientQid  Packet# Frag# DataLenBytes  
+  op fragment : Qid Nat Nat Nat -> Fragment .  
+
+  --- convert a fragment into a Qid to be embedded
+  op toQId : Fragment -> Qid .
+  op toQId : Qid Nat Nat Nat -> Qid .
+  eq toQId(fragment(QID1, N, N1, N2)) = toQId(QID1, N, N1, N2) .
+  eq toQId(QID1, N, N1, N2) = qid(string(QID1) + "#" + string(N,10) + "#" + string(N1, 10) + "#" + string(N2, 10)) .
+
+endm  
+--- these views allow us to create lists LIST{X} where X is sort Packet or Fragment
+view Packet from TRIV to IODINE_SORTS is sort Elt to Packet . endv
+view Fragment from TRIV to IODINE_SORTS is sort Elt to Fragment . endv
+
+mod IODINE_AUX is
+  inc IODINE_SORTS .
+  pr LIST{Packet} .
+  pr LIST{Fragment} .
+
+  sorts MapIdMsg  IdMsg .
+  subsort IdMsg < MapIdMsg .
+
+  var wdb : MapIdMsg .
+  var ID : Id .
+  var msg msg0 : Msg .
+
+  
+  op _<~_ : Id Msg -> IdMsg [ctor] .
+  op mtIdMsg : -> MapIdMsg .
+  op  _!!_ : MapIdMsg MapIdMsg -> MapIdMsg 
+                 [ctor assoc comm id: mtIdMsg] .
+  op updateMap : MapIdMsg Id Msg -> MapIdMsg .
+  eq updateMap(wdb !! (ID <~ msg0), ID, msg) 
+          = wdb !! (ID <~ msg) .
+  eq updateMap(wdb,ID,msg) = wdb !! (ID <~ msg) [owise] .
+
+endm
+
+mod IODINE_NODE is
+  inc IODINE_AUX .
+  ----------------
+  --- [WCLIENT] ---  Client wrapper  -- alternate view
+**** wclient = < clId : WDNSClient | wattrs 
+****              conf: (< appId : WApp | attrs >  msgs) ?
+**** contains app used by Alice to generate hidden msgs
+----------------
+  op WCL : -> ActorType [ctor] .
+
+  --- the DNS resolver - should be know to weird client
+  op resv:_ : Address -> Attribute [ctor] . 
+  --- the base weird name to which hidden msg is attached
+  op wDom:_ : Name -> Attribute [ctor] .
+  --- store info about query  sent, pending response  
+  op wDb:_ : MapIdMsg -> Attribute [ctor] .
+  --- increment counter for each DNS query sent
+  op queryCtr:_ : Nat -> Attribute [ctor] .
+  --- increment counter for each packet being sent
+  op seqCtr:_ : Nat -> Attribute [ctor] .
+  --- increment counter for each packet fragment being sent
+  op fragmentCtr:_ : Nat -> Attribute [ctor] .
+  --- fragment list, its size, and the current fragment being sent
+  op fragments:_ : List{Fragment} -> Attribute [ctor] .  
+  op fragmentsSize:_ : Nat -> Attribute [ctor] .
+  op currFragment:_ : Nat -> Attribute [ctor] .
+  --- number of retransmissions of current fragment
+  op numAttempts:_ : Nat -> Attribute [ctor] . 
+
+
+endm
+
+--- fmod IODINE_NODE is
+
+--- endm
+
+
+red toQId(fragment('Alice, 1, 1, 100)) .
