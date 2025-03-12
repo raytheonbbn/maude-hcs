@@ -2,10 +2,12 @@ load ../../../deps/dns_formalization/Maude/src/nondet-model/_aux
 
 mod IODINE_SORTS is   
   inc AUX .
+---  inc META-LEVEL .
   pr CONVERSION .
   
   vars A B : Address . 
-  vars QID1 QID2 : Qid . 
+  var NAME : Name .
+  --- var QID1 : Qid . 
   vars N N1 N2 N3 : Nat .
  
   ---- Alice sends "UDP packets" to the TUN IFace
@@ -18,14 +20,22 @@ mod IODINE_SORTS is
   subsorts Packet Fragment < Content . 
   ----        Packet# DataLenBytes  
   op packet : Nat Nat -> Packet .
-  ----          ClientQid  Packet# Frag# DataLenBytes  
-  op fragment : Qid Nat Nat Nat -> Fragment .  
+  ----          AliceAddr  Packet# Frag# DataLenBytes  
+  op fragment : Address Nat Nat Nat -> Fragment .  
+  --- convert a fragment into a Name to be embedded
+  op nm : Address Nat Nat Nat -> Name .  
+  --- convert back to fragment
+  op fragment : Name -> Fragment .    
+  op nilFragment : -> Fragment .
 
   --- convert a fragment into a Qid to be embedded
-  op toQId : Fragment -> Qid .
-  op toQId : Qid Nat Nat Nat -> Qid .
-  eq toQId(fragment(QID1, N, N1, N2)) = toQId(QID1, N, N1, N2) .
-  eq toQId(QID1, N, N1, N2) = qid(string(QID1) + "#" + string(N,10) + "#" + string(N1, 10) + "#" + string(N2, 10)) .
+  --- op toQId : Fragment -> Qid .
+  --- op toQId : Qid Nat Nat Nat -> Qid .
+  --- eq toQId(fragment(QID1, N, N1, N2)) = toQId(QID1, N, N1, N2) .
+  --- eq toQId(QID1, N, N1, N2) = qid(string(QID1) + "#" + string(N,10) + "#" + string(N1, 10) + "#" + string(N2, 10)) .
+  
+  eq fragment(nm(A, N, N1, N2)) = fragment(A, N, N1, N2) .
+  eq fragment(NAME) = nilFragment [owise] .
 
 endm  
 --- these views allow us to create lists LIST{X} where X is sort Packet or Fragment
@@ -86,11 +96,25 @@ mod IODINE_NODE is
   op numAttempts:_ : Nat -> Attribute [ctor] . 
 
 
+
+  --------------------------------
+  --- [WNameserver] --- Weird/wrapped Nameserver
+  --------------------------------
+  op WNameserver : -> ActorType [ctor] .  
+  --- This is Bob's address; weird msgs will be forwarded to bob
+  --- Bob listens on a UDP socket that the server sends to
+  op appAddr:_ : Address -> Attribute  [ctor] .
+  
+  op qRcd:_ : Config ->  Attribute [ctor] .  --- msgConf
+       --- query msg pending response
+
+
+  op AliceAddr : -> Address . 
 endm
 
 --- fmod IODINE_NODE is
 
 --- endm
 
-
-red toQId(fragment('Alice, 1, 1, 100)) .
+red nm(AliceAddr, 1, 1, 100) . 'microsoft . 'com . root .
+red fragment(nm(AliceAddr, 1, 1, 100)) .
