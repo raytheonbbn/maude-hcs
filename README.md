@@ -24,7 +24,7 @@ made to the original source, use sparse-checkout to keep only relevant sources
 ```shell
 cd maude-hcs
 mkdir -p maude_hcs/deps
-git submodule add -b pwnd -f git@github.com:jkhourybbn/dns-formalization-maude.git maude_hcs/deps/dns_formalization
+git submodule add -b pwnd.2 -f git@github.com:jkhourybbn/dns-formalization-maude.git maude_hcs/deps/dns_formalization
 cd maude_hcs/deps/dns_formalization
 git sparse-checkout init --cone
 git sparse-checkout set "Maude/src" "Maude/test" "Maude/attack_exploration"
