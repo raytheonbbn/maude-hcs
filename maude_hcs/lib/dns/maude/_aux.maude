@@ -1,35 +1,44 @@
 load ../../../deps/dns_formalization/Maude/src/nondet-model/_aux
 
-mod IODINE_SORTS is   
-  inc AUX .
----  inc META-LEVEL .
-  pr CONVERSION .
+mod MYLISTS is
+  pr AUX .
   
-  vars A B : Address . 
-  var NAME : Name .
-  --- var QID1 : Qid . 
-  vars N N1 N2 N3 : Nat .
-  vars P_LEN HOSTNAME_LEN : Nat .
-  var TOTAL_LEN : Nat .
-  var CURRENT_FRAGMENTS : List{Fragment} .
-  var NEW_FRAGMENT : Fragment .
-  var FRAGMENT_NUMBER : Nat .
-  var LAST_FRAG : Bool .
- 
   ---- Alice sends "UDP packets" to the TUN IFace
   ---- Each packet has a data len (application bytes being sent), and an id for tracking
   ---- The len determines how many "fragments" are needed to send the packet over DNS
   ---- A packet gets fragmented into 1 or more fragments
   ---- A fragment is what gets embedded into a DNS query
   ----   recall subsort Nat < Id 
-  sorts Packet Fragment .
+  sorts Packet Fragment FragmentList .
+  subsort Fragment < FragmentList .
+
+  op mtfl    : -> FragmentList [ctor] .
+  op _:_    : FragmentList FragmentList -> FragmentList [ctor assoc id: mtfl] .
+
+endm
+
+view FragmentList from TRIV to MYLISTS is
+  sort Elt to FragmentList .
+endv
+
+mod IODINE_SORTS is   
+  pr MYLISTS .
+---  inc META-LEVEL .
+---  pr CONVERSION .
+  
+  vars ALICE BOB : Address . 
+  var NAME : Name .
+  vars N N1 N2 N3 P_LEN : Nat .
+  var B B1 : Bool .  
+ 
+
   subsorts Packet Fragment < Content . 
-  ----        Packet# DataLenBytes  
-  op packet : Nat Nat -> Packet .
+  ----        AliceAddr Packet# DataLenBytes  
+  op packet : Address Nat Nat -> Packet .
   ----          AliceAddr  Packet# Frag# DataLenBytes lastFrag
   op fragment : Address Nat Nat Nat Bool -> Fragment .  
   --- convert a fragment into a Name to be embedded
-  op nm : Address Nat Nat Nat -> Name .  
+  op nm : Address Nat Nat Nat Bool -> Name .  
   --- convert back to fragment
   op fragment : Name -> Fragment .    
   op nilFragment : -> Fragment .
@@ -40,46 +49,35 @@ mod IODINE_SORTS is
   --- eq toQId(fragment(QID1, N, N1, N2)) = toQId(QID1, N, N1, N2) .
   --- eq toQId(QID1, N, N1, N2) = qid(string(QID1) + "#" + string(N,10) + "#" + string(N1, 10) + "#" + string(N2, 10)) .
   
-  eq fragment(nm(A, N, N1, N2)) = fragment(A, N, N1, N2, false) .
+  eq fragment(nm(ALICE, N, N1, N2, B)) = fragment(ALICE, N, N1, N2, B) .
   eq fragment(NAME) = nilFragment [owise] .
 
   op getPacketLength : Packet -> Nat .
-  eq getPacketLength(packet(N, P_LEN)) = P_LEN .
+  eq getPacketLength(packet(ALICE, N, P_LEN)) = P_LEN .
 
-                --- Qid packet_number packet_len max_frag_data_size frag_number
-  op makeFragment : Qid Nat Nat Nat Nat -> Fragment .
-  ceq makeFragment(QID1, N, TOTAL_LEN, HOSTNAME_LEN, FRAGMENT_NUMBER) = fragment(QID1, N, s FRAGMENT_NUMBER, HOSTNAME_LEN, true) if HOSTNAME_LEN >= TOTAL_LEN .
-  ceq makeFragment(QID1, N, TOTAL_LEN, HOSTNAME_LEN, FRAGMENT_NUMBER) = fragment(QID1, N, s FRAGMENT_NUMBER, HOSTNAME_LEN, false) if HOSTNAME_LEN < TOTAL_LEN .
-  ceq makeFragment(QID1, N, TOTAL_LEN, HOSTNAME_LEN, FRAGMENT_NUMBER) = nil if TOTAL_LEN <= 0 .
-
-  op getNumFragments : List{Fragment} -> Nat .
-  eq getNumFragments(frags : nil) = 0 .
-  eq getNumFragments(fragments frag) = s getNumFragments(fragments) .
-
-  ----        Fragment a packet.
-  op fragmentPacket : Packet Nat -> List{Fragment} .
-  ---ceq fragmentPacket(packet(N, P_LEN), HOSTNAME_LEN) = List{fragment(QID1, N, 1, HOSTNAME_LEN, true)} if HOSTNAME_LEN <= P_LEN .
-  ---eq List{Fragment} Fragment = List{Fragment} .
-      
-                --- TotalSize FragSize SeqNo CurrentFrags
-  ---op buildFragments : Nat Nat Nat List{Fragment} -> List{Fragment} .
-  ---ceq buildFragments(TOTAL_LEN, HOSTNAME_LEN, N, fragments: List{}) = List{fragment(QID1, N, 1, TOTAL_LEN, true)} if TOTAL_LEN <= HOSTNAME_LEN .
-  ---eq buildFragments(TOTAL_LEN, HOSTNAME_LEN, N, CURRENT_FRAGMENTS) = CURRENT_FRAGMENTS makeFragment('Alice, N, TOTAL_LEN, HOSTNAME_LEN, 
-  ---eq buildFragments(TOTAL_LEN, HOSTNAME_LEN, N, CURRENT_FRAGMENTS : nil) = makeFragment('Alice, N, TOTAL_LEN, HOSTNAME_LEN) .
-  ---eq buildFragments(TOTAL_LEN, HOSTNAME_LEN, N, CURRENT_FRAGMENTS) = CURRENT_FRAGMENTS
 
 endm  
 --- these views allow us to create lists LIST{X} where X is sort Packet or Fragment
-view Packet from TRIV to IODINE_SORTS is sort Elt to Packet . endv
-view Fragment from TRIV to IODINE_SORTS is sort Elt to Fragment . endv
+--- view Packet from TRIV to IODINE_SORTS is sort Elt to Packet . endv
+--- view Fragment from TRIV to IODINE_SORTS is sort Elt to Fragment . endv
+
+
 
 mod IODINE_AUX is
-  inc IODINE_SORTS .
-  pr LIST{Packet} .
-  pr LIST{Fragment} .
-
+  pr IODINE_SORTS .
+  --- pr LIST{Packet} .
+---  pr LIST{Fragment} .
+  
   sorts MapIdMsg  IdMsg .
   subsort IdMsg < MapIdMsg .
+  
+  vars N N1 N2 N3 P_LEN : Nat .
+  var B B1 LAST_FRAG : Bool .
+  ---var curFragments : List{Fragment} .
+  var curFragments : FragmentList .
+  var Pkt Pkt1 : Packet .
+  var Frag Frag1 : Fragment .
+  var ALICE : Address .
 
   var wdb : MapIdMsg .
   var ID : Id .
@@ -93,6 +91,25 @@ mod IODINE_AUX is
   eq updateMap(wdb !! (ID <~ msg0), ID, msg) 
           = wdb !! (ID <~ msg) .
   eq updateMap(wdb,ID,msg) = wdb !! (ID <~ msg) [owise] .
+
+  ----        return list of fragments that from a packet
+  ----          Pakcet HOSTNAME_LEN
+  op fragments : Packet Nat -> FragmentList .
+  ----          Pakcet HOSTNAME_LEN cur_frag_num cur_fragments
+  op $fragments : Packet Nat Nat FragmentList -> FragmentList .
+  
+  eq fragments(packet(ALICE, N, N1), N2) = 
+    $fragments(packet(ALICE, N, N1), N2, 0, mtfl) .
+  
+  eq $fragments(packet(ALICE, N, N1), N2,  N3, curFragments) =
+    if N1 > N2 
+    then
+      $fragments(packet(ALICE, N, (N1 - N2)), N2, s N3, curFragments : fragment(ALICE, N, s N3, N2, false)) 
+    else 
+      curFragments : fragment(ALICE, N, s N3, N2, true)
+    fi  
+    .
+
 
 endm
 
@@ -119,7 +136,7 @@ mod IODINE_NODE is
   --- increment counter for each packet fragment being sent
   op fragmentCtr:_ : Nat -> Attribute [ctor] .
   --- fragment list, its size, and the current fragment being sent
-  op fragments:_ : List{Fragment} -> Attribute [ctor] .  
+  op fragments:_ : FragmentList -> Attribute [ctor] .  
   op fragmentsSize:_ : Nat -> Attribute [ctor] .
   op currFragment:_ : Nat -> Attribute [ctor] .
   --- number of retransmissions of current fragment
@@ -138,8 +155,7 @@ mod IODINE_NODE is
   op qRcd:_ : Config ->  Attribute [ctor] .  --- msgConf
        --- query msg pending response
 
-
-  op AliceAddr : -> Address . 
+  
 endm
 
 --- fmod IODINE_NODE is
@@ -148,39 +164,30 @@ endm
 
 
 mod PACKET_FRAGMENT_TEST is
-  inc IODINE_AUX .
+  inc IODINE_NODE .
 
-  var PLEN : Nat .
-  vars TOTAL_LEN HOSTNAME_LEN FRAGMENT_NUMBER : Nat .
-  var QID : Qid .
-  var P_NUM : Nat .
-  var FRAGMENT : Fragment .
-  var N : Nat .
-  var FRAGMENT_LIST : List{Fragment} .
+  op AliceAddr : -> Address . 
 
-  op makePacket : Nat -> Packet .
-  eq makePacket(PLEN) = packet(1, PLEN) .
+  --- op makePacket : Nat -> Packet .
+  --- eq makePacket(PLEN) = packet(1, PLEN) .
 
-  op makeList : Fragment -> List{Fragment} .
-  eq makeList(FRAGMENT) = nil . FRAGMENT .
+  --- op makeList : Fragment -> List{Fragment} .
+  --- eq makeList(FRAGMENT) = nil . FRAGMENT .
 
-  op getLength : List{Fragment} -> Nat .
-  eq getLength(FRAGMENT_LIST) = length(FRAGMENT_LIST) .
+  --- op getLength : List{Fragment} -> Nat .
+  --- eq getLength(FRAGMENT_LIST) = length(FRAGMENT_LIST) .
 
 endm
 
+---set trace on .
+set print attribute on .
   
-red nm(AliceAddr, 1, 1, 100) . 'microsoft . 'com . root .
-red fragment(nm(AliceAddr, 1, 1, 100)) ==  fragment(AliceAddr, 1, 1, 100) .
+red nm(AliceAddr, 1, 1, 100, true) . 'microsoft . 'com . root .
+red fragment(nm(AliceAddr, 1, 1, 100, true)) ==  fragment(AliceAddr, 1, 1, 100, true) .
 red fragment(label(1)) == nilFragment .
 
-red makeFragment(qid("single"), 3, 200, 300, 0) .
-red makeFragment(qid("one_of_many"), 4, 300, 200, 0) .
-red makeList(fragment('Alice, 3, 200, 300, true)) .
-red makePacket(1000) .
-red getPacketLength(makePacket(1000)) .
-red fragmentPacket(makePacket(1000), 200) .
-red fragmentPacket(makePacket(100), 200) .
-red toQId(fragment('Alice, 1, 1, 100, true)) .
-red toQId(fragment('Alice, 1, 1, 100, false)) .
+red fragments(packet(AliceAddr, 1, 100), 10) ==
+  fragment(AliceAddr, 1, 1, 10, false) : fragment(AliceAddr, 1, 2, 10, false) : fragment(AliceAddr, 1, 3, 10, false) : fragment(AliceAddr, 1, 4, 10, false) : fragment(AliceAddr, 1, 5, 10, false) : fragment(AliceAddr, 1, 6, 10, false) : fragment(AliceAddr, 1, 7, 10, false)
+    : fragment(AliceAddr, 1, 8, 10, false) : fragment(AliceAddr, 1, 9, 10, false) : fragment(AliceAddr, 1, 10, 10, true)
+    .
 
