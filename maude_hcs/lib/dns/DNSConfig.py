@@ -16,22 +16,6 @@ class DNSConfig(Config):
     def set_params(self, params : dict):
         self.params = params
 
-    # Override to not exclude the monitor
-    def _to_maude_actors(self) -> str:
-        res = '  --- Clients\n'
-        for client in self.clients:
-            res += '  ' + client.to_maude() + '\n'
-
-        res += '  --- Resolvers\n'
-        for resolver in self.resolvers:
-            res += '  ' + resolver.to_maude() + '\n'
-
-        res += '  --- Nameservers\n'
-        for nameserver in self.nameservers:
-            res += '  ' + nameserver.to_maude() + '\n'
-        return res
-
-
     def to_maude(self):
         return self.to_maude_nondet(self.params, self.path)
 
