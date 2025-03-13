@@ -2,6 +2,9 @@ load ../../../deps/dns_formalization/Maude/src/nondet-model/_aux
 
 mod MYLISTS is
   pr AUX .
+
+  var FL : FragmentList .
+  var F : Fragment .
   
   ---- Alice sends "UDP packets" to the TUN IFace
   ---- Each packet has a data len (application bytes being sent), and an id for tracking
@@ -14,6 +17,11 @@ mod MYLISTS is
 
   op mtfl    : -> FragmentList [ctor] .
   op _:_    : FragmentList FragmentList -> FragmentList [ctor assoc id: mtfl] .
+
+  op length : FragmentList -> Nat .     
+  
+  eq length(mtfl) = 0 .
+  eq length(F : FL) = s length(FL) .
 
 endm
 
@@ -190,4 +198,7 @@ red fragments(packet(AliceAddr, 1, 100), 10) ==
   fragment(AliceAddr, 1, 1, 10, false) : fragment(AliceAddr, 1, 2, 10, false) : fragment(AliceAddr, 1, 3, 10, false) : fragment(AliceAddr, 1, 4, 10, false) : fragment(AliceAddr, 1, 5, 10, false) : fragment(AliceAddr, 1, 6, 10, false) : fragment(AliceAddr, 1, 7, 10, false)
     : fragment(AliceAddr, 1, 8, 10, false) : fragment(AliceAddr, 1, 9, 10, false) : fragment(AliceAddr, 1, 10, 10, true)
     .
+
+red length(mtfl) == 0 .
+red length(fragment(AliceAddr, 1, 1, 10, false) : fragment(AliceAddr, 1, 2, 10, false)) == 2 .
 
