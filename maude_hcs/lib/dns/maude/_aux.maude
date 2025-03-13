@@ -46,7 +46,7 @@ mod IODINE_SORTS is
   ----          AliceAddr  Packet# Frag# DataLenBytes lastFrag
   op fragment : Address Nat Nat Nat Bool -> Fragment .  
   --- convert a fragment into a Name to be embedded
-  op nm : Address Nat Nat Nat Bool -> Name .  
+  op nm : Fragment -> Name .  
   --- convert back to fragment
   op fragment : Name -> Fragment .    
   op nilFragment : -> Fragment .
@@ -57,7 +57,7 @@ mod IODINE_SORTS is
   --- eq toQId(fragment(QID1, N, N1, N2)) = toQId(QID1, N, N1, N2) .
   --- eq toQId(QID1, N, N1, N2) = qid(string(QID1) + "#" + string(N,10) + "#" + string(N1, 10) + "#" + string(N2, 10)) .
   
-  eq fragment(nm(ALICE, N, N1, N2, B)) = fragment(ALICE, N, N1, N2, B) .
+  eq fragment(nm(fragment(ALICE, N, N1, N2, B))) = fragment(ALICE, N, N1, N2, B) .
   eq fragment(NAME) = nilFragment [owise] .
 
   op getPacketLength : Packet -> Nat .
@@ -123,6 +123,15 @@ endm
 
 mod IODINE_NODE is
   inc IODINE_AUX .
+
+  var wattrs : AttributeSet .
+  var msg : Msg .
+  var NAME NAME1 : Name .
+  var F : Fragment .
+  var ADDR ADDR1 : Address .
+  var ID : Id .
+  var QTYPE : RType .
+
   ----------------
   --- [WCLIENT] ---  Client wrapper  -- alternate view
 **** wclient = < clId : WDNSClient | wattrs 
@@ -163,12 +172,15 @@ mod IODINE_NODE is
   op qRcd:_ : Config ->  Attribute [ctor] .  --- msgConf
        --- query msg pending response
 
-  
+
+  op isWeird : AttributeSet Msg -> Bool .
+  ceq isWeird(wattrs, msg) = true
+    if (to ADDR from  ADDR1 : query(ID, NAME, QTYPE)) := msg
+    /\ nm(F) . NAME1 := NAME
+    .
+  eq isWeird(wattrs, msg) = false [owise] .
+
 endm
-
---- fmod IODINE_NODE is
-
---- endm
 
 
 mod PACKET_FRAGMENT_TEST is
@@ -176,22 +188,13 @@ mod PACKET_FRAGMENT_TEST is
 
   op AliceAddr : -> Address . 
 
-  --- op makePacket : Nat -> Packet .
-  --- eq makePacket(PLEN) = packet(1, PLEN) .
-
-  --- op makeList : Fragment -> List{Fragment} .
-  --- eq makeList(FRAGMENT) = nil . FRAGMENT .
-
-  --- op getLength : List{Fragment} -> Nat .
-  --- eq getLength(FRAGMENT_LIST) = length(FRAGMENT_LIST) .
-
 endm
 
 ---set trace on .
 set print attribute on .
   
-red nm(AliceAddr, 1, 1, 100, true) . 'microsoft . 'com . root .
-red fragment(nm(AliceAddr, 1, 1, 100, true)) ==  fragment(AliceAddr, 1, 1, 100, true) .
+red nm(fragment(AliceAddr, 1, 1, 100, true)) . 'microsoft . 'com . root .
+red fragment(nm(fragment(AliceAddr, 1, 1, 100, true))) ==  fragment(AliceAddr, 1, 1, 100, true) .
 red fragment(label(1)) == nilFragment .
 
 red fragments(packet(AliceAddr, 1, 100), 10) ==

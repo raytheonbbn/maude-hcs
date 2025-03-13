@@ -1,0 +1,44 @@
+load _aux
+
+mod IODINE_DNS is
+  pr IODINE_NODE .
+
+
+  vars ADDR ADDR1 ADDR2 NS ALICE BOB : Address .
+  vars wattrs wattrs0 wattrs1 : AttributeSet .
+  vars conf : Config .
+  vars appBob wrappedNS : Actor .
+  vars ID ID' : Id .      ---- Nat < Id
+  vars NAME NAME' WNAME SNAME : Name .
+  vars Q1 Q : Query .
+  var QTYPE : RType .
+  var  wdb : MapIdMsg . 
+  vars msgs msgs0 : Config .   ---- MsgConfig
+  vars msg msg0 msg1 : Msg .
+  --------------------------------
+  --- [WNameserver] --- Weird/wrapped Nameserver Rules
+  --------------------------------
+
+----  receivs DNS query with weird name
+----   add fragment to fragment list 
+----   if last fragment defrag and send message to Bob
+----    respond acking the fragment
+
+crl [weird-nameserver-receive-query]:
+  < ADDR : WNameserver | wattrs,  
+          conf: (appBob wrappedNS)
+  >
+  msg
+  =>
+  < ADDR : WNameserver | wattrs0, 
+          conf: (appBob wrappedNS  msg)
+  >
+  if  isWeird(wattrs, msg)
+  --- /\ {wattrs0,msgs0} := 
+  --- /\ (to ADDR from  ADDR1 : query(ID, NAME, QTYPE)) := msg
+  ---       extractQ(wattrs, (to ADDR from ADDR' : Q))
+  .
+
+
+endm
+
