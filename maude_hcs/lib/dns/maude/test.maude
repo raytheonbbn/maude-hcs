@@ -2,14 +2,21 @@ load iodine_dns
 load ../../../deps/dns_formalization/Maude/test/nondet-model/test_helpers
 
 mod TEST_IDNS is 
-  inc DNS + TEST-HELPERS .
+  inc IODINE_DNS + TEST-HELPERS .
 
   var NAME : Name .
+  var F : Fragment .
   
-  ops addrNScorporate addrWNS addrBob mAddr cAddr addrNSexample : -> Address .
+  ops addrNScorporate addrWNS addrAlice addrBob mAddr cAddr addrNSexample addrNSpwnd2 : -> Address .
 
   op Q : Name -> Query .    
+  op wQ : Fragment Name -> Query .    
   eq Q(NAME) = query(1, NAME . root, a) .
+  eq wQ(F, NAME) = 
+    query(1, nm(F) . NAME . root, a) .
+
+  op FR : -> Fragment .
+  eq FR = fragment(addrAlice, 1, 1, 100, true) .    
 
   op zoneExampleCom : -> List{Record} .
   eq zoneExampleCom =
@@ -28,35 +35,48 @@ mod TEST_IDNS is
   < 'www . 'corporate . 'com . root, a, 3600.0, 3 . 0 . 1 . 2 >
   < wildcard . 'corporate . 'com . root, txt, 3600.0, nullAddr > .
 
+
+  op zonePwnd2Com : -> List{Record} .
+  eq zonePwnd2Com =
+  < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+  < 'ns . 'pwnd2 . 'com . root, a, 3600.0, addrNSpwnd2 >
+  < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+  < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+  < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
+
   --- Initial configuration
   op initConfig : -> Config .
   eq initConfig =
   --- Start messages
-  (to cAddr : start)
+  --- (to cAddr : start)
+  --- (to addrWNS from cAddr : Q('www . 'pwnd2 . 'com))
+  (to addrWNS from cAddr : wQ(FR, 'pwnd2 . 'com))
   --- Monitor
-  initMonitor(mAddr)
+  --- initMonitor(mAddr)
   --- Clients
-  < cAddr : Client |
-    queries: query(1, 'www . 'example . 'com . root, a),
-    resolver: addrNSexample,
-    notifyDone: nullAddr >
-  < addrNSexample : Nameserver |
-    db: (zoneExampleCom),
-    queue: nilQueue,
-    forwardonly: nullAddr,
-    queriesFwd: nilTAQL >    
+  --- < cAddr : Client |
+  ---   queries: query(1, 'www . 'example . 'com . root, a),
+  ---   resolver: addrNSexample,
+  ---   notifyDone: nullAddr >
+  --- < addrNSexample : Nameserver |
+  ---   db: (zoneExampleCom),
+  ---   queue: nilQueue,
+  ---   forwardonly: nullAddr,
+  ---   queriesFwd: nilTAQL >    
   --- < addrNScorporate : Nameserver |
   ---   db: (zoneCorporateCom),
   ---   queue: nilQueue,
   ---   forwardonly: nullAddr,
-  ---   queriesFwd: nilTAQL >
-  --- < addrWNS : WNameserver |
-  ---   appAddr: addrBob,
-  ---   conf: (mkRcvApp(addrBob))
-  ---   >
+  ---   queriesFwd: nilTAQL > 
+  < addrWNS : WNameserver |
+    appAddr: addrBob,
+    conf: (mkRcvApp(addrBob) mkNameServer(addrWNS, zonePwnd2Com))
+    >
   .
 
 
 endm
 
+set trace on .
 rew[1] initConfig .

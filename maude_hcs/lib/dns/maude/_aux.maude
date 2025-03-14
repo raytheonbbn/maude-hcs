@@ -149,6 +149,7 @@ mod IODINE_NODE is
   vars SEQ_CTR CUR_FRAG : Nat .
   vars N P_LEN HOSTNAME_LEN : Nat .
   var FRAGMENT_LIST : FragmentList .
+  var db wDb : List{Record} .
 
 
 --------  Nesting/Meta configuration  attribute
@@ -162,8 +163,7 @@ mod IODINE_NODE is
   op rcvd:_ : MsgList  -> Attribute [ctor] .
 
   **** constructor for making receiver app actor
-  op mkRcvApp : Address  -> Actor [ctor] .
-  
+  op mkRcvApp : Address  -> Actor [ctor] .  
   eq mkRcvApp(BobAddr) =
     < BobAddr : RcvApp | rcvd: nilMsgList > .  
 
@@ -234,6 +234,14 @@ mod IODINE_NODE is
   --- op qRcd:_ : Config ->  Attribute [ctor] .  --- msgConf
        --- query msg pending response
 
+  **** constructor for making a name server
+  op mkNameServer : Address List{Record}  -> Actor [ctor] .  
+  eq mkNameServer(ADDR, db) =
+    < ADDR : Nameserver |
+      db: db,
+      queue: nilQueue,
+      forwardonly: nullAddr,
+      queriesFwd: nilTAQL >  .
 
   op isWeird : AttributeSet Msg -> Bool .
   ceq isWeird(wattrs, msg) = true
