@@ -30,6 +30,8 @@ mod MYLISTS is
   var FL : FragmentList .
   var F : Fragment .
 
+  op nilFragment : -> Fragment .
+
   op mtfl    : -> FragmentList [ctor] .
   op _:_    : FragmentList FragmentList -> FragmentList [ctor assoc id: mtfl] .
 
@@ -37,6 +39,14 @@ mod MYLISTS is
   
   eq length(mtfl) = 0 .
   eq length(F : FL) = s length(FL) .
+
+  op popFront : FragmentList -> FragmentList .
+  eq popFront(F : FL) = FL .
+  eq popFront(mtfl) = mtfl .
+
+  op peekFront : FragmentList -> Fragment .
+  eq peekFront(F : FL) = F .
+  eq peekFront(mtfl) = nilFragment .
 
 endm
 
@@ -64,7 +74,6 @@ mod IODINE_SORTS is
   op nm : Fragment -> Name .  
   --- convert back to fragment
   op fragment : Name -> Fragment .    
-  op nilFragment : -> Fragment .
 
   --- convert a fragment into a Qid to be embedded
   --- op toQId : Fragment -> Qid .
@@ -138,19 +147,19 @@ endm
 mod IODINE_NODE is
   inc IODINE_AUX .
 
-  var wattrs : AttributeSet .
+  var wattrs wattrsNext wattrsTrans : AttributeSet .
   var msg : Msg .
   var NAME NAME1 : Name .
   var F : Fragment .
-  var ADDR ADDR1 AliceAddr BobAddr : Address .
+  var ADDR ADDR1 AliceAddr BobAddr RESOLVER : Address .
   var ID : Id .
   var QTYPE : RType .
-  var NUM_FRAGS : Nat .
-  vars SEQ_CTR CUR_FRAG : Nat .
+  vars NUM_ATTEMPTS NUM_FRAGS : Nat .
+  vars SEQ_CTR QUERY_CTR CUR_FRAG : Nat .
   vars N P_LEN HOSTNAME_LEN : Nat .
   var FRAGMENT_LIST : FragmentList .
   var db wDb : List{Record} .
-
+  var QUERY : Query .
 
 --------  Nesting/Meta configuration  attribute
   op conf:_ : Config -> Attribute [ctor] .
@@ -197,6 +206,9 @@ mod IODINE_NODE is
   op getResolver : AttributeSet ~> Address .
   eq getResolver(wattrs, resv: ADDR) = ADDR .
 
+  op getWDom : AttributeSet Address ~> Name .
+  eq getWDom((wattrs, wDom: NAME), ADDR) = NAME .
+
   op isSending : AttributeSet -> Bool .
   eq isSending(wattrs, fragmentsSize: NUM_FRAGS) =
     if NUM_FRAGS > 1
@@ -207,7 +219,18 @@ mod IODINE_NODE is
     .
   eq isSending(wattrs) = false [owise] .
 
-  --- Handle a new packet (from Alice)
+  --- Increment the query id.
+  --- Iodine increments queries by 7727.
+  op incrQueryCtr : AttributeSet -> AttributeSet .
+  eq incrQueryCtr(wattrs, queryCtr: QUERY_CTR) = wattrs, (queryCtr: (QUERY_CTR + 7727)) .
+  eq incrQueryCtr(wattrs) = wattrs [owise] .
+
+  --- Get the query id.
+  op getQueryCtr : AttributeSet -> Nat .
+  eq getQueryCtr(wattrs, queryCtr: QUERY_CTR) = QUERY_CTR .
+  eq getQueryCtr(wattrs) = wattrs [owise] .
+
+  --- Handle a new packet (from Alice) (and bail on an old one).
   ---                   wClient Attributes Packet Max hostname length
   op handleNewPacket : AttributeSet Packet Nat -> AttributeSet .
   ceq handleNewPacket((wattrs, seqCtr: SEQ_CTR), packet(ADDR, N, P_LEN), HOSTNAME_LEN) =
@@ -215,12 +238,33 @@ mod IODINE_NODE is
       if FRAGMENT_LIST := makeFragments(packet(ADDR, N, P_LEN), HOSTNAME_LEN) . 
   eq handleNewPacket(wattrs) = wattrs [owise] .
 
+  --- Move a fragment forward.
+  op moveFragmentUp : AttributeSet -> AttributeSet .
+  eq moveFragmentUp(wattrs, fragments: FRAGMENT_LIST, currFragment: CUR_FRAG) =
+    wattrs, numAttempts: 0, fragments: popFront(FRAGMENT_LIST), currFragment: s CUR_FRAG .
+
+  --- Grab a fragment to send.
+  op grabCurrentFragment : AttributeSet -> Fragment .
+  eq grabCurrentFragment(wattrs, fragments: FRAGMENT_LIST) = peekFront(FRAGMENT_LIST) .
+
 ---  crl [iClientEmbedding]:
 ---    < CL : WCL | wattrs, conf : (appA (to ADDR' from CL : wc(wmsg) msgs) >
 ---
 ---    => < CL : WCL | wattrs0, conf : (appA msgs) >
+---    msg
 ---    if {wattrs0, msg} := embed(CL, wattrs, (to ADDR' from CL : wc(wmsg)))
 ---    [print "iClientEmbedding msg "  msg]
+------     will require handling a new packet (via msg).
+---    .
+
+---  op handleAndSend: AttributeSet Msg -> AttributeSetAndMsgs .
+---  ceq handleAndSend((wattrs resv), (to ADDR' from AliceAddr : msg)) =
+---    {wattrsNext, (to resv from CL : QUERY)}
+---    if PACKET := getPacket()
+---      /\ wattrsTrans := handleNewPacket(wattrs, PACKET, HOSTNAME_LEN) --- Not clear how one gets HOSTNAME_LEN
+---      /\ wattrsTrans := incrQueryCtr(wattrsTrans)  --- I doubt we can keep the same name
+---      /\ DOMAIN_NAME := getWDom(wattrsTrans, ADDR')
+---      /\ QUERY := makeQuery(DOMAIN_NAME, getQueryCtr(wattrsTrans)))
 ---    .
 
   --------------------------------
@@ -273,7 +317,17 @@ red makeFragments(packet(AliceAddr, 1, 100), 10) ==
     : fragment(AliceAddr, 1, 8, 10, false) : fragment(AliceAddr, 1, 9, 10, false) : fragment(AliceAddr, 1, 10, 10, true)
     .
 
+red getQueryCtr(incrQueryCtr(wClientAttrs, queryCtr: 10)) == 7737 .
+
 red length(mtfl) == 0 .
 red length(fragment(AliceAddr, 1, 1, 10, false) : fragment(AliceAddr, 1, 2, 10, false)) == 2 .
 
+red length(popFront(makeFragments(packet(AliceAddr, 1, 100), 20))) == 4 .
+red length(popFront(mtfl)) == 0 .
+
+red peekFront(makeFragments(packet(AliceAddr, 1, 100), 20)) == fragment(AliceAddr, 1, 1, 20, false) .
+red peekFront(mtfl) == nilFragment .
+
 red handleNewPacket((wClientAttrs, seqCtr: 2), packet(AliceAddr, 1, 1000), 200) .
+red moveFragmentUp(wClientAttrs, fragments: makeFragments(packet(AliceAddr, 1, 100), 20), currFragment: 0) .
+
