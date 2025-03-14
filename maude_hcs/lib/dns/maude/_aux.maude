@@ -3,8 +3,19 @@ load ../../../deps/dns_formalization/Maude/src/nondet-model/_aux
 mod MYLISTS is
   pr AUX .
 
-  var FL : FragmentList .
-  var F : Fragment .
+  ---- Lists of messages (sent or received by apps)
+  sort MsgList .  
+  subsort Msg < MsgList .
+
+  var msg : Msg .
+  var msgL : MsgList .
+  
+  op nilMsgList : -> MsgList [ctor] .
+  op _;_ : MsgList MsgList -> MsgList [ctor assoc id: nilMsgList] .
+
+  op length : MsgList -> Nat .
+  eq length(nilMsgList) = 0 .
+  eq length(msg ; msgL) = s length(msgL) .
   
   ---- Alice sends "UDP packets" to the TUN IFace
   ---- Each packet has a data len (application bytes being sent), and an id for tracking
@@ -12,8 +23,12 @@ mod MYLISTS is
   ---- A packet gets fragmented into 1 or more fragments
   ---- A fragment is what gets embedded into a DNS query
   ----   recall subsort Nat < Id 
+  
   sorts Packet Fragment FragmentList .
   subsort Fragment < FragmentList .
+
+  var FL : FragmentList .
+  var F : Fragment .
 
   op mtfl    : -> FragmentList [ctor] .
   op _:_    : FragmentList FragmentList -> FragmentList [ctor assoc id: mtfl] .
@@ -128,9 +143,26 @@ mod IODINE_NODE is
   var msg : Msg .
   var NAME NAME1 : Name .
   var F : Fragment .
-  var ADDR ADDR1 : Address .
+  var ADDR ADDR1 AliceAddr BobAddr : Address .
   var ID : Id .
   var QTYPE : RType .
+
+
+--------  Nesting/Meta configuration  attribute
+  op conf:_ : Config -> Attribute [ctor] .
+  
+  --------------------------------
+  --- [App Bob] --- 
+  ---   Bob receives weird messages from WNameserver
+  --------------------------------
+  op RcvApp : -> ActorType [ctor] .
+  op rcvd:_ : MsgList  -> Attribute [ctor] .
+
+  **** constructor for making receiver app actor
+  op mkRcvApp : Address  -> Actor [ctor] .
+  
+  eq mkRcvApp(BobAddr) =
+    < BobAddr : RcvApp | rcvd: nilMsgList > .  
 
   ----------------
   --- [WCLIENT] ---  Client wrapper  -- alternate view
@@ -169,7 +201,7 @@ mod IODINE_NODE is
   --- Bob listens on a UDP socket that the server sends to
   op appAddr:_ : Address -> Attribute  [ctor] .
   --- Alice's address will be in the query name
-  op qRcd:_ : Config ->  Attribute [ctor] .  --- msgConf
+  --- op qRcd:_ : Config ->  Attribute [ctor] .  --- msgConf
        --- query msg pending response
 
 

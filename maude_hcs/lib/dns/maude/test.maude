@@ -1,0 +1,62 @@
+load iodine_dns
+load ../../../deps/dns_formalization/Maude/test/nondet-model/test_helpers
+
+mod TEST_IDNS is 
+  inc DNS + TEST-HELPERS .
+
+  var NAME : Name .
+  
+  ops addrNScorporate addrWNS addrBob mAddr cAddr addrNSexample : -> Address .
+
+  op Q : Name -> Query .    
+  eq Q(NAME) = query(1, NAME . root, a) .
+
+  op zoneExampleCom : -> List{Record} .
+  eq zoneExampleCom =
+  < 'example . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'example . 'com . root, ns, 3600.0, 'ns . 'example . 'com . root >
+  < 'ns . 'example . 'com . root, a, 3600.0, addrNSexample >
+  < 'www0 . 'example . 'com . root, a, 3600.0, 1 . 0 . 1 . 2 >
+  < 'www1 . 'example . 'com . root, a, 3600.0, 1 . 1 . 1 . 2 >
+  < wildcard . 'example . 'com . root, txt, 3600.0, nullAddr > .
+
+  op zoneCorporateCom : -> List{Record} .
+  eq zoneCorporateCom =
+  < 'corporate . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
+  < 'ns . 'corporate . 'com . root, a, 3600.0, addrNScorporate >
+  < 'www . 'corporate . 'com . root, a, 3600.0, 3 . 0 . 1 . 2 >
+  < wildcard . 'corporate . 'com . root, txt, 3600.0, nullAddr > .
+
+  --- Initial configuration
+  op initConfig : -> Config .
+  eq initConfig =
+  --- Start messages
+  (to cAddr : start)
+  --- Monitor
+  initMonitor(mAddr)
+  --- Clients
+  < cAddr : Client |
+    queries: query(1, 'www . 'example . 'com . root, a),
+    resolver: addrNSexample,
+    notifyDone: nullAddr >
+  < addrNSexample : Nameserver |
+    db: (zoneExampleCom),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >    
+  --- < addrNScorporate : Nameserver |
+  ---   db: (zoneCorporateCom),
+  ---   queue: nilQueue,
+  ---   forwardonly: nullAddr,
+  ---   queriesFwd: nilTAQL >
+  --- < addrWNS : WNameserver |
+  ---   appAddr: addrBob,
+  ---   conf: (mkRcvApp(addrBob))
+  ---   >
+  .
+
+
+endm
+
+rew[1] initConfig .
