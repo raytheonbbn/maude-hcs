@@ -13,6 +13,21 @@ class DNSConfig(Config):
         self.path = str(TOPLEVELDIR.joinpath(DNS_MAUDE_ROOT)) + os.path.sep
         super().__init__(clients, resolvers, nameservers, root_nameservers)
 
+    # Override to not exclude the monitor
+    def _to_maude_actors(self) -> str:
+        res = '  --- Clients\n'
+        for client in self.clients:
+            res += '  ' + client.to_maude() + '\n'
+
+        res += '  --- Resolvers\n'
+        for resolver in self.resolvers:
+            res += '  ' + resolver.to_maude() + '\n'
+
+        res += '  --- Nameservers\n'
+        for nameserver in self.nameservers:
+            res += '  ' + nameserver.to_maude() + '\n'
+        return res
+ 
     def set_params(self, params : dict):
         self.params = params
 
