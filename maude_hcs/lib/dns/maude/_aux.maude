@@ -115,24 +115,23 @@ mod IODINE_AUX is
           = wdb !! (ID <~ msg) .
   eq updateMap(wdb,ID,msg) = wdb !! (ID <~ msg) [owise] .
 
-  ----        return list of fragments that from a packet
-  ----          Pakcet HOSTNAME_LEN
-  op fragments : Packet Nat -> FragmentList .
-  ----          Pakcet HOSTNAME_LEN cur_frag_num cur_fragments
-  op $fragments : Packet Nat Nat FragmentList -> FragmentList .
+  ----        return list of fragments that form a packet
+  ----          Packet HOSTNAME_LEN
+  op makeFragments : Packet Nat -> FragmentList .
+  ----          Packet HOSTNAME_LEN cur_frag_num cur_fragments
+  op $makeFragments : Packet Nat Nat FragmentList -> FragmentList .
   
-  eq fragments(packet(ALICE, N, N1), N2) = 
-    $fragments(packet(ALICE, N, N1), N2, 0, mtfl) .
+  eq makeFragments(packet(ALICE, N, N1), N2) = 
+    $makeFragments(packet(ALICE, N, N1), N2, 0, mtfl) .
   
-  eq $fragments(packet(ALICE, N, N1), N2,  N3, curFragments) =
+  eq $makeFragments(packet(ALICE, N, N1), N2,  N3, curFragments) =
     if N1 > N2 
     then
-      $fragments(packet(ALICE, N, (N1 - N2)), N2, s N3, curFragments : fragment(ALICE, N, s N3, N2, false)) 
+      $makeFragments(packet(ALICE, N, (N1 - N2)), N2, s N3, curFragments : fragment(ALICE, N, s N3, N2, false)) 
     else 
       curFragments : fragment(ALICE, N, s N3, N2, true)
     fi  
     .
-
 
 endm
 
@@ -146,6 +145,10 @@ mod IODINE_NODE is
   var ADDR ADDR1 AliceAddr BobAddr : Address .
   var ID : Id .
   var QTYPE : RType .
+  var NUM_FRAGS : Nat .
+  vars SEQ_CTR CUR_FRAG : Nat .
+  vars N P_LEN HOSTNAME_LEN : Nat .
+  var FRAGMENT_LIST : FragmentList .
 
 
 --------  Nesting/Meta configuration  attribute
@@ -191,7 +194,34 @@ mod IODINE_NODE is
   --- number of retransmissions of current fragment
   op numAttempts:_ : Nat -> Attribute [ctor] . 
 
+  op getResolver : AttributeSet ~> Address .
+  eq getResolver(wattrs, resv: ADDR) = ADDR .
 
+  op isSending : AttributeSet -> Bool .
+  eq isSending(wattrs, fragmentsSize: NUM_FRAGS) =
+    if NUM_FRAGS > 1
+      then true 
+    else
+      false
+    fi
+    .
+  eq isSending(wattrs) = false [owise] .
+
+  --- Handle a new packet (from Alice)
+  ---                   wClient Attributes Packet Max hostname length
+  op handleNewPacket : AttributeSet Packet Nat -> AttributeSet .
+  ceq handleNewPacket((wattrs, seqCtr: SEQ_CTR), packet(ADDR, N, P_LEN), HOSTNAME_LEN) =
+    wattrs, (seqCtr: s SEQ_CTR), (currFragment: 0), (numAttempts: 0), (fragments: FRAGMENT_LIST), (fragmentsSize: length(FRAGMENT_LIST)), (fragmentCtr: 0)
+      if FRAGMENT_LIST := makeFragments(packet(ADDR, N, P_LEN), HOSTNAME_LEN) . 
+  eq handleNewPacket(wattrs) = wattrs [owise] .
+
+---  crl [iClientEmbedding]:
+---    < CL : WCL | wattrs, conf : (appA (to ADDR' from CL : wc(wmsg) msgs) >
+---
+---    => < CL : WCL | wattrs0, conf : (appA msgs) >
+---    if {wattrs0, msg} := embed(CL, wattrs, (to ADDR' from CL : wc(wmsg)))
+---    [print "iClientEmbedding msg "  msg]
+---    .
 
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver
@@ -220,6 +250,7 @@ mod PACKET_FRAGMENT_TEST is
 
   op AliceAddr : -> Address . 
 
+  op wClientAttrs : -> AttributeSet .
 endm
 
 ---set trace on .
@@ -229,7 +260,7 @@ red nm(fragment(AliceAddr, 1, 1, 100, true)) . 'microsoft . 'com . root .
 red fragment(nm(fragment(AliceAddr, 1, 1, 100, true))) ==  fragment(AliceAddr, 1, 1, 100, true) .
 red fragment(label(1)) == nilFragment .
 
-red fragments(packet(AliceAddr, 1, 100), 10) ==
+red makeFragments(packet(AliceAddr, 1, 100), 10) ==
   fragment(AliceAddr, 1, 1, 10, false) : fragment(AliceAddr, 1, 2, 10, false) : fragment(AliceAddr, 1, 3, 10, false) : fragment(AliceAddr, 1, 4, 10, false) : fragment(AliceAddr, 1, 5, 10, false) : fragment(AliceAddr, 1, 6, 10, false) : fragment(AliceAddr, 1, 7, 10, false)
     : fragment(AliceAddr, 1, 8, 10, false) : fragment(AliceAddr, 1, 9, 10, false) : fragment(AliceAddr, 1, 10, 10, true)
     .
@@ -237,3 +268,4 @@ red fragments(packet(AliceAddr, 1, 100), 10) ==
 red length(mtfl) == 0 .
 red length(fragment(AliceAddr, 1, 1, 10, false) : fragment(AliceAddr, 1, 2, 10, false)) == 2 .
 
+red handleNewPacket((wClientAttrs, seqCtr: 2), packet(AliceAddr, 1, 1000), 200) .
