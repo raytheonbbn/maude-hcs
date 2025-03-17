@@ -24,16 +24,23 @@ mod MYLISTS is
   ---- A fragment is what gets embedded into a DNS query
   ----   recall subsort Nat < Id 
   
-  sorts Packet Fragment FragmentList .
+  sorts Packet Fragment .
+  sorts PacketList FragmentList .
   subsort Fragment < FragmentList .
+  subsort Packet < PacketList .
 
   var FL : FragmentList .
   var F : Fragment .
+  var PL : PacketList .
+  var P : Packet .
 
   op nilFragment : -> Fragment .
+  op nilPacket : -> Packet .
 
   op mtfl    : -> FragmentList [ctor] .
+  op mtpl    : -> PacketList [ctor] .
   op _:_    : FragmentList FragmentList -> FragmentList [ctor assoc id: mtfl] .
+  op _;_    : PacketList PacketList -> PacketList [ctor assoc id: mtpl] .
 
   op length : FragmentList -> Nat .     
   
@@ -50,9 +57,13 @@ mod MYLISTS is
 
 endm
 
-view FragmentList from TRIV to MYLISTS is
-  sort Elt to FragmentList .
-endv
+--- view FragmentList from TRIV to MYLISTS is
+---   sort Elt to FragmentList .
+--- endv
+
+--- view PacketList from TRIV to MYLISTS is
+---   sort Elt to PacketList .
+--- endv
 
 mod IODINE_SORTS is   
   pr MYLISTS .
@@ -83,6 +94,9 @@ mod IODINE_SORTS is
   
   eq fragment(nm(fragment(ALICE, N, N1, N2, B))) = fragment(ALICE, N, N1, N2, B) .
   eq fragment(NAME) = nilFragment [owise] .
+
+  op isLastFragment : Fragment -> Bool .
+  eq isLastFragment(fragment(ALICE, N, N1, N2, B)) = B .
 
   op getPacketLength : Packet -> Nat .
   eq getPacketLength(packet(ALICE, N, P_LEN)) = P_LEN .
@@ -115,6 +129,14 @@ mod IODINE_AUX is
   var ID : Id .
   var msg msg0 : Msg .
 
+  ---- Used by iodine server when extracting information from Query
+  sort AttributeSetMsgs .
+  sort AttributeSetPair .
+  ----              serverAttrs Msgs
+  op `{_`,_`} : AttributeSet Config -> AttributeSetMsgs [ctor] .  
+  ----              serverAttrs appAttrs
+  op `{_`,_`} : AttributeSet AttributeSet -> AttributeSetPair [ctor] .
+
   op _<~_ : Id Msg -> IdMsg [ctor] .
   op mtIdMsg : -> MapIdMsg .
   op  _!!_ : MapIdMsg MapIdMsg -> MapIdMsg 
@@ -129,6 +151,11 @@ mod IODINE_AUX is
   op makeFragments : Packet Nat -> FragmentList .
   ----          Packet HOSTNAME_LEN cur_frag_num cur_fragments
   op $makeFragments : Packet Nat Nat FragmentList -> FragmentList .
+
+  ----        return packet from list of fragments 
+  op makePacket : FragmentList ->  Packet .
+  op $makePacket : FragmentList Packet ->  Packet .
+
   
   eq makeFragments(packet(ALICE, N, N1), N2) = 
     $makeFragments(packet(ALICE, N, N1), N2, 0, mtfl) .
@@ -142,22 +169,31 @@ mod IODINE_AUX is
     fi  
     .
 
+  eq makePacket(fragment(ALICE, N, N1, N2, B) : curFragments) = 
+    $makePacket(curFragments, packet(ALICE, N, N2))  .
+  eq $makePacket((fragment(ALICE, N, N1, N2, B) : curFragments), packet(ALICE, N, N3)) =
+    $makePacket(curFragments, packet(ALICE, N, (N3 + N2))) .
+  eq $makePacket(mtfl, Pkt) = Pkt .
+
 endm
 
 mod IODINE_NODE is
   inc IODINE_AUX .
 
-  var wattrs wattrsNext wattrsTrans : AttributeSet .
-  var msg : Msg .
+  var wattrs wattrsNext wattrsTrans Attrs AttrsTrans Attrs1 Attrs2 Attrs3 : AttributeSet .
+  vars CONF CONF1 : Config .
+  var msg msgIn msgOut : Msg .
   var NAME NAME1 : Name .
   var F : Fragment .
   var ADDR ADDR1 AliceAddr BobAddr RESOLVER : Address .
   var ID : Id .
   var QTYPE : RType .
   vars NUM_ATTEMPTS NUM_FRAGS : Nat .
+  var B LAST : Bool .
   vars SEQ_CTR QUERY_CTR CUR_FRAG : Nat .
   vars N P_LEN HOSTNAME_LEN : Nat .
   var FRAGMENT_LIST : FragmentList .
+  var PACKET_LIST : PacketList .
   var db wDb : List{Record} .
   var QUERY : Query .
 
@@ -169,12 +205,12 @@ mod IODINE_NODE is
   ---   Bob receives weird messages from WNameserver
   --------------------------------
   op RcvApp : -> ActorType [ctor] .
-  op rcvd:_ : MsgList  -> Attribute [ctor] .
+  op rcvd:_ : PacketList  -> Attribute [ctor] .
 
   **** constructor for making receiver app actor
   op mkRcvApp : Address  -> Actor [ctor] .  
   eq mkRcvApp(BobAddr) =
-    < BobAddr : RcvApp | rcvd: nilMsgList > .  
+    < BobAddr : RcvApp | rcvd: mtpl > .  
 
   ----------------
   --- [WCLIENT] ---  Client wrapper  -- alternate view
@@ -273,8 +309,13 @@ mod IODINE_NODE is
   op WNameserver : -> ActorType [ctor] .  
   --- This is Bob's address; weird msgs will be forwarded to bob
   --- Bob listens on a UDP socket that the server sends to
-  op appAddr:_ : Address -> Attribute  [ctor] .
   --- Alice's address will be in the query name
+  op appAddr:_ : Address -> Attribute  [ctor] .
+  --- List of fragments currently being processed
+  op pendingFragments:_ : FragmentList -> Attribute [ctor] .
+  op lastFragment:_ : Bool -> Attribute [ctor] .
+
+
   --- op qRcd:_ : Config ->  Attribute [ctor] .  --- msgConf
        --- query msg pending response
 
@@ -294,13 +335,43 @@ mod IODINE_NODE is
     .
   eq isWeird(wattrs, msg) = false [owise] .
 
+  ---- Server extract fragment
+  op extractS : AttributeSet Msg -> AttributeSetMsgs .
+  ceq extractS(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans, msgOut}
+    if  nm(F) . NAME1 := NAME
+    /\ (appAddr: BobAddr, pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs) := wattrs
+    /\ wattrsTrans := (appAddr: BobAddr, pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), Attrs)
+    ---- simply ACK fragment (NAME contains fragment; RCODE 0 is success)
+    /\ msgOut := (to ADDR1 from ADDR : response(ID, NAME, nil, nil, nil, 0)) 
+    .
+
+  op updateRcvApp : AttributeSet AttributeSet -> AttributeSetPair .
+  ceq updateRcvApp(wattrs, Attrs) = {wattrsTrans, AttrsTrans}
+    ---- server attrs
+    if (appAddr: BobAddr, pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs1) := wattrs
+    ---- app attrs
+    /\ (rcvd: PACKET_LIST, Attrs2) := Attrs
+    ---- if ready to defragment clean up state else no change
+    /\ wattrsTrans := 
+      (if B 
+      then (appAddr: BobAddr, pendingFragments: mtfl, lastFragment: false, Attrs1)
+      else wattrs 
+      fi)
+    ---- defragment and update Bob's received packets?
+    /\ AttrsTrans := 
+      (if B
+      then (rcvd: (PACKET_LIST ; makePacket(FRAGMENT_LIST)), Attrs2)
+      else (rcvd: PACKET_LIST, Attrs2)
+      fi)
+      .
+
 endm
 
 
 mod PACKET_FRAGMENT_TEST is
   inc IODINE_NODE .
 
-  op AliceAddr : -> Address . 
+  ops AliceAddr BobAddr addrWNS cAddr : -> Address . 
 
   op wClientAttrs : -> AttributeSet .
 endm
@@ -316,6 +387,9 @@ red makeFragments(packet(AliceAddr, 1, 100), 10) ==
   fragment(AliceAddr, 1, 1, 10, false) : fragment(AliceAddr, 1, 2, 10, false) : fragment(AliceAddr, 1, 3, 10, false) : fragment(AliceAddr, 1, 4, 10, false) : fragment(AliceAddr, 1, 5, 10, false) : fragment(AliceAddr, 1, 6, 10, false) : fragment(AliceAddr, 1, 7, 10, false)
     : fragment(AliceAddr, 1, 8, 10, false) : fragment(AliceAddr, 1, 9, 10, false) : fragment(AliceAddr, 1, 10, 10, true)
     .
+red makePacket(fragment(AliceAddr, 1, 1, 10, false) : fragment(AliceAddr, 1, 2, 10, false) : fragment(AliceAddr, 1, 3, 10, false) : fragment(AliceAddr, 1, 4, 10, false) : fragment(AliceAddr, 1, 5, 10, false) : fragment(AliceAddr, 1, 6, 10, false) : fragment(AliceAddr, 1, 7, 10, false)
+    : fragment(AliceAddr, 1, 8, 10, false) : fragment(AliceAddr, 1, 9, 10, false) : fragment(AliceAddr, 1, 10, 10, true)) 
+    == packet(AliceAddr, 1, 100)  .
 
 red getQueryCtr(incrQueryCtr(wClientAttrs, queryCtr: 10)) == 7737 .
 
@@ -331,3 +405,5 @@ red peekFront(mtfl) == nilFragment .
 red handleNewPacket((wClientAttrs, seqCtr: 2), packet(AliceAddr, 1, 1000), 200) .
 red moveFragmentUp(wClientAttrs, fragments: makeFragments(packet(AliceAddr, 1, 100), 20), currFragment: 0) .
 
+red isWeird((appAddr: BobAddr), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) == true .
+red extractS((appAddr: BobAddr, pendingFragments: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) .

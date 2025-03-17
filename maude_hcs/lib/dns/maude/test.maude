@@ -6,6 +6,7 @@ mod TEST_IDNS is
 
   var NAME : Name .
   var F : Fragment .
+  var B : Bool .
   
   ops addrNScorporate addrWNS addrAlice addrBob mAddr cAddr addrNSexample addrNSpwnd2 : -> Address .
 
@@ -15,8 +16,8 @@ mod TEST_IDNS is
   eq wQ(F, NAME) = 
     query(1, nm(F) . NAME . root, a) .
 
-  op FR : -> Fragment .
-  eq FR = fragment(addrAlice, 1, 1, 100, true) .    
+  op FR : Bool -> Fragment .
+  eq FR(B) = fragment(addrAlice, 1, 1, 100, B) .    
 
   --- op zoneExampleCom : -> List{Record} .
   --- eq zoneExampleCom =
@@ -50,8 +51,8 @@ mod TEST_IDNS is
   eq initConfig =
   --- Start messages
   --- (to cAddr : start)
-  (to addrWNS from cAddr : Q('www . 'pwnd2 . 'com))
-  --- (to addrWNS from cAddr : wQ(FR, 'pwnd2 . 'com))
+  --- (to addrWNS from cAddr : Q('www1 . 'pwnd2 . 'com))
+  (to addrWNS from cAddr : wQ(FR(false), 'pwnd2 . 'com))
   --- Monitor
   --- initMonitor(mAddr)
   --- Clients
@@ -71,6 +72,8 @@ mod TEST_IDNS is
   ---   queriesFwd: nilTAQL > 
   < addrWNS : WNameserver |
     appAddr: addrBob,
+    pendingFragments: mtfl,
+    lastFragment: false,
     conf: (mkRcvApp(addrBob) mkNameServer(addrWNS, zonePwnd2Com))
     >
   .

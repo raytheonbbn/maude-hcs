@@ -8,7 +8,7 @@ mod IODINE_DNS is
   vars ADDR ADDR1 ADDR2 NS ALICE BOB : Address .
   var RCODE : Nat .
   vars ANS AUTH ADD : List{Record} .
-  vars wattrs wattrs0 wattrs1 : AttributeSet .
+  vars wattrs wattrs1 wattrs2 appAttrs appAttrs1 : AttributeSet .
   vars conf : Config .
   vars appBob wrappedNS : Actor .
   vars ID ID' : Id .      ---- Nat < Id
@@ -17,13 +17,14 @@ mod IODINE_DNS is
   var QTYPE : RType .
   var  wdb : MapIdMsg . 
   vars msgs msgs0 : Config .   ---- MsgConfig
-  vars msg msg0 msg1 : Msg .
+  vars msg msg0 msg1 msgIn msgOut : Msg .
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
   --------------------------------
 
 ----  receivs DNS query with standard name
 ----  passthrough
+----  TODO: merge into single rule below 
 crl [wnameserver-receive-query-passthru]:
   < ADDR : WNameserver | wattrs,  
           conf: (appBob wrappedNS)
@@ -33,9 +34,7 @@ crl [wnameserver-receive-query-passthru]:
   < ADDR : WNameserver | wattrs, 
           conf: (appBob wrappedNS msg) 
   >
-  if (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)) := msg
-  /\ not isWeird(wattrs, msg)
-  .
+  if not isWeird(wattrs, msg) .
 
 ----  receivs DNS query response from my nameserver
 ----  passthrough
@@ -50,5 +49,30 @@ rl [weird-nameserver-response-passthru]:
   (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE))  
   .
 
+----  receivs DNS query with weird name
+----  the WNS implements its own DNS logic and responds directly
+----    without relying on the wrapped NS; this may challenge
+----    our modularity assumptions and modeling
+----  Steps are as follows:
+----  1.  add fragment to fragment list 
+----  2.  respond acking the fragment
+----  3.  if last fragment also defrag and send message to Bob
+----  TODO: add support for NULL QTYPE which is what will be used in tests
+crl [wnameserver-receive-query-weird]:
+  < ADDR : WNameserver | wattrs,  
+          conf: (< BOB : RcvApp | appAttrs > wrappedNS)
+  >
+  msg
+  =>
+  < ADDR : WNameserver | wattrs2,
+          conf: (< BOB : RcvApp | appAttrs1 > wrappedNS) 
+  >
+  msgOut
+  if isWeird(wattrs, msg)
+  --- step 1 and step 2
+  /\ {wattrs1, msgOut} := extractS(wattrs, msg)
+  --- step 3
+  /\ {wattrs2, appAttrs1} := updateRcvApp(wattrs1, appAttrs)
+  .
 
 endm
