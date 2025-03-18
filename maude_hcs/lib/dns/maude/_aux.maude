@@ -180,7 +180,7 @@ endm
 mod IODINE_NODE is
   inc IODINE_AUX .
 
-  var wattrs wattrsNext wattrsTrans Attrs AttrsTrans Attrs1 Attrs2 Attrs3 : AttributeSet .
+  var wattrs wattrsNext wattrsTrans wattrsTrans' Attrs AttrsTrans Attrs1 Attrs2 Attrs3 : AttributeSet .
   vars CONF CONF1 : Config .
   var msg msgIn msgOut : Msg .
   var NAME NAME1 : Name .
@@ -196,10 +196,22 @@ mod IODINE_NODE is
   var PACKET_LIST : PacketList .
   var db wDb : List{Record} .
   var QUERY : Query .
+  var RESPONSE : Response .
 
 --------  Nesting/Meta configuration  attribute
   op conf:_ : Config -> Attribute [ctor] .
   
+  ------------------------------------------------------
+  --- [App Alice] --- 
+  ---  Alice sends weird messages to Bob via WNameserver
+  ------------------------------------------------------
+  op SendApp : -> ActorType [ctor] .
+  op sent:_ : MsgList -> Attribute [ctor] .
+
+  op makeSendApp : Address -> Actor [ctor] .
+  eq makeSendApp(AliceAddr) =
+    < AliceAddr : SendApp | sent: nilMsgList > .
+
   --------------------------------
   --- [App Bob] --- 
   ---   Bob receives weird messages from WNameserver
@@ -264,7 +276,10 @@ mod IODINE_NODE is
   --- Get the query id.
   op getQueryCtr : AttributeSet -> Nat .
   eq getQueryCtr(wattrs, queryCtr: QUERY_CTR) = QUERY_CTR .
-  eq getQueryCtr(wattrs) = wattrs [owise] .
+
+  --- Get the number of attempts for the current fragment.
+  op getNumAttempts : AttributeSet -> Nat .
+  eq getNumAttempts(wattrs, numAttempts: NUM_ATTEMPTS) = NUM_ATTEMPTS .
 
   --- Handle a new packet (from Alice) (and bail on an old one).
   ---                   wClient Attributes Packet Max hostname length
@@ -276,31 +291,83 @@ mod IODINE_NODE is
 
   --- Move a fragment forward.
   op moveFragmentUp : AttributeSet -> AttributeSet .
-  eq moveFragmentUp(wattrs, fragments: FRAGMENT_LIST, currFragment: CUR_FRAG) =
+  eq moveFragmentUp(wattrs, fragments: FRAGMENT_LIST, currFragment: CUR_FRAG, numAttempts: NUM_ATTEMPTS) =
     wattrs, numAttempts: 0, fragments: popFront(FRAGMENT_LIST), currFragment: s CUR_FRAG .
+
+  --- Check if transmission is complete.
+  op isTxComplete : AttributeSet -> Bool .
+  eq isTxComplete(wattrs, fragments: FRAGMENT_LIST) = (length(FRAGMENT_LIST) == 0) .
 
   --- Grab a fragment to send.
   op grabCurrentFragment : AttributeSet -> Fragment .
   eq grabCurrentFragment(wattrs, fragments: FRAGMENT_LIST) = peekFront(FRAGMENT_LIST) .
 
----  crl [iClientEmbedding]:
----    < CL : WCL | wattrs, conf : (appA (to ADDR' from CL : wc(wmsg) msgs) >
+
+  ---------------------------------------
+  --- [WClient] --- Weird (Iodine) client
+  ---------------------------------------
+  --- Start Weird client.
+---  rl [startWClient]:
+---    < AliceAddr : WCL | wattrs, conf: SendApp > (to AliceAddr : start)
+---    =>
+---    < AliceAddr : WCL | wattrs, conf: (SendApp (to AliceAddr : start) ) >
+---    [print "startWClient" ]
+---    .
 ---
----    => < CL : WCL | wattrs0, conf : (appA msgs) >
+---  crl [iClientEmbedding]:
+---    < AliceAddr : WCL | wattrs, conf : (SendApp (to ADDR' from AliceAddr : PACKET) msgs) >
+---
+---    => < AliceAddr : WCL | wattrs0, conf : (SendApp msgs) >
 ---    msg
----    if {wattrs0, msg} := embed(CL, wattrs, (to ADDR' from CL : wc(wmsg)))
+---    if (not isSending(wattrs)
+---       \/ getNumAttempts(wattrs) < 2)
+---       /\ {wattrs0, msg} := handleAndSend(AliceAddr, wattrs, (to ADDR' from AliceAddr : PACKET))
 ---    [print "iClientEmbedding msg "  msg]
-------     will require handling a new packet (via msg).
 ---    .
 
----  op handleAndSend: AttributeSet Msg -> AttributeSetAndMsgs .
----  ceq handleAndSend((wattrs resv), (to ADDR' from AliceAddr : msg)) =
----    {wattrsNext, (to resv from CL : QUERY)}
----    if PACKET := getPacket()
+---  op handleAndSend : AttributeSet Msg -> AttributeSetMsgs .
+---  ceq handleAndSend(wattrs, (to ADDR' from AliceAddr : msg)) =
+---    {wattrsNext, (to RESOLVER from AliceAddr : QUERY)}
+---    if RESOLVER := getResolver(wattrs)
+---      /\ PACKET := getPacket(msg)
 ---      /\ wattrsTrans := handleNewPacket(wattrs, PACKET, HOSTNAME_LEN) --- Not clear how one gets HOSTNAME_LEN
----      /\ wattrsTrans := incrQueryCtr(wattrsTrans)  --- I doubt we can keep the same name
----      /\ DOMAIN_NAME := getWDom(wattrsTrans, ADDR')
----      /\ QUERY := makeQuery(DOMAIN_NAME, getQueryCtr(wattrsTrans)))
+---      /\ {wattrsNext, QUERY} := sendFragment(wattrsTrans, ADDR')
+---    .
+---
+---  op sendFragment : AttributeSet Address -> AttributeSetMsgs .
+---  ceq sendFragment(wattrs, ADDR) =
+---    {wattrsNext, (to RESOLVER from AliceAddr : QUERY)}
+---    if RESOLVER := getResolver(wattrs)
+---      /\ wattrsTrans := incrQueryCtr(wattrs)
+---      /\ ID := getQueryCtr(wattrsTrans)
+---      /\ NAME := getWDom(wattrsTrans, ADDR) --- This probably needs nm()
+---      /\ QUERY := query(ID, NAME, QTYPE)
+---    .
+---
+---  crl [iClientExtractLast]:
+---    < AliceAddr : WCL | (wattrs, resv: RESOLVER), conf : (SendApp msgs) >
+---      (to AliceAddr from RESOLVER : RESPONSE)
+---    =>
+---    < AliceAddr : WCL | wattrsNext, conf : (SendApp msg) >
+---      --- msgs  --- Can we send no message here?
+---    if wattrsTrans := extract(wattrs, RESPONSE)
+---      /\ wattrsTrans' := isTxComplete(wattrTrans)
+---    .
+
+---  crl [iClientExtract]:
+---    < AliceAddr : WCL | (wattrs, resv: RESOLVER), conf : (SendApp msgs) >
+---      (to AliceAddr from RESOLVER : RESPONSE)
+---    =>
+---    < AliceAddr : WCL | wattrsNext, conf : (SendApp msg) >
+---      msg
+---    if wattrsTrans := extract(wattrs, RESPONSE)
+---      /\ wattrsTrans' := not isTxComplete(wattrTrans)
+---      /\ {wattrsNext, msg} := SendFragment(wattrsTrans', ADDR')    --- ADDR' is supposed to be coming from somewhere.  Where?
+---    .
+---
+---  op extract : AttributeSet Response -> AttributeSet .
+---  ceq extract(wattrs, RESPONSE) = wattrsNext
+---    if wattrsNext := moveFragmentUp(wattrs)
 ---    .
 
   --------------------------------
@@ -403,7 +470,12 @@ red peekFront(makeFragments(packet(AliceAddr, 1, 100), 20)) == fragment(AliceAdd
 red peekFront(mtfl) == nilFragment .
 
 red handleNewPacket((wClientAttrs, seqCtr: 2), packet(AliceAddr, 1, 1000), 200) .
-red moveFragmentUp(wClientAttrs, fragments: makeFragments(packet(AliceAddr, 1, 100), 20), currFragment: 0) .
+red moveFragmentUp(wClientAttrs, fragments: makeFragments(packet(AliceAddr, 1, 100), 20), currFragment: 0, numAttempts: 2) .
+
+red grabCurrentFragment(wClientAttrs, fragments: makeFragments(packet(AliceAddr, 1, 100), 20)) == fragment(AliceAddr, 1, 1, 20, false) .
 
 red isWeird((appAddr: BobAddr), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) == true .
 red extractS((appAddr: BobAddr, pendingFragments: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) .
+
+red isTxComplete(wClientAttrs, fragments: mtfl) == true .
+red isTxComplete(wClientAttrs, fragments: fragment(AliceAddr, 1, 1, 20, true)) == false .
