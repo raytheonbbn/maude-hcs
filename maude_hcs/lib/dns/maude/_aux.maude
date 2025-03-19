@@ -165,7 +165,7 @@ mod IODINE_AUX is
     then
       $makeFragments(packet(ALICE, N, (N1 - N2)), N2, s N3, curFragments : fragment(ALICE, N, s N3, N2, false)) 
     else 
-      curFragments : fragment(ALICE, N, s N3, N2, true)
+      curFragments : fragment(ALICE, N, s N3, N1, true)
     fi  
     .
 
@@ -192,7 +192,7 @@ mod IODINE_NODE is
   var B LAST : Bool .
   vars SEQ_CTR QUERY_CTR CUR_FRAG : Nat .
   vars N P_LEN HOSTNAME_LEN : Nat .
-  var FRAGMENT_LIST : FragmentList .
+  vars FRAGMENT_LIST FRAGMENT_LIST' : FragmentList .
   var PACKET : Packet .
   var PACKET_LIST : PacketList .
   var db wDb : List{Record} .
@@ -244,7 +244,7 @@ mod IODINE_NODE is
   --- increment counter for each packet being sent
   op seqCtr:_ : Nat -> Attribute [ctor] .
   --- increment counter for each packet fragment being sent
-  op fragmentCtr:_ : Nat -> Attribute [ctor] .
+  ---op fragmentCtr:_ : Nat -> Attribute [ctor] .
   --- fragment list, its size, and the current fragment being sent
   op fragments:_ : FragmentList -> Attribute [ctor] .  
   op fragmentsSize:_ : Nat -> Attribute [ctor] .
@@ -300,9 +300,9 @@ mod IODINE_NODE is
   ---                   wClient Attributes Packet Max hostname length
   op handleNewPacket : AttributeSet Packet Nat -> AttributeSet .
   --- TODO: Seems to be working but check that this fires correctly (specify all attributes that get changed).
-  ceq handleNewPacket((wattrs, seqCtr: SEQ_CTR), packet(ADDR, N, P_LEN), HOSTNAME_LEN) =
-    wattrs, (seqCtr: s SEQ_CTR), (currFragment: 0), (numAttempts: 0), (fragments: FRAGMENT_LIST), (fragmentsSize: length(FRAGMENT_LIST)), (fragmentCtr: 0)
-      if FRAGMENT_LIST := makeFragments(packet(ADDR, N, P_LEN), HOSTNAME_LEN) . 
+  ceq handleNewPacket((wattrs, seqCtr: SEQ_CTR, fragments: FRAGMENT_LIST, fragmentsSize: NUM_FRAGS, currFragment: CUR_FRAG, numAttempts: NUM_ATTEMPTS), packet(ADDR, N, P_LEN), HOSTNAME_LEN) =
+    wattrs, (seqCtr: N), (fragments: FRAGMENT_LIST'), (fragmentsSize: length(FRAGMENT_LIST), (currFragment: 0), (numAttempts: 0))
+      if FRAGMENT_LIST' := makeFragments(packet(ADDR, N, P_LEN), HOSTNAME_LEN) . 
   eq handleNewPacket(wattrs, PACKET, N) = wattrs [owise] .
 
   --- Move a fragment forward.
@@ -455,7 +455,8 @@ red length(popFront(mtfl)) == 0 .
 red peekFront(makeFragments(packet(AliceAddr, 1, 100), 20)) == fragment(AliceAddr, 1, 1, 20, false) .
 red peekFront(mtfl) == nilFragment .
 
-red handleNewPacket((wClientAttrs, seqCtr: 2), packet(AliceAddr, 1, 1000), 200) .
+red handleNewPacket((wClientAttrs, seqCtr: 2, fragments: mtfl, fragmentsSize: 0, currFragment: 0, numAttempts: 0), packet(AliceAddr, 5, 150), 200) .
+red handleNewPacket((wClientAttrs, seqCtr: 2), packet(AliceAddr, 5, 950), 200) .
 red moveFragmentUp(wClientAttrs, fragments: makeFragments(packet(AliceAddr, 1, 100), 20), currFragment: 0, numAttempts: 2) .
 
 red grabCurrentFragment(wClientAttrs, fragments: makeFragments(packet(AliceAddr, 1, 100), 20)) == fragment(AliceAddr, 1, 1, 20, false) .
