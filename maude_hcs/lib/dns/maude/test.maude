@@ -8,7 +8,7 @@ mod TEST_IDNS is
   var F : Fragment .
   var B : Bool .
   
-  ops addrNScorporate addrWNS addrAlice addrBob mAddr cAddr addrNSexample addrNSpwnd2 : -> Address .
+  ops addrWClient addrNScorporate addrWNS addrAlice addrBob mAddr cAddr addrNSexample addrNSpwnd2 : -> Address .
 
   op Q : Name -> Query .    
   op wQ : Fragment Name -> Query .    
@@ -19,6 +19,8 @@ mod TEST_IDNS is
   op FR : Bool -> Fragment .
   eq FR(B) = fragment(addrAlice, 1, 1, 100, B) .    
 
+  eq maxFragmentLen = 200 .
+  
   --- op zoneExampleCom : -> List{Record} .
   --- eq zoneExampleCom =
   --- < 'example . 'com . root, soa, 3600.0, soaData(3600.0) >
@@ -53,6 +55,7 @@ mod TEST_IDNS is
   --- (to cAddr : start)
   --- (to addrWNS from cAddr : Q('www1 . 'pwnd2 . 'com))
   (to addrWNS from cAddr : wQ(FR(false), 'pwnd2 . 'com))
+  --- (to addrWClient from addrAlice : packet(addrAlice, 3, 300))
   --- Monitor
   --- initMonitor(mAddr)
   --- Clients
@@ -76,10 +79,23 @@ mod TEST_IDNS is
     lastFragment: false,
     conf: (mkRcvApp(addrBob) mkNameServer(addrWNS, zonePwnd2Com))
     >
+---  < addrWClient : WClient |
+---    resv: addrWNS,
+---    wDom: 'pwnd2 . 'com . 'root,
+---    queryCtr: 0,
+---    seqCtr: 0,
+---    fragmentCtr: 0,
+---    fragments: mtfl, 
+---    fragmentsSize: 0,
+---    currFragment: 0,
+---    numAttempts: 0,
+---    weirdQType: a,
+---    conf: (makeSendApp(addrAlice) (to addrWClient from addrAlice : packet(addrAlice, 3, 300)))
+---  >
   .
 
 
 endm
 
---- set trace on .
+---set trace on .
 rew[1] initConfig .
