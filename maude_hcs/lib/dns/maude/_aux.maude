@@ -193,6 +193,7 @@ mod IODINE_NODE is
   vars SEQ_CTR QUERY_CTR CUR_FRAG : Nat .
   vars N P_LEN HOSTNAME_LEN : Nat .
   var FRAGMENT_LIST : FragmentList .
+  var PACKET : Packet .
   var PACKET_LIST : PacketList .
   var db wDb : List{Record} .
   var QUERY : Query .
@@ -230,14 +231,14 @@ mod IODINE_NODE is
 ****              conf: (< appId : WApp | attrs >  msgs) ?
 **** contains app used by Alice to generate hidden msgs
 ----------------
-  op WCL : -> ActorType [ctor] .
+  op WClient : -> ActorType [ctor] .
 
   --- the DNS resolver - should be know to weird client
   op resv:_ : Address -> Attribute [ctor] . 
   --- the base weird name to which hidden msg is attached
   op wDom:_ : Name -> Attribute [ctor] .
   --- store info about query  sent, pending response  
-  op wDb:_ : MapIdMsg -> Attribute [ctor] .
+  ---op wDb:_ : MapIdMsg -> Attribute [ctor] .
   --- increment counter for each DNS query sent
   op queryCtr:_ : Nat -> Attribute [ctor] .
   --- increment counter for each packet being sent
@@ -251,11 +252,25 @@ mod IODINE_NODE is
   --- number of retransmissions of current fragment
   op numAttempts:_ : Nat -> Attribute [ctor] . 
 
+  --- The query type.
+  op weirdQType:_ : RType -> Attribute [ctor] .
+  --- Could be defined as a constant; if so:
+  ---op WeirdQType : -> RType .
+
+  --- The maximum fragment length (or fragment size).
+  op maxFragmentLen : -> Nat .
+
   op getResolver : AttributeSet ~> Address .
   eq getResolver(wattrs, resv: ADDR) = ADDR .
 
   op getWDom : AttributeSet Address ~> Name .
   eq getWDom((wattrs, wDom: NAME), ADDR) = NAME .
+
+  op getSeqCtr : AttributeSet -> Nat .
+  eq getSeqCtr(wattrs, seqCtr: SEQ_CTR) = SEQ_CTR .
+
+  op getCurrFragment : AttributeSet -> Nat .
+  eq getCurrFragment(wattrs, currFragment: CUR_FRAG) = CUR_FRAG .
 
   op isSending : AttributeSet -> Bool .
   eq isSending(wattrs, fragmentsSize: NUM_FRAGS) =
@@ -284,10 +299,11 @@ mod IODINE_NODE is
   --- Handle a new packet (from Alice) (and bail on an old one).
   ---                   wClient Attributes Packet Max hostname length
   op handleNewPacket : AttributeSet Packet Nat -> AttributeSet .
+  --- TODO: Seems to be working but check that this fires correctly (specify all attributes that get changed).
   ceq handleNewPacket((wattrs, seqCtr: SEQ_CTR), packet(ADDR, N, P_LEN), HOSTNAME_LEN) =
     wattrs, (seqCtr: s SEQ_CTR), (currFragment: 0), (numAttempts: 0), (fragments: FRAGMENT_LIST), (fragmentsSize: length(FRAGMENT_LIST)), (fragmentCtr: 0)
       if FRAGMENT_LIST := makeFragments(packet(ADDR, N, P_LEN), HOSTNAME_LEN) . 
-  eq handleNewPacket(wattrs) = wattrs [owise] .
+  eq handleNewPacket(wattrs, PACKET, N) = wattrs [owise] .
 
   --- Move a fragment forward.
   op moveFragmentUp : AttributeSet -> AttributeSet .
@@ -302,73 +318,43 @@ mod IODINE_NODE is
   op grabCurrentFragment : AttributeSet -> Fragment .
   eq grabCurrentFragment(wattrs, fragments: FRAGMENT_LIST) = peekFront(FRAGMENT_LIST) .
 
+  --- Check fragment match.
+  op isFragmentMatch : AttributeSet Fragment -> Bool .
+  ----          AliceAddr  Packet# Frag# DataLenBytes lastFrag
+  ceq isFragmentMatch(wattrs, fragment(ADDR, SEQ_CTR, CUR_FRAG, N, LAST)) = true
+    if (getSeqCtr(wattrs) == SEQ_CTR)
+      /\ (getCurrFragment(wattrs) == CUR_FRAG)
+    .
+  eq isFragmentMatch(wattrs, fragment(ADDR, SEQ_CTR, CUR_FRAG, N, LAST)) = false [owise] .
 
-  ---------------------------------------
-  --- [WClient] --- Weird (Iodine) client
-  ---------------------------------------
-  --- Start Weird client.
----  rl [startWClient]:
----    < AliceAddr : WCL | wattrs, conf: SendApp > (to AliceAddr : start)
----    =>
----    < AliceAddr : WCL | wattrs, conf: (SendApp (to AliceAddr : start) ) >
----    [print "startWClient" ]
----    .
----
----  crl [iClientEmbedding]:
----    < AliceAddr : WCL | wattrs, conf : (SendApp (to ADDR' from AliceAddr : PACKET) msgs) >
----
----    => < AliceAddr : WCL | wattrs0, conf : (SendApp msgs) >
----    msg
----    if (not isSending(wattrs)
----       \/ getNumAttempts(wattrs) < 2)
----       /\ {wattrs0, msg} := handleAndSend(AliceAddr, wattrs, (to ADDR' from AliceAddr : PACKET))
----    [print "iClientEmbedding msg "  msg]
----    .
+  --- Handle a packet (msg) and send the first fragment.
+  op handleAndSend : AttributeSet Msg -> AttributeSetMsgs .
+  ceq handleAndSend(wattrs, (to BobAddr from AliceAddr : PACKET)) =
+    {wattrsNext, msgOut} ---(to RESOLVER from AliceAddr : QUERY)
+    if RESOLVER := getResolver(wattrs)
+      /\ wattrsTrans := handleNewPacket(wattrs, PACKET, maxFragmentLen)
+      /\ {wattrsNext, msgOut} := sendFragment(wattrsTrans, AliceAddr, BobAddr)
+    .
 
----  op handleAndSend : AttributeSet Msg -> AttributeSetMsgs .
----  ceq handleAndSend(wattrs, (to ADDR' from AliceAddr : msg)) =
----    {wattrsNext, (to RESOLVER from AliceAddr : QUERY)}
----    if RESOLVER := getResolver(wattrs)
----      /\ PACKET := getPacket(msg)
----      /\ wattrsTrans := handleNewPacket(wattrs, PACKET, HOSTNAME_LEN) --- Not clear how one gets HOSTNAME_LEN
----      /\ {wattrsNext, QUERY} := sendFragment(wattrsTrans, ADDR')
----    .
----
----  op sendFragment : AttributeSet Address -> AttributeSetMsgs .
----  ceq sendFragment(wattrs, ADDR) =
----    {wattrsNext, (to RESOLVER from AliceAddr : QUERY)}
----    if RESOLVER := getResolver(wattrs)
----      /\ wattrsTrans := incrQueryCtr(wattrs)
----      /\ ID := getQueryCtr(wattrsTrans)
----      /\ NAME := getWDom(wattrsTrans, ADDR) --- This probably needs nm()
----      /\ QUERY := query(ID, NAME, QTYPE)
----    .
----
----  crl [iClientExtractLast]:
----    < AliceAddr : WCL | (wattrs, resv: RESOLVER), conf : (SendApp msgs) >
----      (to AliceAddr from RESOLVER : RESPONSE)
----    =>
----    < AliceAddr : WCL | wattrsNext, conf : (SendApp msg) >
----      --- msgs  --- Can we send no message here?
----    if wattrsTrans := extract(wattrs, RESPONSE)
----      /\ wattrsTrans' := isTxComplete(wattrTrans)
----    .
+  --- Send current fragment as a query.
+  ---                   Attributes from to
+  op sendFragment : AttributeSet Address Address -> AttributeSetMsgs .
+  ceq sendFragment((wattrs, weirdQType: QTYPE), ADDR, ADDR1) =
+    {wattrsNext, (to RESOLVER from ADDR : QUERY)}
+    if RESOLVER := getResolver(wattrs)
+      /\ wattrsNext := incrQueryCtr(wattrs)
+      /\ ID := getQueryCtr(wattrsNext)
+      /\ NAME := nm(grabCurrentFragment(wattrsNext)) . getWDom(wattrsNext, ADDR1)
+      /\ QUERY := query(ID, NAME, QTYPE)
+    .
 
----  crl [iClientExtract]:
----    < AliceAddr : WCL | (wattrs, resv: RESOLVER), conf : (SendApp msgs) >
----      (to AliceAddr from RESOLVER : RESPONSE)
----    =>
----    < AliceAddr : WCL | wattrsNext, conf : (SendApp msg) >
----      msg
----    if wattrsTrans := extract(wattrs, RESPONSE)
----      /\ wattrsTrans' := not isTxComplete(wattrTrans)
----      /\ {wattrsNext, msg} := SendFragment(wattrsTrans', ADDR')    --- ADDR' is supposed to be coming from somewhere.  Where?
----    .
----
----  op extract : AttributeSet Response -> AttributeSet .
----  ceq extract(wattrs, RESPONSE) = wattrsNext
----    if wattrsNext := moveFragmentUp(wattrs)
----    .
+  --- Extract a response and move to next fragment if is current fragment ACK.
+  op extract : AttributeSet Response -> AttributeSet .
+  ceq extract(wattrs, response(ID, NAME, nil, nil, nil, 0)) = wattrsNext
+    if isFragmentMatch(wattrs, fragment(NAME))
+      /\ wattrsNext := moveFragmentUp(wattrs)
+    .
+
 
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver
@@ -473,6 +459,9 @@ red handleNewPacket((wClientAttrs, seqCtr: 2), packet(AliceAddr, 1, 1000), 200) 
 red moveFragmentUp(wClientAttrs, fragments: makeFragments(packet(AliceAddr, 1, 100), 20), currFragment: 0, numAttempts: 2) .
 
 red grabCurrentFragment(wClientAttrs, fragments: makeFragments(packet(AliceAddr, 1, 100), 20)) == fragment(AliceAddr, 1, 1, 20, false) .
+
+red isFragmentMatch((wClientAttrs, seqCtr: 44, currFragment: 5), fragment(AliceAddr, 44, 5, 100, false)) == true .
+red isFragmentMatch((wClientAttrs, seqCtr: 44), fragment(AliceAddr, 44, 5, 100, false)) == false .
 
 red isWeird((appAddr: BobAddr), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) == true .
 red extractS((appAddr: BobAddr, pendingFragments: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) .
