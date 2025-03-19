@@ -301,7 +301,7 @@ mod IODINE_NODE is
   op handleNewPacket : AttributeSet Packet Nat -> AttributeSet .
   --- TODO: Seems to be working but check that this fires correctly (specify all attributes that get changed).
   ceq handleNewPacket((wattrs, seqCtr: SEQ_CTR, fragments: FRAGMENT_LIST, fragmentsSize: NUM_FRAGS, currFragment: CUR_FRAG, numAttempts: NUM_ATTEMPTS), packet(ADDR, N, P_LEN), HOSTNAME_LEN) =
-    wattrs, (seqCtr: N), (fragments: FRAGMENT_LIST'), (fragmentsSize: length(FRAGMENT_LIST), (currFragment: 0), (numAttempts: 0))
+    wattrs, (seqCtr: N), (fragments: FRAGMENT_LIST'), (fragmentsSize: length(FRAGMENT_LIST), (currFragment: 1), (numAttempts: 0))
       if FRAGMENT_LIST' := makeFragments(packet(ADDR, N, P_LEN), HOSTNAME_LEN) . 
   eq handleNewPacket(wattrs, PACKET, N) = wattrs [owise] .
 
@@ -339,8 +339,8 @@ mod IODINE_NODE is
   --- Send current fragment as a query.
   ---                   Attributes from to
   op sendFragment : AttributeSet Address Address -> AttributeSetMsgs .
-  ceq sendFragment((wattrs, weirdQType: QTYPE), ADDR, ADDR1) =
-    {wattrsNext, (to RESOLVER from ADDR : QUERY)}
+  ceq sendFragment((wattrs, numAttempts: NUM_ATTEMPTS, weirdQType: QTYPE), ADDR, ADDR1) =
+    {(wattrsNext, numAttempts: s NUM_ATTEMPTS), (to RESOLVER from ADDR : QUERY)}
     if RESOLVER := getResolver(wattrs)
       /\ wattrsNext := incrQueryCtr(wattrs)
       /\ ID := getQueryCtr(wattrsNext)
