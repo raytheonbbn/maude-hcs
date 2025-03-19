@@ -5,7 +5,7 @@ mod IODINE_DNS is
   inc DNS + IODINE_NODE .
 
 
-  vars ADDR ADDR1 ADDR2 NS ALICE BOB : Address .
+  vars ADDR ADDR1 ADDR2 NS RESOLVER ALICE BOB : Address .
   var RCODE : Nat .
   vars ANS AUTH ADD : List{Record} .
   vars wattrs wattrs1 wattrs2 wattrsNext wattrsTrans wattrsTrans' appAttrs appAttrs1 : AttributeSet .
@@ -100,27 +100,27 @@ crl [wnameserver-receive-query-weird]:
     .
 
 --- TODO: Combine these with if then else
----  crl [iClientExtractLast]:
----    < ADDR : WClient | (wattrs, resv: RESOLVER), conf : (ALICE : SendApp) >
----      (to ALICE from RESOLVER : RESPONSE)
----    =>
----    < ADDR : WClient | wattrsNext, conf : (ALICE : SendApp) >
+  crl [iClientExtractLast]:
+    < ADDR : WClient | (wattrs, resv: RESOLVER), conf: (< ALICE : SendApp | appAttrs >) >
+      (to ALICE from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))
+    =>
+    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >) >
 ---      --- msgs  --- Can we send no message here?
 ---     TODO: Actually, we should send a message back to ALICE to send more.
 --- Question: Are these propositions evaluated one after the other or all at once?  In other words, if last proposition is false, do the operations that happen in previous proposition get "undone?"
----    if wattrsTrans := extract(wattrs, RESPONSE)
----      /\ wattrsNext := isTxComplete(wattrTrans)
----    .
+    if wattrsNext := extract(wattrs, response(ID, SNAME, ANS, AUTH, ADD, RCODE))
+      /\ isTxComplete(wattrsNext)
+    .
 
 ---  crl [iClientExtract]:
----    < ADDR : WClient | (wattrs, resv: RESOLVER), conf : (ALICE : SendApp) >
----      (to ALICE from RESOLVER : RESPONSE)
+---    < ADDR : WClient | (wattrs, resv: RESOLVER), conf: (< ALICE : SendApp | appAttrs >) >
+---      (to ALICE from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))
 ---    =>
----    < ADDR : WClient | wattrsNext, conf : (ALICE : SendApp) >
+---    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >) >
 ---      msg
 ---    if wattrsTrans := extract(wattrs, RESPONSE)
----      /\ wattrsTrans' := not isTxComplete(wattrTrans)
----      /\ {wattrsNext, msg} := sendFragment(wattrsTrans', BOB)    --- BOB is supposed to be coming from somewhere.  Where?
+---      /\ not isTxComplete(wattrsTrans)
+---      /\ {wattrsNext, msg} := sendFragment(wattrsTrans, BOB)    --- BOB is supposed to be coming from somewhere.  Where?
 ---    .
 
 endm
