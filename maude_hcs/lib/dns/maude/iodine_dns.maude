@@ -109,22 +109,21 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs > 
       (if msgOut == nullMsg then null else msgOut fi)) >
     (if msgOutExt == nullMsg then null else msgOutExt fi)
----   This is commented out because Alice messages are internal and Bob messages external.
+---   Alice messages are internal and Bob / Resolver messages external.
 ---   Therefore, we would need to set msgOut to nil or (to ALICE : start) and 
 ---   require a second msg extMsgOut set to (to BOB : fragment) or nil.
----   Seems clunky.
-    if wattrsTrans := extract(wattrs, response(ID, SNAME, ANS, AUTH, ADD, RCODE))
-        /\ txComplete := isTxComplete(wattrsTrans)
-        /\ {wattrsNext, msgOutExt} :=
-         if txComplete
+    if wattrsTrans := extract((wattrs, resv: RESOLVER), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
+      /\ txComplete := isTxComplete(wattrsTrans)
+      /\ {wattrsNext, msgOutExt} :=
+        if txComplete
           then {wattrsTrans, nullMsg}
           else sendFragment(wattrsTrans, ALICE)
-          fi
-        /\ msgOut := 
-          if txComplete
+        fi
+      /\ msgOut := 
+        if txComplete
           then (to ALICE : start)
           else nullMsg
-          fi
+        fi
     .
 
 ---  crl [iClientExtractFromServer]:
@@ -133,9 +132,9 @@ crl [wnameserver-receive-query-weird]:
 ---    =>
 ---    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >) >
 ---    msgOut
----    if wattrsTrans := extract(wattrs, response(ID, SNAME, ANS, AUTH, ADD, RCODE))
+---    if wattrsTrans := extract((wattrs, resv: RESOLVER), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
 ---      /\ not isTxComplete(wattrsTrans)
----      /\ {wattrsNext, msg} := sendFragment(wattrsTrans, ALICE)
+---      /\ {wattrsNext, msgOut} := sendFragment(wattrsTrans, ALICE)
 ---    .
 
 endm
