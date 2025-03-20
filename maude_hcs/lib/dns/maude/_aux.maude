@@ -208,13 +208,15 @@ mod IODINE_NODE is
   --- [App Alice] --- 
   ---  Alice sends weird messages to Bob via WNameserver
   ------------------------------------------------------
-  op SendApp : -> ActorType [ctor] .
-  --- TODO: Fill these with... fragments? packets?
-  op sent:_ : MsgList -> Attribute [ctor] .
+  op SendApp : -> ActorType [ctor] .  
+  ---- packets to send
+  op queue:_ : PacketList -> Attribute [ctor] . 
+  ---- packets sent
+  op sent:_ : PacketList -> Attribute [ctor] .
 
   op makeSendApp : Address -> Actor [ctor] .
   eq makeSendApp(AliceAddr) =
-    < AliceAddr : SendApp | sent: nilMsgList > .
+    < AliceAddr : SendApp | queue: mtpl, sent: mtpl > .
 
   --------------------------------
   --- [App Bob] --- 
@@ -353,9 +355,6 @@ mod IODINE_NODE is
       /\ QUERY := query(ID, NAME, QTYPE)
     .
 
-  op sendNull : AttributeSet -> AttributeSetMsgs .
-  eq sendNull(wattrs) = {wattrs, nullMsg} .
-
   --- Extract a response and move to next fragment if is current fragment ACK.
   op extract : AttributeSet Response -> AttributeSet .
   ceq extract(wattrs, response(ID, NAME, nil, nil, nil, 0)) = wattrsNext
@@ -371,7 +370,8 @@ mod IODINE_NODE is
   --- This is Bob's address; weird msgs will be forwarded to bob
   --- Bob listens on a UDP socket that the server sends to
   --- Alice's address will be in the query name
-  op appAddr:_ : Address -> Attribute  [ctor] .
+  ---- NOT USED TO START since Bob is my belly
+  --- op appAddr:_ : Address -> Attribute  [ctor] .
   --- List of fragments currently being processed
   op pendingFragments:_ : FragmentList -> Attribute [ctor] .
   op lastFragment:_ : Bool -> Attribute [ctor] .
@@ -400,8 +400,8 @@ mod IODINE_NODE is
   op extractS : AttributeSet Msg -> AttributeSetMsgs .
   ceq extractS(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans, msgOut}
     if  nm(F) . NAME1 := NAME
-    /\ (appAddr: BobAddr, pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs) := wattrs
-    /\ wattrsTrans := (appAddr: BobAddr, pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), Attrs)
+    /\ (pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs) := wattrs
+    /\ wattrsTrans := (pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), Attrs)
     ---- simply ACK fragment (NAME contains fragment; RCODE 0 is success)
     /\ msgOut := (to ADDR1 from ADDR : response(ID, NAME, nil, nil, nil, 0)) 
     .
@@ -409,13 +409,13 @@ mod IODINE_NODE is
   op updateRcvApp : AttributeSet AttributeSet -> AttributeSetPair .
   ceq updateRcvApp(wattrs, Attrs) = {wattrsTrans, AttrsTrans}
     ---- server attrs
-    if (appAddr: BobAddr, pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs1) := wattrs
+    if (pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs1) := wattrs
     ---- app attrs
     /\ (rcvd: PACKET_LIST, Attrs2) := Attrs
     ---- if ready to defragment clean up state else no change
     /\ wattrsTrans := 
       (if B 
-      then (appAddr: BobAddr, pendingFragments: mtfl, lastFragment: false, Attrs1)
+      then (pendingFragments: mtfl, lastFragment: false, Attrs1)
       else wattrs 
       fi)
     ---- defragment and update Bob's received packets?
@@ -472,7 +472,7 @@ red grabCurrentFragment(wClientAttrs, fragments: makeFragments(packet(AliceAddr,
 red isFragmentMatch((wClientAttrs, seqCtr: 44, currFragment: 5), fragment(AliceAddr, 44, 5, 100, false)) == true .
 red isFragmentMatch((wClientAttrs, seqCtr: 44), fragment(AliceAddr, 44, 5, 100, false)) == false .
 
-red isWeird((appAddr: BobAddr), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) == true .
+red isWeird((pendingFragments: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) == true .
 red extractS((appAddr: BobAddr, pendingFragments: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) .
 
 red isTxComplete(wClientAttrs, fragments: mtfl) == true .
