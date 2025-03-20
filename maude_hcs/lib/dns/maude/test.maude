@@ -54,9 +54,9 @@ mod TEST_IDNS is
   --- Start messages
   --- (to cAddr : start)
   --- (to addrWNS from cAddr : Q('www1 . 'pwnd2 . 'com))
-  (to addrWNS from cAddr : wQ(FR(false), 'pwnd2 . 'com))
+  --- (to addrWNS from cAddr : wQ(FR(false), 'pwnd2 . 'com))
   --- Message to test ACK of last fragment.
-  --- (to addrAlice from addrWNS : response(5, nm(fragment(addrAlice, 7, 2, 100, true)), nil, nil, nil, 0))
+   (to addrAlice from addrWNS : response(5, nm(fragment(addrAlice, 7, 2, 100, true)), nil, nil, nil, 0))
   --- Monitor
   --- initMonitor(mAddr)
   --- Clients
@@ -74,12 +74,12 @@ mod TEST_IDNS is
   ---   queue: nilQueue,
   ---   forwardonly: nullAddr,
   ---   queriesFwd: nilTAQL > 
-  < addrWNS : WNameserver |
-    appAddr: addrBob,
-    pendingFragments: mtfl,
-    lastFragment: false,
-    conf: (mkRcvApp(addrBob) mkNameServer(addrWNS, zonePwnd2Com))
-    >
+---  < addrWNS : WNameserver |
+---    appAddr: addrBob,
+---    pendingFragments: mtfl,
+---    lastFragment: false,
+---    conf: (mkRcvApp(addrBob) mkNameServer(addrWNS, zonePwnd2Com))
+---    >
 ---  Test rule handling packet from Alice to Iodine Client.
 ---  < addrWClient : WClient |
 ---    resv: addrWNS,
@@ -95,6 +95,17 @@ mod TEST_IDNS is
 ---    conf: (makeSendApp(addrAlice) (to addrWClient from addrAlice : packet(addrAlice, 3, 300)))
 ---  >
 ---  Test rule handling ACK of last Fragment from Iodine server.
+  < addrWClient : WClient |
+    resv: addrWNS,
+    queryCtr: 12,
+    seqCtr: 7,
+    fragments: popFront(makeFragments(packet(addrAlice, 7, 300), 200)),
+    fragmentsSize: 2,
+    currFragment: 2,
+    numAttempts: 1,
+    conf: (makeSendApp(addrAlice))
+  >
+  .
 ---  < addrWClient : WClient |
 ---    resv: addrWNS,
 ---    queryCtr: 12,
@@ -105,10 +116,11 @@ mod TEST_IDNS is
 ---    numAttempts: 1,
 ---    conf: (makeSendApp(addrAlice))
 ---  >
-  .
+---  .
+
 
 
 endm
 
----set trace on .
+set trace on .
 rew[1] initConfig .

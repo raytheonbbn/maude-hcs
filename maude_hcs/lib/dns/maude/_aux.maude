@@ -266,6 +266,9 @@ mod IODINE_NODE is
   op getWDom : AttributeSet Address ~> Name .
   eq getWDom((wattrs, wDom: NAME), ADDR) = NAME .
 
+  op getWDom : AttributeSet ~> Name .
+  eq getWDom(wattrs, wDom: NAME) = NAME .
+
   op getSeqCtr : AttributeSet -> Nat .
   eq getSeqCtr(wattrs, seqCtr: SEQ_CTR) = SEQ_CTR .
 
@@ -332,18 +335,18 @@ mod IODINE_NODE is
     {wattrsNext, msgOut} ---(to RESOLVER from AliceAddr : QUERY)
     if RESOLVER := getResolver(wattrs)
       /\ wattrsTrans := handleNewPacket(wattrs, PACKET, maxFragmentLen)
-      /\ {wattrsNext, msgOut} := sendFragment(wattrsTrans, AliceAddr, BobAddr)
+      /\ {wattrsNext, msgOut} := sendFragment(wattrsTrans, AliceAddr)---, BobAddr)
     .
 
   --- Send current fragment as a query.
   ---                   Attributes from to
-  op sendFragment : AttributeSet Address Address -> AttributeSetMsgs .
-  ceq sendFragment((wattrs, numAttempts: NUM_ATTEMPTS, weirdQType: QTYPE), ADDR, ADDR1) =
+  op sendFragment : AttributeSet Address -> AttributeSetMsgs .
+  ceq sendFragment((wattrs, numAttempts: NUM_ATTEMPTS, weirdQType: QTYPE), ADDR) = ---, ADDR1) =
     {(wattrsNext, numAttempts: s NUM_ATTEMPTS), (to RESOLVER from ADDR : QUERY)}
     if RESOLVER := getResolver(wattrs)
       /\ wattrsNext := incrQueryCtr(wattrs)
       /\ ID := getQueryCtr(wattrsNext)
-      /\ NAME := nm(grabCurrentFragment(wattrsNext)) . getWDom(wattrsNext, ADDR1)
+      /\ NAME := nm(grabCurrentFragment(wattrsNext)) . getWDom(wattrsNext)---, ADDR1)
       /\ QUERY := query(ID, NAME, QTYPE)
     .
 

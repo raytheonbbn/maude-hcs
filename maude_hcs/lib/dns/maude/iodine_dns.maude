@@ -17,7 +17,9 @@ mod IODINE_DNS is
   var QTYPE : RType .
   var  wdb : MapIdMsg . 
   vars msgs msgs0 : Config .   ---- MsgConfig
-  vars msg msg0 msg1 msgIn msgOut : Msg .
+  vars msg msg0 msg1 msgIn msgOut msgOutExt : Msg .
+  var txComplete : Bool .
+
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
   --------------------------------
@@ -100,27 +102,57 @@ crl [wnameserver-receive-query-weird]:
     .
 
 --- TODO: Combine these with if then else
-  crl [iClientExtractLast]:
+  crl [iClientExtractLastFromServer]:
     < ADDR : WClient | (wattrs, resv: RESOLVER), conf: (< ALICE : SendApp | appAttrs >) >
       (to ALICE from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))
     =>
-    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >) >
----      --- msgs  --- Can we send no message here?
----     TODO: Actually, we should send a message back to ALICE to send more.
---- Question: Are these propositions evaluated one after the other or all at once?  In other words, if last proposition is false, do the operations that happen in previous proposition get "undone?"
-    if wattrsNext := extract(wattrs, response(ID, SNAME, ANS, AUTH, ADD, RCODE))
-      /\ isTxComplete(wattrsNext)
+    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs > msgOut) >
+    msgOutExt
+---    if wattrsNext := extract(wattrs, response(ID, SNAME, ANS, AUTH, ADD, RCODE))
+---      /\ isTxComplete(wattrsNext)
+---      /\ msgOut := (to ALICE : start)
+---    .
+---   This is commented out because Alice messages are internal and Bob messages external.
+---   Therefore, we would need to set msgOut to nil or (to ALICE : start) and 
+---   require a second msg extMsgOut set to (to BOB : fragment) or nil.
+---   Seems clunky.
+    if wattrsTrans := extract(wattrs, response(ID, SNAME, ANS, AUTH, ADD, RCODE))
+---      /\ {{wattrsNext, msgOutExt}, msgOut} :=
+---        (if isTxComplete(wattrsTrans)
+---          then {{wattrsTrans, null}, (to ALICE : start)}
+---          else {sendFragment(wattrsTrans, ALICE), null}
+---        fi)
+---      /\ if isTxComplete(wattrsTrans)
+---           then
+---              wattrsNext := wattrsTrans
+---              msgOut := (to ALICE : start)
+---              msgOutExt := null
+---           else
+---             {wattrsNext, msgOutExt} := sendFragment(wattrsTrans, ALICE)
+---             msgOut := null
+---          fi
+     /\ txComplete := isTxComplete(wattrsTrans)
+   /\ {wattrsNext, msgOutExt} :=
+         if txComplete
+            then {wattrsTrans, null}--- (to ALICE : start)---null
+            else sendFragment(wattrsTrans, ALICE)
+          fi
+    /\ msgOut :=
+        if txComplete
+            then (to ALICE : start)
+            else null
+        fi
     .
 
----  crl [iClientExtract]:
+---  crl [iClientExtractFromServer]:
 ---    < ADDR : WClient | (wattrs, resv: RESOLVER), conf: (< ALICE : SendApp | appAttrs >) >
 ---      (to ALICE from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))
 ---    =>
 ---    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >) >
----      msg
----    if wattrsTrans := extract(wattrs, RESPONSE)
+---    msgOut
+---    if wattrsTrans := extract(wattrs, response(ID, SNAME, ANS, AUTH, ADD, RCODE))
 ---      /\ not isTxComplete(wattrsTrans)
----      /\ {wattrsNext, msg} := sendFragment(wattrsTrans, BOB)    --- BOB is supposed to be coming from somewhere.  Where?
+---      /\ {wattrsNext, msg} := sendFragment(wattrsTrans, ALICE)
 ---    .
 
 endm
