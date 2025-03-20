@@ -106,42 +106,25 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : WClient | (wattrs, resv: RESOLVER), conf: (< ALICE : SendApp | appAttrs >) >
       (to ALICE from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))
     =>
-    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs > msgOut) >
-    msgOutExt
----    if wattrsNext := extract(wattrs, response(ID, SNAME, ANS, AUTH, ADD, RCODE))
----      /\ isTxComplete(wattrsNext)
----      /\ msgOut := (to ALICE : start)
----    .
+    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs > 
+      (if msgOut == nullMsg then null else msgOut fi)) >
+    (if msgOutExt == nullMsg then null else msgOutExt fi)
 ---   This is commented out because Alice messages are internal and Bob messages external.
 ---   Therefore, we would need to set msgOut to nil or (to ALICE : start) and 
 ---   require a second msg extMsgOut set to (to BOB : fragment) or nil.
 ---   Seems clunky.
     if wattrsTrans := extract(wattrs, response(ID, SNAME, ANS, AUTH, ADD, RCODE))
----      /\ {{wattrsNext, msgOutExt}, msgOut} :=
----        (if isTxComplete(wattrsTrans)
----          then {{wattrsTrans, null}, (to ALICE : start)}
----          else {sendFragment(wattrsTrans, ALICE), null}
----        fi)
----      /\ if isTxComplete(wattrsTrans)
----           then
----              wattrsNext := wattrsTrans
----              msgOut := (to ALICE : start)
----              msgOutExt := null
----           else
----             {wattrsNext, msgOutExt} := sendFragment(wattrsTrans, ALICE)
----             msgOut := null
----          fi
-     /\ txComplete := isTxComplete(wattrsTrans)
-   /\ {wattrsNext, msgOutExt} :=
+        /\ txComplete := isTxComplete(wattrsTrans)
+        /\ {wattrsNext, msgOutExt} :=
          if txComplete
-            then {wattrsTrans, null}--- (to ALICE : start)---null
-            else sendFragment(wattrsTrans, ALICE)
+          then {wattrsTrans, nullMsg}
+          else sendFragment(wattrsTrans, ALICE)
           fi
-    /\ msgOut :=
-        if txComplete
-            then (to ALICE : start)
-            else null
-        fi
+        /\ msgOut := 
+          if txComplete
+          then (to ALICE : start)
+          else nullMsg
+          fi
     .
 
 ---  crl [iClientExtractFromServer]:
