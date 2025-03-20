@@ -18,7 +18,8 @@ def createAuthZone(NAME:str, parent:Zone, num_records:int) -> Zone:
         zone_records.append(Record(f'*.{NAME}.com.', 'TXT', 3600, '...'))
         return Zone(f'{NAME}.com.', parent, zone_records)
 
-def corporate(args) -> DNSConfig:
+def corporate(run_args) -> DNSConfig:
+    args = run_args["underlying_network"].get(run_args["underlying_network"]["config"], {})
     EE_NAME = args.get('everythingelse_name', 'everythingelse')
     PWND2_NAME = args.get('pwnd2_name', 'pwnd2')
     CORP_NAME = args.get('corporate_name', 'corp')
@@ -69,5 +70,5 @@ def corporate(args) -> DNSConfig:
     root_nameservers = {'a.root-servers.net.': 'addrNSroot'}
 
     C = DNSConfig([client], [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverPWND2, nameserverCORP], root_nameservers)
-    C.set_params(args.get('nondeterministic_parameters', {}))
+    C.set_params(run_args.get('nondeterministic_parameters', {}))
     return C
