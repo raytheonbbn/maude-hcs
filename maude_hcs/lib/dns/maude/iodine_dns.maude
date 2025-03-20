@@ -87,7 +87,12 @@ crl [wnameserver-receive-query-weird]:
 ---    < ADDR : WClient | wattrs, conf: (appAlice (to ALICE : start) ) >
 ---    [print "startWClient" ]
 ---    .
----
+
+  --- Handle packet from Alice headed to Bob.
+  --- If a packet is not currently being sent or numAttempts >= 2, then WClient
+  --- can accept and handle the packet.
+  --- (same as not sending or sending and numAttempts > 2)
+  --- Handle the packet, fragment it, and send the first fragment.
   crl [iClientEmbedding]:
     < ADDR : WClient | wattrs, conf: (< ALICE : SendApp | appAttrs > msg)
     >
@@ -95,13 +100,19 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >)
     >
     msgOut
-    if (not isSending(wattrs) or getNumAttempts(wattrs) < 2)
+    if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, msg)
 ---    [print "iClientEmbedding msg in"  msg]
 ---    [print "iClientEmbedding fragment out "  msgOut]
     .
 
---- TODO: Combine these with if then else
+  --- Handle a response from the resolver to WClient.
+  --- Extract the ACK information and check this is for the fragment that was
+  --- just sent (seqNo, fragNum match).
+  --- If the packet transmission is complete (this was last fragment) then
+  --- send the ALICE a msg to send one more packet.
+  --- Otherwise, send the next fragment to WNameServer.
+  --- TODO: Change Alice -> WClient.
   crl [iClientExtractLastFromServer]:
     < ADDR : WClient | (wattrs, resv: RESOLVER), conf: (< ALICE : SendApp | appAttrs >) >
       (to ALICE from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))
@@ -111,7 +122,7 @@ crl [wnameserver-receive-query-weird]:
     (if msgOutExt == nullMsg then null else msgOutExt fi)
 ---   Alice messages are internal and Bob / Resolver messages external.
 ---   Therefore, we would need to set msgOut to nil or (to ALICE : start) and 
----   require a second msg extMsgOut set to (to BOB : fragment) or nil.
+---   require a second msg extMsgOut set to (to RESOLVER : fragment) or nil.
     if wattrsTrans := extract((wattrs, resv: RESOLVER), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
@@ -125,16 +136,5 @@ crl [wnameserver-receive-query-weird]:
           else nullMsg
         fi
     .
-
----  crl [iClientExtractFromServer]:
----    < ADDR : WClient | (wattrs, resv: RESOLVER), conf: (< ALICE : SendApp | appAttrs >) >
----      (to ALICE from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))
----    =>
----    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >) >
----    msgOut
----    if wattrsTrans := extract((wattrs, resv: RESOLVER), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
----      /\ not isTxComplete(wattrsTrans)
----      /\ {wattrsNext, msgOut} := sendFragment(wattrsTrans, ALICE)
----    .
 
 endm
