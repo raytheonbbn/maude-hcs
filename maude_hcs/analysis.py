@@ -9,15 +9,15 @@ class HCSAnalysis:
         self.args = args
 
     def generate(self):
-        # step 1. generate the underlying network 
-        self.conf = self.generate_underlying_network()
+        # step 1. generate the network configuration 
+        self.conf = self.generate_network()
         return self.conf
 
     def run(self):
         pass
         
 
-    def generate_underlying_network(self):
+    def generate_network(self):
         conf = KnownUNetworks().create(self.args)
         return conf
 

@@ -19,7 +19,7 @@ def createAuthZone(NAME:str, parent:Zone, num_records:int) -> Zone:
         return Zone(f'{NAME}.com.', parent, zone_records)
 
 def corporate(run_args) -> DNSConfig:
-    args = run_args["underlying_network"].get(run_args["underlying_network"]["config"], {})
+    args = run_args["underlying_network"]
     EE_NAME = args.get('everythingelse_name', 'everythingelse')
     PWND2_NAME = args.get('pwnd2_name', 'pwnd2')
     CORP_NAME = args.get('corporate_name', 'corp')
