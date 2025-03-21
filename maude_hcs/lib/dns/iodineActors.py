@@ -1,4 +1,4 @@
-from Maude.attack_exploration.src.conversion_utils import address_to_maude
+from Maude.attack_exploration.src.conversion_utils import address_to_maude, name_to_maude, rtype_to_maude
 from .utils import packetlist_to_maude
 from Maude.attack_exploration.src.actors import Nameserver
 
@@ -48,11 +48,13 @@ class SendApp:
         res += f'    queue: ({packetlist_to_maude(self.packets)}),\n'
         res += f'    sent: mtpl >'
         return res
-    
+
 class IodineClient:
 
-    def __init__(self, address, resolverAddress, sendApp : SendApp) -> None:
+    def __init__(self, address, wDomName, wQueryType, resolverAddress, sendApp : SendApp) -> None:
         self.address = address
+        self.wDomName = wDomName
+        self.wQueryType = wQueryType
         self.resolverAddress = resolverAddress
         self.sendApp = sendApp        
 
@@ -62,6 +64,8 @@ class IodineClient:
     def to_maude(self) -> str:        
         res = f'< {address_to_maude(self.address)} : WClient |\n'
         res += f'    resv: {address_to_maude(self.resolverAddress)},\n'
+        res += f'    wDom: {name_to_maude(self.wDomName)},\n'
+        res += f'    weirdQType: {rtype_to_maude(self.wQueryType)},\n'
         res += f'    queryCtr: 0,\n'
         res += f'    seqCtr: 0,\n'
         res += f'    fragments: mtfl,\n'

@@ -1,10 +1,11 @@
 from .corporate import corporate
+from .corporate_iodine import corporate_iodine
 
 class KnownUNetworks:
     def __init__(self):        
         self.constructors = {
             'corporate_base': self._fixed_network(corporate),
-            'corporate_iodine': self._fixed_network(corporate)
+            'corporate_iodine': self._fixed_network(corporate_iodine)
         }
     
     def create(self, run_args):        

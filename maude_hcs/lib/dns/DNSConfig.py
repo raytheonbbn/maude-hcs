@@ -13,7 +13,7 @@ class DNSConfig(Config):
         self.path = str(TOPLEVELDIR.joinpath(DNS_MAUDE_ROOT)) + os.path.sep
         super().__init__(clients, resolvers, nameservers, root_nameservers)
 
-    # Override to not exclude the monitor
+    # Override to exclude the monitor
     def _to_maude_actors(self) -> str:
         res = '  --- Clients\n'
         for client in self.clients:
