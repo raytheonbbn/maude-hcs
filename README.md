@@ -51,10 +51,17 @@ pip install -e .
 
 For now we can generate initial configurations using `generate` command.
 Pass a use case config file as follows,
+
+To geenrate a vanilla DNS config (without iodine),
 ```shell
 maude-hcs --verbose --run-args=./use-cases/corporate-base.json generate nondet
 ```
 
+To generate a DNS config with iodine,
+```shell
+maude-hcs --verbose --run-args=./use-cases/corporate-iodine.json generate nondet
+```
+Look at the `corporate-iodine.json` file above to see the configuration parameters.
 
 # References
 
