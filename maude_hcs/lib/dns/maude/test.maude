@@ -55,8 +55,12 @@ mod TEST_IDNS is
   --- (to cAddr : start)
   --- (to addrWNS from cAddr : Q('www1 . 'pwnd2 . 'com))
   --- (to addrWNS from cAddr : wQ(FR(false), 'pwnd2 . 'com))
-  --- Message to test ACK of last fragment.
-   (to addrAlice from addrWNS : response(5, nm(fragment(addrAlice, 7, 2, 100, true)), nil, nil, nil, 0))
+  --- Test ACK0. Message to test ACK of last fragment.
+  --- Expect a message to Alice to send a new packet down, fragments empty.
+   (to addrAlice from addrWNS : response(5, nm(fragment(addrAlice, 7, 2, 100, true)) . 'pwnd2 . 'com . 'root, nil, nil, nil, 0))
+  --- Test ACK1.
+  --- Expect the next fragment to the WNServer, num attempts = 1.
+  --- (to addrAlice from addrWNS : response(5, nm(fragment(addrAlice, 7, 2, 100, false)) . 'pwnd2 . 'com . 'root, nil, nil, nil, 0))
   --- Monitor
   --- initMonitor(mAddr)
   --- Clients
@@ -86,38 +90,40 @@ mod TEST_IDNS is
 ---    queryCtr: 0,
 ---    seqCtr: 0,
 ---    ---fragmentCtr: 0,
----    fragments: mtfl, 
+---    fragments: mtfl,
 ---    fragmentsSize: 0,
----    currFragment: 0,
----    numAttempts: 0,
+---    currFragment: 3,
+---    numAttempts: 1,
 ---    weirdQType: a,
 ---    conf: (makeSendApp(addrAlice) (to addrWClient from addrAlice : packet(addrAlice, 3, 300)))
 ---  >
----  Test rule handling ACK of last Fragment from Iodine server.
+  --- Test ACK0: Test rule handling ACK of last Fragment from Iodine server.
   < addrWClient : WClient |
     resv: addrWNS,
+    wDom: 'pwnd2 . 'com . 'root,
     queryCtr: 12,
     seqCtr: 7,
     fragments: popFront(makeFragments(packet(addrAlice, 7, 300), 200)),
     fragmentsSize: 2,
     currFragment: 2,
     numAttempts: 1,
+    weirdQType: a,
     conf: (makeSendApp(addrAlice))
   >
-  .
+  --- Test ACK1.
 ---  < addrWClient : WClient |
 ---    resv: addrWNS,
+---    wDom: 'pwnd2 . 'com . 'root,
 ---    queryCtr: 12,
 ---    seqCtr: 7,
----    fragments: popFront(makeFragments(packet(addrAlice, 7, 300), 200)),
----    fragmentsSize: 2,
+---    fragments: popFront(makeFragments(packet(addrAlice, 7, 500), 200)),
+---    fragmentsSize: 3,
 ---    currFragment: 2,
 ---    numAttempts: 1,
+---    weirdQType: a,
 ---    conf: (makeSendApp(addrAlice))
 ---  >
----  .
-
-
+  .
 
 endm
 
