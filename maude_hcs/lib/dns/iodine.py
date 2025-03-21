@@ -1,4 +1,5 @@
-from Maude.attack_exploration.src.conversion_utils import address_to_maude, querylist_to_maude
+from Maude.attack_exploration.src.conversion_utils import address_to_maude
+from .utils import packetlist_to_maude
 from Maude.attack_exploration.src.actors import Nameserver
 
 class ReceiveApp:
@@ -35,24 +36,40 @@ class IodineServer:
 
 
 class SendApp:
-    def __init__(self, address):
+    def __init__(self, address, packets_to_send):
         self.address = address
+        self.packets = packets_to_send
 
     def __str__(self) -> str:
         return f'< {self.address} : SendApp | Attrs >'
 
     def to_maude(self) -> str:
-        res = f'< {address_to_maude(self.address)} : RcvApp |\n'
-        res += f'    rcvd: mtpl >'
+        res = f'< {address_to_maude(self.address)} : SendApp |\n'
+        res += f'    queue: ({packetlist_to_maude(self.packets)}),\n'
+        res += f'    sent: mtpl >'
         return res
     
-#   < addrWClient : WClient |
-#     resv: addrWNS,
-#     queryCtr: 12,
-#     seqCtr: 7,
-#     fragments: popFront(makeFragments(packet(addrAlice, 7, 300), 200)),
-#     fragmentsSize: 2,
-#     currFragment: 2,
-#     numAttempts: 1,
-#     conf: (makeSendApp(addrAlice))
-#   >    
+class IodineClient:
+
+    def __init__(self, address, resolverAddress, sendApp : SendApp) -> None:
+        self.address = address
+        self.resolverAddress = resolverAddress
+        self.sendApp = sendApp        
+
+    def __str__(self) -> str:
+        return f'< {self.address} : WClient | Attrs >'
+
+    def to_maude(self) -> str:        
+        res = f'< {address_to_maude(self.address)} : WClient |\n'
+        res += f'    resv: {address_to_maude(self.resolverAddress)},\n'
+        res += f'    queryCtr: 0,\n'
+        res += f'    seqCtr: 0,\n'
+        res += f'    fragments: mtfl,\n'
+        res += f'    fragmentsSize: 0,\n'
+        res += f'    currFragment: 0,\n'        
+        if self.sendApp == None:
+            res += f'    numAttempts: 0 >'
+        else:
+            res += f'    numAttempts: 0,\n'
+            res += f'    conf: ({self.sendApp.to_maude()}) >'
+        return res
