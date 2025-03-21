@@ -19,6 +19,8 @@ mod IODINE_DNS is
   vars msgs msgs0 : Config .   ---- MsgConfig
   vars msg msg0 msg1 msgIn msgOut msgOutExt : Msg .
   var txComplete : Bool .
+  var PACKETS PACKETS' : PacketList .
+  var Pkt : Packet .
 
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
@@ -80,14 +82,6 @@ crl [wnameserver-receive-query-weird]:
   ---------------------------------------
   --- [WClient] --- Weird (Iodine) client
   ---------------------------------------
-  --- Start Weird client.
----  rl [startWClient]:
----    < ADDR : WClient | wattrs, conf: appAlice > (to ALICE : start)
----    =>
----    < ADDR : WClient | wattrs, conf: (appAlice (to ALICE : start) ) >
----    [print "startWClient" ]
----    .
-
   --- Handle packet from Alice headed to Bob.
   --- If a packet is not currently being sent or numAttempts >= 2, then WClient
   --- can accept and handle the packet.
@@ -136,5 +130,25 @@ crl [wnameserver-receive-query-weird]:
           else nullMsg
         fi
     .
+  
+    --- To start, send a start message to the send app
+  rl [startWClient]:
+    < ADDR : WClient | wattrs, 
+      conf: (< ALICE : SendApp | toAddr: BOB, queue: (Pkt ; PACKETS), sent: PACKETS', appAttrs >
+            (to ALICE : start))
+    >    
+    =>
+    < ADDR : WClient | wattrs, 
+      conf: (< ALICE : SendApp | toAddr: BOB, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
+            (if Pkt == nilPacket then null else (to BOB from ALICE : Pkt) fi))
+    >
+    --- if msgOut := 
+    ---     if Pkt == nilPacket
+    ---       then nullMsg
+    ---       else (to BOB from ALICE : Pkt)
+    ---     fi
+    [print "startWClient" ]
+    .
+
 
 endm

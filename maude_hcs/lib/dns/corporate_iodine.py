@@ -35,21 +35,27 @@ def corporate_iodine(run_args) -> IodineDNSConfig:
     nameserverCORP = Nameserver(f'addrNS{CORP_NAME}', [zonecorp], forwardonly=resolver.address)
     nameserverPWND2 = Nameserver(f'addrNS{PWND2_NAME}', [zonepwnd2])
 
-    query = Query(1, f'www0.{EE_NAME}.com.', 'A')
-    client = Client('cAddr', [query], nameserverCORP)
-
+    
     root_nameservers = {'a.root-servers.net.': GLOBALS.ADDR_NS_ROOT}
 
     # tunnels and apps
     args = run_args["application"]
     pkt_sizes = args["send_app_queue_pkt_sizes"]
     aliceAddr = args['send_app_address']
-    sndApp = SendApp(aliceAddr, makePackets(aliceAddr, pkt_sizes))
-    rcvApp = ReceiveApp(args['rcv_app_address'])
+    bobAddr = args['rcv_app_address']
+    start_send_app = args["start_send_app"]
+    include_dns_client = args['include_dns_client']
+    sndApp = SendApp(aliceAddr, bobAddr, makePackets(aliceAddr, pkt_sizes))
+    rcvApp = ReceiveApp(bobAddr)
     args = run_args["weird_network"]
-    iodineCl = IodineClient(args['client_address'], args['client_weird_base_name'], args['client_weird_qtype'], nameserverCORP.address, sndApp)
+    iodineCl = IodineClient(args['client_address'], args['client_weird_base_name'], args['client_weird_qtype'], nameserverCORP.address, sndApp, start=start_send_app)
     iodineSvr = IodineServer(f'addrNS{PWND2_NAME}', rcvApp, nameserverPWND2)
 
-    C = IodineDNSConfig([], [iodineCl, iodineSvr], [client], [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers)
+    clients = []
+    if include_dns_client:
+        query = Query(1, f'www0.{EE_NAME}.com.', 'A')
+        clients.append( Client('cAddr', [query], nameserverCORP) )
+
+    C = IodineDNSConfig([], [iodineCl, iodineSvr], clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers)
     C.set_params(run_args.get('nondeterministic_parameters', {}))
     return C

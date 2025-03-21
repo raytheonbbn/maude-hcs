@@ -36,8 +36,9 @@ class IodineServer:
 
 
 class SendApp:
-    def __init__(self, address, packets_to_send):
+    def __init__(self, address, toAddress, packets_to_send):
         self.address = address
+        self.toAddress = toAddress
         self.packets = packets_to_send
 
     def __str__(self) -> str:
@@ -45,18 +46,20 @@ class SendApp:
 
     def to_maude(self) -> str:
         res = f'< {address_to_maude(self.address)} : SendApp |\n'
+        res += f'    toAddr: ({address_to_maude(self.toAddress)}),\n'
         res += f'    queue: ({packetlist_to_maude(self.packets)}),\n'
         res += f'    sent: mtpl >'
         return res
 
 class IodineClient:
 
-    def __init__(self, address, wDomName, wQueryType, resolverAddress, sendApp : SendApp) -> None:
+    def __init__(self, address, wDomName, wQueryType, resolverAddress, sendApp : SendApp, start=True) -> None:
         self.address = address
         self.wDomName = wDomName
         self.wQueryType = wQueryType
         self.resolverAddress = resolverAddress
         self.sendApp = sendApp        
+        self.start = start
 
     def __str__(self) -> str:
         return f'< {self.address} : WClient | Attrs >'
@@ -75,5 +78,8 @@ class IodineClient:
             res += f'    numAttempts: 0 >'
         else:
             res += f'    numAttempts: 0,\n'
-            res += f'    conf: ({self.sendApp.to_maude()}) >'
+            strStart = ''
+            if self.start:
+                strStart = f'(to {address_to_maude(self.sendApp.address)} : start)'
+            res += f'    conf: ({self.sendApp.to_maude()} {strStart}) >'
         return res

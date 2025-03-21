@@ -209,14 +209,15 @@ mod IODINE_NODE is
   ---  Alice sends weird messages to Bob via WNameserver
   ------------------------------------------------------
   op SendApp : -> ActorType [ctor] .  
+  op toAddr:_ : Address -> Attribute [ctor] .
   ---- packets to send
   op queue:_ : PacketList -> Attribute [ctor] . 
   ---- packets sent
   op sent:_ : PacketList -> Attribute [ctor] .
 
-  op makeSendApp : Address -> Actor [ctor] .
-  eq makeSendApp(AliceAddr) =
-    < AliceAddr : SendApp | queue: mtpl, sent: mtpl > .
+  op makeSendApp : Address Address -> Actor [ctor] .
+  eq makeSendApp(AliceAddr, BobAddr) =
+    < AliceAddr : SendApp | toAddr: BobAddr, queue: mtpl, sent: mtpl > .
 
   --------------------------------
   --- [App Bob] --- 
@@ -472,7 +473,7 @@ red isFragmentMatch((wClientAttrs, seqCtr: 44, currFragment: 5), fragment(AliceA
 red isFragmentMatch((wClientAttrs, seqCtr: 44), fragment(AliceAddr, 44, 5, 100, false)) == false .
 
 red isWeird((pendingFragments: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) == true .
-red extractS((appAddr: BobAddr, pendingFragments: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) .
+red extractS((pendingFragments: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, 1, 1, 100, true)) . 'pwnd2 . 'com . root, a))) .
 
 red isTxComplete(wClientAttrs, fragments: mtfl) == true .
 red isTxComplete(wClientAttrs, fragments: fragment(AliceAddr, 1, 1, 20, true)) == false .
