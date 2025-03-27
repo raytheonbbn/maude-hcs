@@ -18,8 +18,9 @@ mod IODINE_DNS is
   var  wdb : MapIdMsg . 
   vars msgs msgs0 : Config .   ---- MsgConfig
   vars msg msg0 msg1 msgIn msgOut msgOutExt : Msg .
-  var txComplete : Bool .
+  vars txComplete, maxAttemptsReached : Bool .
   var PACKETS PACKETS' : PacketList .
+  var FRAGMENT_LIST : FragmentList .
   var Pkt : Packet .
 
   --------------------------------
@@ -131,6 +132,27 @@ crl [wnameserver-receive-query-weird]:
         fi
     .
   
+---  crl [iClientTimeout]:
+---    < ADDR : WClient | wattrs, conf: (< ALICE : SendApp | appAttrs >) >
+---      (to ADDR : timeout)
+---    =>
+---    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >
+---      (if msgOut == nullMsg then null else msgOut fi)) >
+---    (if msgOutExt == nullMsg then null else msgOutExt fi)
+---    if isSending(wattrs)
+---      /\ maxAttemptsReached := (getNumAttempts(wattrs) > 3)
+---      /\ {wattrsNext, msgOutExt} :=
+---        if maxAttemptsReached
+---          then {dropFragments(wattrs), nullMsg}
+---          else sendFragment(wattrs, ALICE)
+---        fi
+---      /\ msgOut :=
+---        if maxAttemptsReached
+---          then (to ALICE : start)
+---          else nullMsg
+---        fi
+---    .
+
     --- To start, send a start message to the send app
   rl [startWClient]:
     < ADDR : WClient | wattrs, 
