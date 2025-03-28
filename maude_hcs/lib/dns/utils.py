@@ -8,4 +8,6 @@ def packetlist_to_maude(packets) -> str:
     
 def makePackets(address, sizeList : list, startSeqNum = 0) -> list:    
     indeces = list(range(startSeqNum, startSeqNum + len(sizeList)))
-    return [Packet(address, index, L) for L, index in zip(sizeList, indeces)]
+    isLastList = [False for index in indeces]
+    isLastList[-1] = True
+    return [Packet(address, index, L, isLast) for L, index, isLast in zip(sizeList, indeces, isLastList)]
