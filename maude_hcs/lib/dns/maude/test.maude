@@ -17,7 +17,7 @@ mod TEST_IDNS is
     query(1, nm(F) . NAME . root, a) .
 
   op FR : Bool -> Fragment .
-  eq FR(B) = fragment(addrAlice, 1, 1, 100, B) .    
+  eq FR(B) = fragment(addrAlice, 1, 1, 100, false, B) .    
 
   eq maxFragmentLen = 200 .
   
@@ -57,10 +57,10 @@ mod TEST_IDNS is
   --- (to addrWNS from cAddr : wQ(FR(false), 'pwnd2 . 'com))
   --- Test ACK0. Message to test ACK of last fragment.
   --- Expect a message to Alice to send a new packet down, fragments empty.
-   (to addrAlice from addrWNS : response(5, nm(fragment(addrAlice, 7, 2, 100, true)) . 'pwnd2 . 'com . 'root, nil, nil, nil, 0))
+   (to addrAlice from addrWNS : response(5, nm(fragment(addrAlice, 7, 2, 100, false, true)) . 'pwnd2 . 'com . 'root, nil, nil, nil, 0))
   --- Test ACK1.
   --- Expect the next fragment to the WNServer, num attempts = 1.
-  --- (to addrAlice from addrWNS : response(5, nm(fragment(addrAlice, 7, 2, 100, false)) . 'pwnd2 . 'com . 'root, nil, nil, nil, 0))
+  --- (to addrAlice from addrWNS : response(5, nm(fragment(addrAlice, 7, 2, 100, false, false)) . 'pwnd2 . 'com . 'root, nil, nil, nil, 0))
   --- Monitor
   --- initMonitor(mAddr)
   --- Clients
@@ -95,7 +95,7 @@ mod TEST_IDNS is
 ---    currFragment: 3,
 ---    numAttempts: 1,
 ---    weirdQType: a,
----    conf: (makeSendApp(addrAlice, addrBob) (to addrWClient from addrAlice : packet(addrAlice, 3, 300)))
+---    conf: (makeSendApp(addrAlice, addrBob) (to addrWClient from addrAlice : packet(addrAlice, 3, 300, false)))
 ---  >
   --- Test ACK0: Test rule handling ACK of last Fragment from Iodine server.
   < addrWClient : WClient |
@@ -103,7 +103,7 @@ mod TEST_IDNS is
     wDom: 'pwnd2 . 'com . 'root,
     queryCtr: 12,
     seqCtr: 7,
-    fragments: popFront(makeFragments(packet(addrAlice, 7, 300), 200)),
+    fragments: popFront(makeFragments(packet(addrAlice, 7, 300, false), 200)),
     fragmentsSize: 2,
     currFragment: 2,
     numAttempts: 1,
@@ -116,7 +116,7 @@ mod TEST_IDNS is
 ---    wDom: 'pwnd2 . 'com . 'root,
 ---    queryCtr: 12,
 ---    seqCtr: 7,
----    fragments: popFront(makeFragments(packet(addrAlice, 7, 500), 200)),
+---    fragments: popFront(makeFragments(packet(addrAlice, 7, 500, false), 200)),
 ---    fragmentsSize: 3,
 ---    currFragment: 2,
 ---    numAttempts: 1,
