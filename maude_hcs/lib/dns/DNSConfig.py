@@ -36,7 +36,7 @@ class DNSConfig(Config):
     # override update the modules imported
     def to_maude_nondet(self, param_dict, path) -> str:
         res = '\n'.join((
-                f'load {self.weirdpath}/iodine_dns',
+                f'load {self.weirdpath}/nondet/iodine_dns',
                 #f'load {path}src/nondet-model/dns',
                 f'load {path}test/nondet-model/test_helpers',
 
