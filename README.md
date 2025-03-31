@@ -10,7 +10,7 @@ to it. The main initial changes we did are structural so that we can
 import the dependency as a module especially for some relevant python
 source code, and use it.
 We will also use sparse-checkout to avoid needing to checkout all the source of the 
-depdendency which includes many irrelevant files (such as Testbed).
+dependency which includes many irrelevant files (such as Testbed).
 
 First setup a new conda environment and activate it.
 
@@ -38,7 +38,7 @@ and tell it to only include certain directories such as `Maude/src`.
 
 At this point `git status` should show a clean start.
 
-To install, first install the depdendency as a package called dns, we import as `Maude.*`
+To install, first install the dependency as a package called dns, we import as `Maude.*`
 then install the `maude_hcs` as a package (with dependency on dns).
 ```shell
 cd maude_hcs/deps/dns_formalization
@@ -51,10 +51,17 @@ pip install -e .
 
 For now we can generate initial configurations using `generate` command.
 Pass a use case config file as follows,
+
+To geenrate a vanilla DNS config (without iodine),
 ```shell
 maude-hcs --verbose --run-args=./use-cases/corporate-base.json generate nondet
 ```
 
+To generate a DNS config with iodine,
+```shell
+maude-hcs --verbose --run-args=./use-cases/corporate-iodine.json generate nondet
+```
+Look at the `corporate-iodine.json` file above to see the configuration parameters.
 
 # References
 

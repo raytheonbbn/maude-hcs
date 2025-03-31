@@ -1,14 +1,15 @@
 from .corporate import corporate
+from .corporate_iodine import corporate_iodine
 
 class KnownUNetworks:
     def __init__(self):        
         self.constructors = {
-            'corporate-base': self._fixed_network(corporate)
+            'corporate_base': self._fixed_network(corporate),
+            'corporate_iodine': self._fixed_network(corporate_iodine)
         }
     
-    def create(self, run_args):
-        args = run_args["underlying_network"].get(run_args["underlying_network"]["config"], {})
-        conf = self.constructors[run_args["underlying_network"]["config"]](args)
+    def create(self, run_args):        
+        conf = self.constructors[run_args["name"]](run_args)
         return conf
     
     def _fixed_network(self, Cls):
