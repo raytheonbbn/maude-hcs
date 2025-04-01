@@ -1,5 +1,5 @@
 load _aux
-load ../../../../deps/dns_formalization/Maude/src/probabilistic/dns
+load ../../../../deps/dns_formalization/Maude/src/probabilistic-model/dns
 
 --- DNS includes AUX + MSG + PARAMETERS .
 mod IODINE_DNS is
@@ -22,6 +22,7 @@ mod IODINE_DNS is
   var PACKETS PACKETS' : PacketList .
   var FRAGMENT_LIST : FragmentList .
   var Pkt : Packet .
+  vars T T' : Float . --- timestamp
 
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
@@ -93,14 +94,14 @@ crl [wnameserver-receive-query-weird]:
   --- (same as not sending or sending and numAttempts > 2)
   --- Handle the packet, fragment it, and send the first fragment.
   crl [iClientEmbedding]:
-    < ADDR : WClient | wattrs, conf: (< ALICE : SendApp | appAttrs > (to BOB from ALICE : Pkt))
+    < ADDR : WClient | wattrs, conf: (< ALICE : SendApp | appAttrs > {T, (to BOB from ALICE : Pkt)})
     >
     =>
     < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >)
     >
     msgOut
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
-       /\ {wattrsNext, msgOut} := handleAndSend(ADDR, wattrs, (to BOB from ALICE : Pkt))
+       /\ {wattrsNext, msgOut} := handleAndSend(ADDR, wattrs, Pkt)
 ---    [print "iClientEmbedding msg in"  msg]
 ---    [print "iClientEmbedding fragment out "  msgOut]
     .
@@ -114,7 +115,7 @@ crl [wnameserver-receive-query-weird]:
   --- TODO: Change Alice -> WClient.
   crl [iClientExtractFromServer]:
     < ADDR : WClient | (wattrs, resv: RESOLVER), conf: (< ALICE : SendApp | appAttrs >) >
-      (to ADDR from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))
+      {T, (to ADDR from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))}
     =>
     < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs > 
       (if msgOut == nullMsg then null else msgOut fi)) >
@@ -132,7 +133,7 @@ crl [wnameserver-receive-query-weird]:
       /\ msgOut := 
         if txComplete
         --- TODO: extract ALICE address from response also to know to send to Alice
-          then (to ALICE : start)
+          then [genRandom(0.0, 0.0001), (to ALICE : start), 0]
           else nullMsg
         fi
     .
@@ -142,12 +143,12 @@ crl [wnameserver-receive-query-weird]:
   rl [startWClient]:
     < ADDR : WClient | wattrs, 
       conf: (< ALICE : SendApp | toAddr: BOB, queue: (Pkt ; PACKETS), sent: PACKETS', appAttrs >
-            (to ALICE : start))
+            {T, (to ALICE : start)})
     >    
     =>
     < ADDR : WClient | wattrs, 
       conf: (< ALICE : SendApp | toAddr: BOB, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
-            (if Pkt == nilPacket then null else (to BOB from ALICE : Pkt) fi))
+            (if Pkt == nilPacket then null else [delay, (to BOB from ALICE : Pkt), 0] fi))
     >
     --- if msgOut := 
     ---     if Pkt == nilPacket

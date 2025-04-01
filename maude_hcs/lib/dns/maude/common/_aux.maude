@@ -344,8 +344,8 @@ mod IODINE_NODE is
   eq isFragmentMatch(wattrs, fragment(ADDR, SEQ_CTR, CUR_FRAG, N, LAST_PACKET, LAST)) = false [owise] .
 
   --- Handle a packet (msg) and send the first fragment.
-  op handleAndSend : Address AttributeSet Msg -> AttributeSetMsgs .
-  ceq handleAndSend(ADDR, wattrs, (to BobAddr from AliceAddr : PACKET)) =
+  op handleAndSend : Address AttributeSet Packet -> AttributeSetMsgs .
+  ceq handleAndSend(ADDR, wattrs, PACKET) =
     {wattrsNext, msgOut}
     if wattrsTrans := handleNewPacket(wattrs, PACKET, maxFragmentLen)
       /\ {wattrsNext, msgOut} := sendFragment(wattrsTrans, ADDR)
@@ -355,7 +355,7 @@ mod IODINE_NODE is
   ---                   Attributes from
   op sendFragment : AttributeSet Address -> AttributeSetMsgs .
   ceq sendFragment((wattrs, numAttempts: NUM_ATTEMPTS, weirdQType: QTYPE), ADDR) = 
-    {(wattrsNext, numAttempts: s NUM_ATTEMPTS, weirdQType: QTYPE), (to RESOLVER from ADDR : QUERY)}
+    {(wattrsNext, numAttempts: s NUM_ATTEMPTS, weirdQType: QTYPE), mtransform((to RESOLVER from ADDR : QUERY))}
     if RESOLVER := getResolver(wattrs)
       /\ wattrsNext := incrQueryCtr(wattrs)
       /\ ID := getQueryCtr(wattrsNext)
