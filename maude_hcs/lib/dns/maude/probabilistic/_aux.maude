@@ -1,13 +1,19 @@
 load ../common/_aux
---- load ../../../../deps/dns_formalization/Maude/src/probabilistic/_aux
+load ../../../../deps/dns_formalization/Maude/src/probabilistic-model/_aux
 
 mod IAUX is
-  --- inc AUX + IODINE_NODE .
-  inc IODINE_NODE .
+  inc AUX + IODINE_NODE .  
 
-  var CONF : Config .
+  var CONF CONF1 : Config .
+  var msg : Msg .
 
-  --- passthru
-  eq _transform(CONF) = CONF .
+  op $mtransform : Config Config -> Config .
+
+  --- add delays to messages
+  eq mtransform(CONF) = $mtransform(CONF, null) .
+  eq $mtransform(null, CONF) = CONF .
+  eq $mtransform(msg CONF, CONF1) = $mtransform(CONF, [delay, msg, drop?] CONF1) .
+
+
 
 endm
