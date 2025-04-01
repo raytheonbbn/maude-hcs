@@ -404,14 +404,16 @@ mod IODINE_NODE is
     .
   eq isWeird(wattrs, msg) = false [owise] .
 
+  op _transform : Config -> Config .  
+
   ---- Server extract fragment
-  op extractS : AttributeSet Msg -> AttributeSetMsgs .
-  ceq extractS(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans, msgOut}
+  op extractS : AttributeSet Config -> AttributeSetMsgs .
+  ceq extractS(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans, CONF}
     if  nm(F) . NAME1 := NAME
     /\ (pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs) := wattrs
     /\ wattrsTrans := (pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), Attrs)
     ---- simply ACK fragment (NAME contains fragment; RCODE 0 is success)
-    /\ msgOut := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, 3600.0, nullAddr >, nil, nil, 0)) 
+    /\ CONF := _transform((to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, 3600.0, nullAddr >, nil, nil, 0))) 
     .
 
   op updateRcvApp : AttributeSet AttributeSet -> AttributeSetPair .
