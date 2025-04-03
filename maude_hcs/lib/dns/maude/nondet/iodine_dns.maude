@@ -32,12 +32,12 @@ mod IODINE_DNS is
 ----  TODO: merge into single rule below 
 crl [wnameserver-receive-query-passthru]:
   < ADDR : WNameserver | wattrs,  
-          conf: (appBob wrappedNS)
+          conf: (wrappedNS)
   >
   (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))
   =>
   < ADDR : WNameserver | wattrs, 
-          conf: (appBob wrappedNS (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) 
+          conf: (wrappedNS (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) 
   >
   if  not isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) .
 
@@ -45,11 +45,11 @@ crl [wnameserver-receive-query-passthru]:
 ----  passthrough
 rl [weird-nameserver-response-passthru]:
   < ADDR : WNameserver | wattrs,  
-          conf: (appBob wrappedNS (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)))
+          conf: (wrappedNS (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)))
   >
   =>
   < ADDR : WNameserver | wattrs, 
-          conf: (appBob wrappedNS) 
+          conf: (wrappedNS) 
   >
   (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE))  
   .
@@ -67,19 +67,19 @@ rl [weird-nameserver-response-passthru]:
 ----      but that is not how iodine is implemented! For now, iodine directly responds.
 crl [wnameserver-receive-query-weird]:
   < ADDR : WNameserver | wattrs,  
-          conf: (< BOB : RcvApp | appAttrs > wrappedNS)
+          conf: (wrappedNS)
   >
   (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))
   =>
   < ADDR : WNameserver | wattrs2,
-          conf: (< BOB : RcvApp | appAttrs1 > wrappedNS) 
+          conf: (wrappedNS) 
   >
-  msgOut
+  msgOut appMsgOut
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 1 and step 2
   /\ {wattrs1, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 3
-  /\ {wattrs2, appAttrs1} := updateRcvApp(wattrs1, appAttrs)
+  /\ {wattrs2, appMsgOut} := updateRcvApp(wattrs1, appAttrs)
   .
 
   ---------------------------------------
