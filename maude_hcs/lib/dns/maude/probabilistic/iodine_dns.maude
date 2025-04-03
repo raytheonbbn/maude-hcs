@@ -1,14 +1,16 @@
 load _aux
+load wmonitor
 load ../../../../deps/dns_formalization/Maude/src/probabilistic-model/dns
 
 --- DNS includes AUX + MSG + PARAMETERS .
 mod IODINE_DNS is
-  inc IAUX + DNS .
+  inc IAUX + DNS + WMONITOR .
 
   vars ADDR ADDR1 ADDR2 NS RESOLVER ALICE BOB : Address .
   var RCODE : Nat .
   vars ANS AUTH ADD : List{Record} .
   vars wattrs wattrs1 wattrs2 wattrsNext wattrsTrans wattrsTrans' appAttrs appAttrs1 : AttributeSet .
+  vars monAttrs : AttributeSet .
   vars conf : Config .
   vars appAlice appBob wrappedNS : Actor .
   vars ID ID' : Id .      ---- Nat < Id
@@ -23,6 +25,10 @@ mod IODINE_DNS is
   var FRAGMENT_LIST : FragmentList .
   var Pkt : Packet .
   vars T T' : Float . --- timestamp
+  var PTL : PacketTimestampList .
+  vars QTL : QueryTimestampList .
+  vars MON : Address .
+  vars FRAGMENT sentFragment : Fragment .
 
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
@@ -96,12 +102,17 @@ crl [wnameserver-receive-query-weird]:
   crl [iClientEmbedding]:
     < ADDR : WClient | wattrs, conf: (< ALICE : SendApp | appAttrs > {T, (to BOB from ALICE : Pkt)})
     >
+    < MON : WMonitor | pktSent: PTL, querySent: QTL, monAttrs >
     =>
     < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >)
     >
-    msgOut
+    < MON : WMonitor | pktSent: (PTL ; packetTimestamp(Pkt, T)), querySent: (QTL ; queryTimestamp(getQuery(msgOut), T)), monAttrs >
+    [delay, msgOut, drop?]
+    [delay, (to ADDR : ackTimeout(sentFragment)), 0]
+    --- TODO: Replace with not hard coded.
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(ADDR, wattrs, Pkt)
+       /\ sentFragment := grabCurrentFragment(wattrsNext)
 ---    [print "iClientEmbedding msg in"  msg]
 ---    [print "iClientEmbedding fragment out "  msgOut]
     .
@@ -115,11 +126,13 @@ crl [wnameserver-receive-query-weird]:
   --- TODO: Change Alice -> WClient.
   crl [iClientExtractFromServer]:
     < ADDR : WClient | (wattrs, resv: RESOLVER), conf: (< ALICE : SendApp | appAttrs >) >
+    < MON : WMonitor | querySent: QTL, monAttrs >
       {T, (to ADDR from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))}
     =>
     < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs > 
       (if msgOut == nullMsg then null else msgOut fi)) >
-    (if msgOutExt == nullMsg then null else msgOutExt fi)
+    < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
+    (if msgOutExt == nullMsg then null else [delay, msgOutExt, drop?] fi)
 ---   Alice messages are internal and Bob / Resolver messages external.
 ---   Therefore, we would need to set msgOut to nil or (to ALICE : start) and 
 ---   require a second msg extMsgOut set to (to RESOLVER : fragment) or nil.
@@ -138,12 +151,38 @@ crl [wnameserver-receive-query-weird]:
         fi
     .
   
+    --- Timeout rule for WClient.
+  crl [iClientTimeout]:
+    < ADDR : WClient | wattrs, conf: (< ALICE : SendApp | appAttrs >) >
+    < MON : WMonitor | querySent: QTL, monAttrs >
+      {T, (to ADDR : ackTimeout(FRAGMENT))}
+    =>
+    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >
+      (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)) >
+    < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
+    (if msgOutExt == nullMsg then null else [delay, msgOutExt, drop?] fi)
+    if isSending(wattrs)
+      --- If the timed out fragment does not match the current fragment, then it means we have already received the ACK and this rule should not match.
+      /\ isFragmentMatch(wattrs, FRAGMENT)
+      /\ maxAttemptsReached := isMaxAttemptsReached(wattrs)
+      /\ {wattrsNext, msgOutExt} :=
+        if maxAttemptsReached
+          then {dropFragments(wattrs), nullMsg}
+          else sendFragment(wattrs, ALICE)
+        fi
+      /\ msgOut :=
+        if maxAttemptsReached
+          then (to ALICE : start)
+          else nullMsg
+        fi
+    .
+
 
     --- To start, send a start message to the send app
   rl [startWClient]:
     < ADDR : WClient | wattrs, 
       conf: (< ALICE : SendApp | toAddr: BOB, queue: (Pkt ; PACKETS), sent: PACKETS', appAttrs >
-            {T, (to ALICE : start)})
+            (to ALICE : start))
     >    
     =>
     < ADDR : WClient | wattrs, 

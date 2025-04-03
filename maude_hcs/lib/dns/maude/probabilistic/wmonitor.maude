@@ -1,0 +1,31 @@
+load ../../../../deps/dns_formalization/Maude/src/common/actor
+
+fmod WMONITOR is
+  inc MSG + SORTS .
+
+  sort Packet .
+
+  --- Tuple{Packet, Timestamp}
+  sorts PacketTimestamp PacketTimestampList .
+  subsort PacketTimestamp < PacketTimestampList .
+  op packetTimestamp : Packet Float -> PacketTimestamp .
+  op nilPacketTimestamp : -> PacketTimestampList [ctor] .
+  op _;_ : PacketTimestampList PacketTimestampList -> PacketTimestampList [ctor assoc id: nilPacketTimestamp] .
+
+  sorts QueryTimestamp QueryTimestampList .
+  subsort QueryTimestamp < QueryTimestampList .
+  op queryTimestamp : Query Float -> QueryTimestamp .
+  op nilQueryTimestamp : -> QueryTimestampList [ctor] .
+  op _;_ : QueryTimestampList QueryTimestampList -> QueryTimestampList [ctor assoc id: nilQueryTimestamp] .
+
+  --- The Monitor and its attributes
+  op WMonitor : -> ActorType .
+
+  op init:_ : Bool -> Attribute [format (nss d d)] . --- Whether the monitor has captured statistics of the initial state
+
+  op pktSent:_ : PacketTimestampList -> Attribute [format (nss d d)] .  --- records the number of packets sent by Iodine client
+  op pktRecvd:_ : PacketTimestampList -> Attribute [format (nss d d)] . --- records the number of packets received by Iodine server
+  op querySent:_ : QueryTimestampList -> Attribute [format (nss d d)] .
+
+endfm
+
