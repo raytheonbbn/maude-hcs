@@ -208,6 +208,9 @@ mod IODINE_NODE is
 --------  Nesting/Meta configuration  attribute
   op conf:_ : Config -> Attribute [ctor] .
   
+  op getQuery : Msg -> Query .
+  eq getQuery((to ADDR from ADDR1 : QUERY)) = QUERY .
+
   ------------------------------------------------------
   --- [App Alice] --- 
   ---  Alice sends weird messages to Bob via WNameserver
@@ -269,6 +272,8 @@ mod IODINE_NODE is
 
   --- The maximum fragment length (or fragment size).
   op maxFragmentLen : -> Nat .
+  --- The maximum number of fragment transmission tries.
+  op maxFragmentTx : -> Nat .
 
   op getResolver : AttributeSet ~> Address .
   eq getResolver(wattrs, resv: ADDR) = ADDR .
@@ -298,6 +303,9 @@ mod IODINE_NODE is
     fi
     .
   eq isSending(wattrs) = false [owise] .
+
+  op isMaxAttemptsReached : AttributeSet -> Bool .
+  eq isMaxAttemptsReached(wattrs) = getNumAttempts(wattrs) > maxFragmentTx .
 
   --- Increment the query id.
   --- Iodine increments queries by 7727.
