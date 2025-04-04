@@ -1,0 +1,50 @@
+--- set show advisories off .
+
+fmod ADDRESS is
+  pr NAT + QID .
+
+  sorts Address AddrSet AddrList .
+  subsorts Address < AddrSet AddrList .  
+  
+  op nullAddr : -> Address [ctor] .
+  --- composing address
+  op _._ : Address Address -> Address [assoc prec 10] .
+  
+  op ept : -> AddrSet [ctor] .
+  op _;;_ : AddrSet AddrSet -> AddrSet [ctor comm assoc id: ept] .
+  
+  op nil : -> AddrList [ctor] .
+  op _;_ : AddrList AddrList -> AddrList [ctor assoc id: nil] .  
+endfm
+view Address from TRIV to ADDRESS is sort Elt to Address . endv
+
+fmod ACTOR-MODEL is
+  pr ADDRESS + FLOAT .
+
+  --- ActorConfig represents a soup of actors containing no messages
+  sorts Actor Config ActorConfig .
+  sort PairConfig .
+  sorts Msg .
+  sorts ActorType Attribute AttributeSet Content .
+
+  subsort Msg < Config .
+  subsort Actor < ActorConfig < Config .
+  subsort Attribute < AttributeSet .
+
+  op null : -> ActorConfig .
+  op __ : ActorConfig ActorConfig -> ActorConfig [assoc comm id: null] .
+  op __ : Config Config -> Config [assoc comm id: null] .
+
+  op pairConfig : Config Config -> PairConfig .
+
+  --- Messages:
+  op to_from_:_ : Address Address Content -> Msg .
+  op to_:_      : Address Content         -> Msg .
+
+  --- Actors:
+  op <_:_|_> : Address ActorType AttributeSet -> Actor [format (ni d d d d d d d)] .
+
+  --- Attributes can be used to add user defined data to an actor
+  op noneAS : -> AttributeSet .
+  op _,_ : AttributeSet AttributeSet -> AttributeSet [assoc comm id: noneAS] .
+endfm
