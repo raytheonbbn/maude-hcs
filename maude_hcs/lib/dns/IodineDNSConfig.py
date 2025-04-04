@@ -13,11 +13,8 @@ class IodineDNSConfig(DNSConfig):
             addresses.append(app.address)
         for actor in self.tunnels:
             addresses.append(actor.address)
-            if isinstance(actor, IodineServer):                                                               
-                addresses.append(actor.rcvApp.address)
+            if isinstance(actor, IodineServer):
                 addresses.append(actor.nameServer.address)
-            if isinstance(actor, IodineClient):
-                addresses.append(actor.sendApp.address)            
         return sorted(set(addresses))
     
     def _get_zones(self):        

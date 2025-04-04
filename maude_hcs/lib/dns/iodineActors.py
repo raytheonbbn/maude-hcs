@@ -17,29 +17,28 @@ class ReceiveApp:
 
 class IodineServer:
 
-    def __init__(self, address, rcvApp : ReceiveApp, nameServer : Nameserver) -> None:
-        self.address = address
-        self.rcvApp = rcvApp
+    def __init__(self, address, nameServer : Nameserver) -> None:
+        self.address = address        
         self.nameServer = nameServer
 
     def __str__(self) -> str:
         return f'< {self.address} : WNameserver | Attrs >'
 
-    def to_maude(self) -> str:
-        strRcvApp = "" if self.rcvApp == None else self.rcvApp.to_maude()
+    def to_maude(self) -> str:        
         strNS = "" if self.nameServer == None else self.nameServer.to_maude()
         res = f'< {address_to_maude(self.address)} : WNameserver |\n'        
         res += f'    pendingFragments: mtfl,\n'
         res += f'    lastFragment: false,\n'
-        res += f'    conf: ({strRcvApp} {strNS}) >'
+        res += f'    conf: ({strNS}) >'
         return res
 
 
 class SendApp:
-    def __init__(self, address, toAddress, packets_to_send):
+    def __init__(self, address, toAddress, packets_to_send, start : bool = True):
         self.address = address
         self.toAddress = toAddress
         self.packets = packets_to_send
+        self.start = start
 
     def __str__(self) -> str:
         return f'< {self.address} : SendApp | Attrs >'
@@ -48,18 +47,18 @@ class SendApp:
         res = f'< {address_to_maude(self.address)} : SendApp |\n'
         res += f'    toAddr: ({address_to_maude(self.toAddress)}),\n'
         res += f'    queue: ({packetlist_to_maude(self.packets)}),\n'
-        res += f'    sent: mtpl >'
+        res += f'    sent: mtpl > '
+        if self.start:
+            res+= f'(to {address_to_maude(self.address)} : start)'
         return res
 
 class IodineClient:
 
-    def __init__(self, address, wDomName, wQueryType, resolverAddress, sendApp : SendApp, start=True) -> None:
+    def __init__(self, address, wDomName, wQueryType, resolverAddress) -> None:
         self.address = address
         self.wDomName = wDomName
         self.wQueryType = wQueryType
         self.resolverAddress = resolverAddress
-        self.sendApp = sendApp        
-        self.start = start
 
     def __str__(self) -> str:
         return f'< {self.address} : WClient | Attrs >'
@@ -73,13 +72,13 @@ class IodineClient:
         res += f'    seqCtr: 0,\n'
         res += f'    fragments: mtfl,\n'
         res += f'    fragmentsSize: 0,\n'
-        res += f'    currFragment: 0,\n'        
-        if self.sendApp == None:
-            res += f'    numAttempts: 0 >'
-        else:
-            res += f'    numAttempts: 0,\n'
-            strStart = ''
-            if self.start:
-                strStart = f'(to {address_to_maude(self.sendApp.address)} : start)'
-            res += f'    conf: ({self.sendApp.to_maude()} {strStart}) >'
+        res += f'    currFragment: 0,\n'
+        res += f'    appAddrMap: mtIdAddr,\n'        
+        res += f'    numAttempts: 0 >'
+        # else:
+        #     res += f'    numAttempts: 0,\n'
+        #     strStart = ''
+        #     if self.start:
+        #         strStart = f'(to {address_to_maude(self.sendApp.address)} : start)'
+        #     res += f'    conf: ({self.sendApp.to_maude()} {strStart}) >'
         return res
