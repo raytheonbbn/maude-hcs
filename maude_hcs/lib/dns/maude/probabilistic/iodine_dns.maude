@@ -17,9 +17,9 @@ mod IODINE_DNS is
   vars NAME NAME' WNAME SNAME QNAME : Name .
   vars Q1 Q : Query .
   var QTYPE : RType .
-  var  wdb : MapIdMsg . 
+  var  MIA MIA1 : MapIdAddr . 
   vars msgs msgs0 : Config .   ---- MsgConfig
-  vars msg msg0 msg1 msgIn msgOut msgOutExt : Msg .
+  vars msg msg0 msg1 msgIn msgOut msgOutExt appMsgOut : Msg .
   vars txComplete, maxAttemptsReached : Bool .
   var PACKETS PACKETS' : PacketList .
   var FRAGMENT_LIST : FragmentList .
@@ -39,13 +39,12 @@ mod IODINE_DNS is
 ----  TODO: merge into single rule below 
 crl [wnameserver-receive-query-passthru]:
   < ADDR : WNameserver | wattrs,  
-          conf: (appBob wrappedNS)
+          conf: (wrappedNS)
   >
   {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}
   =>
-  < ADDR : WNameserver | wattrs, 
-          --- add noise to avoid nondeterminism
-          conf: (appBob wrappedNS [genRandom(0.0, 0.0001), (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)), 0]) 
+  < ADDR : WNameserver | wattrs,           
+          conf: (wrappedNS (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) 
   >
   if  not isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) .
 
@@ -53,14 +52,13 @@ crl [wnameserver-receive-query-passthru]:
 ----  passthrough
 rl [weird-nameserver-response-passthru]:
   < ADDR : WNameserver | wattrs,  
-          conf: (appBob wrappedNS {T, (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE))})
+          conf: (wrappedNS (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)))
   >
   =>
   < ADDR : WNameserver | wattrs, 
-          conf: (appBob wrappedNS) 
+          conf: (wrappedNS) 
   >
-  --- add noise to avoid non-determinism
-  [genRandom(0.0, 0.0001), (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)), 0]
+  [delay, (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)), drop?]
   .
 
 ----  receivs DNS query with weird name
@@ -76,19 +74,40 @@ rl [weird-nameserver-response-passthru]:
 ----      but that is not how iodine is implemented! For now, iodine directly responds.
 crl [wnameserver-receive-query-weird]:
   < ADDR : WNameserver | wattrs,  
-          conf: (< BOB : RcvApp | appAttrs > wrappedNS)
+          conf: (wrappedNS)
   >
   {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}
   =>
   < ADDR : WNameserver | wattrs2,
-          conf: (< BOB : RcvApp | appAttrs1 > wrappedNS) 
+          conf: (wrappedNS) 
   >
-  msgOut
+  msgOut 
+  (if appMsgOut == nullMsg then null else appMsgOut fi)
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 1 and step 2
   /\ {wattrs1, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 3
-  /\ {wattrs2, appAttrs1} := updateRcvApp(wattrs1, appAttrs)
+  /\ {wattrs2, appMsgOut} := updateRcvApp(wattrs1, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  .
+
+  ---------------------------------------
+  --- [Receive App] --- Bob
+  ---------------------------------------
+  rl [receive-app-rcv-packet]:
+    < ADDR : RcvApp | rcvd: PACKETS, appAttrs >
+    {T, (to ADDR from ADDR1 : Pkt)}
+  => 
+    < ADDR : RcvApp | rcvd: (Pkt ; PACKETS), appAttrs > .
+
+  ---------------------------------------
+  --- [Send App] --- Alice
+  ---------------------------------------
+  rl [send-app-send-packet]:
+    < ALICE : SendApp | toAddr: ADDR, queue: (Pkt ; PACKETS), sent: PACKETS', appAttrs >
+    {T, (to ALICE : start)}
+  => 
+    < ALICE : SendApp | toAddr: ADDR, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
+    [delay, (to ADDR from ALICE : Pkt), 0]
   .
 
   ---------------------------------------
@@ -100,18 +119,17 @@ crl [wnameserver-receive-query-weird]:
   --- (same as not sending or sending and numAttempts > 2)
   --- Handle the packet, fragment it, and send the first fragment.
   crl [iClientEmbedding]:
-    < ADDR : WClient | wattrs, conf: (< ALICE : SendApp | appAttrs > {T, (to BOB from ALICE : Pkt)})
-    >
+    < ADDR : WClient | wattrs >
     < MON : WMonitor | pktSent: PTL, querySent: QTL, monAttrs >
+    {T, (to ADDR from ALICE : Pkt)}
     =>
-    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >)
-    >
+    < ADDR : WClient | wattrsNext >
     < MON : WMonitor | pktSent: (PTL ; packetTimestamp(Pkt, T)), querySent: (QTL ; queryTimestamp(getQuery(msgOut), T)), monAttrs >
     [delay, msgOut, drop?]
     [delay, (to ADDR : ackTimeout(sentFragment)), 0]
     --- TODO: Replace with not hard coded.
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
-       /\ {wattrsNext, msgOut} := handleAndSend(ADDR, wattrs, Pkt)
+       /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
        /\ sentFragment := grabCurrentFragment(wattrsNext)
 ---    [print "iClientEmbedding msg in"  msg]
 ---    [print "iClientEmbedding fragment out "  msgOut]
@@ -120,77 +138,44 @@ crl [wnameserver-receive-query-weird]:
   --- Handle a response from the resolver to WClient.
   --- Extract the ACK information and check this is for the fragment that was
   --- just sent (seqNo, fragNum match).
-  --- If the packet transmission is complete (this was last fragment) then
-  --- send the ALICE a msg to send one more packet.
-  --- Otherwise, send the next fragment to WNameServer.
-  --- TODO: Change Alice -> WClient.
+  --- If the packet transmission is incomplete 
+  --- send the next fragment to WNameServer.
   crl [iClientExtractFromServer]:
-    < ADDR : WClient | (wattrs, resv: RESOLVER), conf: (< ALICE : SendApp | appAttrs >) >
+    < ADDR : WClient | resv: RESOLVER, wattrs >
     < MON : WMonitor | querySent: QTL, monAttrs >
       {T, (to ADDR from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))}
     =>
-    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs > 
-      (if msgOut == nullMsg then null else msgOut fi)) >
+    < ADDR : WClient | wattrsNext >       
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
-    (if msgOutExt == nullMsg then null else [delay, msgOutExt, drop?] fi)
----   Alice messages are internal and Bob / Resolver messages external.
----   Therefore, we would need to set msgOut to nil or (to ALICE : start) and 
----   require a second msg extMsgOut set to (to RESOLVER : fragment) or nil.
-    if wattrsTrans := extract((wattrs, resv: RESOLVER), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
+    (if msgOutExt == nullMsg then null else msgOutExt fi)
+    if wattrsTrans := extract((resv: RESOLVER, wattrs), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
         if txComplete
           then {wattrsTrans, nullMsg}
           else sendFragment(wattrsTrans, ADDR)
         fi
-      /\ msgOut := 
-        if txComplete
-        --- TODO: extract ALICE address from response also to know to send to Alice
-          then [genRandom(0.0, 0.0001), (to ALICE : start), 0]
-          else nullMsg
-        fi
     .
   
     --- Timeout rule for WClient.
   crl [iClientTimeout]:
-    < ADDR : WClient | wattrs, conf: (< ALICE : SendApp | appAttrs >) >
+    < ADDR : WClient | wattrs >
     < MON : WMonitor | querySent: QTL, monAttrs >
-      {T, (to ADDR : ackTimeout(FRAGMENT))}
+    {T, (to ADDR : ackTimeout(FRAGMENT))}
     =>
-    < ADDR : WClient | wattrsNext, conf: (< ALICE : SendApp | appAttrs >
-      (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)) >
+    < ADDR : WClient | wattrsNext >    
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
-    (if msgOutExt == nullMsg then null else [delay, msgOutExt, drop?] fi)
+    (if msgOutExt == nullMsg then null else msgOutExt fi)
     if isSending(wattrs)
-      --- If the timed out fragment does not match the current fragment, then it means we have already received the ACK and this rule should not match.
+      --- If the timed out fragment does not match the current fragment, 
+      ---  then we have already received the ACK and this rule should not match.
       /\ isFragmentMatch(wattrs, FRAGMENT)
       /\ maxAttemptsReached := isMaxAttemptsReached(wattrs)
       /\ {wattrsNext, msgOutExt} :=
         if maxAttemptsReached
           then {dropFragments(wattrs), nullMsg}
-          else sendFragment(wattrs, ALICE)
-        fi
-      /\ msgOut :=
-        if maxAttemptsReached
-          then (to ALICE : start)
-          else nullMsg
+          else sendFragment(wattrs, ADDR)
         fi
     .
-
-
-    --- To start, send a start message to the send app
-  rl [startWClient]:
-    < ADDR : WClient | wattrs, 
-      conf: (< ALICE : SendApp | toAddr: BOB, queue: (Pkt ; PACKETS), sent: PACKETS', appAttrs >
-            (to ALICE : start))
-    >    
-    =>
-    < ADDR : WClient | wattrs, 
-      conf: (< ALICE : SendApp | toAddr: BOB, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
-            [delay, (to BOB from ALICE : Pkt), 0])
-    >
-    [print "startWClient" ]
-    .
-
 
 endm
