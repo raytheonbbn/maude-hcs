@@ -1,0 +1,99 @@
+load ../common/actor
+
+mod SCHEDULER is
+  ex ACTOR-MODEL .
+
+  sorts ScheduleMsg ActiveMsg .
+  subsorts ScheduleMsg ActiveMsg < Config .
+
+  sorts Scheduler ScheduleList .
+  subsort Scheduler < Config .
+  subsort ScheduleMsg < ScheduleList .
+
+  --- Messages:
+  op [_,_,_] : Float Msg Nat -> ScheduleMsg .  --- 1 denotes "dropped msg"; owise, 0
+  op {_,_} : Float Msg -> ActiveMsg .
+
+  op  nil : -> ScheduleList .
+  op  _;_ : ScheduleList ScheduleList -> ScheduleList [assoc id: nil format(d d n d)] .
+
+  op {_|_} : Float ScheduleList -> Scheduler [format (n d d n d d)] .
+  op insert : Scheduler ScheduleMsg -> Scheduler .
+  op insert : ScheduleList ScheduleMsg -> ScheduleList .
+
+  --- TODO: unused
+  op insertList : Scheduler ScheduleList -> Scheduler .
+  op insertList : ScheduleList ScheduleList -> ScheduleList .
+
+  --- Emit a message, perform a rule, ad nauseam, until time-limit
+  op run : Config Float -> Config .
+  op step : Config -> Config [iter] .
+
+
+  vars GT LIMIT : Float .
+  vars t1 t2 : Float .
+  vars SL SL' : ScheduleList .
+  vars M1 M2 : Msg .
+  var S : Scheduler .
+  var C : Config .
+  vars A A' A1 A2 : Address .
+  var T : ActorType .
+  var AS : AttributeSet .
+  var CO : Content .
+  var AC : ActorConfig .
+  var SM : ScheduleMsg .
+  var AM : ActiveMsg .
+  var P : Nat .
+
+  eq insert({ GT | SL }, [ t1 , M1, 0 ]) 
+   = {GT | insert(SL, [ GT + t1 , M1, 0 ] ) } .
+  eq insert([ t1 , M1, 0 ] ; SL , [ t2 , M2, 0 ]) 
+   = if (t1 < t2) 
+       then [ t1 , M1, 0 ] ; insert(SL, [ t2 , M2, 0 ])
+       else ([ t2 , M2, 0 ] ; [ t1 , M1, 0 ] ; SL)
+     fi .
+  eq insert(nil , [ t2 , M2, 0 ]) = [ t2 , M2, 0 ] .
+
+  eq insertList({GT | SL }, SL') 
+   = {GT | insertList(SL, SL') } .
+  eq insertList(SL , [ t2 , M2, 0 ] ; SL') 
+   = insertList( insert(SL, [ t2, M2, 0 ]), SL' ) .
+  eq insertList(SL , nil ) = SL .
+
+  --- insert a schedule msg to the scheduler 
+  eq [ t1, M1, 0 ] S = insert(S, [ t1, M1, 0 ]) .
+  eq [ t1, M1, P ] S = S [owise] .
+
+  eq step(AC {GT | [ t1 , M1, 0 ] ; SL}) 
+   = { t1 , M1 } AC {t1 | SL} .
+
+  --- eagerness
+  ceq run(AC {GT | SL}, LIMIT)
+   = (if (GT <= LIMIT and SL =/= nil) 
+        then run(step(AC {GT | SL}), LIMIT)
+        else AC {GT | SL}
+      fi)
+    if not eagerEnabled(AC) .
+  
+  op eagerEnabled : ActorConfig -> Bool .
+  eq eagerEnabled(AC) = false [owise] .  
+endm
+
+mod APMAUDE is
+  pr SCHEDULER .
+
+  --- Operations supported by PVeStA
+  op initState : -> Config .
+  op sat : Nat Config -> Bool .
+  op val : Nat Config -> Float .
+  op tick : Config -> Config .
+  op getTime : Config -> Float .
+  op limit : -> Float .
+
+  var C : Config .
+  var GT : Float .
+  var SL : ScheduleList .
+
+  eq tick(C) = run(C, limit) .
+  eq getTime(C {GT | SL}) =  GT .
+endm
