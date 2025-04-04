@@ -122,8 +122,8 @@ mod IODINE_AUX is
   --- pr LIST{Packet} .
 ---  pr LIST{Fragment} .
   
-  sorts MapIdMsg  IdMsg .
-  subsort IdMsg < MapIdMsg .
+  sorts MapIdAddr  IdAddr .
+  subsort IdAddr < MapIdAddr .
   
   vars N N1 N2 N3 P_LEN : Nat .
   var B B1 LAST_FRAG LAST_PACKET : Bool .
@@ -133,9 +133,9 @@ mod IODINE_AUX is
   var Frag Frag1 : Fragment .
   var ALICE BOB : Address .
 
-  var wdb : MapIdMsg .
+  var wdb : MapIdAddr .
   var ID : Id .
-  var msg msg0 : Msg .
+  var ADDR ADDR1 : Address .
 
   op nullMsg : -> Msg .
 
@@ -147,14 +147,14 @@ mod IODINE_AUX is
   ----              serverAttrs appAttrs
   op `{_`,_`} : AttributeSet AttributeSet -> AttributeSetPair [ctor] .
 
-  op _<~_ : Id Msg -> IdMsg [ctor] .
-  op mtIdMsg : -> MapIdMsg .
-  op  _!!_ : MapIdMsg MapIdMsg -> MapIdMsg 
-                 [ctor assoc comm id: mtIdMsg] .
-  op updateMap : MapIdMsg Id Msg -> MapIdMsg .
-  eq updateMap(wdb !! (ID <~ msg0), ID, msg) 
-          = wdb !! (ID <~ msg) .
-  eq updateMap(wdb,ID,msg) = wdb !! (ID <~ msg) [owise] .
+  op _<~_ : Id Address -> IdAddr [ctor] .
+  op mtIdAddr : -> MapIdAddr .
+  op  _!!_ : MapIdAddr MapIdAddr -> MapIdAddr
+                 [ctor assoc comm id: mtIdAddr] .
+  op updateMap : MapIdAddr Id Address -> MapIdAddr .
+  eq updateMap(wdb !! (ID <~ ADDR), ID, ADDR1) 
+          = wdb !! (ID <~ ADDR1) .
+  eq updateMap(wdb,ID,ADDR) = wdb !! (ID <~ ADDR) [owise] .
 
   ----        return list of fragments that form a packet
   ----          Packet HOSTNAME_LEN
@@ -210,6 +210,8 @@ mod IODINE_NODE is
   var RESPONSE : Response .
   var ANS AUTH ADD : List{Record} .
   var RCODE : Nat .
+  var MIdAddr MIdAddr1 : MapIdAddr .
+  var IdA IdA1 : IdAddr .
 
 --------  Nesting/Meta configuration  attribute
   op conf:_ : Config -> Attribute [ctor] .
@@ -222,7 +224,7 @@ mod IODINE_NODE is
   ---  Alice sends weird messages to Bob via WNameserver
   ------------------------------------------------------
   op SendApp : -> ActorType [ctor] .  
-  --- who to send to?
+  --- who to send to? (the iodine client)
   op toAddr:_ : Address -> Attribute [ctor] .
   ---- packets to send
   op queue:_ : PacketList -> Attribute [ctor] . 
@@ -273,10 +275,9 @@ mod IODINE_NODE is
   --- number of retransmissions of current fragment
   op numAttempts:_ : Nat -> Attribute [ctor] . 
   --- The query type.
-  op weirdQType:_ : RType -> Attribute [ctor] .
-  --- Could be defined as a constant; if so:
-  ---op WeirdQType : -> RType .
-
+  op weirdQType:_ : RType -> Attribute [ctor] .  
+  --- MAP from query id to app address to track where to send responses
+  op appAddrMap:_ : MapIdAddr -> Attribute [ctor] .
   --- The maximum fragment length (or fragment size).
   op maxFragmentLen : -> Nat .
   --- The maximum number of fragment transmission tries.
@@ -359,8 +360,8 @@ mod IODINE_NODE is
   eq isFragmentMatch(wattrs, fragment(ADDR, ADDR1, SEQ_CTR, CUR_FRAG, N, LAST_PACKET, LAST)) = false [owise] .
 
   --- Handle a packet (msg) and send the first fragment.
-  op handleAndSend : Address AttributeSet Packet -> AttributeSetMsgs .
-  ceq handleAndSend(ADDR, wattrs, PACKET) =
+  op handleAndSend : AttributeSet Address Packet -> AttributeSetMsgs .
+  ceq handleAndSend(wattrs, ADDR, PACKET) =
     {wattrsNext, msgOut}
     if wattrsTrans := handleNewPacket(wattrs, PACKET, maxFragmentLen)
       /\ {wattrsNext, msgOut} := sendFragment(wattrsTrans, ADDR)
@@ -369,13 +370,16 @@ mod IODINE_NODE is
   --- Send current fragment as a query.
   ---                   Attributes from
   op sendFragment : AttributeSet Address -> AttributeSetMsgs .
-  ceq sendFragment((wattrs, numAttempts: NUM_ATTEMPTS, weirdQType: QTYPE), ADDR) = 
-    {(wattrsNext, numAttempts: s NUM_ATTEMPTS, weirdQType: QTYPE), delayMsgs((to RESOLVER from ADDR : QUERY))}
+  ceq sendFragment((wattrs,  appAddrMap: MIdAddr, numAttempts: NUM_ATTEMPTS, weirdQType: QTYPE), ADDR) = 
+    {(wattrsNext, appAddrMap: MIdAddr1, numAttempts: s NUM_ATTEMPTS, weirdQType: QTYPE), delayMsgs((to RESOLVER from ADDR : QUERY))}
     if RESOLVER := getResolver(wattrs)
       /\ wattrsNext := incrQueryCtr(wattrs)
       /\ ID := getQueryCtr(wattrsNext)
-      /\ NAME := nm(grabCurrentFragment(wattrsNext)) . getWDom(wattrsNext)
+      /\ F := grabCurrentFragment(wattrsNext)
+      /\ NAME := nm(F) . getWDom(wattrsNext)
       /\ QUERY := query(ID, NAME, QTYPE)
+      --- keep track of app address that resulted in this query Id 
+      /\ MIdAddr1 := updateMap(MIdAddr, ID, getFromAddr(F))
     .
 
   --- Extract a response and move to next fragment if is current fragment ACK.
