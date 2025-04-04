@@ -1,0 +1,148 @@
+load ../probabilistic/iodine_dns
+load ../../../../deps/dns_formalization/Maude/test/nondet-model/test_helpers
+load ../probabilistic/apmaude
+
+--- This maude file has been created automatically from the Python representation.
+
+mod IODINE_TEST is
+
+inc IODINE_DNS + TEST-HELPERS + SCHEDULER + PARAMETERS.
+
+eq monitorQueryLog? = true .
+
+eq maxMinimiseCount = 0 .
+eq maxFragmentLen = 100 .
+eq maxFragmentTx = 3 .
+
+--- Actor addresses
+ops Alice Bob addrNScom addrNScorporate addrNSexample addrNSpwnd2 addrNSroot iodineC mAddr rAddr : -> Address .
+
+--- "SBELT": fallback if there are no known name servers
+op sb : -> ZoneState .
+eq sb = < root ('a . 'root-servers . 'net . root |-> addrNSroot) > .
+
+--- Zone files
+op zoneCorporateCom : -> List{Record} .
+eq zoneCorporateCom =
+  < 'corporate . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
+  < 'ns . 'corporate . 'com . root, a, 3600.0, addrNScorporate >
+  < 'www0 . 'corporate . 'com . root, a, 3600.0, 3 . 0 . 1 . 2 >
+  < 'www1 . 'corporate . 'com . root, a, 3600.0, 3 . 1 . 1 . 2 >
+  < wildcard . 'corporate . 'com . root, txt, 3600.0, nullAddr > .
+
+op zoneExampleCom : -> List{Record} .
+eq zoneExampleCom =
+  < 'example . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'example . 'com . root, ns, 3600.0, 'ns . 'example . 'com . root >
+  < 'ns . 'example . 'com . root, a, 3600.0, addrNSexample >
+  < 'www0 . 'example . 'com . root, a, 3600.0, 1 . 0 . 1 . 2 >
+  < 'www1 . 'example . 'com . root, a, 3600.0, 1 . 1 . 1 . 2 >
+  < wildcard . 'example . 'com . root, txt, 3600.0, nullAddr > .
+
+op zone : -> List{Record} .
+eq zone =
+  < root, soa, 3600.0, soaData(3600.0) >
+  < root, ns, 3600.0, 'a . 'root-servers . 'net . root >
+  < 'a . 'root-servers . 'net . root, a, 3600.0, addrNSroot >
+  < 'com . root, ns, 3600.0, 'ns . 'com . root >
+  < 'ns . 'com . root, a, 3600.0, addrNScom > .
+
+op zoneCom : -> List{Record} .
+eq zoneCom =
+  < 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'com . root, ns, 3600.0, 'ns . 'com . root >
+  < 'ns . 'com . root, a, 3600.0, addrNScom >
+  < 'example . 'com . root, ns, 3600.0, 'ns . 'example . 'com . root >
+  < 'ns . 'example . 'com . root, a, 3600.0, addrNSexample >
+  < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+  < 'ns . 'pwnd2 . 'com . root, a, 3600.0, addrNSpwnd2 >
+  < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
+  < 'ns . 'corporate . 'com . root, a, 3600.0, addrNScorporate > .
+
+op zonePwnd2Com : -> List{Record} .
+eq zonePwnd2Com =
+  < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+  < 'ns . 'pwnd2 . 'com . root, a, 3600.0, addrNSpwnd2 >
+  < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+  < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+  < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
+
+--- Initial configuration
+op initConfig : -> Config .
+eq initConfig =
+  --- Start messages
+  --- Clients
+  --- Resolvers
+  < rAddr : Resolver |
+    cache: nilCache,
+    nxdomainCache: nilNxdomainCache,
+    nodataCache: nilNodataCache,
+    sbelt: sb,
+    workBudget: emptyIN,
+    blockedQueries: eptQSS,
+    sentQueries: eptQSS >
+  --- Nameservers
+  < addrNSroot : Nameserver |
+    db: (zone),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >
+  < addrNScom : Nameserver |
+    db: (zoneCom),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >
+  < addrNSexample : Nameserver |
+    db: (zoneExampleCom),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >
+  < addrNScorporate : Nameserver |
+    db: (zoneCorporateCom),
+    queue: nilQueue,
+    forwardonly: rAddr,
+    queriesFwd: nilTAQL >
+  --- tunnels
+  < iodineC : WClient |
+    resv: addrNScorporate,
+    wDom: 'pwnd2 . 'com . root,
+    weirdQType: a,
+    queryCtr: 0,
+    seqCtr: 0,
+    fragments: mtfl,
+    fragmentsSize: 0,
+    currFragment: 0,
+    numAttempts: 0,
+    conf: (< Alice : SendApp |
+    toAddr: (Bob),
+    queue: (packet(Alice, 0, 200, false) ; packet(Alice, 1, 200, false) ; packet(Alice, 2, 100, false) ; packet(Alice, 3, 10, true)),
+    sent: mtpl > (to Alice : start)) >
+  < addrNSpwnd2 : WNameserver |
+    pendingFragments: mtfl,
+    lastFragment: false,
+    conf: (< Bob : RcvApp |
+    rcvd: mtpl > < addrNSpwnd2 : Nameserver |
+    db: (zonePwnd2Com),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >) >
+  --- applications
+  .
+
+  vars AC AC0 : ActorConfig .
+  var ADDR : Address .
+  var ATYPE : ActorType .
+  var msg : Msg .
+  var msgs : Config .
+  var attrs : AttributeSet .
+
+  **** needed for scheduler to allow internal rewrites wo quitting
+  eq eagerEnabled(AC 
+      < ADDR : ATYPE | attrs, conf: (AC0 msg msgs) >) = true . 
+
+  op initTimedConfig : -> Config .
+  eq initTimedConfig = run({0.0 | nil} initConfig,limit) .
+
+endm
