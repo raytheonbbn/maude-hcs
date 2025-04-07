@@ -1,5 +1,5 @@
-load _aux
 load wmonitor
+---load _aux
 load ../../../../deps/dns_formalization/Maude/src/probabilistic-model/dns
 
 --- DNS includes AUX + MSG + PARAMETERS .
@@ -23,7 +23,7 @@ mod IODINE_DNS is
   vars txComplete, maxAttemptsReached : Bool .
   var PACKETS PACKETS' : PacketList .
   var FRAGMENT_LIST : FragmentList .
-  var Pkt : Packet .
+  vars Pkt Pkt' : Packet .
   vars T T' : Float . --- timestamp
   var PTL : PacketTimestampList .
   vars QTL : QueryTimestampList .
@@ -37,33 +37,35 @@ mod IODINE_DNS is
 ----  receivs DNS query with standard name
 ----  passthrough
 ----  TODO: merge into single rule below 
----- TODO: CHRIS: add monitor
 crl [wnameserver-receive-query-passthru]:
   < ADDR : WNameserver | wattrs,  
           conf: (wrappedNS)
   >
+  < MON : WMonitor | queryRcvd: QTL, monAttrs >
   {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}
   =>
   < ADDR : WNameserver | wattrs,           
           conf: (wrappedNS (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) 
   >
+  < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
   if  not isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) .
 
 ----  receivs DNS query response from my nameserver
 ----  passthrough
----- TODO: CHRIS: add monitor
 rl [weird-nameserver-response-passthru]:
   < ADDR : WNameserver | wattrs,  
           conf: (wrappedNS (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)))
   >
+  < MON : WMonitor | queryRcvd: QTL, monAttrs >
   =>
   < ADDR : WNameserver | wattrs, 
           conf: (wrappedNS) 
   >
+  *** Figure out what to do with Response.
+  < MON : WMonitor | queryRcvd: QTL, monAttrs >
   [delay, (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)), drop?]
   .
 
----- TODO: CHRIS: add monitor
 ----  receivs DNS query with weird name
 ----  the WNS implements its own DNS logic and responds directly
 ----    without relying on the wrapped NS; this may challenge
@@ -79,11 +81,13 @@ crl [wnameserver-receive-query-weird]:
   < ADDR : WNameserver | wattrs,  
           conf: (wrappedNS)
   >
+  < MON : WMonitor | queryRcvd: QTL, monAttrs >
   {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}
   =>
   < ADDR : WNameserver | wattrs2,
           conf: (wrappedNS) 
   >
+  < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
   msgOut 
   (if appMsgOut == nullMsg then null else appMsgOut fi)
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
@@ -97,32 +101,45 @@ crl [wnameserver-receive-query-weird]:
   --- [Receive App] --- Bob
   ---------------------------------------
   
-  ---- TODO: CHRIS: add monitor
   rl [receive-app-rcv-packet]:
     < ADDR : RcvApp | rcvd: PACKETS, appAttrs >
+    < MON : WMonitor | pktRcvd: PTL, monAttrs >
     {T, (to ADDR from ADDR1 : Pkt)}
   => 
-    < ADDR : RcvApp | rcvd: (Pkt ; PACKETS), appAttrs > .
+    < ADDR : RcvApp | rcvd: (Pkt ; PACKETS), appAttrs >
+    < MON : WMonitor | pktRcvd: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
+  .
 
   ---------------------------------------
   --- [Send App] --- Alice
   ---------------------------------------
   
-  ---- TODO: CHRIS: add monitor
-  ---- TODO CHRIS: add timeout rule for Alice (send timeout msg in addition to packet)
   rl [send-app-send-packet]:
     < ALICE : SendApp | toAddr: ADDR, queue: (Pkt ; PACKETS), sent: PACKETS', appAttrs >
+    < MON : WMonitor | pktSent: PTL, monAttrs >
     {T, (to ALICE : start)}
   => 
     < ALICE : SendApp | toAddr: ADDR, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
+    < MON : WMonitor | pktSent: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
+    ***[delay, (to ADDR from ALICE : Pkt), 0]
+    (to ADDR from ALICE : Pkt)
+    [0.02, (to ALICE : pktTimeout(Pkt)), 0]
+    [print "Send Pkt to Bob"]
+  .
+
+
+  ---- ************
+  ---- Timeout rule for Alice (receive timeout and send next packet)
+  ---- ************
+  rl [send-app-pkt-timeout]:
+    < ALICE : SendApp | toAddr: ADDR, queue: (Pkt ; PACKETS), sent: PACKETS', appAttrs >
+    {T, (to ALICE : pktTimeout(Pkt'))}
+  =>
+    < ALICE : SendApp | toAddr: ADDR, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
     [delay, (to ADDR from ALICE : Pkt), 0]
-  . 
-
-
-  ---- ************
-  ---- TODO CHRIS: add timeout rule for Alice (receive timeout and send next packet)
-  ---- ************
-
+    [delay, (to ALICE : pktTimeout(Pkt)), 0]
+    *** TODO: Will need to do additional checks for correct pacing.
+  .
 
   ---------------------------------------
   --- [WClient] --- Weird (Iodine) client
@@ -141,7 +158,7 @@ crl [wnameserver-receive-query-weird]:
     < MON : WMonitor | pktSent: (PTL ; packetTimestamp(Pkt, T)), querySent: (QTL ; queryTimestamp(getQuery(msgOut), T)), monAttrs >
     [delay, msgOut, drop?]
     [delay, (to ADDR : ackTimeout(sentFragment)), 0]
-    --- TODO: Replace with not hard coded.
+    --- TODO: Modify rule to drop incoming message if >= 2, continue on with current.
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
        /\ sentFragment := grabCurrentFragment(wattrsNext)
@@ -184,6 +201,7 @@ crl [wnameserver-receive-query-weird]:
       --- If the timed out fragment does not match the current fragment, 
       ---  then we have already received the ACK and this rule should not match.
       /\ isFragmentMatch(wattrs, FRAGMENT)
+      *** TODO: Need to catch the timeout if not fragment match, otherwise msg left in soup, which halts execution
       /\ maxAttemptsReached := isMaxAttemptsReached(wattrs)
       /\ {wattrsNext, msgOutExt} :=
         if maxAttemptsReached
