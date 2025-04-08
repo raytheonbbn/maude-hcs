@@ -1,9 +1,10 @@
 load ../../../../deps/dns_formalization/Maude/src/probabilistic-model/dns
 load wmonitor
+load parameters
 
 --- DNS includes AUX + MSG + PARAMETERS .
 mod IODINE_DNS is
-  inc DNS + WMONITOR .
+  inc DNS + WMONITOR + IODINE-PARAMETERS .
 
   vars ADDR ADDR1 ADDR2 NS RESOLVER ALICE BOB : Address .
   var RCODE : Nat .
@@ -28,6 +29,7 @@ mod IODINE_DNS is
   vars QTL : QueryTimestampList .
   vars MON : Address .
   vars FRAGMENT sentFragment : Fragment .
+  var ALICEREADY : Bool .
 
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
@@ -119,8 +121,8 @@ crl [wnameserver-receive-query-weird]:
   => 
     < ALICE : SendApp | toAddr: ADDR, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
     < MON : WMonitor | pktSent: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
-    [delay, (to ADDR from ALICE : Pkt), 0]
-    [0.02, (to ALICE : pktTimeout(Pkt)), 0]
+    [0.0, (to ADDR from ALICE : Pkt), 0]
+    [pacingTimeoutDelay, (to ALICE : pktTimeout(Pkt)), 0]
     [print "Send Pkt to Bob"]
   .
 
@@ -128,15 +130,19 @@ crl [wnameserver-receive-query-weird]:
   ---- ************
   ---- Timeout rule for Alice (receive timeout and send next packet)
   ---- ************
-  rl [send-app-pkt-timeout]:
-    < ALICE : SendApp | toAddr: ADDR, queue: (Pkt ; PACKETS), sent: PACKETS', appAttrs >
+  crl [send-app-pkt-timeout]:
+    < ALICE : SendApp | appAttrs, aliceReady: ALICEREADY >
     {T, (to ALICE : pktTimeout(Pkt'))}
   =>
-    < ALICE : SendApp | toAddr: ADDR, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
-    [delay, (to ADDR from ALICE : Pkt), 0]
-    [delay, (to ALICE : pktTimeout(Pkt)), 0]
-    *** TODO: Will need to do additional checks for correct pacing.
+    < ALICE : SendApp | appAttrs1 >
+    (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
+    (if msgOut == nullMsg then null else [pacingTimeoutDelay, (to ALICE : pktTimeout(getPkt(msgOut))), 0] fi)
+    if {appAttrs1, msgOut} := if getWClientReady(appAttrs)
+      then sendPkt((appAttrs, aliceReady: ALICEREADY), ALICE)
+      else {(appAttrs, aliceReady: true), nullMsg}
+    fi
   .
+
 
   ---------------------------------------
   --- [WClient] --- Weird (Iodine) client
@@ -148,13 +154,13 @@ crl [wnameserver-receive-query-weird]:
   --- Handle the packet, fragment it, and send the first fragment.
   crl [iClientEmbedding]:
     < ADDR : WClient | wattrs >
-    < MON : WMonitor | pktSent: PTL, querySent: QTL, monAttrs >
+    < MON : WMonitor | querySent: QTL, monAttrs >
     {T, (to ADDR from ALICE : Pkt)}
     =>
     < ADDR : WClient | wattrsNext >
-    < MON : WMonitor | pktSent: (PTL ; packetTimestamp(Pkt, T)), querySent: (QTL ; queryTimestamp(getQuery(msgOut), T)), monAttrs >
+    < MON : WMonitor | querySent: (QTL ; queryTimestamp(getQuery(msgOut), T)), monAttrs >
     [delay, msgOut, drop?]
-    [delay, (to ADDR : ackTimeout(sentFragment)), 0]
+    [ackTimeoutDelay, (to ADDR : ackTimeout(sentFragment)), 0]
     --- TODO: Modify rule to drop incoming message if >= 2, continue on with current.
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)

@@ -204,7 +204,7 @@ mod IODINE_NODE is
   vars N P_LEN HOSTNAME_LEN : Nat .
   vars FRAGMENT_LIST FRAGMENT_LIST' : FragmentList .
   var PACKET : Packet .
-  var PACKET_LIST : PacketList .
+  vars PACKET_LIST PACKET_LIST' : PacketList .
   var db wDb : List{Record} .
   var QUERY : Query .
   var RESPONSE : Response .
@@ -212,12 +212,16 @@ mod IODINE_NODE is
   var RCODE : Nat .
   var MIdAddr MIdAddr1 : MapIdAddr .
   var IdA IdA1 : IdAddr .
+  vars ALICEREADY WCLIENTREADY : Bool .
 
 --------  Nesting/Meta configuration  attribute
   op conf:_ : Config -> Attribute [ctor] .
   
   op getQuery : Msg -> Query .
   eq getQuery((to ADDR from ADDR1 : QUERY)) = QUERY .
+
+  op getPkt : Msg -> Packet .
+  eq getPkt((to ADDR from ADDR1 : PACKET)) = PACKET .
 
   ------------------------------------------------------
   --- [App Alice] --- 
@@ -230,10 +234,24 @@ mod IODINE_NODE is
   op queue:_ : PacketList -> Attribute [ctor] . 
   ---- packets sent
   op sent:_ : PacketList -> Attribute [ctor] .
+  --- bool indicating pacing interval passed
+  op aliceReady:_ : Bool -> Attribute [ctor] .
+  --- bool indicating wclient ready
+  op wclientReady:_ : Bool -> Attribute [ctor] .
 
   op makeSendApp : Address Address -> Actor [ctor] .
   eq makeSendApp(AliceAddr, BobAddr) =
     < AliceAddr : SendApp | toAddr: BobAddr, queue: mtpl, sent: mtpl > .
+
+  op getWClientReady : AttributeSet -> Bool .
+  eq getWClientReady(Attrs, wclientReady: WCLIENTREADY) = WCLIENTREADY .
+
+  op sendPkt : AttributeSet Address -> AttributeSetMsgs .
+  ceq sendPkt((Attrs, toAddr: ADDR, queue: (PACKET ; PACKET_LIST), sent: PACKET_LIST', aliceReady: ALICEREADY, wclientReady: WCLIENTREADY), AliceAddr)  =
+    {Attrs3, msgOut}
+    if Attrs3 := (Attrs, toAddr: ADDR, queue: PACKET_LIST, sent: (PACKET ; PACKET_LIST'), aliceReady: false, wclientReady: false)
+      /\ msgOut := (to ADDR from AliceAddr : PACKET)
+  .
 
   --------------------------------
   --- [App Bob] --- 
