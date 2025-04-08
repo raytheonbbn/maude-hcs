@@ -371,7 +371,7 @@ mod IODINE_NODE is
   ---                   Attributes from
   op sendFragment : AttributeSet Address -> AttributeSetMsgs .
   ceq sendFragment((wattrs,  appAddrMap: MIdAddr, numAttempts: NUM_ATTEMPTS, weirdQType: QTYPE), ADDR) = 
-    {(wattrsNext, appAddrMap: MIdAddr1, numAttempts: s NUM_ATTEMPTS, weirdQType: QTYPE), delayMsgs((to RESOLVER from ADDR : QUERY))}
+    {(wattrsNext, appAddrMap: MIdAddr1, numAttempts: s NUM_ATTEMPTS, weirdQType: QTYPE), (to RESOLVER from ADDR : QUERY)}
     if RESOLVER := getResolver(wattrs)
       /\ wattrsNext := incrQueryCtr(wattrs)
       /\ ID := getQueryCtr(wattrsNext)
@@ -422,21 +422,20 @@ mod IODINE_NODE is
     /\ nm(F) . NAME1 := NAME
     .
   eq isWeird(wattrs, msg) = false [owise] .
-
-  op delayMsgs : Config -> Config .  
+ 
 
   ---- Server extract fragment
   op extractS : AttributeSet Config -> AttributeSetMsgs .
-  ceq extractS(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans, CONF}
+  ceq extractS(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans, msg}
     if  nm(F) . NAME1 := NAME
     /\ (pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs) := wattrs
     /\ wattrsTrans := (pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), Attrs)
     ---- simply ACK fragment (NAME contains fragment; RCODE 0 is success)
-    /\ CONF := delayMsgs((to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, 3600.0, nullAddr >, nil, nil, 0))) 
+    /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, 3600.0, nullAddr >, nil, nil, 0))
     .
 
   op updateRcvApp : AttributeSet Config -> AttributeSetMsgs .
-  ceq updateRcvApp(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans, CONF}
+  ceq updateRcvApp(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans, msg}
     ---- server attrs
     if (pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs1) := wattrs
     --- ---- app attrs
@@ -450,9 +449,9 @@ mod IODINE_NODE is
     --- get the fragment
     /\ nm(F) . NAME1 := NAME
     ---- defragment and send packet to Bob
-    /\ CONF := 
+    /\ msg := 
       (if B
-      then delayMsgs((to getToAddr(F) from getFromAddr(F) : makePacket(FRAGMENT_LIST)))
+      then (to getToAddr(F) from getFromAddr(F) : makePacket(FRAGMENT_LIST))
       else nullMsg
       fi)
       .
