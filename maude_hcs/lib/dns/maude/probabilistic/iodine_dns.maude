@@ -87,8 +87,8 @@ crl [wnameserver-receive-query-weird]:
           conf: (wrappedNS) 
   >
   < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
-  msgOut 
-  (if appMsgOut == nullMsg then null else appMsgOut fi)
+  [delay, msgOut, drop?] 
+  (if appMsgOut == nullMsg then null else [delay, appMsgOut, drop?] fi)
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 1 and step 2
   /\ {wattrs1, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
@@ -99,7 +99,6 @@ crl [wnameserver-receive-query-weird]:
   ---------------------------------------
   --- [Receive App] --- Bob
   ---------------------------------------
-  
   rl [receive-app-rcv-packet]:
     < ADDR : RcvApp | rcvd: PACKETS, appAttrs >
     < MON : WMonitor | pktRcvd: PTL, monAttrs >
@@ -176,7 +175,7 @@ crl [wnameserver-receive-query-weird]:
     =>
     < ADDR : WClient | wattrsNext >       
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
-    (if msgOutExt == nullMsg then null else msgOutExt fi)
+    (if msgOutExt == nullMsg then null else [delay, msgOutExt, drop?] fi)
     if wattrsTrans := extract((resv: RESOLVER, wattrs), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
@@ -194,7 +193,7 @@ crl [wnameserver-receive-query-weird]:
     =>
     < ADDR : WClient | wattrsNext >    
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
-    (if msgOutExt == nullMsg then null else msgOutExt fi)
+    (if msgOutExt == nullMsg then null else [delay, msgOutExt, drop?] fi)
     if isSending(wattrs)
       --- If the timed out fragment does not match the current fragment, 
       ---  then we have already received the ACK and this rule should not match.
