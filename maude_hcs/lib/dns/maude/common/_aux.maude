@@ -70,11 +70,15 @@ mod IODINE_SORTS is
 ---  inc META-LEVEL .
 ---  pr CONVERSION .
   
-  vars ALICE BOB : Address . 
-  var NAME : Name .
+  vars ALICE BOB ADDR : Address . 
+  vars NAME NAME1 : Name .
   vars N N1 N2 N3 P_LEN : Nat .
   vars B B1 LAST_PACKET : Bool .  
- 
+  var ID : Id .
+  var QTYPE : RType .
+  var ANS AUTH ADD : List{Record} .
+  var RCODE : Nat .
+  var F : Fragment .
 
   subsorts Packet Fragment < Content . 
   ----        AliceAddr Packet# DataLenBytes lastPacket? 
@@ -97,6 +101,12 @@ mod IODINE_SORTS is
 
   op getFromAddr : Fragment -> Address .
   eq getFromAddr(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = ALICE .
+
+  op getFromAddr : Response -> Address .
+  ceq getFromAddr(response(ID, NAME, ANS, AUTH, ADD, RCODE)) = ADDR
+    if nm(F) . NAME1 := NAME
+      /\ ADDR := getFromAddr(F)
+  .
 
   op getToAddr : Fragment -> Address .
   eq getToAddr(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = BOB .
@@ -235,7 +245,7 @@ mod IODINE_NODE is
   ---- packets sent
   op sent:_ : PacketList -> Attribute [ctor] .
   --- bool indicating pacing interval passed
-  op aliceReady:_ : Bool -> Attribute [ctor] .
+  op numAdmittedPkts:_ : Nat -> Attribute [ctor] .
   --- bool indicating wclient ready
   op wclientReady:_ : Bool -> Attribute [ctor] .
 
@@ -243,13 +253,16 @@ mod IODINE_NODE is
   eq makeSendApp(AliceAddr, BobAddr) =
     < AliceAddr : SendApp | toAddr: BobAddr, queue: mtpl, sent: mtpl > .
 
-  op getWClientReady : AttributeSet -> Bool .
-  eq getWClientReady(Attrs, wclientReady: WCLIENTREADY) = WCLIENTREADY .
+  op getNumAdmittedPkts : AttributeSet -> Nat .
+  eq getNumAdmittedPkts(Attrs, numAdmittedPkts: N) = N .
+
+  op isWClientReady : AttributeSet -> Bool .
+  eq isWClientReady(Attrs, wclientReady: WCLIENTREADY) = WCLIENTREADY .
 
   op sendPkt : AttributeSet Address -> AttributeSetMsgs .
-  ceq sendPkt((Attrs, toAddr: ADDR, queue: (PACKET ; PACKET_LIST), sent: PACKET_LIST', aliceReady: ALICEREADY, wclientReady: WCLIENTREADY), AliceAddr)  =
+  ceq sendPkt((Attrs, toAddr: ADDR, queue: (PACKET ; PACKET_LIST), sent: PACKET_LIST', numAdmittedPkts: N, wclientReady: WCLIENTREADY), AliceAddr)  =
     {Attrs3, msgOut}
-    if Attrs3 := (Attrs, toAddr: ADDR, queue: PACKET_LIST, sent: (PACKET ; PACKET_LIST'), aliceReady: false, wclientReady: false)
+    if Attrs3 := (Attrs, toAddr: ADDR, queue: PACKET_LIST, sent: (PACKET ; PACKET_LIST'), numAdmittedPkts: if N > 0 then sd(N,1) else 0 fi, wclientReady: false)
       /\ msgOut := (to ADDR from AliceAddr : PACKET)
   .
 

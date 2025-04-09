@@ -9,7 +9,7 @@ mod IODINE_DNS is
   vars ADDR ADDR1 ADDR2 NS RESOLVER ALICE BOB : Address .
   var RCODE : Nat .
   vars ANS AUTH ADD : List{Record} .
-  vars wattrs wattrs1 wattrs2 wattrsNext wattrsTrans wattrsTrans' appAttrs appAttrs1 : AttributeSet .
+  vars wattrs wattrs1 wattrs2 wattrsNext wattrsTrans wattrsTrans' appAttrs appAttrs1 appAttrsNext : AttributeSet .
   vars monAttrs : AttributeSet .
   vars conf : Config .
   vars appAlice appBob wrappedNS : Actor .
@@ -29,7 +29,8 @@ mod IODINE_DNS is
   vars QTL : QueryTimestampList .
   vars MON : Address .
   vars FRAGMENT sentFragment : Fragment .
-  var ALICEREADY : Bool .
+  vars ALICEREADY WCLIENTREADY : Bool .
+  var N : Nat .
 
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
@@ -113,34 +114,49 @@ crl [wnameserver-receive-query-weird]:
   ---------------------------------------
   --- [Send App] --- Alice
   ---------------------------------------
-  
-  rl [send-app-send-packet]:
-    < ALICE : SendApp | toAddr: ADDR, queue: (Pkt ; PACKETS), sent: PACKETS', appAttrs >
-    < MON : WMonitor | pktSent: PTL, monAttrs >
-    {T, to ALICE : start}
-  => 
-    < ALICE : SendApp | toAddr: ADDR, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
-    < MON : WMonitor | pktSent: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
-    [0.0, (to ADDR from ALICE : Pkt), 0]
-    [pacingTimeoutDelay, (to ALICE : pktTimeout(Pkt)), 0]
-    [print "Send Pkt to Bob"]
+  *** This signals either the start or that the WClient is ready to accept new packets.
+  *** Either way, Alice checks if it is ready (now is passed the previous app timeout)
+  *** and sends a packet if so.  Otherwise, it marks WClient as ready and waits for its
+  *** own timeout.
+  crl [send-app-send-packet]:
+    < ALICE : SendApp | appAttrs, wclientReady: WCLIENTREADY >
+    {T, (to ALICE : start)}
+  =>
+    < ALICE : SendApp | appAttrsNext >
+    (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
+    (if msgOut == nullMsg then null else [pacingTimeoutDelay, (to ALICE : pktTimeout(getPkt(msgOut))), 0] fi)
+    *** Start means that the client is ready.
+    if appAttrs1 := (appAttrs, wclientReady: true)
+    /\ {appAttrsNext, msgOut} :=
+        if getNumAdmittedPkts(appAttrs1) > 0
+          *** If Alice has already admitted packets, send the next one.
+          then sendPkt(appAttrs1, ALICE)
+          *** Otherwise, it is not time yet.  Leave wclient marked as ready and done nothing else.
+          else {appAttrs1, nullMsg}
+        fi
+        [print "SendApp start or nudge from wclient, send possible pkt " msgOut ", setting timeout if not null"]
   .
-
 
   ---- ************
   ---- Timeout rule for Alice (receive timeout and send next packet)
   ---- ************
   crl [send-app-pkt-timeout]:
-    < ALICE : SendApp | appAttrs, aliceReady: ALICEREADY >
+    < ALICE : SendApp | appAttrs, numAdmittedPkts: N >
     {T, (to ALICE : pktTimeout(Pkt'))}
   =>
-    < ALICE : SendApp | appAttrs1 >
+    < ALICE : SendApp | appAttrsNext >
     (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
     (if msgOut == nullMsg then null else [pacingTimeoutDelay, (to ALICE : pktTimeout(getPkt(msgOut))), 0] fi)
-    if {appAttrs1, msgOut} := if getWClientReady(appAttrs)
-      then sendPkt((appAttrs, aliceReady: ALICEREADY), ALICE)
-      else {(appAttrs, aliceReady: true), nullMsg}
-    fi
+    *** Timeout means it is OK to send a packet now.
+    if appAttrs1 := (appAttrs, numAdmittedPkts: s N)
+      /\ {appAttrsNext, msgOut} := 
+        if isWClientReady(appAttrs1)
+          *** Conveniently, the client is ready, send now.
+          then sendPkt(appAttrs1, ALICE)
+          *** Client is busy, add pkt to OK to send, do nothing else.
+          else {appAttrs1, nullMsg}
+        fi
+        [print "SendApp timeout, send possible msg " msgOut ", setting timeout if not null"]
   .
 
 
@@ -165,8 +181,7 @@ crl [wnameserver-receive-query-weird]:
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
        /\ sentFragment := grabCurrentFragment(wattrsNext)
----    [print "iClientEmbedding msg in"  msg]
----    [print "iClientEmbedding fragment out "  msgOut]
+    [print "iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout"]
     .
 
   --- Handle a response from the resolver to WClient.
@@ -189,6 +204,7 @@ crl [wnameserver-receive-query-weird]:
           then {wattrsTrans, nullMsg}
           else sendFragment(wattrsTrans, ADDR)
         fi
+        [print "WClient got response: sending possible fragment " msgOutExt]
     .
   
     --- Timeout rule for WClient.
@@ -211,6 +227,7 @@ crl [wnameserver-receive-query-weird]:
           then {dropFragments(wattrs), nullMsg}
           else sendFragment(wattrs, ADDR)
         fi
+        [print "WClient ACK Timeout: sending possible fragment " msgOutExt]
     .
 
 endm
