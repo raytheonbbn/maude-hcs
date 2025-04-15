@@ -197,6 +197,7 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : WClient | wattrsNext >       
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
     (if msgOutExt == nullMsg then [0.0, (to getFromAddr(response(ID, SNAME, ANS, AUTH, ADD, RCODE)) : start), 0] else [delay, msgOutExt, drop?] fi)
+    (if msgOutExt == nullMsg then null else [ackTimeoutDelay, (to ADDR : ackTimeout(sentFragment)), 0] fi)
     if wattrsTrans := extract((resv: RESOLVER, wattrs), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
@@ -204,7 +205,23 @@ crl [wnameserver-receive-query-weird]:
           then {wattrsTrans, nullMsg}
           else sendFragment(wattrsTrans, ADDR)
         fi
-        [print "WClient got response: sending possible fragment " msgOutExt]
+      /\ sentFragment := grabCurrentFragment(wattrsNext)
+      [print "WClient got response: sending possible fragment " msgOutExt]
+    .
+
+  --- Handle a response from the resolver to WClient that is for a past Fragment.
+  --- This handles the case when a response does not match the current fragment.
+  --- Presumably, WClient has already moved forward in its fragments list, and 
+  --- and receives an old response.  It should drop it and do nothing.
+  --- TODO: This would be better handle with an owise, but not sure how to do that.
+  crl [wClientExtractOldResponseFromServer-ignore]:
+    < ADDR : WClient | resv: RESOLVER, wattrs >
+      {T, (to ADDR from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))}
+    =>
+    < ADDR : WClient | (resv: RESOLVER, wattrs) > 
+    if nm(FRAGMENT) . NAME := SNAME
+      /\ not isFragmentMatch((wattrs, resv: RESOLVER), FRAGMENT)
+      [print "WClient got outdated response, drop"]
     .
   
     --- Timeout rule for WClient.
@@ -216,6 +233,7 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : WClient | wattrsNext >    
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
     (if msgOutExt == nullMsg then null else [delay, msgOutExt, drop?] fi)
+    (if msgOutExt == nullMsg then null else [ackTimeoutDelay, (to ADDR : ackTimeout(sentFragment)), 0] fi)
     if isSending(wattrs)
       --- If the timed out fragment does not match the current fragment, 
       ---  then we have already received the ACK and this rule should not match.
@@ -227,7 +245,8 @@ crl [wnameserver-receive-query-weird]:
           then {dropFragments(wattrs), nullMsg}
           else sendFragment(wattrs, ADDR)
         fi
-        [print "WClient ACK Timeout: sending possible fragment " msgOutExt]
+      /\ sentFragment := grabCurrentFragment(wattrsNext)
+      [print "WClient ACK Timeout: sending possible fragment " msgOutExt]
     .
 
   --- Timeout rule for catching WClient timeout when it has become moot.
