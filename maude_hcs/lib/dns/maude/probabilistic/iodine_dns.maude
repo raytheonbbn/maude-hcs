@@ -1,0 +1,261 @@
+load ../../../../deps/dns_formalization/Maude/src/probabilistic-model/dns
+load wmonitor
+load parameters
+
+--- DNS includes AUX + MSG + PARAMETERS .
+mod IODINE_DNS is
+  inc DNS + WMONITOR + IODINE-PARAMETERS .
+
+  vars ADDR ADDR1 ADDR2 NS RESOLVER ALICE BOB : Address .
+  var RCODE : Nat .
+  vars ANS AUTH ADD : List{Record} .
+  vars wattrs wattrs1 wattrs2 wattrsNext wattrsTrans wattrsTrans' appAttrs appAttrs1 appAttrsNext : AttributeSet .
+  vars monAttrs : AttributeSet .
+  vars conf : Config .
+  vars appAlice appBob wrappedNS : Actor .
+  vars ID ID' : Id .      ---- Nat < Id
+  vars NAME NAME' WNAME SNAME QNAME : Name .
+  vars Q1 Q : Query .
+  var QTYPE : RType .
+  var  MIA MIA1 : MapIdAddr . 
+  vars msgs msgs0 : Config .   ---- MsgConfig
+  vars msg msg0 msg1 msgIn msgOut msgOutExt appMsgOut : Msg .
+  vars txComplete, maxAttemptsReached : Bool .
+  var PACKETS PACKETS' : PacketList .
+  var FRAGMENT_LIST : FragmentList .
+  vars Pkt Pkt' : Packet .
+  vars T T' : Float . --- timestamp
+  var PTL : PacketTimestampList .
+  vars QTL : QueryTimestampList .
+  vars MON : Address .
+  vars FRAGMENT sentFragment : Fragment .
+  vars ALICEREADY WCLIENTREADY : Bool .
+  var N : Nat .
+
+  --------------------------------
+  --- [WNameserver] --- Weird/wrapped Nameserver Rules
+  --------------------------------
+
+----  receivs DNS query with standard name
+----  passthrough
+----  TODO: merge into single rule below 
+crl [wnameserver-receive-query-passthru]:
+  < ADDR : WNameserver | wattrs,  
+          conf: (wrappedNS)
+  >
+  < MON : WMonitor | queryRcvd: QTL, monAttrs >
+  {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}
+  =>
+  < ADDR : WNameserver | wattrs,           
+          conf: (wrappedNS (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) 
+  >
+  < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
+  if  not isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) .
+
+----  receivs DNS query response from my nameserver
+----  passthrough
+rl [weird-nameserver-response-passthru]:
+  < ADDR : WNameserver | wattrs,  
+          conf: (wrappedNS (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)))
+  >
+  < MON : WMonitor | queryRcvd: QTL, monAttrs >
+  =>
+  < ADDR : WNameserver | wattrs, 
+          conf: (wrappedNS) 
+  >
+  *** Figure out what to do with Response.
+  < MON : WMonitor | queryRcvd: QTL, monAttrs >
+  [delay, (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)), drop?]
+  .
+
+----  receivs DNS query with weird name
+----  the WNS implements its own DNS logic and responds directly
+----    without relying on the wrapped NS; this may challenge
+----    our modularity assumptions and modeling
+----  Steps are as follows:
+----  1.  add fragment to fragment list 
+----  2.  respond acking the fragment
+----  3.  if last fragment also defrag and send message to Bob
+----  TODO: add support for NULL QTYPE which is what will be used in tests
+---- TODO: ideally WNS would remove the weird name and pass the query to wrappedNS 
+----      but that is not how iodine is implemented! For now, iodine directly responds.
+crl [wnameserver-receive-query-weird]:
+  < ADDR : WNameserver | wattrs,  
+          conf: (wrappedNS)
+  >
+  < MON : WMonitor | queryRcvd: QTL, monAttrs >
+  {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}
+  =>
+  < ADDR : WNameserver | wattrs2,
+          conf: (wrappedNS) 
+  >
+  < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
+  [delay, msgOut, drop?] 
+  (if appMsgOut == nullMsg then null else [delay, appMsgOut, drop?] fi)
+  if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  --- step 1 and step 2
+  /\ {wattrs1, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  --- step 3
+  /\ {wattrs2, appMsgOut} := updateRcvApp(wattrs1, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  .
+
+  ---------------------------------------
+  --- [Receive App] --- Bob
+  ---------------------------------------
+  rl [receive-app-rcv-packet]:
+    < ADDR : RcvApp | rcvd: PACKETS, appAttrs >
+    < MON : WMonitor | pktRcvd: PTL, monAttrs >
+    {T, (to ADDR from ADDR1 : Pkt)}
+  => 
+    < ADDR : RcvApp | rcvd: (Pkt ; PACKETS), appAttrs >
+    < MON : WMonitor | pktRcvd: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
+  .
+
+  ---------------------------------------
+  --- [Send App] --- Alice
+  ---------------------------------------
+  *** This signals either the start or that the WClient is ready to accept new packets.
+  *** Either way, Alice checks if it is ready (now is passed the previous app timeout)
+  *** and sends a packet if so.  Otherwise, it marks WClient as ready and waits for its
+  *** own timeout.
+  crl [send-app-send-packet]:
+    < ALICE : SendApp | appAttrs, wclientReady: WCLIENTREADY >
+    {T, (to ALICE : start)}
+  =>
+    < ALICE : SendApp | appAttrsNext >
+    (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
+    (if msgOut == nullMsg then null else [pacingTimeoutDelay, (to ALICE : pktTimeout(getPkt(msgOut))), 0] fi)
+    *** Start means that the client is ready.
+    if appAttrs1 := (appAttrs, wclientReady: true)
+    /\ {appAttrsNext, msgOut} :=
+        if getNumAdmittedPkts(appAttrs1) > 0
+          *** If Alice has already admitted packets, send the next one.
+          then sendPkt(appAttrs1, ALICE)
+          *** Otherwise, it is not time yet.  Leave wclient marked as ready and done nothing else.
+          else {appAttrs1, nullMsg}
+        fi
+        [print "SendApp start or nudge from wclient, send possible pkt " msgOut ", setting timeout if not null"]
+  .
+
+  ---- ************
+  ---- Timeout rule for Alice (receive timeout and send next packet)
+  ---- ************
+  crl [send-app-pkt-timeout]:
+    < ALICE : SendApp | appAttrs, numAdmittedPkts: N >
+    {T, (to ALICE : pktTimeout(Pkt'))}
+  =>
+    < ALICE : SendApp | appAttrsNext >
+    (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
+    (if msgOut == nullMsg then null else [pacingTimeoutDelay, (to ALICE : pktTimeout(getPkt(msgOut))), 0] fi)
+    *** Timeout means it is OK to send a packet now.
+    if appAttrs1 := (appAttrs, numAdmittedPkts: s N)
+      /\ {appAttrsNext, msgOut} := 
+        if isWClientReady(appAttrs1)
+          *** Conveniently, the client is ready, send now.
+          then sendPkt(appAttrs1, ALICE)
+          *** Client is busy, add pkt to OK to send, do nothing else.
+          else {appAttrs1, nullMsg}
+        fi
+        [print "SendApp timeout, send possible msg " msgOut ", setting timeout if not null"]
+  .
+
+
+  ---------------------------------------
+  --- [WClient] --- Weird (Iodine) client
+  ---------------------------------------
+  --- Handle packet from Alice headed to Bob.
+  --- If a packet is not currently being sent or numAttempts >= 2, then WClient
+  --- can accept and handle the packet.
+  --- (same as not sending or sending and numAttempts > 2)
+  --- Handle the packet, fragment it, and send the first fragment.
+  crl [iClientEmbedding]:
+    < ADDR : WClient | wattrs >
+    < MON : WMonitor | querySent: QTL, monAttrs >
+    {T, (to ADDR from ALICE : Pkt)}
+    =>
+    < ADDR : WClient | wattrsNext >
+    < MON : WMonitor | querySent: (QTL ; queryTimestamp(getQuery(msgOut), T)), monAttrs >
+    [delay, msgOut, drop?]
+    [ackTimeoutDelay, (to ADDR : ackTimeout(sentFragment)), 0]
+    --- TODO: Modify rule to drop incoming message if >= 2, continue on with current.
+    if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
+       /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
+       /\ sentFragment := grabCurrentFragment(wattrsNext)
+    [print "iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout"]
+    .
+
+  --- Handle a response from the resolver to WClient.
+  --- Extract the ACK information and check this is for the fragment that was
+  --- just sent (seqNo, fragNum match).
+  --- If the packet transmission is incomplete 
+  --- send the next fragment to WNameServer.
+  crl [iClientExtractFromServer]:
+    < ADDR : WClient | resv: RESOLVER, wattrs >
+    < MON : WMonitor | querySent: QTL, monAttrs >
+      {T, (to ADDR from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))}
+    =>
+    < ADDR : WClient | wattrsNext >       
+    < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
+    (if msgOutExt == nullMsg then [0.0, (to getFromAddr(response(ID, SNAME, ANS, AUTH, ADD, RCODE)) : start), 0] else [delay, msgOutExt, drop?] fi)
+    (if msgOutExt == nullMsg then null else [ackTimeoutDelay, (to ADDR : ackTimeout(sentFragment)), 0] fi)
+    if wattrsTrans := extract((resv: RESOLVER, wattrs), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
+      /\ txComplete := isTxComplete(wattrsTrans)
+      /\ {wattrsNext, msgOutExt} :=
+        if txComplete
+          then {wattrsTrans, nullMsg}
+          else sendFragment(wattrsTrans, ADDR)
+        fi
+      /\ sentFragment := grabCurrentFragment(wattrsNext)
+      [print "WClient got response: sending possible fragment " msgOutExt]
+    .
+
+  --- Handle a response from the resolver to WClient that is for a past Fragment.
+  --- This handles the case when a response does not match the current fragment.
+  --- Presumably, WClient has already moved forward in its fragments list, and 
+  --- and receives an old response.  It should drop it and do nothing.
+  --- TODO: This would be better handle with an owise, but not sure how to do that.
+  crl [wClientExtractOldResponseFromServer-ignore]:
+    < ADDR : WClient | resv: RESOLVER, wattrs >
+      {T, (to ADDR from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))}
+    =>
+    < ADDR : WClient | (resv: RESOLVER, wattrs) > 
+    if nm(FRAGMENT) . NAME := SNAME
+      /\ not isFragmentMatch((wattrs, resv: RESOLVER), FRAGMENT)
+      [print "WClient got outdated response, drop"]
+    .
+  
+    --- Timeout rule for WClient.
+  crl [iClientTimeout]:
+    < ADDR : WClient | wattrs >
+    < MON : WMonitor | querySent: QTL, monAttrs >
+    {T, (to ADDR : ackTimeout(FRAGMENT))}
+    =>
+    < ADDR : WClient | wattrsNext >    
+    < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
+    (if msgOutExt == nullMsg then null else [delay, msgOutExt, drop?] fi)
+    (if msgOutExt == nullMsg then null else [ackTimeoutDelay, (to ADDR : ackTimeout(sentFragment)), 0] fi)
+    if isSending(wattrs)
+      --- If the timed out fragment does not match the current fragment, 
+      ---  then we have already received the ACK and this rule should not match.
+      /\ isFragmentMatch(wattrs, FRAGMENT)
+      *** TODO: Need to catch the timeout if not fragment match, otherwise msg left in soup, which halts execution
+      /\ maxAttemptsReached := isMaxAttemptsReached(wattrs)
+      /\ {wattrsNext, msgOutExt} :=
+        if maxAttemptsReached
+          then {dropFragments(wattrs), nullMsg}
+          else sendFragment(wattrs, ADDR)
+        fi
+      /\ sentFragment := grabCurrentFragment(wattrsNext)
+      [print "WClient ACK Timeout: sending possible fragment " msgOutExt]
+    .
+
+  --- Timeout rule for catching WClient timeout when it has become moot.
+  crl [iClientTimeout-ignore]:
+    < ADDR : WClient | wattrs >
+    {T, (to ADDR : ackTimeout(FRAGMENT))}
+    =>
+    < ADDR : WClient | wattrs >
+    if not (isSending(wattrs) and isFragmentMatch(wattrs, FRAGMENT))
+  .
+
+endm
