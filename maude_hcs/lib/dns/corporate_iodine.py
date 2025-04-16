@@ -39,14 +39,39 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     root_nameservers = {'a.root-servers.net.': DNS_GLOBALS.ADDR_NS_ROOT}
 
     # tunnels 
+    def get_packet_sizes(packet_list, remaining_size_bytes, max_size_bytes):
+      '''
+      Get the packet sizes from a file size, in bytes.
+      Function is recursive.
+      packet_list           - The list of packet sizes so far (starts empty).
+      remaining_size_bytes  - The number of bytes remaining to place in packets.
+      max_size_bytes        - The max number of bytes of a packet. 
+      '''
+      if remaining_size_bytes <= max_size_bytes:
+        packet_list.append(remaining_size_bytes)
+        return packet_list
+      else:
+        packet_list.append(max_size_bytes)
+        return get_packet_sizes(packet_list, remaining_size_bytes-max_size_bytes,
+                                max_size_bytes)
+
     args = run_args["weird_network"]
     iodineClAddr = args['client_address']
     iodineCl = IodineClient(iodineClAddr, args['client_weird_base_name'], args['client_weird_qtype'], nameserverCORP.address)
     iodineSvr = IodineServer(f'addrNS{PWND2_NAME}', nameserverPWND2)
     monitorAddr = args.get('monitor_address', DNS_GLOBALS.ADDR_MONITOR)
     # applications
+    PACKET_HEADER_SIZE_BYTES = 33
     args = run_args["application"]
-    pkt_sizes = args["send_app_queue_pkt_sizes"]
+    if "send_app_queue_pkt_sizes" in args:
+      pkt_sizes = args["send_app_queue_pkt_sizes"]
+    else:
+      pkt_sizes = []
+    if pkt_sizes == []:
+      file_size_bytes = args["file_size_bytes"]
+      max_pkt_payload_size_bytes = args["max_pkt_payload_size_bytes"]
+      get_packet_sizes(pkt_sizes, file_size_bytes, max_pkt_payload_size_bytes) 
+      pkt_sizes = [pkt_size + PACKET_HEADER_SIZE_BYTES for pkt_size in pkt_sizes]
     aliceAddr = args['send_app_address']
     bobAddr = args['rcv_app_address']    
     start_send_app = float(args["app_start_send_time"])
