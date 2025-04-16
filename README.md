@@ -2,7 +2,34 @@
 
 Formal Analysis of Hidden Communications Systems at Scale
 
-## Install
+# Requirements
+Requires python version `3.12.4`
+
+If you use pyenv:
+
+```bash
+pyenv install 3.12.4
+pyenv local 3.12.4
+```
+
+# Installation
+
+Create your preferred environment:
+
+## Conda
+Create a conda env
+```bash
+conda create --name pwnd2 python=3.12.4
+conda activate pwnd2
+```
+
+## VIRTUALENV
+```bash
+python -m venv venv
+source venv/bin/activate
+```
+
+## Install: from git source
 We structured the repo source code so that 
 we import dns-formalization-maude as a dependency (a submodule).
 We created a fork of this dependency so that we can track our changes 
@@ -40,6 +67,7 @@ At this point `git status` should show a clean start.
 
 To install, first install the dependency as a package called dns, we import as `Maude.*`
 then install the `maude_hcs` as a package (with dependency on dns).
+
 ```shell
 cd maude_hcs/deps/dns_formalization
 pip install -e .
