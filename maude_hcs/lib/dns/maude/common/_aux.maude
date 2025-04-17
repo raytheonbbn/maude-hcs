@@ -108,6 +108,12 @@ mod IODINE_SORTS is
       /\ ADDR := getFromAddr(F)
   .
 
+  op getSeqNo : Fragment -> Nat .
+  eq getSeqNo(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = N .
+
+  op getFragmentNumber : Fragment -> Nat .
+  eq getFragmentNumber(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = N1 .
+
   op getToAddr : Fragment -> Address .
   eq getToAddr(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = BOB .
 
@@ -434,6 +440,10 @@ mod IODINE_NODE is
   --- op appAddr:_ : Address -> Attribute  [ctor] .
   --- List of fragments currently being processed
   op pendingFragments:_ : FragmentList -> Attribute [ctor] .
+  --- The current packet number being received.
+  op currentSeqNo:_ : Nat -> Attribute [ctor] .
+  --- The last fragment number received.
+  op currentFragment:_ : Nat -> Attribute [ctor] .
   op lastFragment:_ : Bool -> Attribute [ctor] .
 
 
@@ -465,6 +475,44 @@ mod IODINE_NODE is
     /\ wattrsTrans := (pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), Attrs)
     ---- simply ACK fragment (NAME contains fragment; RCODE 0 is success)
     /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, 3600.0, nullAddr >, nil, nil, 0))
+    .
+
+  *** Clear the previous fragments, keep only this newly received one, and start
+  *** receiving the packet from there.
+  op flushPendingFragments : AttributeSet -> AttributeSet .
+  ceq flushPendingFragments(wattrs) = wattrsNext
+    if (Attrs1, pendingFragments: (FRAGMENT_LIST : F), lastFragment: B, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG) := wattrs
+      /\ wattrsNext := (Attrs1, pendingFragments: (mtfl : F), lastFragment: isLastFragment(F),
+                        currentSeqNo: getSeqNo(F), currentFragment: getFragmentNumber(F))
+    .
+  
+  *** Remove the fragment being processed from the pending fragments.
+  *** That also means resetting lastFragment, which could not possibly be true or the WServer
+  *** would have already made a packet out of it and sent to Bob.
+  op removeFromPending : AttributeSet -> AttributeSet .
+  ceq removeFromPending(wattrs) = wattrsNext
+    if (Attrs1, pendingFragments: (FRAGMENT_LIST : F), lastFragment: B) := wattrs
+      /\ wattrsNext := (Attrs1, pendingFragments: FRAGMENT_LIST, lastFragment: false)
+    .
+
+  *** Check if new fragment is a duplicate.  Clean up appropriately if it is.
+  op detectDuplicate : AttributeSet -> AttributeSet .
+  ceq detectDuplicate(wattrs) = wattrsNext
+    if (Attrs1, pendingFragments: (FRAGMENT_LIST : F), currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG) := wattrs
+      /\ wattrsNext := 
+        *** If this is a different seqNo, or a previous Fragment,
+        (if (getSeqNo(F) =/= SEQ_CTR) or (getFragmentNumber(F) <= CUR_FRAG)
+          *** then if the fragment is from a next packet,
+          then (if getSeqNo(F) > SEQ_CTR
+                  *** then keep only the new fragment, move packet forward.
+                  then flushPendingFragments(wattrs)
+                  *** else remove the new fragment (duplicate).
+                  else removeFromPending(wattrs)
+                fi)
+          *** Else, this is the new fragment of the current packet, accept (move fragment number forward).
+          *** TODO: This does not handle when the fragment number could be 2 or more past the last one.
+          else (Attrs1, pendingFragments: (FRAGMENT_LIST : F), currentSeqNo: getSeqNo(F), currentFragment: getFragmentNumber(F))
+          fi)        
     .
 
   op updateRcvApp : AttributeSet Config -> AttributeSetMsgs .
@@ -537,6 +585,28 @@ red isFragmentMatch((wClientAttrs, seqCtr: 44), fragment(AliceAddr, BobAddr, 44,
 
 red isWeird((pendingFragments: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, 1, 1, 100, false, true)) . 'pwnd2 . 'com . root, a))) == true .
 red extractS((pendingFragments: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, 1, 1, 100, false, true)) . 'pwnd2 . 'com . root, a))) .
+
+red removeFromPending(pendingFragments: (fragment(AliceAddr, BobAddr, 2, 3, 10, false, false) : fragment(AliceAddr, BobAddr, 0, 2, 10, false, true)), lastFragment: true) ==
+(pendingFragments: (mtfl : fragment(AliceAddr, BobAddr, 2, 3, 10, false, false)), lastFragment: false) .
+
+red flushPendingFragments(pendingFragments: (fragment(AliceAddr, BobAddr, 2, 3, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 10, false, false) : fragment(AliceAddr, BobAddr, 3, 1, 10, false, true)), lastFragment: false, currentSeqNo: 2, currentFragment: 4) ==
+(pendingFragments: (mtfl : fragment(AliceAddr, BobAddr, 3, 1, 10, false, true)), lastFragment: true, currentSeqNo: 3, currentFragment: 1) .
+
+*** New fragment is not a duplicate, but the next and last fragment of packet.
+red detectDuplicate(pendingFragments: (fragment(AliceAddr, BobAddr, 2, 3, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 5, 10, false, true)), lastFragment: true, currentSeqNo: 2, currentFragment: 4) ==
+(pendingFragments: (fragment(AliceAddr, BobAddr, 2, 3, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 5, 10, false, true)), lastFragment: true, currentSeqNo: 2, currentFragment: 5) .
+*** New fragment is a duplicate from the same packet.
+red detectDuplicate(pendingFragments: (fragment(AliceAddr, BobAddr, 2, 3, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 3, 10, false, false)), lastFragment: false, currentSeqNo: 2, currentFragment: 4) ==
+(pendingFragments: (fragment(AliceAddr, BobAddr, 2, 3, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 10, false, false)), lastFragment: false, currentSeqNo: 2, currentFragment: 4) .
+*** New fragment is a duplicate, an old fragment from a previous packet that must have gotten delayed.
+red detectDuplicate(pendingFragments: (fragment(AliceAddr, BobAddr, 2, 3, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 10, false, false) : fragment(AliceAddr, BobAddr, 1, 3, 10, false, false)), lastFragment: false, currentSeqNo: 2, currentFragment: 4) ==
+(pendingFragments: (fragment(AliceAddr, BobAddr, 2, 3, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 10, false, false)), lastFragment: false, currentSeqNo: 2, currentFragment: 4) .
+*** New fragment is from the next packet.  Clean up the previous fragments and start new.
+red detectDuplicate(pendingFragments: (fragment(AliceAddr, BobAddr, 2, 3, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 10, false, false) : fragment(AliceAddr, BobAddr, 3, 1, 10, false, false)), lastFragment: false, currentSeqNo: 2, currentFragment: 4) ==
+(pendingFragments: (mtfl : fragment(AliceAddr, BobAddr, 3, 1, 10, false, false)), lastFragment: false, currentSeqNo: 3, currentFragment: 1) .
+*** Same as prev, but is last fragment.
+red detectDuplicate(pendingFragments: (fragment(AliceAddr, BobAddr, 2, 3, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 10, false, false) : fragment(AliceAddr, BobAddr, 3, 1, 10, false, true)), lastFragment: true, currentSeqNo: 2, currentFragment: 4) ==
+(pendingFragments: (mtfl : fragment(AliceAddr, BobAddr, 3, 1, 10, false, true)), lastFragment: true, currentSeqNo: 3, currentFragment: 1) .
 
 red isTxComplete(wClientAttrs, fragments: mtfl) == true .
 red isTxComplete(wClientAttrs, fragments: fragment(AliceAddr, BobAddr, 1, 1, 20, false, true)) == false .
