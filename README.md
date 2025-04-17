@@ -80,16 +80,16 @@ pip install -e .
 For now we can generate initial configurations using `generate` command.
 Pass a use case config file as follows,
 
-To geenrate a vanilla DNS config (without iodine),
+To generate a vanilla DNS config (without iodine),
 ```shell
-maude-hcs --verbose --run-args=./use-cases/corporate-base.json generate nondet
+maude-hcs --verbose --run-args=./use-cases/corporate-base.json --model=nondet generate
 ```
 
 To generate a nondeterministic DNS model config with iodine,
 ```shell
 maude-hcs --verbose --run-args=./use-cases/corporate-iodine.json --model=nondet  generate
 ```
-And set `--model=prob` to generate a probabilistic version.
+And set `--model=prob` to generate a probabilistic versions.
 
 Look at the `corporate-iodine.json` file above to see the configuration parameters.
 The probabilistic model will combine the nondeterministic params as well as the 
