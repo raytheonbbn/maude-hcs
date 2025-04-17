@@ -1,6 +1,6 @@
 from pathlib import Path
 import os
-
+from maude_hcs.cli import MODEL_TYPES
 from Maude.attack_exploration.src.config import Config
 
 TOPLEVELDIR = Path(os.path.dirname(__file__)).parent.parent
@@ -11,6 +11,7 @@ CWD = Path.cwd()
 class DNSConfig(Config):
     def __init__(self, clients, resolvers, nameservers, root_nameservers) -> None:
         self.params = {}
+        self.model_type = MODEL_TYPES[0]
         self.path = str(TOPLEVELDIR.joinpath(DNS_MAUDE_ROOT)) + os.path.sep
         self.weirdpath = str(WEIRD_DNS_MAUDE_ROOT)
         super().__init__(clients, resolvers, nameservers, root_nameservers)
@@ -62,6 +63,10 @@ class DNSConfig(Config):
         return res        
 
     def to_maude(self):
-        return self.to_maude_nondet(self.params, self.path)
+        if self.model_type == 'nondet':
+            return self.to_maude_nondet(self.params, self.path)
+        if self.model_type == 'prob':
+            return self.to_maude_prob(self.params, self.path)
+        raise Exception(f"Illegal model type {self.model_type}. Can either be nondet or prob.")
 
         

@@ -54,7 +54,7 @@ def createTLDZone(run_args, zoneRoot) -> Zone:
             Record(f'ns.{CORP_NAME}.com.', 'A', 3600, f'addrNS{CORP_NAME}'),
         ])
 
-def corporate(run_args) -> DNSConfig:
+def corporate(_args, run_args) -> DNSConfig:
     args = run_args["underlying_network"]
     EE_NAME = args.get('everythingelse_name', 'everythingelse')
     PWND2_NAME = args.get('pwnd2_name', 'pwnd2')

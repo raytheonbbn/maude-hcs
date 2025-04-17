@@ -9,7 +9,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def corporate_iodine(run_args) -> IodineDNSConfig:
+def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     args = run_args["underlying_network"]
     EE_NAME = args.get('everythingelse_name', 'everythingelse')
     PWND2_NAME = args.get('pwnd2_name', 'pwnd2')

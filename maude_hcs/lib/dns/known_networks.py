@@ -8,13 +8,13 @@ class KnownUNetworks:
             'corporate_iodine': self._fixed_network(corporate_iodine)
         }
     
-    def create(self, run_args):        
-        conf = self.constructors[run_args["name"]](run_args)
+    def create(self, args, run_args):        
+        conf = self.constructors[run_args["name"]](args, run_args)
         return conf
     
     def _fixed_network(self, Cls):
-        def make(run_args):
-            conf = Cls(run_args)
+        def make(args, run_args):
+            conf = Cls(args, run_args)
             return conf
         return make
     

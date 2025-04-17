@@ -47,6 +47,8 @@ class SendApp:
         res = f'< {address_to_maude(self.address)} : SendApp |\n'
         res += f'    toAddr: ({address_to_maude(self.toAddress)}),\n'
         res += f'    queue: ({packetlist_to_maude(self.packets)}),\n'
+        res += '    numAdmittedPkts: 1,\n'
+        res += '    wclientReady: true,\n'
         res += f'    sent: mtpl > '
         if self.start:
             res+= f'(to {address_to_maude(self.address)} : start)'
@@ -75,10 +77,30 @@ class IodineClient:
         res += f'    currFragment: 0,\n'
         res += f'    appAddrMap: mtIdAddr,\n'        
         res += f'    numAttempts: 0 >'
-        # else:
-        #     res += f'    numAttempts: 0,\n'
-        #     strStart = ''
-        #     if self.start:
-        #         strStart = f'(to {address_to_maude(self.sendApp.address)} : start)'
-        #     res += f'    conf: ({self.sendApp.to_maude()} {strStart}) >'
         return res
+    
+'''
+  --- monitor
+  < mAddr : WMonitor |
+    querySent: nilQueryTimestamp,
+    queryRcvd: nilQueryTimestamp,
+    pktSent: nilPacketTimestamp,
+    pktRcvd: nilPacketTimestamp
+  >
+'''
+class WMonitor:
+    def __init__(self, address) -> None:
+        self.address = address
+    
+    def __str__(self) -> str:
+        return f'< {self.address} : WMonitor | Attrs >'
+
+    def to_maude(self) -> str:        
+        res = f'< {address_to_maude(self.address)} : WMonitor |\n'
+        res += '    querySent: nilQueryTimestamp,\n'
+        res += '    queryRcvd: nilQueryTimestamp,\n'
+        res += '    pktSent: nilPacketTimestamp,\n'
+        res += '    pktRcvd: nilPacketTimestamp >'        
+        return res
+
+

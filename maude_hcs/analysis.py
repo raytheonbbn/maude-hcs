@@ -5,8 +5,9 @@ from maude_hcs.lib.dns.known_networks import KnownUNetworks
 logger = logging.getLogger(__name__)
 
 class HCSAnalysis:
-    def __init__(self, args):
+    def __init__(self, args, run_args):
         self.args = args
+        self.run_args = run_args
 
     def generate(self):
         # step 1. generate the network configuration 
@@ -18,7 +19,7 @@ class HCSAnalysis:
         
 
     def generate_network(self):
-        conf = KnownUNetworks().create(self.args)
+        conf = KnownUNetworks().create(self.args, self.run_args)
         return conf
 
 

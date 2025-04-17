@@ -21,7 +21,7 @@ def handle_command(command, parser, args):
 def handle_generate(args, parser):
     logger.debug("Handle maude generation")
     run_args = json.load(args.run_args)
-    result = HCSAnalysis(run_args).generate()
+    result = HCSAnalysis(args, run_args).generate()
     filename = f'generated_{run_args.get("name", "unknown")}_{args.generator}'
     save_output(parser, run_args, result, filename)
 
