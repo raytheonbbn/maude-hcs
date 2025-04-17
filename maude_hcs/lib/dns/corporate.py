@@ -2,14 +2,14 @@ from maude_hcs.lib.dns.DNSConfig import DNSConfig
 from Maude.attack_exploration.src.zone import Record, Zone
 from Maude.attack_exploration.src.actors import Resolver, Nameserver, Client
 from Maude.attack_exploration.src.query import Query
-from maude_hcs.lib.dns import GLOBALS
+from maude_hcs.lib.dns import DNS_GLOBALS
 import logging
 
 logger = logging.getLogger(__name__)
 
 def createAuthZone(NAME:str, parent:Zone, num_records:int) -> Zone:
-        GLOBALS.counter += 1
-        records = [Record(f'www{index}.{NAME}.com.', 'A', 3600, f'{GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
+        DNS_GLOBALS.counter += 1
+        records = [Record(f'www{index}.{NAME}.com.', 'A', 3600, f'{DNS_GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
         zone_records  = [ 
             Record(f'{NAME}.com.', 'SOA', 3600, '3600'),
             Record(f'{NAME}.com.', 'NS', 3600, f'ns.{NAME}.com.'),
@@ -27,9 +27,9 @@ def createRootZone(run_args) -> Zone:
             Record('', 'NS', 3600, 'a.root-servers.net.'),
 
             # delegations and glue
-            Record('a.root-servers.net.', 'A', 3600, GLOBALS.ADDR_NS_ROOT),
+            Record('a.root-servers.net.', 'A', 3600, DNS_GLOBALS.ADDR_NS_ROOT),
             Record('com.', 'NS', 3600, 'ns.com.'),
-            Record('ns.com.', 'A', 3600, GLOBALS.ADDR_NS_COM),
+            Record('ns.com.', 'A', 3600, DNS_GLOBALS.ADDR_NS_COM),
         ])
 
 def createTLDZone(run_args, zoneRoot) -> Zone:
@@ -43,7 +43,7 @@ def createTLDZone(run_args, zoneRoot) -> Zone:
         [
             Record('com.', 'SOA', 3600, '3600'),
             Record('com.', 'NS', 3600, 'ns.com.'),
-            Record('ns.com.', 'A', 3600, GLOBALS.ADDR_NS_COM),
+            Record('ns.com.', 'A', 3600, DNS_GLOBALS.ADDR_NS_COM),
 
             # delegations and glue
             Record(f'{EE_NAME}.com.', 'NS', 3600, f'ns.{EE_NAME}.com.'),
@@ -74,8 +74,8 @@ def corporate(_args, run_args) -> DNSConfig:
     
     resolver = Resolver('rAddr')    
 
-    nameserverRoot = Nameserver(GLOBALS.ADDR_NS_ROOT, [zoneRoot])
-    nameserverCom = Nameserver(GLOBALS.ADDR_NS_COM, [zoneCom])
+    nameserverRoot = Nameserver(DNS_GLOBALS.ADDR_NS_ROOT, [zoneRoot])
+    nameserverCom = Nameserver(DNS_GLOBALS.ADDR_NS_COM, [zoneCom])
     nameserverEE = Nameserver(f'addrNS{EE_NAME}', [zoneEverythingelse])
     nameserverCORP = Nameserver(f'addrNS{CORP_NAME}', [zonecorp], forwardonly=resolver.address)
     nameserverPWND2 = Nameserver(f'addrNS{PWND2_NAME}', [zonepwnd2])
@@ -83,8 +83,9 @@ def corporate(_args, run_args) -> DNSConfig:
     query = Query(1, f'www0.{EE_NAME}.com.', 'A')
     client = Client('cAddr', [query], nameserverCORP)    
 
-    root_nameservers = {'a.root-servers.net.': GLOBALS.ADDR_NS_ROOT}
+    root_nameservers = {'a.root-servers.net.': DNS_GLOBALS.ADDR_NS_ROOT}
 
     C = DNSConfig([client], [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverPWND2, nameserverCORP], root_nameservers)
-    C.set_params(run_args.get('nondeterministic_parameters', {}))
+    C.set_params(run_args.get('nondeterministic_parameters', {}), run_args.get('probabilistic_parameters', {}))
+    C.set_model_type(_args.model)
     return C

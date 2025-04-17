@@ -8,7 +8,8 @@ from pathlib import Path
 
 import argcomplete
 import argparse
-from maude_hcs.cli import handle_command, MODEL_TYPES
+from maude_hcs.cli import handle_command
+from maude_hcs.lib import GLOBALS
 
 from Maude.attack_exploration.src.zone import Record
 
@@ -42,9 +43,9 @@ def build_cli_parser():
     parser.add_argument('--run-args-file', dest='run_args', type=lambda x: is_valid_file(parser, x),
                         metavar='FILE', required=False, help=f'File containing all of the run arguments')
     parser.add_argument('--model', dest='model', required=False, 
-            choices=MODEL_TYPES,
-            default=MODEL_TYPES[0],
-            help=f'Choose one of the following options: {", ".join(MODEL_TYPES)}. Default is {MODEL_TYPES[0]}.'
+            choices=GLOBALS.MODEL_TYPES,
+            default=GLOBALS.MODEL_TYPES[0],
+            help=f'Choose one of the following options: {", ".join(GLOBALS.MODEL_TYPES)}. Default is {GLOBALS.MODEL_TYPES[0]}.'
 )
 
     cmd_parser = parser.add_subparsers(title='command', dest='command')    

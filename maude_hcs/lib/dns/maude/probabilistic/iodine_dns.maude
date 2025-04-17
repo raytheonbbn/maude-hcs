@@ -176,7 +176,7 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : WClient | wattrsNext >
     < MON : WMonitor | querySent: (QTL ; queryTimestamp(getQuery(msgOut), T)), pktSent: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
     [delay, msgOut, drop?]
-    [ackTimeoutDelay, (to ADDR : ackTimeout(sentFragment)), 0]
+    [ackTimeoutDelay + sampleLogNormal(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0]
     --- TODO: Modify rule to drop incoming message if >= 2, continue on with current.
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
@@ -197,7 +197,7 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : WClient | wattrsNext >       
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
     (if msgOutExt == nullMsg then [0.0, (to getFromAddr(response(ID, SNAME, ANS, AUTH, ADD, RCODE)) : start), 0] else [delay, msgOutExt, drop?] fi)
-    (if msgOutExt == nullMsg then null else [ackTimeoutDelay, (to ADDR : ackTimeout(sentFragment)), 0] fi)
+    (if msgOutExt == nullMsg then null else [ackTimeoutDelay + sampleLogNormal(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
     if wattrsTrans := extract((resv: RESOLVER, wattrs), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
@@ -233,7 +233,7 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : WClient | wattrsNext >    
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
     (if msgOutExt == nullMsg then null else [delay, msgOutExt, drop?] fi)
-    (if msgOutExt == nullMsg then null else [ackTimeoutDelay, (to ADDR : ackTimeout(sentFragment)), 0] fi)
+    (if msgOutExt == nullMsg then null else [ackTimeoutDelay + sampleLogNormal(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
     if isSending(wattrs)
       --- If the timed out fragment does not match the current fragment, 
       ---  then we have already received the ACK and this rule should not match.

@@ -34,7 +34,7 @@ class IodineServer:
 
 
 class SendApp:
-    def __init__(self, address, toAddress, packets_to_send, start : bool = True):
+    def __init__(self, address, toAddress, packets_to_send, start : float = -1):
         self.address = address
         self.toAddress = toAddress
         self.packets = packets_to_send
@@ -49,9 +49,7 @@ class SendApp:
         res += f'    queue: ({packetlist_to_maude(self.packets)}),\n'
         res += '    numAdmittedPkts: 1,\n'
         res += '    wclientReady: true,\n'
-        res += f'    sent: mtpl > '
-        if self.start:
-            res+= f'(to {address_to_maude(self.address)} : start)'
+        res += f'    sent: mtpl > '        
         return res
 
 class IodineClient:
