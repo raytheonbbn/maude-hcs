@@ -9,13 +9,13 @@ from pathlib import Path
 import argcomplete
 import argparse
 from maude_hcs.cli import handle_command
+from maude_hcs.lib import GLOBALS
 
 from Maude.attack_exploration.src.zone import Record
 
 TOPLEVELDIR = Path(os.path.dirname(__file__))
 
 logger = logging.getLogger(__name__)
-
 
 def init_logging(verbose):
     _logger = logging.getLogger('maude-hcs')
@@ -42,16 +42,20 @@ def build_cli_parser():
     parser.add_argument('--verbose', action='store_true', help='turn on logging')    
     parser.add_argument('--run-args-file', dest='run_args', type=lambda x: is_valid_file(parser, x),
                         metavar='FILE', required=False, help=f'File containing all of the run arguments')
+    parser.add_argument('--model', dest='model', required=False, 
+            choices=GLOBALS.MODEL_TYPES,
+            default=GLOBALS.MODEL_TYPES[0],
+            help=f'Choose one of the following options: {", ".join(GLOBALS.MODEL_TYPES)}. Default is {GLOBALS.MODEL_TYPES[0]}.'
+)
 
     cmd_parser = parser.add_subparsers(title='command', dest='command')    
     cmd_parser.required = True
-
     generate_parser = cmd_parser.add_parser('generate')
-    generator = generate_parser.add_subparsers(title='generator', dest='generator',
-                                              description='Generate Maude file(s) to run', help="Add help")
-    generator.required = True
-    generator.add_parser('nondet', description='Generate non-deterministic model', help='nondet for nondeterministic')
-    generator.add_parser('prob', description='Generate probabilistic model', help='prob for probabilistic')
+    # generator = generate_parser.add_subparsers(title='generator', dest='generator',
+    #                                           description='Generate Maude file(s) to run', help="Add help")
+    # generator.required = True
+    # generator.add_parser('nondet', description='Generate non-deterministic model', help='nondet for nondeterministic')
+    # generator.add_parser('prob', description='Generate probabilistic model', help='prob for probabilistic')
     
     argcomplete.autocomplete(parser)
     return parser
