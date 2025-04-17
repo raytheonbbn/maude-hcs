@@ -28,6 +28,8 @@ class IodineServer:
         strNS = "" if self.nameServer == None else self.nameServer.to_maude()
         res = f'< {address_to_maude(self.address)} : WNameserver |\n'        
         res += f'    pendingFragments: mtfl,\n'
+        res += f"    currentSeqNo: 0,\n"
+        res += f"    currentFragment: 0,\n"
         res += f'    lastFragment: false,\n'
         res += f'    conf: ({strNS}) >'
         return res
