@@ -48,9 +48,10 @@ graph TD
 
 Cache check state machine
 ```mermaid
+%%{init: {'theme': 'neo', 'themeVariables': { 'fontSize': '44px', 'fontFamily': 'Inter'}}}%%
 graph LR
     A[Client Query In] --> B{Resolver};
-    B -- 1. Prune Cache --> C[Check Cache (Data, NXDOMAIN, NoData)];
+    B -- "1 Prune Cache" --> C["Check Cache (Data, NXDOMAIN, NoData)"];
     C -- Cache Hit --> D[Construct & Send Response to Client];
     C -- Cache Miss --> E[Proceed to Query Nameservers];
 ```
@@ -72,7 +73,6 @@ graph TD
 ## Nameserver
 
 ```mermaid
-
 %%{init: {'theme': 'neo', 'themeVariables': { 'fontSize': '44px', 'fontFamily': 'Inter'}}}%%
 graph TD
     subgraph "Incoming Query Processing"
