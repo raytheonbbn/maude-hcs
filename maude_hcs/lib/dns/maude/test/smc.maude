@@ -1,0 +1,71 @@
+load /root/maude-hcs/maude_hcs/lib/dns/maude/probabilistic/iodine_dns
+load /root/maude-hcs/maude_hcs/deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
+
+load /root/maude-hcs/results/generated_corporate_iodine_prob
+
+--- This maude file has been created automatically from the Python representation.
+
+mod SMC is
+
+  inc IODINE_TEST .
+
+  var AC : ActorConfig .
+  var attrs : AttributeSet .
+
+  vars PTL PTL' PTL'' PTL''' : PacketTimestampList .
+  vars Pkt Pkt' : Packet .
+  var C : Config .
+  var id : Nat .
+  vars len, len' : Nat .
+  var last? : Bool .
+  vars T T' : Float .
+
+  op getMonitor : Config -> Actor .
+  eq getMonitor (C < monAddr : WMonitor | attrs >) = < monAddr : WMonitor | attrs > .
+
+  op getPktSent : Actor ->  PacketTimestampList . 
+  eq getPktSent (< monAddr : WMonitor | pktSent: PTL, attrs >) = PTL . 
+
+---  op getFirstPktSent : Actor -> PacketTimestamp . 
+---  eq getFirstPktSent  (< monAddr : WMonitor | pktSent: (PTL ; packetTimestamp(packet(Alice, Bob, 0, len, last?), T) ; PTL'), attrs >) = packetTimestamp(packet(Alice, Bob, 0, len, last?), T .
+
+  op getFirstPktSentTime : Actor -> Float .
+  eq getFirstPktSentTime (< monAddr : WMonitor | pktSent: (PTL ; packetTimestamp(packet(Alice, Bob, 0, len, last?), T) ; PTL'), attrs >) = T .
+
+  op getPktRcvd : Actor ->  PacketTimestampList . 
+  eq getPktRcvd (< monAddr : WMonitor | pktRcvd: PTL, attrs >) = PTL . 
+
+  op getLastPktRcvdTime : Actor -> Float .
+  eq getLastPktRcvdTime (< monAddr : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(Alice, Bob, id, len, true), T) ; PTL'), attrs >) = T .
+
+  op getLatency : Actor -> Float .
+  eq getLatency (< monAddr : WMonitor | pktSent: (PTL ; packetTimestamp(packet(Alice, Bob, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(Alice, Bob, id, len', true), T') ; PTL'''), attrs >) = T' - T .
+
+  op isDone : Config -> Bool .
+  eq isDone ({ F:Float | nil } AC < monAddr : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(Alice, Bob, id, len, true), T) ; PTL'), attrs >) = true .
+  eq isDone (c:Config) = false [owise] .
+
+  op finimon : -> Actor .
+  eq finimon = 
+< monAddr : WMonitor | pktSent: (packetTimestamp(packet(Alice, Bob, 0, 200, false), 2.3513190310266708e-2) ; packetTimestamp(packet(Alice, Bob, 1, 200, false), 1.7113809376169172e+1) ; packetTimestamp(packet(Alice, Bob, 2, 100, false), 2.8148200373142547e+1) ; packetTimestamp(packet(Alice, Bob, 3, 10, true), 3.3649112071177818e+1)), pktRcvd: (packetTimestamp($makePacket(fragment(Alice, Bob, 1, 1, 100, false, false) : fragment(Alice, Bob, 2, 1, 100, false, true), packet(Alice, Bob, 0, 200, false)), 3.1840313414694531e+1) ; packetTimestamp(packet(Alice, Bob, 3, 10, true), 3.6537307387247338e+1) ; packetTimestamp(packet( Alice, Bob, 3, 10, true), 3.8721084520267667e+1)), querySent: (queryTimestamp(query(7727, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 2.3513190310266708e-2) ; queryTimestamp(query(15454, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 2.023433898802049) ; queryTimestamp(query( 23181, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 4.0234286591840398) ; queryTimestamp(query(30908, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 6.0233093085688081) ; queryTimestamp(query(38635, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 1.7113809376169172e+1) ; queryTimestamp(query(46362, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 1.911379365077115e+1) ; queryTimestamp(query(54089, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) .  'pwnd2 . 'com . root, a), 2.1113700343092283e+1) ; queryTimestamp(query(61816, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 2.3113672605974482e+1) ; queryTimestamp(query(69543, nm(fragment(Alice, Bob, 2, 1, 100, false, true)) . 'pwnd2 . 'com . root, a), 2.8148200373142547e+1) ; queryTimestamp(query(77270, nm(fragment(Alice, Bob, 2, 1, 100, false, true)) . 'pwnd2 . 'com . root, a), 3.0148229525140799e+1) ; queryTimestamp(query(84997, nm(fragment(Alice, Bob, 2, 1, 100, false, true)) . 'pwnd2 . 'com . root, a), 3.2148348264231529e+1) ; queryTimestamp(query(92724, nm(fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.3649112071177818e+1) ; queryTimestamp(query(100451, nm(fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.5649114939595194e+1) ; queryTimestamp(query(108178, nm( fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.7649054113330656e+1) ; queryTimestamp(query(115905, nm(fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.9648934179065314e+1)), queryRcvd: (queryTimestamp(query(30908 .. init .. ref, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 1.3924912424063406e+1) ; queryTimestamp(query(7727 .. init .. ref .. ref, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 2.4686740652206748e+1) ; queryTimestamp(query(38635 .. init, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 2.495775039680359e+1) ; queryTimestamp(query(69543 .. init, nm(fragment(Alice, Bob, 2, 1, 100, false, true)) . 'pwnd2 . 'com . root, a), 3.1840313414694531e+1) ; queryTimestamp(query(92724 .. init, nm(fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.6537307387247338e+1) ; queryTimestamp(query(100451 .. init, nm(fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.8721084520267667e+1) ; queryTimestamp(query(54089 .. init, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 4.4203515153372692e+1)) > .
+
+  op finiconf : -> Config .
+  eq finiconf = {5.8991843321893739e+1 | nil}
+  < Alice : SendApp | toAddr: iodineC,queue: mtpl,sent: (packet(Alice, Bob, 3, 10, true) ; packet(Alice, Bob, 2, 100, false) ; packet(Alice, Bob, 1, 200, false) ; packet(Alice, Bob, 0, 200, false)),numAdmittedPkts: 1,wclientReady: true >
+  < Bob : RcvApp | rcvd: (packet(Alice, Bob, 3, 10, true) ; packet(Alice, Bob, 3, 10, true) ; $makePacket(fragment(Alice, Bob, 1, 1, 100, false, false) : fragment(Alice, Bob, 2, 1, 100, false, true), packet(Alice, Bob, 0, 200, false))) >
+  < addrNScom : Nameserver | db: (< 'com . root,soa,3.6e+3,soaData(3.6e+3) > < 'com . root,ns,3.6e+3,'ns . 'com . root > < 'ns . 'com . root,a,3.6e+3,addrNScom > < 'example . 'com . root,ns,3.6e+3,'ns . 'example . 'com . root > < 'ns . 'example . 'com . root,a,3.6e+3,addrNSexample > < 'pwnd2 . 'com . root,ns,3.6e+3,'ns . 'pwnd2 . 'com . root > < 'ns . 'pwnd2 . 'com . root,a,3.6e+3,addrNSpwnd2 > < 'corporate . 'com . root,ns,3.6e+3,'ns . 'corporate . 'com . root > < 'ns . 'corporate . 'com . root,a,3.6e+3,addrNScorporate >),forwardonly: nullAddr, queriesFwd: nilTAQL, queue: nilQueue > 
+  < addrNScorporate : Nameserver | db: (< 'corporate . 'com . root,soa,3.6e+3,soaData(3.6e+3) > < 'corporate . 'com . root,ns,3.6e+3,'ns . 'corporate . 'com . root > < 'ns . 'corporate . 'com . root,a,3.6e+3,addrNScorporate > < 'www0 . 'corporate . 'com . root,a,3.6e+3,3 . 0 . 1 . 2 > < 'www1 . 'corporate . 'com . root,a, 3.6e+3,3 . 1 . 1 . 2 > < wildcard . 'corporate . 'com . root,txt,3.6e+3,nullAddr >),forwardonly: rAddr, queriesFwd: nilTAQL, queue: nilQueue > 
+  < addrNSexample : Nameserver | db: (< 'example . 'com . root,soa,3.6e+3,soaData(3.6e+3) > < 'example . 'com . root,ns,3.6e+3,'ns . 'example . 'com . root > < 'ns . 'example . 'com . root,a,3.6e+3,addrNSexample > < 'www0 . 'example . 'com . root,a,3.6e+3,1 . 0 . 1 . 2 > < 'www1 . 'example . 'com . root,a,3.6e+3,1 . 1 . 1 . 2 > < wildcard . 'example . 'com . root,txt,3.6e+3,nullAddr >),forwardonly: nullAddr, queriesFwd: nilTAQL, queue: nilQueue > 
+  < addrNSpwnd2 : WNameserver | conf: < addrNSpwnd2 : Nameserver | db: (< 'pwnd2 . 'com . root,soa,3.6e+3,soaData(3.6e+3) > < 'pwnd2 . 'com . root,ns,3.6e+3,'ns . 'pwnd2 . 'com . root > < 'ns . 'pwnd2 . 'com . root,a,3.6e+3,addrNSpwnd2 > < 'www0 . 'pwnd2 . 'com . root,a,3.6e+3,2 . 0 . 1 . 2 > < 'www1 . 'pwnd2 . 'com . root,a,3.6e+3,2 . 1 . 1 . 2 > < wildcard . 'pwnd2 . 'com . root,txt,3.6e+3,nullAddr >),forwardonly: nullAddr, queriesFwd: nilTAQL, queue: nilQueue >,pendingFragments: fragment(Alice, Bob, 1, 1, 100, false, false),lastFragment: false > 
+  < addrNSroot : Nameserver | db: (< root,soa,3.6e+3,soaData(3.6e+3) > < root,ns,3.6e+3,'a . 'root-servers . 'net . root > < 'a . 'root-servers . 'net . root,a,3.6e+3,addrNSroot > < 'com . root,ns,3.6e+3,'ns . 'com . root > < 'ns . 'com . root,a,3.6e+3,addrNScom >),forwardonly: nullAddr, queriesFwd: nilTAQL, queue: nilQueue > 
+  < iodineC : WClient | resv: addrNScorporate,wDom: 'pwnd2 . 'com . root,queryCtr: 115905,seqCtr: 3,fragments: mtfl,fragmentsSize: 1,currFragment: 2,numAttempts: 0,weirdQType: a,appAddrMap: ((7727 <~ Alice) !! (15454 <~ Alice) !! (23181 <~ Alice) !! (30908 <~ Alice) !! (38635 <~ Alice) !! ( 46362 <~ Alice) !! (54089 <~ Alice) !! (61816 <~ Alice) !! (69543 <~ Alice) !! (77270 <~ Alice) !! (84997 <~ Alice) !! (92724 <~ Alice) !! (100451 <~ Alice) !! (108178 <~ Alice) !! 115905 <~ Alice) > 
+   < monAddr : WMonitor | pktSent: (packetTimestamp(packet(Alice, Bob, 0, 200, false), 2.3513190310266708e-2) ; packetTimestamp(packet(Alice, Bob, 1, 200, false), 1.7113809376169172e+1) ; packetTimestamp(packet(Alice, Bob, 2, 100, false), 2.8148200373142547e+1) ; packetTimestamp(packet(Alice, Bob, 3, 10, true), 3.3649112071177818e+1)), pktRcvd: (packetTimestamp($makePacket(fragment(Alice, Bob, 1, 1, 100, false, false) : fragment(Alice, Bob, 2, 1, 100, false, true), packet(Alice, Bob, 0, 200, false)), 3.1840313414694531e+1) ; packetTimestamp(packet(Alice, Bob, 3, 10, true), 3.6537307387247338e+1) ; packetTimestamp(packet( Alice, Bob, 3, 10, true), 3.8721084520267667e+1)), querySent: (queryTimestamp(query(7727, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 2.3513190310266708e-2) ; queryTimestamp(query(15454, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 2.023433898802049) ; queryTimestamp(query( 23181, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 4.0234286591840398) ; queryTimestamp(query(30908, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 6.0233093085688081) ; queryTimestamp(query(38635, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 1.7113809376169172e+1) ; queryTimestamp(query(46362, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 1.911379365077115e+1) ; queryTimestamp(query(54089, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) .  'pwnd2 . 'com . root, a), 2.1113700343092283e+1) ; queryTimestamp(query(61816, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 2.3113672605974482e+1) ; queryTimestamp(query(69543, nm(fragment(Alice, Bob, 2, 1, 100, false, true)) . 'pwnd2 . 'com . root, a), 2.8148200373142547e+1) ; queryTimestamp(query(77270, nm(fragment(Alice, Bob, 2, 1, 100, false, true)) . 'pwnd2 . 'com . root, a), 3.0148229525140799e+1) ; queryTimestamp(query(84997, nm(fragment(Alice, Bob, 2, 1, 100, false, true)) . 'pwnd2 . 'com . root, a), 3.2148348264231529e+1) ; queryTimestamp(query(92724, nm(fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.3649112071177818e+1) ; queryTimestamp(query(100451, nm(fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.5649114939595194e+1) ; queryTimestamp(query(108178, nm( fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.7649054113330656e+1) ; queryTimestamp(query(115905, nm(fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.9648934179065314e+1)), queryRcvd: (queryTimestamp(query(30908 .. init .. ref, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 1.3924912424063406e+1) ; queryTimestamp(query(7727 .. init .. ref .. ref, nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 2.4686740652206748e+1) ; queryTimestamp(query(38635 .. init, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 2.495775039680359e+1) ; queryTimestamp(query(69543 .. init, nm(fragment(Alice, Bob, 2, 1, 100, false, true)) . 'pwnd2 . 'com . root, a), 3.1840313414694531e+1) ; queryTimestamp(query(92724 .. init, nm(fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.6537307387247338e+1) ; queryTimestamp(query(100451 .. init, nm(fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root, a), 3.8721084520267667e+1) ; queryTimestamp(query(54089 .. init, nm(fragment(Alice, Bob, 1, 1, 100, false, false)) . 'pwnd2 . 'com . root, a), 4.4203515153372692e+1)) > 
+   < rAddr : Resolver | cache: (cacheEntry(< 'com . root,ns,3.6109258383741799e+3,'ns . 'com . root >, 1) cacheEntry(< 'ns . 'com . root,a,3.6109258383741799e+3,addrNScom >, 1) cacheEntry(< 'pwnd2 . 'com . root,ns,3.624116473869984e+3,'ns . 'pwnd2 . 'com . root >, 1) cacheEntry(< 'ns . 'pwnd2 . 'com . root,a, 3.624116473869984e+3,addrNSpwnd2 >, 1) cacheEntry(< nm(fragment(Alice, Bob, 0, 1, 100, false, false)) . 'pwnd2 . 'com . root,a,3.6255291109797195e+3,nullAddr >, 5) cacheEntry(< nm(fragment(Alice, Bob, 2, 1, 100, false, true)) . 'pwnd2 . 'com . root,a,3.632656676529451e+3,nullAddr >, 5) cacheEntry(< nm(fragment(Alice, Bob, 3, 1, 10, true, true)) . 'pwnd2 . 'com . root,a,3.6394891368085e+3,nullAddr >, 5) cacheEntry(< nm(fragment(Alice, Bob, 1, 1, 100, false, false)) . 'pwnd2 . 'com . root,a,3.6446065319475383e+3,nullAddr >, 5)), nxdomainCache: nilNxdomainCache, nodataCache: nilNodataCache, sbelt: < root ('a . 'root-servers . 'net . root |-> addrNSroot) >, workBudget: emptyIN, blockedQueries: eptQSS, sentQueries: eptQSS > .
+
+endm
+
+set clear rules off .
+set print attribute off .
+
+eof 
+
