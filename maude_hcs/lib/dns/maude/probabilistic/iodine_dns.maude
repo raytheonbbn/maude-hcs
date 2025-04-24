@@ -97,6 +97,7 @@ crl [wnameserver-receive-query-weird]:
   /\ {wattrsTrans, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 3
   /\ {wattrs2, appMsgOut} := updateRcvApp(wattrsTrans, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  [print "(" T ") WServer receving query " ID ]
   .
 
   ---------------------------------------
@@ -134,7 +135,7 @@ crl [wnameserver-receive-query-weird]:
           *** Otherwise, it is not time yet.  Leave wclient marked as ready and done nothing else.
           else {appAttrs1, nullMsg}
         fi
-        [print "SendApp start or nudge from wclient, send possible pkt " msgOut ", setting timeout if not null"]
+        [print "(" T ") SendApp start or nudge from wclient, send possible pkt " msgOut ", setting timeout if not null"]
   .
 
   ---- ************
@@ -156,7 +157,7 @@ crl [wnameserver-receive-query-weird]:
           *** Client is busy, add pkt to OK to send, do nothing else.
           else {appAttrs1, nullMsg}
         fi
-        [print "SendApp timeout, send possible msg " msgOut ", setting timeout if not null"]
+        [print "(" T ") SendApp timeout, send possible msg " msgOut ", setting timeout if not null"]
   .
 
 
@@ -181,7 +182,7 @@ crl [wnameserver-receive-query-weird]:
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
        /\ sentFragment := grabCurrentFragment(wattrsNext)
-    [print "iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout"]
+    [print "(" T ") iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout"]
     .
 
   --- Handle a response from the resolver to WClient.
@@ -206,7 +207,7 @@ crl [wnameserver-receive-query-weird]:
           else sendFragment(wattrsTrans, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
-      [print "WClient got response: sending possible fragment " msgOutExt]
+      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt]
     .
 
   --- Handle a response from the resolver to WClient that is for a past Fragment.
@@ -221,7 +222,7 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : WClient | (resv: RESOLVER, wattrs) > 
     if nm(FRAGMENT) . NAME := SNAME
       /\ not isFragmentMatch((wattrs, resv: RESOLVER), FRAGMENT)
-      [print "WClient got outdated response, drop"]
+      [print "(" T ") WClient got outdated response to query " ID ", dropping it"]
     .
   
     --- Timeout rule for WClient.
@@ -247,7 +248,7 @@ crl [wnameserver-receive-query-weird]:
           else sendFragment(wattrs, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
-      [print "WClient ACK Timeout: sending possible fragment " msgOutExt]
+      [print "(" T ") WClient ACK Timeout: sending possible fragment " msgOutExt " or requesting new packet" ]
     .
 
   --- Timeout rule for catching WClient timeout when it has become moot.
@@ -257,6 +258,7 @@ crl [wnameserver-receive-query-weird]:
     =>
     < ADDR : WClient | wattrs >
     if not (isSending(wattrs) and isFragmentMatch(wattrs, FRAGMENT))
+    [print "(" T ") WClient ignoring timeout" ]
   .
 
 endm
