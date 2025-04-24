@@ -232,7 +232,8 @@ crl [wnameserver-receive-query-weird]:
     =>
     < ADDR : WClient | wattrsNext >    
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
-    (if msgOutExt == nullMsg then null else [delay, msgOutExt, drop?] fi)
+    --- Either ask for the next packet when the current one is being dropped, or send fragment out.
+    (if msgOutExt == nullMsg then [0.0, (to getFromAddr(FRAGMENT) : start), 0] else [delay, msgOutExt, drop?] fi)
     (if msgOutExt == nullMsg then null else [ackTimeoutDelay + sampleLogNormal(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
     if isSending(wattrs)
       --- If the timed out fragment does not match the current fragment, 
