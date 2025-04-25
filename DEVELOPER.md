@@ -127,3 +127,211 @@ graph TD
 
     style Stop fill:#f9f,stroke:#333,stroke-width:2px
 ```    
+
+# Iodine Model
+
+Sequence diagram summarizing all the interactions
+
+```mermaid
+---
+config:
+  theme: neo
+  themeVariables:
+    fontSize: 44px
+    fontFamily: Inter
+  layout: elk
+---
+sequenceDiagram
+    participant Alice
+    participant WClient
+    participant Resolver
+    participant WNameserver
+    participant Bob
+
+    Alice ->> WClient: Send Packet(P)
+    activate WClient
+    Note over WClient: Fragments Packet P (rule: iClientEmbedding)
+    WClient ->> Resolver: DNS Query(ID1, Frag1)
+    activate Resolver
+    Note over WClient: Set ACK Timer (Frag1)
+    Resolver ->> WNameserver: Forward Query(ID1, Frag1)
+    activate WNameserver
+    Note over WNameserver: Process Frag1 (rule: wnameserver-receive-query-weird / extractS)
+    WNameserver -->> Resolver: DNS Response(ID1, ACK Frag1)
+    opt Packet Complete
+        Note over WNameserver: (rule: wnameserver-receive-query-weird / updateRcvApp)
+        WNameserver -->> Bob: Send Reassembled Packet
+    end
+    deactivate WNameserver
+    Resolver -->> WClient: Forward Response(ID1, ACK Frag1)
+    deactivate Resolver
+    activate WClient
+    Note over WClient: Process ACK, Matches Frag1 (rule: iClientExtractFromServer)
+    Note over WClient: Move to Frag2
+    WClient ->> Resolver: DNS Query(ID2, Frag2)
+    activate Resolver
+    Note over WClient: Set ACK Timer (Frag2)
+    Resolver ->> WNameserver: Forward Query(ID2, Frag2)
+    activate WNameserver
+    Note over WNameserver: Process Frag2 (rule: wnameserver-receive-query-weird / extractS)
+    WNameserver -->> Resolver: DNS Response(ID2, ACK Frag2)
+    opt Packet Complete
+        Note over WNameserver: (rule: wnameserver-receive-query-weird / updateRcvApp)
+        WNameserver -->> Bob: Send Reassembled Packet
+    end
+    deactivate WNameserver
+    Resolver -->> WClient: Forward Response(ID2, ACK Frag2)
+    deactivate Resolver
+    activate WClient
+    Note over WClient: Process ACK, Matches Frag2 (rule: iClientExtractFromServer)
+    Note over WClient: ...continues until last fragment...
+
+    alt Timeout and Retransmit (Example for FragN)
+        Note over WClient: ACK Timer for FragN expires
+        WClient ->> WClient: Check Attempts < Max (rule: iClientTimeout)
+        WClient ->> Resolver: Re-Send DNS Query(ID_N, FragN)
+        activate Resolver
+        Note over WClient: Reset ACK Timer (FragN)
+        Resolver ->> WNameserver: Forward Query(ID_N, FragN)
+        activate WNameserver
+        WNameserver -->> Resolver: DNS Response(ID_N, ACK FragN)
+        deactivate WNameserver
+        Resolver -->> WClient: Forward Response(ID_N, ACK FragN)
+        deactivate Resolver
+        activate WClient
+        Note over WClient: Process ACK...
+    else Timeout and Abort (Example for FragN)
+        Note over WClient: ACK Timer for FragN expires
+        WClient ->> WClient: Check Attempts >= Max (rule: iClientTimeout)
+        WClient ->> WClient: Drop Packet Fragments
+        WClient ->> Alice: Signal Failed / Ready
+    else Old ACK Received (Example: ACK for Frag(N-1) after FragN sent)
+        Resolver -->> WClient: Forward Response(ID_N-1, ACK Frag(N-1))
+        Note over WClient: Ignore Old ACK (rule: wClientExtractOldResponseFromServer-ignore)
+    end
+    deactivate WClient
+```
+
+
+## Iodine server
+
+```mermaid
+---
+config:
+  theme: neo
+  themeVariables:
+    fontSize: 44px
+    fontFamily: Inter
+  layout: fixed
+---
+flowchart TD
+    A["Query Arrives"] --> B@{ label: "Is Query 'Weird'?" }
+    B -- No (Normal) --> C["Pass Query Internally to wrappedNS"]
+    C --> D["Wait for Internal Response"]
+    D -- Response Ready --> E["Relay Response from wrappedNS to Original Querier"]
+    E --> F["End"]
+    B -- Yes (Weird) --> G["Extract Fragment (extractS)\n& Update Internal State"]
+    G --> H["Send DNS Response (ACK)\nto Querier"]
+    H --> I{"Packet Complete?\n(updateRcvApp)"}
+    I -- Yes --> J["Send Reassembled Packet\nto Target App (Bob)"]
+    J --> K["End"]
+    I -- No --> K
+    B@{ shape: diamond}
+```
+
+## Iodine client
+
+```mermaid
+---
+config:
+  theme: neo
+  themeVariables:
+    fontSize: 44px
+    fontFamily: Inter
+  layout: elk
+---
+flowchart TD
+ subgraph subGraph0["Main States"]
+        Idle["Idle / Ready for Packet"]
+        Waiting["Waiting for ACK / Timeout"]
+  end
+    Idle -- Receive Packet from App --> FragPkt["Fragment Packet & Store Fragments"]
+    FragPkt --> SendFrag["Send Current Fragment Query & Set numAttempts=1"]
+    SendFrag --> SetTimeout["Set ACK Timeout"]
+    SetTimeout --> Waiting
+    Waiting -- Receive DNS Response --> CheckResp{"Is ACK for Current Fragment?"}
+    CheckResp -- Yes --> ProcACK["Process ACK & Reset numAttempts"]
+    ProcACK --> CheckDone{"All Fragments Sent?"}
+    CheckDone -- Yes --> SignalDone["Signal App Complete"]
+    SignalDone --> Idle
+    CheckDone -- No --> MoveNext["Move to Next Fragment"]
+    MoveNext --> SendFrag
+    CheckResp -- No (Old ACK) --> IgnoreResp["Ignore Response"]
+    IgnoreResp --> Waiting
+    Waiting -- Receive ACK Timeout Msg --> CheckTimeout{"Is Timeout for Current Fragment?"}
+    CheckTimeout -- Yes --> ProcTimeout["Process Timeout"]
+    ProcTimeout --> CheckAttempts{"Max Attempts Reached?"}
+    CheckAttempts -- Yes --> DropPkt["Drop Fragments & Signal App Failed/Ready"]
+    DropPkt --> Idle
+    CheckAttempts -- No --> IncAttempts["Increment numAttempts"]
+    IncAttempts --> ResendFrag["Resend Current Fragment Query"]
+    ResendFrag --> SetTimeout
+    CheckTimeout -- No (Old Timeout) --> IgnoreTimeout["Ignore Timeout"]
+    IgnoreTimeout --> Waiting
+```
+## Send app (Alice)
+
+```mermaid
+---
+config:
+  theme: neo
+  themeVariables:
+    fontSize: 44px
+    fontFamily: Inter
+  layout: elk
+---
+graph TD
+    subgraph "State"
+        S["queue: PacketList; sent: PacketList; numAdmittedPkts: Nat; nwclientReady: Bool"]
+    end
+
+    subgraph "Trigger: Receive 'start' Message (from WClient)"
+        T1_Start["'start' Received"] --> T1_SetReady["Set wclientReady = true"];
+        T1_SetReady --> T1_Check{"numAdmittedPkts > 0 AND queue not empty?"};
+        T1_Check -- "Yes" --> T1_Send["Send Packet from queue, Decrement numAdmittedPkts, Set wclientReady = false"];
+        T1_Send --> T1_SetTimeout["Schedule pktTimeout"];
+        T1_SetTimeout --> T1_End["End"];
+        T1_Check -- "No" --> T1_End;
+    end
+
+    subgraph "Trigger: Receive 'pktTimeout' Message (Self)"
+        T2_Start["'pktTimeout' Received"] --> T2_IncPkts["Increment numAdmittedPkts"];
+        T2_IncPkts --> T2_Check{"wclientReady == true AND queue not empty?"};
+        T2_Check -- "Yes" --> T2_Send["Send Packet from queue Decrement numAdmittedPkts Set wclientReady = false"];
+        T2_Send --> T2_SetTimeout["Schedule next pktTimeout"];
+        T2_SetTimeout --> T2_End["End"];
+        T2_Check -- "No" --> T2_End;
+    end
+```
+
+## Receive App
+
+```mermaid
+---
+config:
+  theme: neo
+  themeVariables:
+    fontSize: 44px
+    fontFamily: Inter
+  layout: elk
+---
+graph TD
+    subgraph "State"
+        S["rcvd: PacketList"]
+    end
+
+    subgraph "Trigger: Receive Packet Message (from WNameserver)"
+        T1_Start["Packet Message Received"] --> T1_Store["Prepend Packet to 'rcvd' list"];
+        T1_Store --> T1_End["End (Return to Idle)"];
+    end
+```
