@@ -85,11 +85,13 @@ To generate a vanilla DNS config (without iodine),
 maude-hcs --verbose --run-args=./use-cases/corporate-base.json --model=nondet generate
 ```
 
-To generate a nondeterministic DNS model config with iodine,
+To generate a probabilistic DNS model config with iodine and specify the output filename,
 ```shell
-maude-hcs --verbose --run-args=./use-cases/corporate-iodine.json --model=nondet  generate
+maude-hcs --verbose --run-args=./use-cases/corporate-iodine.json --model=prob --filename=generated_test generate
 ```
-And set `--model=prob` to generate a probabilistic versions.
+And set `--model=nondet` to generate a nondeterministic version.
+
+
 
 Look at the `corporate-iodine.json` file above to see the configuration parameters.
 The probabilistic model will combine the nondeterministic params as well as the 
