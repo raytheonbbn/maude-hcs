@@ -244,6 +244,20 @@ umaudemc --no-advise scheck smc initConfig latency.quatex -a 0.05 --assign pmaud
 ```
 QMaude returns the expected value for the quatex queries (μ), and the number of Monte Carlo simulations it took to reach that value.
 
+# Tests
+
+To run the tests, first install pytest in your environment.
+```
+pip install -e .[test]
+```
+
+Then run the unit tests
+```
+python -m pytest
+```
+
+
+
 # References
 
 DNS model
