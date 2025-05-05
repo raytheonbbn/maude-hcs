@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 from maude_hcs.lib import GLOBALS
 from Maude.attack_exploration.src.config import Config
+from .cache import ResolverCache
 
 TOPLEVELDIR = Path(os.path.dirname(__file__)).parent.parent
 DNS_MAUDE_ROOT = Path("deps/dns_formalization/Maude")
@@ -41,6 +42,13 @@ class DNSConfig(Config):
             res += '  ' + nameserver.to_maude() + '\n'
 
         return res  
+    
+    def _to_maude_caches(self) -> str:
+        res = '--- Caches\n'
+        for resolver in self.resolvers:
+            if resolver.cache:
+                res += resolver.cache.to_maude() + '\n'
+        return res
    
     # override update the modules imported
     def to_maude_nondet(self, param_dict, path) -> str:
@@ -56,6 +64,7 @@ class DNSConfig(Config):
         ))
 
         res += self._to_maude_common_definitions(param_dict)
+        res += self._to_maude_caches()
 
         res += '--- Initial configuration\n'
         res += 'op initConfig : -> Config .\n'
@@ -82,6 +91,7 @@ class DNSConfig(Config):
         ))
 
         res += self._to_maude_common_definitions(param_dict)
+        res += self._to_maude_caches()
         res += '--- Initial configuration\n'
         res += 'op initState : -> Config .\n'
         res += 'eq initState =\n'
