@@ -1,9 +1,10 @@
 from maude_hcs.lib.dns.IodineDNSConfig import IodineDNSConfig
-from Maude.attack_exploration.src.actors import Resolver, Nameserver, Client
+from Maude.attack_exploration.src.actors import Nameserver, Client
 from Maude.attack_exploration.src.query import Query
 from maude_hcs.lib.dns import DNS_GLOBALS
-from maude_hcs.lib.dns.iodineActors import IodineClient, IodineServer, SendApp, ReceiveApp, WMonitor
+from maude_hcs.lib.dns.iodineActors import IodineClient, IodineServer, SendApp, ReceiveApp, WMonitor, IResolver
 from maude_hcs.lib.dns.utils import makePackets
+from .cache import CacheEntry, ResolverCache
 from .corporate import createAuthZone, createRootZone, createTLDZone
 import logging
 
@@ -15,19 +16,33 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     PWND2_NAME = args.get('pwnd2_name', 'pwnd2')
     CORP_NAME = args.get('corporate_name', 'corp')
     num_records = args.get('everythingelse_num_records', 1)
+    populateCache = args.get('populate_resolver_cache', False)
+    record_ttl = args.get('record_ttl', 3600)
     
+    cacheRecords = []
     # root zone
-    zoneRoot = createRootZone(args)
+    zoneRoot, ns_records = createRootZone(args, record_ttl)
+    cacheRecords.extend(ns_records)
 
     # com zone
-    zoneCom = createTLDZone(run_args, zoneRoot)
+    zoneCom, ns_records = createTLDZone(run_args, zoneRoot, record_ttl)
+    cacheRecords.extend(ns_records)
 
     # EverythingElse EE zone
-    zoneEverythingelse = createAuthZone(EE_NAME, zoneCom, num_records)
-    zonepwnd2 = createAuthZone(PWND2_NAME, zoneCom, num_records)  
-    zonecorp = createAuthZone(CORP_NAME, zoneCom, num_records)
+    zoneEverythingelse, ns_records = createAuthZone(EE_NAME, zoneCom, num_records, record_ttl)
+    cacheRecords.extend(ns_records)
+    zonepwnd2, ns_records = createAuthZone(PWND2_NAME, zoneCom, num_records, record_ttl)  
+    cacheRecords.extend(ns_records)
+    zonecorp, ns_records = createAuthZone(CORP_NAME, zoneCom, num_records, record_ttl)
+    cacheRecords.extend(ns_records)
     
-    resolver = Resolver('rAddr')    
+    resolver = IResolver('rAddr')
+    cacheEntries = []
+    for rec in cacheRecords:
+        cacheEntries.append(CacheEntry(rec))
+    # populate resolve cache with NS records and their corresponding A records?
+    if populateCache:
+        resolver.cache = ResolverCache('resolverCache', cacheEntries)
 
     nameserverRoot = Nameserver(DNS_GLOBALS.ADDR_NS_ROOT, [zoneRoot])
     nameserverCom = Nameserver(DNS_GLOBALS.ADDR_NS_COM, [zoneCom])

@@ -1,58 +1,68 @@
 from maude_hcs.lib.dns.DNSConfig import DNSConfig
 from Maude.attack_exploration.src.zone import Record, Zone
-from Maude.attack_exploration.src.actors import Resolver, Nameserver, Client
+from Maude.attack_exploration.src.actors import Nameserver, Client
 from Maude.attack_exploration.src.query import Query
 from maude_hcs.lib.dns import DNS_GLOBALS
+from typing import Tuple, List
+from .iodineActors import IResolver
+from .cache import ResolverCache, CacheEntry
 import logging
 
 logger = logging.getLogger(__name__)
 
-def createAuthZone(NAME:str, parent:Zone, num_records:int) -> Zone:
+def createAuthZone(NAME:str, parent:Zone, num_records:int, TTL:int = 3600) -> Tuple[Zone, List]:
         DNS_GLOBALS.counter += 1
-        records = [Record(f'www{index}.{NAME}.com.', 'A', 3600, f'{DNS_GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
-        zone_records  = [ 
-            Record(f'{NAME}.com.', 'SOA', 3600, '3600'),
-            Record(f'{NAME}.com.', 'NS', 3600, f'ns.{NAME}.com.'),
-            Record(f'ns.{NAME}.com.', 'A', 3600, f'addrNS{NAME}')]
+        records = [Record(f'www{index}.{NAME}.com.', 'A', TTL, f'{DNS_GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
+        zone_records  = [Record(f'{NAME}.com.', 'SOA', TTL, f'{TTL}')]
+        ns_records = [    
+                Record(f'{NAME}.com.', 'NS', TTL, f'ns.{NAME}.com.'),
+                Record(f'ns.{NAME}.com.', 'A', TTL, f'addrNS{NAME}')
+            ]
+        zone_records.extend(ns_records)
         zone_records.extend(records)
-        zone_records.append(Record(f'*.{NAME}.com.', 'TXT', 3600, '...'))
-        return Zone(f'{NAME}.com.', parent, zone_records)
+        zone_records.append(Record(f'*.{NAME}.com.', 'TXT', TTL, '...'))
+        return Zone(f'{NAME}.com.', parent, zone_records), ns_records
 
-def createRootZone(run_args) -> Zone:    
+def createRootZone(run_args, TTL:int = 3600) -> Tuple[Zone, List]:
     # root zone
-    return Zone('', None,
-        [
-            # zone apex
-            Record('', 'SOA', 3600, '3600'),
-            Record('', 'NS', 3600, 'a.root-servers.net.'),
-
+    # zone apex
+    records = [Record('', 'SOA', TTL, f'{TTL}')]
+    ns_records = [
+            Record('', 'NS', TTL, 'a.root-servers.net.'),
             # delegations and glue
-            Record('a.root-servers.net.', 'A', 3600, DNS_GLOBALS.ADDR_NS_ROOT),
-            Record('com.', 'NS', 3600, 'ns.com.'),
-            Record('ns.com.', 'A', 3600, DNS_GLOBALS.ADDR_NS_COM),
+            Record('a.root-servers.net.', 'A', TTL, DNS_GLOBALS.ADDR_NS_ROOT),            
+    ]
+    records.extend(ns_records)
+    # non auth - glue 
+    records.extend([
+        Record('com.', 'NS', TTL, 'ns.com.'),
+        Record('ns.com.', 'A', TTL, DNS_GLOBALS.ADDR_NS_COM),
         ])
+    return Zone('', None, records), ns_records
 
-def createTLDZone(run_args, zoneRoot) -> Zone:
+def createTLDZone(run_args, zoneRoot, TTL:int = 3600) -> Tuple[Zone, List]:
     args = run_args["underlying_network"]
     EE_NAME = args.get('everythingelse_name', 'everythingelse')
     PWND2_NAME = args.get('pwnd2_name', 'pwnd2')
     CORP_NAME = args.get('corporate_name', 'corp')
 
+    records = [Record('com.', 'SOA', TTL, f'{TTL}')]
+    ns_records = [
+        Record('com.', 'NS', TTL, 'ns.com.'),
+        Record('ns.com.', 'A', TTL, DNS_GLOBALS.ADDR_NS_COM),
+    ]
+    records.extend(ns_records)
+    # non auth - glue
+    records.extend([
+        Record(f'{EE_NAME}.com.', 'NS', TTL, f'ns.{EE_NAME}.com.'),
+        Record(f'ns.{EE_NAME}.com.', 'A', TTL, f'addrNS{EE_NAME}'),
+        Record(f'{PWND2_NAME}.com.', 'NS', TTL, f'ns.{PWND2_NAME}.com.'),
+        Record(f'ns.{PWND2_NAME}.com.', 'A', TTL, f'addrNS{PWND2_NAME}'),
+        Record(f'{CORP_NAME}.com.', 'NS', TTL, f'ns.{CORP_NAME}.com.'),
+        Record(f'ns.{CORP_NAME}.com.', 'A', TTL, f'addrNS{CORP_NAME}'),
+    ])
     # com TLD zone
-    return Zone('com.', zoneRoot,
-        [
-            Record('com.', 'SOA', 3600, '3600'),
-            Record('com.', 'NS', 3600, 'ns.com.'),
-            Record('ns.com.', 'A', 3600, DNS_GLOBALS.ADDR_NS_COM),
-
-            # delegations and glue
-            Record(f'{EE_NAME}.com.', 'NS', 3600, f'ns.{EE_NAME}.com.'),
-            Record(f'ns.{EE_NAME}.com.', 'A', 3600, f'addrNS{EE_NAME}'),
-            Record(f'{PWND2_NAME}.com.', 'NS', 3600, f'ns.{PWND2_NAME}.com.'),
-            Record(f'ns.{PWND2_NAME}.com.', 'A', 3600, f'addrNS{PWND2_NAME}'),
-            Record(f'{CORP_NAME}.com.', 'NS', 3600, f'ns.{CORP_NAME}.com.'),
-            Record(f'ns.{CORP_NAME}.com.', 'A', 3600, f'addrNS{CORP_NAME}'),
-        ])
+    return Zone('com.', zoneRoot, records), ns_records
 
 def corporate(_args, run_args) -> DNSConfig:
     args = run_args["underlying_network"]
@@ -60,19 +70,33 @@ def corporate(_args, run_args) -> DNSConfig:
     PWND2_NAME = args.get('pwnd2_name', 'pwnd2')
     CORP_NAME = args.get('corporate_name', 'corp')
     num_records = args.get('everythingelse_num_records', 1)
+    populateCache = args.get('populate_resolver_cache', False)
+    record_ttl = args.get('record_ttl', 3600)
     
+    cacheRecords = []
     # root zone
-    zoneRoot = createRootZone(args)
+    zoneRoot, ns_records = createRootZone(args)
+    cacheRecords.extend(ns_records)
 
     # com zone
-    zoneCom = createTLDZone(run_args, zoneRoot)
+    zoneCom, ns_records = createTLDZone(run_args, zoneRoot)
+    cacheRecords.extend(ns_records)
 
     # EverythingElse EE zone
-    zoneEverythingelse = createAuthZone(EE_NAME, zoneCom, num_records)
-    zonepwnd2 = createAuthZone(PWND2_NAME, zoneCom, num_records)  
-    zonecorp = createAuthZone(CORP_NAME, zoneCom, num_records)
+    zoneEverythingelse, ns_records = createAuthZone(EE_NAME, zoneCom, num_records)
+    cacheRecords.extend(ns_records)
+    zonepwnd2, ns_records = createAuthZone(PWND2_NAME, zoneCom, num_records)  
+    cacheRecords.extend(ns_records)
+    zonecorp, ns_records = createAuthZone(CORP_NAME, zoneCom, num_records)
+    cacheRecords.extend(ns_records)
     
-    resolver = Resolver('rAddr')    
+    resolver = IResolver('rAddr')
+    cacheEntries = []
+    for rec in cacheRecords:
+        cacheEntries.append(CacheEntry(rec))        
+    # populate resolve cache with NS records and their corresponding A records?
+    if populateCache:
+        resolver.cache = ResolverCache('resolverCache', cacheEntries)
 
     nameserverRoot = Nameserver(DNS_GLOBALS.ADDR_NS_ROOT, [zoneRoot])
     nameserverCom = Nameserver(DNS_GLOBALS.ADDR_NS_COM, [zoneCom])

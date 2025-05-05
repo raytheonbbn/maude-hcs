@@ -1,6 +1,7 @@
 from Maude.attack_exploration.src.conversion_utils import address_to_maude, name_to_maude, rtype_to_maude
+from Maude.attack_exploration.src.actors import Nameserver, Resolver
 from .utils import packetlist_to_maude
-from Maude.attack_exploration.src.actors import Nameserver
+from .cache import ResolverCache, CacheEntry
 
 class ReceiveApp:
     def __init__(self, address):
@@ -104,3 +105,22 @@ class WMonitor:
         return res
 
 
+class IResolver(Resolver):
+
+    def __init__(self, address, cache : ResolverCache = None) -> None:
+        self.cache = cache
+        super().__init__(address)
+    
+    def to_maude(self) -> str:
+        strCache = "nilCache"
+        if self.cache:
+            strCache = self.cache.name
+        res = f'< {address_to_maude(self.address)} : Resolver |\n'
+        res += f'    cache: {strCache},\n'
+        res += f'    nxdomainCache: nilNxdomainCache,\n'
+        res += f'    nodataCache: nilNodataCache,\n'
+        res += f'    sbelt: sb,\n'  # TODO: where is sb defined?
+        res += f'    workBudget: emptyIN,\n'
+        res += f'    blockedQueries: eptQSS,\n'
+        res += f'    sentQueries: eptQSS >'
+        return res
