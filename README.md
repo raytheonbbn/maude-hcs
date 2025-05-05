@@ -101,6 +101,20 @@ probabilistic params (whic override the nondeterministic ones).
 
 In progress ...
 
+# Tests
+
+To run the tests, first install pytest in your environment.
+```
+pip install -e .[test]
+```
+
+Then run the unit tests
+```
+python -m pytest
+```
+
+
+
 # References
 
 DNS model
