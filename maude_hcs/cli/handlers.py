@@ -44,11 +44,7 @@ SCHECK_NAME = 'scheck'
 def handle_command(command, parser, args):
     handlers = {
         GENERATE_NAME: handle_generate,
-<<<<<<< HEAD
         SCHECK_NAME: handle_scheck
-=======
-				SCHECK_NAME: handle_scheck
->>>>>>> 4246dc3 (maude-hcs scheck command)
     }
 
     if command in handlers:

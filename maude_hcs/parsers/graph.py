@@ -212,7 +212,7 @@ def get_edge_delays_by_label(graph: nx.DiGraph) -> dict:
                 missing = []
                 if source_label is None: missing.append(f"source label for node {u_id}")
                 if target_label is None: missing.append(f"target label for node {v_id}")
-                if latency is None: missing.append(f"latency for edge ({u_id}->{v_id})")
+                if latency_str is None: missing.append(f"latency for edge ({u_id}->{v_id})")
                 logging.warning(f"Skipping edge ({u_id}->{v_id}) due to missing attributes: {', '.join(missing)}.")
                 skipped_count += 1
 
