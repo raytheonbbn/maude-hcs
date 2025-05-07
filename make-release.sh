@@ -74,7 +74,9 @@ make_tarball() {
                     maude_hcs/deps/dns_formalization \
                     maude_hcs/lib/dns/*.py \
                     maude_hcs/lib/dns/README.md \
-                    maude_hcs/lib/dns/maude \
+                    maude_hcs/lib/dns/maude/common \
+                    maude_hcs/lib/dns/maude/nondet \
+                    maude_hcs/lib/dns/maude/probabilistic \
                     manifest.txt)
     if [ $? -ne 0 ]; then
         echo "ERROR: make_tarball failed"
