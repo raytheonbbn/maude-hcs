@@ -1,3 +1,4 @@
+# MAUDE_HCS: maude_hcs
 # Software Markings (UNCLASS)
 # PWNDD Software
 # Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
@@ -19,6 +20,8 @@
 # Notice: Markings. Any reproduction of this computer software, computer 
 # software documentation, or portions thereof must also reproduce the markings 
 # contained herein.
+# MAUDE_HCS: end
+
 
 PROJECT=maude_hcs
 
