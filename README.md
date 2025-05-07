@@ -99,7 +99,37 @@ probabilistic params (whic override the nondeterministic ones).
 
 # Run configurations
 
-In progress ...
+## Single run
+To run a single configuration, invoke maude with the file name, for instance, in `results`,
+```shell
+maude generated_corporate_iodine_prob.maude
+```
+
+Inside the Maude prompt, type
+```shell
+rew initConfig .
+```
+This will execute all rewrites until no more rules are found and no progress can be made in time.
+
+The addition of logging will increase the verbosity of the execution with
+```shell
+set print attribute on .
+```
+
+Execution can also be stepped through with the following commands
+```shell
+rew[1] initConfig .
+cont 1 .
+```
+## Statistical Model Checking
+
+QMaude offers Statistical Model Checking (SMC) of the model in the same formalism.
+Copy `latency.quatex` and `smc.maude` to your experiment's directory (or keep it in `results`).  Modify the former to load the target (probabilistic) experiment.
+Run
+```shell
+umaudemc --no-advise scheck smc initConfig latency.quatex -a 0.05 --assign pmaude -j 50
+```
+QMaude returns the expected value for the quatex queries (μ), and the number of Monte Carlo simulations it took to reach that value.
 
 # References
 
