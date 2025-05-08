@@ -1,0 +1,58 @@
+mod SMC is
+
+  inc IODINE_TEST .
+
+  var AC : ActorConfig .
+  var attrs : AttributeSet .
+
+  vars PTL PTL' PTL'' PTL''' : PacketTimestampList .
+  vars Pkt Pkt' : Packet .
+  var C : Config .
+  var id : Nat .
+  vars len, len' : Nat .
+  var last? : Bool .
+  vars T T' : Float .
+
+  op getMonitor : Config -> Actor .
+  eq getMonitor (C < monAddr : WMonitor | attrs >) = < monAddr : WMonitor | attrs > .
+
+  op getPktSent : Actor ->  PacketTimestampList . 
+  eq getPktSent (< monAddr : WMonitor | pktSent: PTL, attrs >) = PTL . 
+
+  op getFirstPktSentTime : Actor -> Float .
+  eq getFirstPktSentTime (< monAddr : WMonitor | pktSent: (PTL ; packetTimestamp(packet(Alice, Bob, 0, len, last?), T) ; PTL'), attrs >) = T .
+
+  op getPktRcvd : Actor ->  PacketTimestampList . 
+  eq getPktRcvd (< monAddr : WMonitor | pktRcvd: PTL, attrs >) = PTL . 
+
+  op getLastPktRcvdTime : Actor -> Float .
+  eq getLastPktRcvdTime (< monAddr : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(Alice, Bob, id, len, true), T) ; PTL'), attrs >) = T .
+
+  op getLatency : Actor -> Float .
+  eq getLatency (< monAddr : WMonitor | pktSent: (PTL ; packetTimestamp(packet(Alice, Bob, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(Alice, Bob, id, len', true), T') ; PTL'''), attrs >) = T' - T .
+
+  op inputFileSize : -> Nat [ctor] .
+  eq inputFileSize = 510 .
+
+  op getGoodput : Actor -> Float .
+  eq getGoodput (< monAddr : WMonitor | pktSent: (PTL ; packetTimestamp(packet(Alice, Bob, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(Alice, Bob, id, len', true), T') ; PTL'''), attrs >) = float(inputFileSize) / (T' - T) .
+
+  op getPTLLen : PacketTimestampList -> Nat .
+  eq getPTLLen (nilPacketTimestamp) = 0 .
+  eq getPTLLen (PTL ; packetTimestamp(packet(Alice, Bob, id, len, last?), T)) = len + getPTLLen (PTL) .
+
+  op getThroughput : Actor -> Float .
+  eq getThroughput (< monAddr : WMonitor | pktSent: (PTL ; packetTimestamp(packet(Alice, Bob, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(Alice, Bob, id, len', true), T') ; PTL'''), attrs >) = float(getPTLLen((PTL'' ; packetTimestamp(packet(Alice, Bob, id, len', true), T') ; PTL'''))) / (T' - T) .
+
+  op isDone : Config -> Bool .
+  eq isDone ({ F:Float | nil } AC < monAddr : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(Alice, Bob, id, len, true), T) ; PTL'), attrs >) = true .
+  eq isDone (c:Config) = false [owise] .
+
+endm
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+eof 
+

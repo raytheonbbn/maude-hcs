@@ -31,13 +31,19 @@ from maude_hcs.analysis import HCSAnalysis
 import logging
 import json
 
+from umaudemc.command.scheck import scheck
+import importlib.util
+import maude
+
 logger = logging.getLogger(__name__)
 
 GENERATE_NAME = 'generate'
+SCHECK_NAME = 'scheck'
 
 def handle_command(command, parser, args):
     handlers = {
-        GENERATE_NAME: handle_generate
+        GENERATE_NAME: handle_generate,
+				SCHECK_NAME: handle_scheck
     }
 
     if command in handlers:
@@ -55,8 +61,15 @@ def handle_generate(args, parser):
         filename = f'generated_{run_args.get("name", "unknown")}_{args.model}'
     save_output(parser, run_args, result, filename)
 
+def handle_scheck(args, parser):
+		logger.debug("Handle umaudemc scheck")
 
-    
+		has_umaudemc = importlib.util.find_spec('umaudemc')
+		if not has_umaudemc:
+				usermsgs.print_error('The umaudemc Python package is not available.\n' 
+														'It can be installed with "pip install umaudemc".')
 
-    
-    
+		maude.init(advise=args.advise)
+		maude.load(args.test)
+	
+		result = scheck(args)

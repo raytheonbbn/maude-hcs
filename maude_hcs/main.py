@@ -64,6 +64,43 @@ def is_valid_file(parser, arg):
     else:
         return open(arg, 'r')
 
+def add_initial_data_args(parser):
+  """Arguments for the basic input data of a model-checking problem"""
+
+  parser.add_argument(
+    '-m', '--module',
+    help='specify the module for model checking',
+    metavar='NAME'
+  )
+
+  parser.add_argument(
+    '-M', '--metamodule',
+    help='specify a metamodule for model checking',
+    metavar='TERM'
+  )
+  parser.add_argument(
+    '--opaque',
+    help='opaque strategy names (comma-separated)',
+    metavar='LIST',
+    default=''
+  )
+  parser.add_argument(
+    '--full-matchrew',
+    help='enable full matchrew trace generation',
+    action='store_true'
+  )
+  parser.add_argument(
+    '--purge-fails',
+    help='remove states where the strategy has failed from the model',
+    choices=['default', 'yes', 'no'],
+    default='default'
+  )
+  parser.add_argument(
+    '--merge-states',
+    help='avoid artificial branching due to strategies by merging states',
+    choices=['default', 'state', 'edge', 'no'],
+    default='default'
+  )
 
 def build_cli_parser():
     parser = argparse.ArgumentParser("maude-hcs")
@@ -85,6 +122,75 @@ def build_cli_parser():
     # generator.required = True
     # generator.add_parser('nondet', description='Generate non-deterministic model', help='nondet for nondeterministic')
     # generator.add_parser('prob', description='Generate probabilistic model', help='prob for probabilistic')
+
+    parser_scheck = cmd_parser.add_parser('scheck')
+
+    parser_scheck.add_argument(
+        '--advise',
+        help='do not suppress debug messages from Maude',
+        dest='advise',
+        action='store_true'
+    )
+
+    parser_scheck.add_argument('--file', help='Maude source file specifying the model-checking problem, default=smc/smc.maude', default='smc/smc.maude')
+    parser_scheck.add_argument('--test', help='maude-hcs generated test, default=results/generated_test.maude', default='results/generated_test.maude')
+    parser_scheck.add_argument('--initial', help='initial term, default=initConfig', default='initConfig')
+    parser_scheck.add_argument('--query', help='QuaTEx query, default=smc/query.quatex', default='smc/query.quatex')
+    parser_scheck.add_argument('strategy', help='strategy expression', nargs='?')
+
+    add_initial_data_args(parser_scheck)
+
+    parser_scheck.add_argument(
+        '--assign',
+        help='Assign probabilities to the successors according to the given method, default=pmaude',
+        metavar='METHOD',
+        default='pmaude'
+    )
+    parser_scheck.add_argument(
+        '--alpha', '-a',
+        help='Complement of the confidence level (probability outside the confidence interval), default=0.05',
+        type=float,
+        default=0.05
+    )
+    parser_scheck.add_argument(
+        '--delta', '-d',
+        help='Maximum admissible radius for the confidence interval, default=0.5',
+        type=float,
+        default=0.5
+    )
+    parser_scheck.add_argument(
+        '--block', '-b',
+        help='Number of simulations before checking the confidence interval, default=30',
+        type=int,
+        default=30
+    )
+    parser_scheck.add_argument(
+        '--nsims', '-n',
+        help='Number of simulations (it can be a fixed number or a range min-max, where any of the limits can be omitted), default=30-',
+        default='30-'
+    )
+    parser_scheck.add_argument(
+        '--seed', '-s',
+        help='Random seed',
+        type=int
+    )
+    parser_scheck.add_argument(
+        '--jobs', '-j',
+        help='Number of parallel simulation threads, default=1',
+        type=int,
+        default=1
+    )
+    parser_scheck.add_argument(
+        '--format', '-f',
+        help='Output format for the simulation results, default=text',
+        choices=['text', 'json'],
+        default='text'
+    )
+    parser_scheck.add_argument(
+        '--plot', '-p',
+        help='Plot the results of parametric queries (using Matplotlib)',
+        action='store_true'
+    )
     
     argcomplete.autocomplete(parser)
     return parser
