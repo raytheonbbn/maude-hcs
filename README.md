@@ -169,9 +169,9 @@ options:
   --format {text,json}    Output format for the simulation results, default=text
 ```
 
-The probabilistic DNS model with iodine and its initial configuration should be specified in Maude and probided via the ``--test TEST`` option (default: ``results/generated_test.maude``).  The Maude execution starts from the initial term provided via the ``--initail INITIAL`` option (default: ``initConfig`` specified in ``TEST``) and rewrites to the final configuration.  From the final configuration, the observables are extracted using the monitor actor specified in the Maude source file for the model checking problem, provided via ``--file FILE`` option (default: ``smc/smc.maude``).  
+The probabilistic DNS model with iodine and its initial configuration should be specified in Maude and provided via the ``--test TEST`` option (default: ``results/generated_test.maude``).  The Maude execution starts from the initial term provided via the ``--initail INITIAL`` option (default: ``initConfig`` specified in ``TEST``) and rewrites to the final configuration.  From the final configuration, the observables are extracted using the monitor actor specified in the Maude source file for the model checking problem, provided via ``--file FILE`` option (default: ``smc/smc.maude``).  
 
-Quantitative properties such as the expected value of the average latency can be specified using a QuaTEx formula.  Our latency example (in ``smc/latency.quatex``) can be expressed with a QuaTEx formula of the following form:  
+Quantitative properties such as the expected value of the average latency can be specified using a QuaTEx formula and provided via ``--query QUERY`` option (default: ``smc/query.quatex``).  Our latency example (in ``smc/latency.quatex``) can be expressed with a QuaTEx formula of the following form:  
 
 ```shell
 Latency() = if (s.rval("isDone(C)") == 1) then s.rval("getLatency(getMonitor(C))") else #Latency() fi;
@@ -182,7 +182,7 @@ The next operator ``#`` evaluates the function in the next step of the simulatio
 the given string as a Maude term of sorts Int, Float, Integer, Real, or Bool and returns the result
 as a floating‑point number, where true and false are respectively converted to 1 and 0.
 
-The ``getLatency()`` operator (specified in ``smc/smc.maude``), for example, calculates the latency by taking the timestamp ``T’`` when the last packet is received (pattern matched by ``last? == true``) and subtracting the timestamp ``T`` when the first packet was sent (pattern matched by ``id ==	0``).  
+The ``getLatency()`` operator (specified in ``smc/smc.maude``), for example, calculates the latency by taking the timestamp ``T’`` when the last packet is received (pattern matched by ``last? == true``) and subtracting the timestamp ``T`` when the first packet was sent (pattern matched by ``id == 0``).  
 
 ```shell
 op isDone : Config -> Bool .
