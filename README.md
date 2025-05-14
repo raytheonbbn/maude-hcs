@@ -218,7 +218,7 @@ Query 2 (line 6:20)
   μ = 8.640346715005759         σ = 8.286648801516955         r = 0.49476911177074157
 ```
 
-To reproduce the same experiments within the same paralleization setting (i.e., the same value of ``-j``), use the ``--seed`` option with the same random seed. By default or when passing ‑1, the current time is used as the seed.
+To reproduce the same experiments within the same parallelization setting (i.e., the same value of ``-j``), use the ``--seed`` option with the same random seed. By default or when passing ‑1, the current time is used as the seed.
 ```shell
 # maude-hcs scheck --seed 0
 Number of simulations = 30
