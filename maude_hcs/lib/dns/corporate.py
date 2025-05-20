@@ -34,6 +34,7 @@ from maude_hcs.lib.dns import DNS_GLOBALS
 from typing import Tuple, List
 from .iodineActors import IResolver
 from .cache import ResolverCache, CacheEntry
+from maude_hcs.parsers.graph import find_node_name
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,31 +54,43 @@ def createAuthZone(NAME:str, parent:Zone, num_records:int, TTL:int = 3600) -> Tu
 
 def createRootZone(run_args, TTL:int = 3600) -> Tuple[Zone, List]:
     # root zone
+    args        = run_args
+    node_names  = args.get("node_names")
+    addr_prefix = args.get("addr_prefix", "addrNS")
+    ROOT_NAME   = find_node_name(node_names, ["root"])
+    COM_NAME    = find_node_name(node_names, ["com", "internet"])
+    ADDR_NS_ROOT= f"{addr_prefix}{ROOT_NAME}"
+    ADDR_NS_COM = f"{addr_prefix}{COM_NAME}"
     # zone apex
     records = [Record('', 'SOA', TTL, f'{TTL}')]
     ns_records = [
             Record('', 'NS', TTL, 'a.root-servers.net.'),
             # delegations and glue
-            Record('a.root-servers.net.', 'A', TTL, DNS_GLOBALS.ADDR_NS_ROOT),            
+            Record('a.root-servers.net.', 'A', TTL, ADDR_NS_ROOT),            
     ]
     records.extend(ns_records)
     # non auth - glue 
     records.extend([
         Record('com.', 'NS', TTL, 'ns.com.'),
-        Record('ns.com.', 'A', TTL, DNS_GLOBALS.ADDR_NS_COM),
+        Record('ns.com.', 'A', TTL, ADDR_NS_COM),
         ])
     return Zone('', None, records), ns_records
 
-def createTLDZone(run_args, zoneRoot, TTL:int = 3600) -> Tuple[Zone, List]:
-    args = run_args["underlying_network"]
-    EE_NAME = args.get('everythingelse_name', 'everythingelse')
-    PWND2_NAME = args.get('pwnd2_name', 'pwnd2')
-    CORP_NAME = args.get('corporate_name', 'corp')
 
+def createTLDZone(run_args, zoneRoot, TTL:int = 3600) -> Tuple[Zone, List]:
+    args          = run_args.get("topology")
+    node_names    = args.get("node_names")
+    addr_prefix   = args.get("addr_prefix", "addrNS")
+    EE_NAME       = find_node_name(node_names, ["everythingelse", "internet"])
+    CORP_NAME     = find_node_name(node_names, ["corp", "local"])
+    PWND2_NAME    = find_node_name(node_names, ["pwnd2", "tld"])
+    COM_NAME      = find_node_name(node_names, ["com", "internet"])
+    ADDR_NS_COM   = f"{addr_prefix}{COM_NAME}"
+    
     records = [Record('com.', 'SOA', TTL, f'{TTL}')]
     ns_records = [
         Record('com.', 'NS', TTL, 'ns.com.'),
-        Record('ns.com.', 'A', TTL, DNS_GLOBALS.ADDR_NS_COM),
+        Record('ns.com.', 'A', TTL, ADDR_NS_COM),
     ]
     records.extend(ns_records)
     # non auth - glue
@@ -90,16 +103,30 @@ def createTLDZone(run_args, zoneRoot, TTL:int = 3600) -> Tuple[Zone, List]:
         Record(f'ns.{CORP_NAME}.com.', 'A', TTL, f'addrNS{CORP_NAME}'),
     ])
     # com TLD zone
+
     return Zone('com.', zoneRoot, records), ns_records
 
 def corporate(_args, run_args) -> DNSConfig:
     args = run_args["underlying_network"]
-    EE_NAME = args.get('everythingelse_name', 'everythingelse')
-    PWND2_NAME = args.get('pwnd2_name', 'pwnd2')
-    CORP_NAME = args.get('corporate_name', 'corp')
     num_records = args.get('everythingelse_num_records', 1)
+
     populateCache = args.get('populate_resolver_cache', False)
     record_ttl = args.get('record_ttl', 3600)
+
+    links_args  = args.get("links")
+    addr_prefix   = args.get("addr_prefix", "addrNS")
+    args          = run_args.get("topology")
+    node_names    = args.get("node_names")
+    EE_NAME       = find_node_name(node_names, ["everythingelse", "internet"])
+    CORP_NAME     = find_node_name(node_names, ["corp", "local"])
+    PWND2_NAME    = find_node_name(node_names, ["pwnd2", "tld"])
+    resolver_name = find_node_name(node_names, ["rAddr", "public"])
+    ROOT_NAME     = find_node_name(node_names, ["root"])
+    COM_NAME      = find_node_name(node_names, ["com", "internet"])
+    ADDR_NS_ROOT  = f"{addr_prefix}{ROOT_NAME}"
+    ADDR_NS_COM   = f"{addr_prefix}{COM_NAME}"
+
+    link_characteristics  = run_args["link_characteristics"]
     
     cacheRecords = []
     # root zone
@@ -118,6 +145,7 @@ def corporate(_args, run_args) -> DNSConfig:
     zonecorp, ns_records = createAuthZone(CORP_NAME, zoneCom, num_records)
     cacheRecords.extend(ns_records)
     
+
     resolver = IResolver('rAddr')
     cacheEntries = []
     for rec in cacheRecords:
@@ -126,16 +154,16 @@ def corporate(_args, run_args) -> DNSConfig:
     if populateCache:
         resolver.cache = ResolverCache('resolverCache', cacheEntries)
 
-    nameserverRoot = Nameserver(DNS_GLOBALS.ADDR_NS_ROOT, [zoneRoot])
-    nameserverCom = Nameserver(DNS_GLOBALS.ADDR_NS_COM, [zoneCom])
-    nameserverEE = Nameserver(f'addrNS{EE_NAME}', [zoneEverythingelse])
-    nameserverCORP = Nameserver(f'addrNS{CORP_NAME}', [zonecorp], forwardonly=resolver.address)
-    nameserverPWND2 = Nameserver(f'addrNS{PWND2_NAME}', [zonepwnd2])
+    nameserverRoot = Nameserver(ADDR_NS_ROOT, [zoneRoot])
+    nameserverCom = Nameserver(ADDR_NS_COM, [zoneCom])
+    nameserverEE = Nameserver(f'{addr_prefix}{EE_NAME}', [zoneEverythingelse])
+    nameserverCORP = Nameserver(f'{addr_prefix}{CORP_NAME}', [zonecorp], forwardonly=resolver.address)
+    nameserverPWND2 = Nameserver(f'{addr_prefix}{PWND2_NAME}', [zonepwnd2])
 
     query = Query(1, f'www0.{EE_NAME}.com.', 'A')
     client = Client('cAddr', [query], nameserverCORP)    
 
-    root_nameservers = {'a.root-servers.net.': DNS_GLOBALS.ADDR_NS_ROOT}
+    root_nameservers = {'a.root-servers.net.': ADDR_NS_ROOT}
 
     C = DNSConfig([client], [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverPWND2, nameserverCORP], root_nameservers)
     C.set_params(run_args.get('nondeterministic_parameters', {}), run_args.get('probabilistic_parameters', {}))

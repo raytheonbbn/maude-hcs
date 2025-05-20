@@ -28,6 +28,7 @@
 
 from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
+from maude_hcs.parsers.graph import parse_shadow_gml, get_node_names, get_edge_delays_by_label, get_edge_info_by_label
 import logging
 import json
 
@@ -43,7 +44,7 @@ SCHECK_NAME = 'scheck'
 def handle_command(command, parser, args):
     handlers = {
         GENERATE_NAME: handle_generate,
-				SCHECK_NAME: handle_scheck
+        SCHECK_NAME: handle_scheck
     }
 
     if command in handlers:
@@ -55,6 +56,14 @@ def handle_command(command, parser, args):
 def handle_generate(args, parser):
     logger.debug("Handle maude generation")
     run_args = json.load(args.run_args)
+    topology_graph  = parse_shadow_gml(args.topology_filename)
+    run_args["topology"] = {
+        "node_names": get_node_names(topology_graph),
+        "edges_delay": get_edge_delays_by_label(topology_graph),
+        "edges_info": get_edge_info_by_label(topology_graph)
+    }
+    print(f"Run args: {run_args}")
+    print(f"Args: {args}")
     result = HCSAnalysis(args, run_args).generate()
     filename = args.filename
     if filename == None:
@@ -62,14 +71,11 @@ def handle_generate(args, parser):
     save_output(parser, run_args, result, filename)
 
 def handle_scheck(args, parser):
-		logger.debug("Handle umaudemc scheck")
+    logger.debug("Handle umaudemc scheck")
 
-		has_umaudemc = importlib.util.find_spec('umaudemc')
-		if not has_umaudemc:
-				usermsgs.print_error('The umaudemc Python package is not available.\n' 
-														'It can be installed with "pip install umaudemc".')
-
-		maude.init(advise=args.advise)
-		maude.load(args.test)
-	
-		result = scheck(args)
+    has_umaudemc = importlib.util.find_spec('umaudemc')
+    if not has_umaudemc:
+                    logger.error('The umaudemc Python package is not available. It can be installed with "pip install umaudemc".')
+    maude.init(advise=args.advise)
+    maude.load(args.test)	
+    result = scheck(args)
