@@ -53,7 +53,6 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     record_ttl = args.get('record_ttl', 3600)
 
     #resolver_name = args.get("resolver_name", "rAddr")
-    links_args  = args.get("links")
     args          = run_args.get("topology")
     node_names    = args.get("node_names")
     edges_info    = args.get("edges_info")
@@ -111,7 +110,6 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     #iodineClAddr = args['client_address']
     iodineCl = IodineClient(iodineClAddr, args['client_weird_base_name'], args['client_weird_qtype'], nameserverCORP.address)
     iodineSvr = IodineServer(f'{addr_prefix}{PWND2_NAME}', nameserverPWND2)
-    links_args.update(args["links"])
     monitorAddr = args.get('monitor_address', DNS_GLOBALS.ADDR_MONITOR)
     # applications
     args = run_args["application"]
@@ -124,16 +122,6 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     sndApp = SendApp(aliceAddr, iodineClAddr, makePackets(aliceAddr, bobAddr, pkt_sizes), start_send_app)
     rcvApp = ReceiveApp(bobAddr)
     # Links:
-    link_characteristics = run_args["link_characteristics"]
-    print(f"Topo info: {get_edge_delays_by_label(parse_shadow_gml(_args.topology_filename))}")
-    # Replace the actor names to the links.
-    links_args  = ast.literal_eval(str(links_args)
-                    .replace("pwnd2_name", PWND2_NAME)
-                    .replace("client_address", iodineClAddr)
-                    .replace("resolver_name", resolver_name)
-                    .replace("corporate_name", CORP_NAME)
-                    .replace("everythingelse_name", EE_NAME)
-                    )
     parameterized_network = ParameterizedNetwork([nameserverRoot, nameserverCom, nameserverEE, nameserverCORP, resolver, nameserverPWND2, iodineCl, iodineSvr],
                                                  edges_info)
     
