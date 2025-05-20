@@ -109,6 +109,7 @@ def createTLDZone(run_args, zoneRoot, TTL:int = 3600) -> Tuple[Zone, List]:
         Record(f'ns.{CORP_NAME}.com.', 'A', TTL, f'addrNS{CORP_NAME}'),
     ])
     # com TLD zone
+
     return Zone('com.', zoneRoot, records), ns_records
 
 def corporate(_args, run_args) -> DNSConfig:
@@ -116,7 +117,6 @@ def corporate(_args, run_args) -> DNSConfig:
     # and be passed already in the correct name.
     args = run_args["underlying_network"]
     num_records = args.get('everythingelse_num_records', 1)
-
 
     populateCache = args.get('populate_resolver_cache', False)
     record_ttl = args.get('record_ttl', 3600)
