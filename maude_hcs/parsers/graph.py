@@ -74,6 +74,8 @@ def parse_shadow_gml(gml_path: str) -> nx.DiGraph:
                  # If conversion fails, something is fundamentally wrong
                  raise TypeError(f"Could not ensure the graph from {gml_path} is directed.")
 
+        convert_names_to_maude_names(graph)
+
         logging.info(f"Successfully parsed GML. Graph has {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges.")
 
         # Optional: Log details of a sample node and edge for debugging
@@ -95,6 +97,50 @@ def parse_shadow_gml(gml_path: str) -> nx.DiGraph:
     except Exception as e:
         logging.error(f"An unexpected error occurred during GML parsing of '{gml_path}': {e}")
         raise # Re-raise any other exceptions
+
+
+def get_node_names(graph: nx.DiGraph) -> list:
+  """
+  TODO
+  """
+  node_names  = [graph.nodes[id]["label"] for id in graph.nodes.keys()]
+  return node_names
+
+
+def convert_names_to_maude_names(graph: nx.DiGraph) -> nx.DiGraph:
+  print(f"Node {graph.nodes}")
+  for node_id in graph.nodes:
+    node = graph.nodes[node_id]
+    print(f"Node: {node}")
+    node["label"] = node.get("label").replace('_', '-')
+
+  
+
+
+def get_edge_info_by_label(graph: nx.DiGraph) -> dict:
+  link_info = dict()
+  for u_id, v_id, edge_data in graph.edges(data=True):
+    source_node_data  = graph.nodes[u_id]
+    target_node_data  = graph.nodes[v_id]
+
+    source_label      = source_node_data.get("label")
+    target_label      = target_node_data.get("label")
+    latency_value     = parse_latency_str(edge_data.get("latency", "-1."))
+    jitter_value      = parse_latency_str(edge_data.get("jitter", "0s"))
+    loss_value        = parse_loss_str(edge_data.get("packet_loss", "0."))
+    print(f"Edge data: {edge_data}")
+
+    if source_label is None or target_label is None or latency_value == -1.:
+      raise ValueError("Missing or malformatted information")
+    else:
+      link_info[f"{source_label}->{target_label}"] = {
+          "latency": latency_value,
+          "jitter": jitter_value,
+          "loss": loss_value,
+      }
+
+  return link_info
+
 
 def get_edge_delays_by_label(graph: nx.DiGraph) -> dict:
     """
@@ -128,17 +174,17 @@ def get_edge_delays_by_label(graph: nx.DiGraph) -> dict:
             # Get labels and latency using .get() to handle potential missing keys
             source_label = source_node_data.get('label')
             target_label = target_node_data.get('label')
-            latency = edge_data.get('latency')
+            latency_str = edge_data.get('latency')
 
             # Check if all required attributes are present and latency is numeric
-            if source_label is not None and target_label is not None and latency is not None:
+            if source_label is not None and target_label is not None and latency_str is not None:
                 # Ensure latency is treated as a number (float likely)
                 try:
-                    numeric_latency = float(latency)
+                    numeric_latency = parse_latency_str(latency_str)
                     edge_key = (source_label, target_label)
                     edge_delays[edge_key] = numeric_latency
                 except (ValueError, TypeError):
-                     logging.warning(f"Edge ({u_id}->{v_id}) latency '{latency}' is not a valid number. Skipping.")
+                     logging.warning(f"Edge ({u_id}->{v_id}) latency '{latency_str}' is not a valid number. Skipping.")
                      skipped_count += 1
             else:
                 # Log which attribute was missing
@@ -164,3 +210,39 @@ def get_edge_delays_by_label(graph: nx.DiGraph) -> dict:
 
     logging.info(f"Generated edge delay dictionary with {len(edge_delays)} entries.")
     return edge_delays
+
+
+def parse_latency_str(latency_str: str) -> float:
+  unit_divisor  = 1
+  if 'ms' in latency_str:
+    unit_divisor = 1e3
+  elif 'us' in latency_str:
+    unit_divisor  = 1e6
+  latency_str = ''.join(filter(str.isdigit, latency_str))
+  try:
+    numeric_latency = float(latency_str) / unit_divisor
+  except ValueError as e:
+    print(f"Latency {latency_str} is not a valid value")
+    raise ValueError(e)
+  return numeric_latency
+
+
+def parse_loss_str(loss_str: str) -> float:
+  try:
+    numeric_loss = float(loss_str)
+    return numeric_loss
+  except ValueError as e:
+    print(f"Loss {loss_str} is not a valid value")
+    raise ValueError(e)
+
+
+def find_node_name(nodes: list, substrings: list) -> list:
+  """
+  Find the node name that matches at least one element of a list of substrings.
+  """
+  node_names  = []
+  for substring in substrings:
+    node_names.extend(list(filter(lambda s: substring in s, nodes)))
+  if len(node_names) > 1:
+    raise ValueError
+  return node_names[0]
