@@ -76,7 +76,6 @@ def corporate(_args, run_args) -> DNSConfig:
     #PWND2_NAME = args.get('pwnd2_name', 'pwnd2')
     #CORP_NAME = args.get('corporate_name', 'corp')
     num_records = args.get('everythingelse_num_records', 1)
-    links_args  = args.get("links")
     addr_prefix   = args.get("addr_prefix", "addrNS")
     args          = run_args.get("topology")
     node_names    = args.get("node_names")
@@ -88,8 +87,6 @@ def corporate(_args, run_args) -> DNSConfig:
     COM_NAME      = find_node_name(node_names, ["com", "internet"])
     ADDR_NS_ROOT  = f"{addr_prefix}{ROOT_NAME}"
     ADDR_NS_COM   = f"{addr_prefix}{COM_NAME}"
-
-    link_characteristics  = run_args["link_characteristics"]
     
     # root zone
     zoneRoot = createRootZone(args)
