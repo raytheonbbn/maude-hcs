@@ -1,5 +1,6 @@
 from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
+from maude_hcs.parsers.graph import parse_shadow_gml, get_node_names, get_edge_delays_by_label, get_edge_info_by_label
 import logging
 import json
 
@@ -21,6 +22,14 @@ def handle_command(command, parser, args):
 def handle_generate(args, parser):
     logger.debug("Handle maude generation")
     run_args = json.load(args.run_args)
+    topology_graph  = parse_shadow_gml(args.topology_filename)
+    run_args["topology"] = {
+        "node_names": get_node_names(topology_graph),
+        "edges_delay": get_edge_delays_by_label(topology_graph),
+        "edges_info": get_edge_info_by_label(topology_graph)
+    }
+    print(f"Run args: {run_args}")
+    print(f"Args: {args}")
     result = HCSAnalysis(args, run_args).generate()
     filename = args.filename
     if filename == None:

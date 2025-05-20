@@ -42,6 +42,11 @@ def build_cli_parser():
     parser.add_argument('--verbose', action='store_true', help='turn on logging')    
     parser.add_argument('--run-args-file', dest='run_args', type=lambda x: is_valid_file(parser, x),
                         metavar='FILE', required=False, help=f'File containing all of the run arguments')
+    parser.add_argument('-t', "--topology_filename",
+        dest="topology_filename",
+        type=str,
+        help="name of the topolgy gml file",
+        required=False)
     parser.add_argument('--filename', dest='filename', type=str, required=False, default=None, help=f'Name of output file')
     parser.add_argument('--model', dest='model', required=False, 
             choices=GLOBALS.MODEL_TYPES,
