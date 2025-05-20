@@ -93,7 +93,9 @@ rl [weird-nameserver-response-passthru]:
   >
   *** Figure out what to do with Response.
   < MON : WMonitor | queryRcvd: QTL, monAttrs >
-  [delay, (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)), drop?]
+  [delayParamd(to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)), 
+  (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)),
+   dropParamd(to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE))]
   .
 
 ----  receivs DNS query with weird name
@@ -118,7 +120,7 @@ crl [wnameserver-receive-query-weird]:
           conf: (wrappedNS) 
   >
   < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
-  [delay, msgOut, drop?] 
+  [delayParamd(msgOut), msgOut, dropParamd(msgOut)] 
   (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 1 and step 2
@@ -204,7 +206,7 @@ crl [wnameserver-receive-query-weird]:
     =>
     < ADDR : WClient | wattrsNext >
     < MON : WMonitor | querySent: (QTL ; queryTimestamp(getQuery(msgOut), T)), pktSent: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
-    [delay, msgOut, drop?]
+    [delayParamd(msgOut), msgOut, dropParamd(msgOut)]
     [ackTimeoutDelay + sampleLogNormal(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0]
     --- TODO: Modify rule to drop incoming message if >= 2, continue on with current.
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
@@ -225,8 +227,12 @@ crl [wnameserver-receive-query-weird]:
     =>
     < ADDR : WClient | wattrsNext >       
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
-    (if msgOutExt == nullMsg then [0.0, (to getFromAddr(response(ID, SNAME, ANS, AUTH, ADD, RCODE)) : start), 0] else [delay, msgOutExt, drop?] fi)
-    (if msgOutExt == nullMsg then null else [ackTimeoutDelay + sampleLogNormal(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
+    (if msgOutExt == nullMsg 
+     then [0.0, (to getFromAddr(response(ID, SNAME, ANS, AUTH, ADD, RCODE)) : start), 0]
+     else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
+    (if msgOutExt == nullMsg then 
+     null 
+     else [ackTimeoutDelay + sampleLogNormal(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
     if wattrsTrans := extract((resv: RESOLVER, wattrs), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
@@ -262,7 +268,9 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : WClient | wattrsNext >    
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
     --- Either ask for the next packet when the current one is being dropped, or send fragment out.
-    (if msgOutExt == nullMsg then [0.0, (to getFromAddr(FRAGMENT) : start), 0] else [delay, msgOutExt, drop?] fi)
+    (if msgOutExt == nullMsg 
+     then [0.0, (to getFromAddr(FRAGMENT) : start), 0] 
+     else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
     (if msgOutExt == nullMsg then null else [ackTimeoutDelay + sampleLogNormal(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
     if isSending(wattrs)
       --- If the timed out fragment does not match the current fragment, 
