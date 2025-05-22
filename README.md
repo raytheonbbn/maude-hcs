@@ -91,6 +91,10 @@ maude-hcs --verbose --run-args=./use-cases/corporate-iodine.json --model=prob --
 ```
 And set `--model=nondet` to generate a nondeterministic version.
 
+To generate a model that uses characteristics defined in a shadow file, specify:
+```shell
+-t <path_to_shadow_file.gml>
+```
 
 
 Look at the `corporate-iodine.json` file above to see the configuration parameters.
