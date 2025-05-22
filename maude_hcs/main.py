@@ -110,6 +110,7 @@ def build_cli_parser():
     parser.add_argument('-t', "--topology_filename",
         dest="topology_filename",
         type=str,
+        default=None,
         help="name of the topolgy gml file",
         required=False)
     parser.add_argument('--filename', dest='filename', type=str, required=False, default=None, help=f'Name of output file')
