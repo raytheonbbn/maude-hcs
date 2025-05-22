@@ -101,23 +101,45 @@ def parse_shadow_gml(gml_path: str) -> nx.DiGraph:
 
 def get_node_names(graph: nx.DiGraph) -> list:
   """
-  TODO
+  Get the shadow node names.
+
+  Args:
+    graph: The graph from which to get the node names.
+
+  Returns:
+    A list of the shadow node names.
   """
   node_names  = [graph.nodes[id]["label"] for id in graph.nodes.keys()]
   return node_names
 
 
 def convert_names_to_maude_names(graph: nx.DiGraph) -> nx.DiGraph:
-  print(f"Node {graph.nodes}")
+  """
+  Shadow names may include characters that are special in maude, including _.
+  Change it to non offending characters.
+
+  Args:
+    graph: The graph whose node labels need to change.
+
+  Returns:
+    An updated graph.
+
+  """
   for node_id in graph.nodes:
     node = graph.nodes[node_id]
-    print(f"Node: {node}")
     node["label"] = node.get("label").replace('_', '-')
-
-  
 
 
 def get_edge_info_by_label(graph: nx.DiGraph) -> dict:
+  """
+  Get edge info mapped to a link label.
+
+  Args:
+    graph: The graph from which to get that info.
+
+  Returns:
+    The dictionary of labels to edge information.
+  """
   link_info = dict()
   for u_id, v_id, edge_data in graph.edges(data=True):
     source_node_data  = graph.nodes[u_id]
@@ -128,7 +150,6 @@ def get_edge_info_by_label(graph: nx.DiGraph) -> dict:
     latency_value     = parse_latency_str(edge_data.get("latency", "-1."))
     jitter_value      = parse_latency_str(edge_data.get("jitter", "0s"))
     loss_value        = parse_loss_str(edge_data.get("packet_loss", "0."))
-    print(f"Edge data: {edge_data}")
 
     if source_label is None or target_label is None or latency_value == -1.:
       raise ValueError("Missing or malformatted information")
@@ -213,6 +234,15 @@ def get_edge_delays_by_label(graph: nx.DiGraph) -> dict:
 
 
 def parse_latency_str(latency_str: str) -> float:
+  """
+  Parse a latency string like "50ms".
+
+  Args:
+    latency_str: The latency string to parse.
+
+  Returns:
+    The numerical value in seconds.
+  """
   unit_divisor  = 1
   if 'ms' in latency_str:
     unit_divisor = 1e3
@@ -228,6 +258,15 @@ def parse_latency_str(latency_str: str) -> float:
 
 
 def parse_loss_str(loss_str: str) -> float:
+  """
+  Parse a loss string like "0.1".
+
+  Args:
+    loss_str: The loss string to parse.
+
+  Returns:
+    The numerical valued.
+  """
   try:
     numeric_loss = float(loss_str)
     return numeric_loss
@@ -236,13 +275,27 @@ def parse_loss_str(loss_str: str) -> float:
     raise ValueError(e)
 
 
-def find_node_name(nodes: list, substrings: list) -> list:
+def find_node_name(nodes: list, substrings: list, default=None) -> list:
   """
   Find the node name that matches at least one element of a list of substrings.
+
+  Args:
+    nodes: The list of nodes with proper names, like "application-client", "tld-dns", etc..
+    substrings: The list of abreviated names, like "client" or "tld".
+    default: The default name to return if none is found to match in 'nodes'.
   """
+  if nodes is None:
+    return default
+
   node_names  = []
   for substring in substrings:
     node_names.extend(list(filter(lambda s: substring in s, nodes)))
   if len(node_names) > 1:
+    print(f"Warning: more than one match for {substrings} in {nodes}.")
     raise ValueError
+  if len(node_names) == 0:
+    print(f"No testbed shadow file node corresponding to {substrings}.")
+    if default is None:
+      raise ValueError
+    return default
   return node_names[0]
