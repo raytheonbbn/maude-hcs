@@ -107,7 +107,8 @@ rl [weird-nameserver-response-passthru]:
 ----  Steps are as follows:
 ----  1.  add fragment to fragment list 
 ----  2.  respond acking the fragment
-----  3.  if last fragment also defrag and send message to Bob
+----  3.  if last fragment also defrag and send message to Bob, send 
+---       ack (response) with a delay
 ----  TODO: add support for NULL QTYPE which is what will be used in tests
 ---- TODO: ideally WNS would remove the weird name and pass the query to wrappedNS 
 ----      but that is not how iodine is implemented! For now, iodine directly responds.
@@ -122,6 +123,8 @@ crl [wnameserver-receive-query-weird]:
           conf: (wrappedNS) 
   >
   < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
+  --- Preserve ADDR1, it will need it to know where to send the response in 
+  --- wnameserver-delayed-response-send
   (if isLastFrag then [lastFragDelay, (to ADDR from ADDR1 : getResponse(msgOut)), 0] else [delayParamd(msgOut), msgOut, dropParamd(msgOut)] fi)
   (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
@@ -136,6 +139,7 @@ crl [wnameserver-receive-query-weird]:
 
   
   --- Handle the delayed message for last frag response ---
+  --- Makes no real change other than it sends the delayed message.
   rl [wnameserver-delayed-response-send]:
     < ADDR : WNameserver | wattrs,
                            conf: (wrappedNS)
@@ -148,7 +152,7 @@ crl [wnameserver-receive-query-weird]:
     >
     < MON : WMonitor | monAttrs >
     [delay, (to ADDR1 from ADDR : RESPONSE), 0]
-    [print "(" T ") WServer sending last frag response" RESPONSE]
+    [print "(" T ") WServer sending last frag " RESPONSE]
     .
 
 
