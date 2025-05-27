@@ -115,6 +115,10 @@ maude-hcs --verbose --run-args=./use-cases/corporate-iodine.json --model=prob --
 ```
 And set `--model=nondet` to generate a nondeterministic version.
 
+To generate a model that uses characteristics defined in a shadow file, specify:
+```shell
+-t <path_to_shadow_file.gml>
+```
 
 
 Look at the `corporate-iodine.json` file above to see the configuration parameters.
@@ -243,6 +247,20 @@ Run
 umaudemc --no-advise scheck smc initConfig latency.quatex -a 0.05 --assign pmaude -j 50
 ```
 QMaude returns the expected value for the quatex queries (μ), and the number of Monte Carlo simulations it took to reach that value.
+
+# Tests
+
+To run the tests, first install pytest in your environment.
+```
+pip install -e .[test]
+```
+
+Then run the unit tests
+```
+python -m pytest
+```
+
+
 
 # References
 

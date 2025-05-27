@@ -31,11 +31,11 @@ from .DNSConfig import DNSConfig
 from .iodineActors import IodineServer, SendApp
 
 class IodineDNSConfig(DNSConfig):
-    def __init__(self, monitor, applications, weird_networks, clients, resolvers, nameservers, root_nameservers) -> None:        
+    def __init__(self, monitor, applications, weird_networks, clients, resolvers, nameservers, root_nameservers, network) -> None:
         self.monitor = monitor
         self.applications = applications
         self.tunnels = weird_networks
-        super().__init__(clients, resolvers, nameservers, root_nameservers)
+        super().__init__(clients, resolvers, nameservers, root_nameservers, network)
 
     def _get_actor_addresses(self):
         addresses = super()._get_actor_addresses()
@@ -60,7 +60,7 @@ class IodineDNSConfig(DNSConfig):
         return zones
     
     # Override to add tunnels and applications to conf
-    def _to_maude_actors(self) -> str:        
+    def _to_maude_actors(self) -> str:
         res = super()._to_maude_actors()        
         res += '  --- tunnels\n'
         for tunnel in self.tunnels:
