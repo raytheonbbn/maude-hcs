@@ -41,6 +41,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+"""
+    Parameters:
+        _args is the command line args
+        run_args is the json configuration from use cases
+"""
 def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     args = run_args["underlying_network"]
     addr_prefix = args.get("addr_prefix", "addrNS")
@@ -116,7 +121,7 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     cacheRecords = []
     # root zone
 
-    zoneRoot, ns_records = createRootZone(args, record_ttl)
+    zoneRoot, ns_records = createRootZone(run_args, record_ttl)
     cacheRecords.extend(ns_records)
 
 
@@ -137,7 +142,7 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     cacheRecords.extend(ns_records)
 
     
-    resolver = IResolver('rAddr')
+    resolver = IResolver(resolver_name)
     cacheEntries = []
     for rec in cacheRecords:
         cacheEntries.append(CacheEntry(rec))

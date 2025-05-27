@@ -47,7 +47,7 @@ def createAuthZone(domain_name: str, NAME:str, parent:Zone, num_records:int, TTL
         zone_records  = [Record(f'{domain_name}.com.', 'SOA', TTL, f'{TTL}')]
         ns_records = [    
                 Record(f'{domain_name}.com.', 'NS', TTL, f'ns.{domain_name}.com.'),
-                Record(f'ns.{domain_name}.com.', 'A', TTL, f'addrNS{NAME}')
+                Record(f'ns.{domain_name}.com.', 'A', TTL, NAME)
             ]
         zone_records.extend(ns_records)
         zone_records.extend(records)
@@ -125,7 +125,7 @@ def corporate(_args, run_args) -> DNSConfig:
 
     addr_prefix   = args.get("addr_prefix", "addrNS")
     links = args.get("links")
-    if not _args.topology_filename is None:
+    if _args.topology_filename:
       args  = run_args.get("topology")
       node_names  = args["node_names"]
       edges_info  = args["edges_info"]
