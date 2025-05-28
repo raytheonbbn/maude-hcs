@@ -1,27 +1,3 @@
-Software Markings (UNCLASS)
-PWNDD Software
-
-Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
-
-Contract No: HR00112590083
-Contractor Name: RTX BBN Technologies Inc.
-Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
-
-The U.S. Government's rights to use, modify, reproduce, release, perform,
-display, or disclose these technical data and software are defined in the
-Article VII: Data Rights clause of the OTA.
-
-This document does not contain technology or technical data controlled under
-either the U.S. International Traffic in Arms Regulations or the U.S. Export
-Administration Regulations.
-
-DISTRIBUTION STATEMENT A: Approved for public release; distribution is
-unlimited.
-
-Notice: Markings. Any reproduction of this computer software, computer
-software documentation, or portions thereof must also reproduce the markings
-contained herein.
-
 # Maude-HCS
 
 Formal Analysis of Hidden Communications Systems at Scale
@@ -115,19 +91,43 @@ maude-hcs --verbose --run-args=./use-cases/corporate-iodine.json --model=prob --
 ```
 And set `--model=nondet` to generate a nondeterministic version.
 
-To generate a model that uses characteristics defined in a shadow file, specify:
-```shell
--t <path_to_shadow_file.gml>
-```
-
-
 Look at the `corporate-iodine.json` file above to see the configuration parameters.
 The probabilistic model will combine the nondeterministic params as well as the 
 probabilistic params (whic override the nondeterministic ones).
 
+## Support for other network configurations
+
+To generate a model that uses characteristics defined in a shadow file, specify:
+```shell
+-t <path_to_shadow_file.gml>
+```
+A [GML file](https://shadow.github.io/docs/guide/network_graph_spec.html) specifies the
+network graph nodes and link characteristics. For example, below we show a node 
+and an edge/link. Links have latency, jitter, and packet loss which translate to 
+link delays and loss in our formal model.  
+```
+ node [
+    id 1
+    label "public_dns"
+    host_bandwidth_down "1Gbps"
+    host_bandwidth_up "1Gbps"
+  ]
+  ...
+  edge [
+    source 1
+    target 5
+    label "public_dns to application_server"
+    latency "5ms"
+    jitter "0ms"
+    packet_loss 0.0
+  ]
+  ....
+```
+> TODO: Currently we use a hardcoded mapping from GML node labels to internal nodes but that should be straighforward to externalize.
+
 # Run configurations
 
-## Single run
+## Standalone run with Maude
 To run a single configuration, invoke maude with the file name, for instance, in `results`,
 ```shell
 maude generated_corporate_iodine_prob.maude
@@ -160,8 +160,9 @@ maude-hcs scheck [-h] [--advise]
 
 options:
   --help, -h              Show help message and exit
-  --advise                Do not suppress debug messages from Maude
-  --file FILE             Maude source file specifying the model-checking problem, default=smc/smc.maude
+  --advise                Do not suppress debug messages from Maude  
+  --file FILE             Maude source file specifying the model-checking problem. If --protocol is specified, this parameter becomes optional, and if specified overrides the protocol smc file.
+  --protocol PR           The protocol module being analyzed e.g., dns, which points to an smc file specific to that protocol. 
   --test TEST             Test generated from maude-hcs, default=results/generated_test.maude
   --initial INITIAL       Initial term, default=initConfig
   --query QUERY           QuaTEx query, default=smc/query.quatex
@@ -173,7 +174,7 @@ options:
   --format {text,json}    Output format for the simulation results, default=text
 ```
 
-The probabilistic DNS model with iodine and its initial configuration should be specified in Maude and provided via the ``--test TEST`` option (default: ``results/generated_test.maude``).  The Maude execution starts from the initial term provided via the ``--initail INITIAL`` option (default: ``initConfig`` specified in ``TEST``) and rewrites to the final configuration.  From the final configuration, the observables are extracted using the monitor actor specified in the Maude source file for the model checking problem, provided via ``--file FILE`` option (default: ``smc/smc.maude``).  
+The probabilistic DNS model with iodine and its initial configuration should be specified in Maude and provided via the ``--test TEST`` option (default: ``results/generated_test.maude``).  The Maude execution starts from the initial term provided via the ``--initail INITIAL`` option (default: ``initConfig`` specified in ``TEST``) and rewrites to the final configuration.  From the final configuration, the observables are extracted using the monitor actor specified in the Maude source file for the model checking problem, provided via ``--file FILE`` option, or by the ``--protocol PR`` option. For example ``--protocol dns`` refers to a model checking file created specifically for the dns protocol under `lib/`.
 
 Quantitative properties such as the expected value of the average latency can be specified using a QuaTEx formula and provided via ``--query QUERY`` option (default: ``smc/query.quatex``).  Our latency example (in ``smc/latency.quatex``) can be expressed with a QuaTEx formula of the following form:  
 

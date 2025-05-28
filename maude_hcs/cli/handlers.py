@@ -28,9 +28,12 @@
 
 from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
+from maude_hcs.lib import GLOBALS
 from maude_hcs.parsers.graph import parse_shadow_gml, get_node_names, get_edge_delays_by_label, get_edge_info_by_label
 import logging
 import json
+from pathlib import Path
+import os
 
 from umaudemc.command.scheck import scheck
 import importlib.util
@@ -73,9 +76,16 @@ def handle_generate(args, parser):
 def handle_scheck(args, parser):
     logger.debug("Handle umaudemc scheck")
 
+    if not args.file:
+        if args.protocol:
+            args.file = str(GLOBALS.TOPLEVELDIR.joinpath(Path(f"maude_hcs/lib/{args.protocol}/maude/smc/smc.maude")))
+            logger.debug(f"Loading SMC file {args.file}")
+        else:
+            raise Exception("Must specify either args.file or args.protocol to load the correct smc file")
+
     has_umaudemc = importlib.util.find_spec('umaudemc')
     if not has_umaudemc:
-                    logger.error('The umaudemc Python package is not available. It can be installed with "pip install umaudemc".')
+        logger.error('The umaudemc Python package is not available. It can be installed with "pip install umaudemc".')
     maude.init(advise=args.advise)
-    maude.load(args.test)	
+    maude.load(args.test)
     result = scheck(args)

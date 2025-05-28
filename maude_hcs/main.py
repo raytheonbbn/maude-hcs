@@ -41,8 +41,6 @@ from maude_hcs.lib import GLOBALS
 
 from Maude.attack_exploration.src.zone import Record
 
-TOPLEVELDIR = Path(os.path.dirname(__file__))
-
 logger = logging.getLogger(__name__)
 
 def init_logging(verbose):
@@ -118,16 +116,11 @@ def build_cli_parser():
             choices=GLOBALS.MODEL_TYPES,
             default=GLOBALS.MODEL_TYPES[0],
             help=f'Choose one of the following options: {", ".join(GLOBALS.MODEL_TYPES)}. Default is {GLOBALS.MODEL_TYPES[0]}.'
-)
+    )
 
     cmd_parser = parser.add_subparsers(title='command', dest='command')    
     cmd_parser.required = True
     generate_parser = cmd_parser.add_parser('generate')
-    # generator = generate_parser.add_subparsers(title='generator', dest='generator',
-    #                                           description='Generate Maude file(s) to run', help="Add help")
-    # generator.required = True
-    # generator.add_parser('nondet', description='Generate non-deterministic model', help='nondet for nondeterministic')
-    # generator.add_parser('prob', description='Generate probabilistic model', help='prob for probabilistic')
 
     parser_scheck = cmd_parser.add_parser('scheck')
 
@@ -137,8 +130,12 @@ def build_cli_parser():
         dest='advise',
         action='store_true'
     )
-
-    parser_scheck.add_argument('--file', help='Maude source file specifying the model-checking problem, default=smc/smc.maude', default='smc/smc.maude')
+    parser_scheck.add_argument('--protocol', dest='protocol', required=False, 
+            choices=GLOBALS.MODULES,
+            default=GLOBALS.MODULES[0],
+            help=f'Choose one of the following options: {", ".join(GLOBALS.MODULES)}. Default is {GLOBALS.MODULES[0]}.'
+    )
+    parser_scheck.add_argument('--file', help='Maude source file specifying the model-checking problem', required=False)
     parser_scheck.add_argument('--test', help='maude-hcs generated test, default=results/generated_test.maude', default='results/generated_test.maude')
     parser_scheck.add_argument('--initial', help='initial term, default=initConfig', default='initConfig')
     parser_scheck.add_argument('--query', help='QuaTEx query, default=smc/query.quatex', default='smc/query.quatex')
