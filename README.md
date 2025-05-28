@@ -154,7 +154,7 @@ cont 1 .
 Statistical model checking is available by means of the scheck subcommand:
 ```shell
 maude-hcs scheck [-h] [--advise] 
-                 [--file FILE] [--test TEST] [--initial INITIAL] [--query QUERY] 
+                 [--protocol {dns}] [--file FILE] [--test TEST] [--initial INITIAL] [--query QUERY] 
                  [--assign METHOD] [--alpha ALPHA] [--delta DELTA] 
                  [--seed SEED] [--jobs JOBS] [--format {text,json}]
 
@@ -169,7 +169,7 @@ options:
   --assign METHOD         Assign probabilities to the successors according to the given method, default=pmaude
   --alpha ALPHA, -a ALPHA Required significance level for the confidence interval, default=0.05
   --delta DELTA, -d DELTA Maximum admissible radius for the confidence interval around the mean, default=0.5
-  --seed SEED, -s SEED    Random seed, 
+  --seed SEED, -s SEED    Random seed
   --jobs JOBS, -j JOBS    Number of parallel simulation threads, default=1, -j 0 will start as many jobs as CPU units
   --format {text,json}    Output format for the simulation results, default=text
 ```
