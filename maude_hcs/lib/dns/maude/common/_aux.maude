@@ -98,7 +98,7 @@ mod IODINE_SORTS is
 ---  inc META-LEVEL .
 ---  pr CONVERSION .
   
-  vars ALICE BOB ADDR : Address . 
+  vars ALICE BOB ADDR ADDR' : Address . 
   vars NAME NAME1 : Name .
   vars N N1 N2 N3 P_LEN : Nat .
   vars B B1 LAST_PACKET : Bool .  
@@ -107,6 +107,7 @@ mod IODINE_SORTS is
   var ANS AUTH ADD : List{Record} .
   var RCODE : Nat .
   var F : Fragment .
+  var RESPONSE : Response .
 
   subsorts Packet Fragment < Content . 
   ----        AliceAddr Packet# DataLenBytes lastPacket? 
@@ -136,6 +137,9 @@ mod IODINE_SORTS is
       /\ ADDR := getFromAddr(F)
   .
 
+  op getResponse : Msg -> Response .
+  eq getResponse((to ADDR from ADDR' : RESPONSE)) = RESPONSE .
+
   op getSeqNo : Fragment -> Nat .
   eq getSeqNo(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = N .
 
@@ -147,6 +151,9 @@ mod IODINE_SORTS is
 
   op isLastFragment : Fragment -> Bool .
   eq isLastFragment(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = B .
+
+  op isLastFragment : Name -> Bool .
+  eq isLastFragment(nm(F) . NAME1) = isLastFragment(F) .
 
   op getPacketLength : Packet -> Nat .
   eq getPacketLength(packet(ALICE, BOB, N, P_LEN, B)) = P_LEN .

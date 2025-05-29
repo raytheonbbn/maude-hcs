@@ -49,6 +49,7 @@ mod IODINE_DNS is
   vars msgs msgs0 : Config .   ---- MsgConfig
   vars msg msg0 msg1 msgIn msgOut msgOutExt appMsgOut : Msg .
   vars txComplete, maxAttemptsReached : Bool .
+  var isLastFrag : Bool .
   var PACKETS PACKETS' : PacketList .
   var FRAGMENT_LIST : FragmentList .
   vars Pkt Pkt' : Packet .
@@ -105,7 +106,8 @@ rl [weird-nameserver-response-passthru]:
 ----  Steps are as follows:
 ----  1.  add fragment to fragment list 
 ----  2.  respond acking the fragment
-----  3.  if last fragment also defrag and send message to Bob
+----  3.  if last fragment also defrag and send message to Bob, send 
+---       ack (response) with a delay
 ----  TODO: add support for NULL QTYPE which is what will be used in tests
 ---- TODO: ideally WNS would remove the weird name and pass the query to wrappedNS 
 ----      but that is not how iodine is implemented! For now, iodine directly responds.
@@ -120,16 +122,19 @@ crl [wnameserver-receive-query-weird]:
           conf: (wrappedNS) 
   >
   < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
-  [delayParamd(msgOut), msgOut, dropParamd(msgOut)] 
+  (if isLastFrag then [lastFragDelay + delayParamd(msgOut), msgOut, dropParamd(msgOut)] else [delayParamd(msgOut), msgOut, dropParamd(msgOut)] fi)
   (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 1 and step 2
   /\ {wattrsTrans, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  --- step 2.5: Check if this is for the last fragment, delay send
+  /\ isLastFrag := isLastFragment(QNAME)
   --- step 3
   /\ {wattrs2, appMsgOut} := updateRcvApp(wattrsTrans, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   [print "(" T ") WServer receving query " ID ]
   .
 
+  
   ---------------------------------------
   --- [Receive App] --- Bob
   ---------------------------------------
