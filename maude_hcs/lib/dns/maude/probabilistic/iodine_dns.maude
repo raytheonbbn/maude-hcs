@@ -60,7 +60,6 @@ mod IODINE_DNS is
   vars FRAGMENT sentFragment : Fragment .
   vars ALICEREADY WCLIENTREADY : Bool .
   var N : Nat .
-  var RESPONSE : Response .
 
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
@@ -123,9 +122,7 @@ crl [wnameserver-receive-query-weird]:
           conf: (wrappedNS) 
   >
   < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
-  --- Preserve ADDR1, it will need it to know where to send the response in 
-  --- wnameserver-delayed-response-send
-  (if isLastFrag then [lastFragDelay, (to ADDR from ADDR1 : getResponse(msgOut)), 0] else [delayParamd(msgOut), msgOut, dropParamd(msgOut)] fi)
+  (if isLastFrag then [lastFragDelay + delayParamd(msgOut), msgOut, dropParamd(msgOut)] else [delayParamd(msgOut), msgOut, dropParamd(msgOut)] fi)
   (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 1 and step 2
@@ -138,24 +135,6 @@ crl [wnameserver-receive-query-weird]:
   .
 
   
-  --- Handle the delayed message for last frag response ---
-  --- Makes no real change other than it sends the delayed message.
-  rl [wnameserver-delayed-response-send]:
-    < ADDR : WNameserver | wattrs,
-                           conf: (wrappedNS)
-    >
-    < MON : WMonitor | monAttrs >
-    {T, (to ADDR from ADDR1 : RESPONSE)}
-    =>
-    < ADDR : WNameserver | wattrs,
-                           conf: (wrappedNS)
-    >
-    < MON : WMonitor | monAttrs >
-    [delayParamd((to ADDR1 from ADDR : RESPONSE)), (to ADDR1 from ADDR : RESPONSE), 0]
-    [print "(" T ") WServer sending last frag " RESPONSE]
-    .
-
-
   ---------------------------------------
   --- [Receive App] --- Bob
   ---------------------------------------
