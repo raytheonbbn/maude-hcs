@@ -37,7 +37,7 @@ mod IODINE_DNS is
   vars ADDR ADDR1 ADDR2 NS RESOLVER ALICE BOB : Address .
   var RCODE : Nat .
   vars ANS AUTH ADD : List{Record} .
-  vars wattrs wattrs1 wattrs2 wattrsNext wattrsTrans wattrsTrans' appAttrs appAttrs1 appAttrsNext : AttributeSet .
+  vars wattrs wattrs1 wattrs2 wattrsNext wattrsTrans wattrsTrans' appAttrs appAttrs1 appAttrsTrans appAttrsNext : AttributeSet .
   vars monAttrs : AttributeSet .
   vars conf : Config .
   vars appAlice appBob wrappedNS : Actor .
@@ -48,7 +48,7 @@ mod IODINE_DNS is
   var  MIA MIA1 : MapIdAddr . 
   vars msgs msgs0 : Config .   ---- MsgConfig
   vars msg msg0 msg1 msgIn msgOut msgOutExt appMsgOut : Msg .
-  vars txComplete, maxAttemptsReached : Bool .
+  vars queueSet txComplete maxAttemptsReached : Bool .
   var isLastFrag : Bool .
   var PACKETS PACKETS' : PacketList .
   var FRAGMENT_LIST : FragmentList .
@@ -60,6 +60,10 @@ mod IODINE_DNS is
   vars FRAGMENT sentFragment : Fragment .
   vars ALICEREADY WCLIENTREADY : Bool .
   var N : Nat .
+
+  op fileSize : -> Nat .
+  op minPacketSize : -> Nat .
+  op maxPacketSize : -> Nat .
 
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
@@ -155,14 +159,21 @@ crl [wnameserver-receive-query-weird]:
   *** and sends a packet if so.  Otherwise, it marks WClient as ready and waits for its
   *** own timeout.
   crl [send-app-send-packet]:
-    < ALICE : SendApp | appAttrs, wclientReady: WCLIENTREADY >
+    < ALICE : SendApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet, wclientReady: WCLIENTREADY >
     {T, (to ALICE : start)}
   =>
     < ALICE : SendApp | appAttrsNext >
     (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
     (if msgOut == nullMsg then null else [pacingTimeoutDelay, (to ALICE : pktTimeout(getPkt(msgOut))), 0] fi)
     *** Start means that the client is ready.
-    if appAttrs1 := (appAttrs, wclientReady: true)
+    *** Check if the packet queue needs to be filled.
+    *** If so, packetize the file.
+    if appAttrsTrans := (if queueSet == true
+                     then (appAttrs, fileDestAddr: ADDR)
+                     else (packetize(appAttrs, ALICE, ADDR, fileSize, minPacketSize, maxPacketSize), fileDestAddr: ADDR)
+                     fi)
+    *** The queue is populated, and the wclient is ready.
+    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, wclientReady: true)
     /\ {appAttrsNext, msgOut} :=
         if getNumAdmittedPkts(appAttrs1) > 0
           *** If Alice has already admitted packets, send the next one.
@@ -170,7 +181,7 @@ crl [wnameserver-receive-query-weird]:
           *** Otherwise, it is not time yet.  Leave wclient marked as ready and done nothing else.
           else {appAttrs1, nullMsg}
         fi
-        [print "(" T ") SendApp start or nudge from wclient, send possible pkt " msgOut ", setting timeout if not null"]
+        [print "(" T ") SendApp start or nudge from wclient, send possible pkt " msgOut ", setting timeout if not null.  Has packets to send " appAttrsNext]
   .
 
   ---- ************
