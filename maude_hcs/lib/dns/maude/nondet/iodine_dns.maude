@@ -46,11 +46,14 @@ mod IODINE_DNS is
   var  MIA MIA1 : MapIdAddr . 
   vars msgs msgs0 : Config .   ---- MsgConfig
   vars msg msg0 msg1 msgIn msgOut msgOutExt appMsgOut : Msg .
-  vars txComplete, maxAttemptsReached : Bool .
-  var PACKETS PACKETS' : PacketList .
+  vars queueSet txComplete maxAttemptsReached : Bool .
+  vars PACKET_LIST' PACKET_LIST PACKETS PACKETS' : PacketList .
   var FRAGMENT_LIST : FragmentList .
   var Pkt : Packet .
 
+  op fileSize : -> Nat .
+  op minPacketSize : -> Nat .
+  op maxPacketSize : -> Nat .
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
   --------------------------------
@@ -123,12 +126,18 @@ crl [wnameserver-receive-query-weird]:
   ---------------------------------------
   --- [Send App] --- Alice
   ---------------------------------------
-  rl [send-app-send-packet]:
-    < ALICE : SendApp | toAddr: ADDR, queue: (Pkt ; PACKETS), sent: PACKETS', appAttrs >
+  crl [send-app-send-packet]:
+    < ALICE : SendApp | toAddr: ADDR, queuePopulated: queueSet, queue: PACKET_LIST, sent: PACKETS', appAttrs >
     (to ALICE : start)
   => 
-    < ALICE : SendApp | toAddr: ADDR, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
+    < ALICE : SendApp | toAddr: ADDR, queuePopulated: true, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
     (to ADDR from ALICE : Pkt)
+    *** Check if the packet queue needs to be filled.
+    *** If so, packetize the file.
+    if (Pkt ; PACKETS) := (if queueSet == true
+                     then PACKET_LIST
+                     else getFilePackets(packetize((appAttrs, queue: mtpl), ALICE, ADDR, fileSize, minPacketSize, maxPacketSize))
+                     fi)
     .
 
   ---------------------------------------
