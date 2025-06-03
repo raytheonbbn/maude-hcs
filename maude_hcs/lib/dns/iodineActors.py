@@ -65,9 +65,22 @@ class IodineServer:
 
 
 class SendApp:
-    def __init__(self, address, toAddress, packets_to_send, start : float = -1):
+    def __init__(self, address, file_dest_address, toAddress, packets_to_send, overwrite_queue : bool, start : float = -1):
+        """
+        Constructor, builds a SendApp.
+
+        address:  The address of the send app.
+        file_dest_address: The address of the file transfer's destination.
+        toAddress: The address of the IodineClient or file transfer's destination.
+                   TODO: Figure out which one, when.
+        packets_to_send: The list of packets to send, unless it is to be overwritten.
+        overwrite_queue: The boolean to overwrite the packet list provided here.
+                         (Will be computed at Alice start time.)
+        """
         self.address = address
+        self.file_dest_address = file_dest_address
         self.toAddress = toAddress
+        self.overwrite_queue = overwrite_queue
         self.packets = packets_to_send
         self.start = start
 
@@ -76,7 +89,9 @@ class SendApp:
 
     def to_maude(self) -> str:
         res = f'< {address_to_maude(self.address)} : SendApp |\n'
+        res += f'    fileDestAddr: {address_to_maude(self.file_dest_address)},\n'
         res += f'    toAddr: ({address_to_maude(self.toAddress)}),\n'
+        res += f'    queuePopulated: false,\n'
         res += f'    queue: ({packetlist_to_maude(self.packets)}),\n'
         res += '    numAdmittedPkts: 1,\n'
         res += '    wclientReady: true,\n'
