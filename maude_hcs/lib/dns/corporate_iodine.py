@@ -168,12 +168,14 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     # applications
     args = run_args["application"]
     pkt_sizes = args["send_app_queue_pkt_sizes"]
+    overwrite_queue = args["overwrite_queue"]
     aliceAddr = args['send_app_address']
     bobAddr = args['rcv_app_address']    
     start_send_app = float(args["app_start_send_time"])
     include_dns_client = args['include_dns_client']
     # app sends packets to the iodineClAddr
-    sndApp = SendApp(aliceAddr, iodineClAddr, makePackets(aliceAddr, bobAddr, pkt_sizes), start_send_app)
+    packets = None if overwrite_queue else makePackets(aliceAddr, bobAddr, pkt_sizes)
+    sndApp = SendApp(aliceAddr, bobAddr, iodineClAddr, packets, overwrite_queue, start_send_app)
     rcvApp = ReceiveApp(bobAddr)
     host_names = [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP, resolver, nameserverPWND2, iodineCl, iodineSvr]
     parameterized_network.create_links(host_names, links)
