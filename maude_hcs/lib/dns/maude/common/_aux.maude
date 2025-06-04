@@ -270,7 +270,7 @@ mod IODINE_NODE is
   var MIdAddr MIdAddr1 : MapIdAddr .
   var IdA IdA1 : IdAddr .
   vars ALICEREADY WCLIENTREADY : Bool .
-  vars FILE_SIZE MIN_PKT_SIZE MAX_PKT_SIZE PKT_COUNTER PktSize : Nat .
+  vars FILE_SIZE PKT_SIZE PKT_COUNTER PktSize : Nat .
 
 --------  Nesting/Meta configuration  attribute
   op conf:_ : Config -> Attribute [ctor] .
@@ -322,21 +322,20 @@ mod IODINE_NODE is
   .
   eq sendPkt(Attrs, AliceAddr) = {Attrs, nullMsg} [owise] .
 
-  ---            Attributes   Src     Dest  FileSize Min Max
-  op packetize : AttributeSet Address Address Nat Nat Nat -> AttributeSet .
-  ceq packetize((Attrs, queue: PACKET_LIST), AliceAddr, BobAddr, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE) = Attrs3
-    if PACKET_LIST' := $packetize(mtpl, AliceAddr, BobAddr, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, 0) 
+  ---            Attributes   Src     Dest  FileSize PacketSize
+  op packetize : AttributeSet Address Address Nat Nat -> AttributeSet .
+  ceq packetize((Attrs, queue: PACKET_LIST), AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE) = Attrs3
+    if PACKET_LIST' := $packetize(mtpl, AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE, 0) 
     /\ Attrs3 := (Attrs, queue: PACKET_LIST')
   .
 
-  ---          CurrentPktList Src   Dest   FileSize Min Max Counter
-  op $packetize : PacketList Address Address Nat Nat Nat Nat -> PacketList .
-  ceq $packetize(PACKET_LIST, AliceAddr, BobAddr, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, PKT_COUNTER) = PACKET_LIST'
-    if PktSize := floor(MIN_PKT_SIZE + (MAX_PKT_SIZE + (- MIN_PKT_SIZE)) * (random(PKT_COUNTER) / 4294967296))
-      /\ PACKET_LIST' :=
-        (if FILE_SIZE > PktSize
+  ---          CurrentPktList Src   Dest   FileSize PktSize Counter
+  op $packetize : PacketList Address Address Nat Nat Nat -> PacketList .
+  ceq $packetize(PACKET_LIST, AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE, PKT_COUNTER) = PACKET_LIST'
+    if PACKET_LIST' :=
+        (if FILE_SIZE > PKT_SIZE
          then
-           $packetize(PACKET_LIST ; packet(AliceAddr, BobAddr, PKT_COUNTER, PktSize, false), AliceAddr, BobAddr, FILE_SIZE + (- PktSize), MIN_PKT_SIZE, MAX_PKT_SIZE, s PKT_COUNTER)
+           $packetize(PACKET_LIST ; packet(AliceAddr, BobAddr, PKT_COUNTER, PKT_SIZE, false), AliceAddr, BobAddr, FILE_SIZE + (- PKT_SIZE), PKT_SIZE, s PKT_COUNTER)
          else
            (PACKET_LIST ; packet(AliceAddr, BobAddr, PKT_COUNTER, FILE_SIZE, true))
          fi)
@@ -610,7 +609,7 @@ eof
 ---set trace on .
 set print attribute on .
   
-red packetize(wClientAttrs, AliceAddr, BobAddr, 2000, 530, 530)  == (wClientAttrs, queue: (packet(AliceAddr, BobAddr, 0, 530, false) ; packet(AliceAddr, BobAddr, 1, 530, false) ; packet(AliceAddr, BobAddr, 2, 530, false) ; packet(AliceAddr, BobAddr, 3, 410, true))) .
+red packetize((wClientAttrs, queue: mtpl), AliceAddr, BobAddr, 2000, 530) == (wClientAttrs, queue: (packet(AliceAddr, BobAddr, 0, 530, false) ; packet(AliceAddr, BobAddr, 1, 530, false) ; packet(AliceAddr, BobAddr, 2, 530, false) ; packet(AliceAddr, BobAddr, 3, 410, true))) .
 red nm(fragment(AliceAddr, BobAddr, 1, 1, 100, false, true)) . 'microsoft . 'com . root .
 red fragment(nm(fragment(AliceAddr, BobAddr, 1, 1, 100, false, true))) ==  fragment(AliceAddr, BobAddr, 1, 1, 100, false, true) .
 red fragment(label(1)) == nilFragment .

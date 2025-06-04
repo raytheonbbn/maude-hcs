@@ -50,7 +50,7 @@ mod IODINE_DNS is
   vars msg msg0 msg1 msgIn msgOut msgOutExt appMsgOut : Msg .
   vars queueSet txComplete maxAttemptsReached : Bool .
   var isLastFrag : Bool .
-  var PACKETS PACKETS' : PacketList .
+  var PACKET_LIST PACKETS PACKETS' : PacketList .
   var FRAGMENT_LIST : FragmentList .
   vars Pkt Pkt' : Packet .
   vars T T' : Float . --- timestamp
@@ -60,6 +60,7 @@ mod IODINE_DNS is
   vars FRAGMENT sentFragment : Fragment .
   vars ALICEREADY WCLIENTREADY : Bool .
   var N : Nat .
+  vars FILE_SIZE MIN_PKT_SIZE MAX_PKT_SIZE PKT_COUNTER PktSize : Nat .
 
   op fileSize : -> Nat .
   op minPacketSize : -> Nat .
@@ -154,6 +155,28 @@ crl [wnameserver-receive-query-weird]:
   ---------------------------------------
   --- [Send App] --- Alice
   ---------------------------------------
+  
+  ---               Attributes   Src     Dest  FileSize Min Max
+  op packetizeProb : AttributeSet Address Address Nat Nat Nat -> AttributeSet .
+  ceq packetizeProb((appAttrs, queue: PACKET_LIST), ALICE, BOB, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE) = appAttrs1
+    if PACKETS' := $packetizeProb(mtpl, ALICE, BOB, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, 0) 
+    /\ appAttrs1 := (appAttrs, queue: PACKETS')
+  .
+
+  ---             CurrentPktList Src   Dest   FileSize Min Max Counter
+  op $packetizeProb : PacketList Address Address Nat Nat Nat Nat -> PacketList .
+  ceq $packetizeProb(PACKET_LIST, ALICE, BOB, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, PKT_COUNTER) = PACKETS
+    if PktSize := floor(MIN_PKT_SIZE + (MAX_PKT_SIZE + (- MIN_PKT_SIZE)) * (random(PKT_COUNTER) / 4294967296))
+      /\ PACKETS :=
+        (if FILE_SIZE > PktSize
+         then
+           $packetizeProb(PACKET_LIST ; packet(ALICE, BOB, PKT_COUNTER, PktSize, false), ALICE, BOB, FILE_SIZE + (- PktSize), MIN_PKT_SIZE, MAX_PKT_SIZE, s PKT_COUNTER)
+         else
+           (PACKET_LIST ; packet(ALICE, BOB, PKT_COUNTER, FILE_SIZE, true))
+         fi)
+    .
+
+
   *** This signals either the start or that the WClient is ready to accept new packets.
   *** Either way, Alice checks if it is ready (now is passed the previous app timeout)
   *** and sends a packet if so.  Otherwise, it marks WClient as ready and waits for its
@@ -170,7 +193,7 @@ crl [wnameserver-receive-query-weird]:
     *** If so, packetize the file.
     if appAttrsTrans := (if queueSet == true
                      then (appAttrs, fileDestAddr: ADDR)
-                     else (packetize(appAttrs, ALICE, ADDR, fileSize, minPacketSize, maxPacketSize), fileDestAddr: ADDR)
+                     else (packetizeProb(appAttrs, ALICE, ADDR, fileSize, minPacketSize, maxPacketSize), fileDestAddr: ADDR)
                      fi)
     *** The queue is populated, and the wclient is ready.
     /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, wclientReady: true)
