@@ -300,6 +300,8 @@ mod IODINE_NODE is
   op numAdmittedPkts:_ : Nat -> Attribute [ctor] .
   --- bool indicating wclient ready
   op wclientReady:_ : Bool -> Attribute [ctor] .
+  --- The per-packet overhead in bytes.
+  op packetOverhead : -> Nat .
 
   op makeSendApp : Address Address -> Actor [ctor] .
   eq makeSendApp(AliceAddr, BobAddr) =
@@ -324,21 +326,18 @@ mod IODINE_NODE is
 
   ---            Attributes   Src     Dest  FileSize PacketSize
   op packetize : AttributeSet Address Address Nat Nat -> AttributeSet .
-  ceq packetize((Attrs, queue: PACKET_LIST), AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE) = Attrs3
-    if PACKET_LIST' := $packetize(mtpl, AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE, 0) 
-    /\ Attrs3 := (Attrs, queue: PACKET_LIST')
+  eq packetize((Attrs, queue: PACKET_LIST), AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE) = (Attrs, queue: $packetize(mtpl, AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE, 0))
   .
 
   ---          CurrentPktList Src   Dest   FileSize PktSize Counter
   op $packetize : PacketList Address Address Nat Nat Nat -> PacketList .
-  ceq $packetize(PACKET_LIST, AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE, PKT_COUNTER) = PACKET_LIST'
-    if PACKET_LIST' :=
-        (if FILE_SIZE > PKT_SIZE
-         then
-           $packetize(PACKET_LIST ; packet(AliceAddr, BobAddr, PKT_COUNTER, PKT_SIZE, false), AliceAddr, BobAddr, FILE_SIZE + (- PKT_SIZE), PKT_SIZE, s PKT_COUNTER)
-         else
-           (PACKET_LIST ; packet(AliceAddr, BobAddr, PKT_COUNTER, FILE_SIZE, true))
-         fi)
+  eq $packetize(PACKET_LIST, AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE, PKT_COUNTER) = 
+      (if FILE_SIZE > PKT_SIZE
+       then
+         $packetize(PACKET_LIST ; packet(AliceAddr, BobAddr, PKT_COUNTER, PKT_SIZE + packetOverhead, false), AliceAddr, BobAddr, FILE_SIZE + (- PKT_SIZE), PKT_SIZE, s PKT_COUNTER)
+       else
+         (PACKET_LIST ; packet(AliceAddr, BobAddr, PKT_COUNTER, FILE_SIZE + packetOverhead, true))
+       fi)
     .
 
   --------------------------------
@@ -384,8 +383,6 @@ mod IODINE_NODE is
   op weirdQType:_ : RType -> Attribute [ctor] .  
   --- MAP from query id to app address to track where to send responses
   op appAddrMap:_ : MapIdAddr -> Attribute [ctor] .
-  --- The file size in bytes.
-  op fileSize : -> Nat .
   --- The maximum fragment length (or fragment size).
   op maxFragmentLen : -> Nat .
   --- The maximum number of fragment transmission tries.
@@ -600,6 +597,8 @@ mod PACKET_FRAGMENT_TEST is
   ops AliceAddr BobAddr addrWNS cAddr : -> Address . 
 
   op wClientAttrs : -> AttributeSet .
+
+  eq packetOverhead = 33 .
 endm
 
 set show advisories off .
@@ -609,7 +608,7 @@ eof
 ---set trace on .
 set print attribute on .
   
-red packetize((wClientAttrs, queue: mtpl), AliceAddr, BobAddr, 2000, 530) == (wClientAttrs, queue: (packet(AliceAddr, BobAddr, 0, 530, false) ; packet(AliceAddr, BobAddr, 1, 530, false) ; packet(AliceAddr, BobAddr, 2, 530, false) ; packet(AliceAddr, BobAddr, 3, 410, true))) .
+red packetize((wClientAttrs, queue: mtpl), AliceAddr, BobAddr, 2000, 530) == (wClientAttrs, queue: (packet(AliceAddr, BobAddr, 0, 530 + packetOverhead, false) ; packet(AliceAddr, BobAddr, 1, 530 + packetOverhead, false) ; packet(AliceAddr, BobAddr, 2, 530 + packetOverhead, false) ; packet(AliceAddr, BobAddr, 3, 410 + packetOverhead, true))) .
 red nm(fragment(AliceAddr, BobAddr, 1, 1, 100, false, true)) . 'microsoft . 'com . root .
 red fragment(nm(fragment(AliceAddr, BobAddr, 1, 1, 100, false, true))) ==  fragment(AliceAddr, BobAddr, 1, 1, 100, false, true) .
 red fragment(label(1)) == nilFragment .
