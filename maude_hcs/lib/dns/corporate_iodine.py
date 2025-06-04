@@ -37,6 +37,7 @@ from .cache import CacheEntry, ResolverCache
 from .corporate import createAuthZone, createRootZone, createTLDZone
 import ast
 from maude_hcs.parsers.graph import *
+from maude_hcs.parsers.shadowconf import *
 import logging
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ logger = logging.getLogger(__name__)
         _args is the command line args
         run_args is the json configuration from use cases
 """
-def corporate_iodine(_args, run_args) -> IodineDNSConfig:
+def corporate_iodine(_args, run_args, shadow_conf:ShadowConfig = None) -> IodineDNSConfig:
     preamble = run_args["output"].get("preamble", [])
     args = run_args["underlying_network"]
     addr_prefix = args.get("addr_prefix", "addrNS")

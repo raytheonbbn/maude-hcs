@@ -117,8 +117,11 @@ A pacing generator sends a new query when receiving a paceTO (timeout) message (
 
 To generate a model that uses characteristics defined in a shadow file, specify:
 ```shell
--t <path_to_shadow_file.gml>
+--shadow-filename <path_to_shadow_file.yaml>
 ```
+The shadow yaml file specifies the network, host, and process configurations.
+
+The shadow yaml file also references a network GML file path.
 A [GML file](https://shadow.github.io/docs/guide/network_graph_spec.html) specifies the
 network graph nodes and link characteristics. For example, below we show a node 
 and an edge/link. Links have latency, jitter, and packet loss which translate to 

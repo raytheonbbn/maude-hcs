@@ -36,6 +36,7 @@ from typing import Tuple, List
 from .iodineActors import IResolver
 from .cache import ResolverCache, CacheEntry
 from maude_hcs.parsers.graph import find_node_name
+from maude_hcs.parsers.shadowconf import *
 import ast
 import logging
 
@@ -111,7 +112,7 @@ def createTLDZone(run_args, zoneRoot, TTL:int = 3600) -> Tuple[Zone, List]:
     # com TLD zone
     return Zone('com.', zoneRoot, records), ns_records
 
-def corporate(_args, run_args) -> DNSConfig:
+def corporate(_args, run_args, shadow_conf:ShadowConfig = None) -> DNSConfig:
     # TODO: This mapping to shadow names, if available, should happen somewhereelse
     # and be passed already in the correct name.
     args = run_args["underlying_network"]

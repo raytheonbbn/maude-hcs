@@ -29,13 +29,15 @@
 import json
 import logging
 from maude_hcs.lib.dns.known_networks import KnownUNetworks
+from maude_hcs.parsers.shadowconf import ShadowConfig
 
 logger = logging.getLogger(__name__)
 
 class HCSAnalysis:
-    def __init__(self, args, run_args):
+    def __init__(self, args, run_args, shadow_conf:ShadowConfig):
         self.args = args
         self.run_args = run_args
+        self.shadow_conf = shadow_conf
 
     def generate(self):
         # step 1. generate the network configuration 
@@ -47,7 +49,7 @@ class HCSAnalysis:
         
 
     def generate_network(self):
-        conf = KnownUNetworks().create(self.args, self.run_args)
+        conf = KnownUNetworks().create(self.args, self.run_args, self.shadow_conf)
         return conf
 
 
