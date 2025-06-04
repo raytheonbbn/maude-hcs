@@ -248,7 +248,7 @@ def parse_latency_str(latency_str: str) -> float:
     unit_divisor = 1e3
   elif 'us' in latency_str:
     unit_divisor  = 1e6
-  latency_str = ''.join(filter(str.isdigit, latency_str))
+  latency_str = latency_str.replace('ms','').replace('us','').replace('s','')
   try:
     numeric_latency = float(latency_str) / unit_divisor
   except ValueError as e:

@@ -16,17 +16,10 @@ graph [
   node [ id 0 label "HostA" asn 100 ip_addr "10.0.0.1" host_bandwidth_up 100000000 host_bandwidth_down 100000000 ]
   node [ id 1 label "Router1" asn 200 ]
   node [ id 2 label "HostB" asn 100 ip_addr "10.0.0.2" host_bandwidth_up 50000000 host_bandwidth_down 100000000 ]
-<<<<<<< HEAD
   edge [ source 0 target 1 label "Link_HostA_to_Router1" latency "10.5ms" jitter "1.2ms" packet_loss 0.01 ]
   edge [ source 1 target 0 label "Link_Router1_to_HostA" latency "10.5ms" jitter "0.0ms" packet_loss 0.0 ]
   edge [ source 1 target 2 label "Link_Router1_to_HostB" latency "15.0ms" jitter "2.0ms" packet_loss 0.005 ]
   edge [ source 2 target 1 label "Link_HostB_to_Router1" latency "15.0ms" jitter "1.8ms" packet_loss 0.008 ]
-=======
-  edge [ source 0 target 1 label "Link_HostA_to_Router1" latency 10.5 jitter 1.2 packet_loss 0.01 ]
-  edge [ source 1 target 0 label "Link_Router1_to_HostA" latency 10.5 jitter 0.0 packet_loss 0.0 ]
-  edge [ source 1 target 2 label "Link_Router1_to_HostB" latency 15.0 jitter 2.0 packet_loss 0.005 ]
-  edge [ source 2 target 1 label "Link_HostB_to_Router1" latency 15.0 jitter 1.8 packet_loss 0.008 ]
->>>>>>> d662cbd (Initial impl of shadow graph parser)
 ]
 """
 
@@ -127,40 +120,40 @@ def test_edge_attributes(parsed_graph):
     # Edge 0 -> 1
     edge01_attrs = parsed_graph.edges[0, 1]
     assert edge01_attrs.get('label') == "Link_HostA_to_Router1"
-    assert edge01_attrs.get('latency') == pytest.approx(10.5)
-    assert isinstance(edge01_attrs.get('latency'), float)
-    assert edge01_attrs.get('jitter') == pytest.approx(1.2)
-    assert isinstance(edge01_attrs.get('jitter'), float)
+    assert isinstance(edge01_attrs.get('latency'), str)
+    assert edge01_attrs.get('latency') == "10.5ms"
+    assert isinstance(edge01_attrs.get('jitter'), str)
+    assert edge01_attrs.get('jitter') == "1.2ms"
     assert edge01_attrs.get('packet_loss') == pytest.approx(0.01)
     assert isinstance(edge01_attrs.get('packet_loss'), float)
 
     # Edge 1 -> 0
     edge10_attrs = parsed_graph.edges[1, 0]
     assert edge10_attrs.get('label') == "Link_Router1_to_HostA"
-    assert edge10_attrs.get('latency') == pytest.approx(10.5)
-    assert isinstance(edge10_attrs.get('latency'), float)
-    assert edge10_attrs.get('jitter') == pytest.approx(0.0) # Check specified 0
-    assert isinstance(edge10_attrs.get('jitter'), float)
+    assert edge10_attrs.get('latency') == "10.5ms"
+    assert isinstance(edge10_attrs.get('latency'), str)
+    assert edge10_attrs.get('jitter') == "0.0ms" # Check specified 0
+    assert isinstance(edge10_attrs.get('jitter'), str)
     assert edge10_attrs.get('packet_loss') == pytest.approx(0.0) # Check specified 0
     assert isinstance(edge10_attrs.get('packet_loss'), float)
 
     # Edge 1 -> 2
     edge12_attrs = parsed_graph.edges[1, 2]
     assert edge12_attrs.get('label') == "Link_Router1_to_HostB"
-    assert edge12_attrs.get('latency') == pytest.approx(15.0)
-    assert isinstance(edge12_attrs.get('latency'), float)
-    assert edge12_attrs.get('jitter') == pytest.approx(2.0)
-    assert isinstance(edge12_attrs.get('jitter'), float)
+    assert edge12_attrs.get('latency') == "15.0ms"
+    assert isinstance(edge12_attrs.get('latency'), str)
+    assert edge12_attrs.get('jitter') == "2.0ms"
+    assert isinstance(edge12_attrs.get('jitter'), str)
     assert edge12_attrs.get('packet_loss') == pytest.approx(0.005)
     assert isinstance(edge12_attrs.get('packet_loss'), float)
 
     # Edge 2 -> 1
     edge21_attrs = parsed_graph.edges[2, 1]
     assert edge21_attrs.get('label') == "Link_HostB_to_Router1"
-    assert edge21_attrs.get('latency') == pytest.approx(15.0)
-    assert isinstance(edge21_attrs.get('latency'), float)
-    assert edge21_attrs.get('jitter') == pytest.approx(1.8)
-    assert isinstance(edge21_attrs.get('jitter'), float)
+    assert edge21_attrs.get('latency') == "15.0ms"
+    assert isinstance(edge21_attrs.get('latency'), str)
+    assert edge21_attrs.get('jitter') == "1.8ms"
+    assert isinstance(edge21_attrs.get('jitter'), str)
     assert edge21_attrs.get('packet_loss') == pytest.approx(0.008)
     assert isinstance(edge21_attrs.get('packet_loss'), float)
 
@@ -201,10 +194,10 @@ def test_get_edge_delays_by_label(parsed_graph):
     # Expected delays based on the TEST_GML_CONTENT and node labels
     # Only edges with valid source label, target label, and numeric latency included
     expected_delays = {
-        ("HostA", "Router1"): 10.5,
-        ("Router1", "HostA"): 10.5,
-        ("Router1", "HostB"): 15.0,
-        ("HostB", "Router1"): 15.0,
+        ("HostA", "Router1"): 0.0105,
+        ("Router1", "HostA"): 0.0105,
+        ("Router1", "HostB"): 0.015,
+        ("HostB", "Router1"): 0.015,
         # Edge 0->2 (HostA->HostB) skipped: missing latency
         # Edge 1->3 (Router1->?) skipped: target node 3 missing label
         # Edge 2->0 (HostB->HostA) skipped: non-numeric latency "invalid"
