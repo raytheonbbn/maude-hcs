@@ -31,7 +31,7 @@ from Maude.attack_exploration.src.actors import Nameserver, Client
 from Maude.attack_exploration.src.query import Query
 from Maude.attack_exploration.src.network import *
 from maude_hcs.lib.dns import DNS_GLOBALS
-from maude_hcs.lib.dns.iodineActors import IodineClient, IodineServer, SendApp, ReceiveApp, WMonitor, IResolver
+from maude_hcs.lib.dns.iodineActors import IodineClient, IodineServer, SendApp, ReceiveApp, WMonitor, PacedClient, IResolver
 from maude_hcs.lib.dns.utils import makePackets
 from .cache import CacheEntry, ResolverCache
 from .corporate import createAuthZone, createRootZone, createTLDZone
@@ -172,6 +172,12 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     bobAddr = args['rcv_app_address']    
     start_send_app = float(args["app_start_send_time"])
     include_dns_client = args['include_dns_client']
+    args = run_args["background_traffic"]
+    include_paced_client = args['include_paced_client']
+    paced_client_address = args['paced_client_address']
+    paced_client_N = int(args['paced_client_Tlimit'] * args['paced_client_MaxQPS'])
+    paced_client_TOP = 1.0 / args['paced_client_MaxQPS']
+    paced_client_TOQ = 0.1 # not used 
     # app sends packets to the iodineClAddr
     sndApp = SendApp(aliceAddr, iodineClAddr, makePackets(aliceAddr, bobAddr, pkt_sizes), start_send_app)
     rcvApp = ReceiveApp(bobAddr)
@@ -180,13 +186,18 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     
     # monitor
     monitor = WMonitor(monitorAddr)
-    
+
     clients = []
     if include_dns_client:
         query = Query(1, f'www0.{EE_NAME}.com.', 'A')
         clients.append( Client('cAddr', [query], nameserverCORP) )
 
-    C = IodineDNSConfig(monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
+    # paced client
+    paced_client = None
+    if include_paced_client :
+        paced_client = PacedClient(paced_client_address,resolver_name,paced_client_N,paced_client_TOP, paced_client_TOQ)
+
+    C = IodineDNSConfig(monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, paced_client, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     C.set_params(run_args.get('nondeterministic_parameters', {}), run_args.get('probabilistic_parameters', {}))
     C.set_model_type(_args.model)
     return C

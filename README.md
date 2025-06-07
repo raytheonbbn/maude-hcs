@@ -161,8 +161,8 @@ maude-hcs scheck [-h] [--advise]
 options:
   --help, -h              Show help message and exit
   --advise                Do not suppress debug messages from Maude  
-  --file FILE             Maude source file specifying the model-checking problem. If --protocol is specified, this parameter becomes optional, and if specified overrides the protocol smc file.
   --protocol PR           The protocol module being analyzed e.g., dns, which points to an smc file specific to that protocol. 
+  --file FILE             Maude source file specifying the model-checking problem. If --protocol is specified, this parameter becomes optional, and if specified overrides the protocol smc file.
   --test TEST             Test generated from maude-hcs, default=results/generated_test.maude
   --initial INITIAL       Initial term, default=initConfig
   --query QUERY           QuaTEx query, default=smc/query.quatex

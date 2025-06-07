@@ -28,11 +28,12 @@
 
 from Maude.attack_exploration.src.conversion_utils import address_to_maude
 from .DNSConfig import DNSConfig
-from .iodineActors import IodineServer, SendApp
+from .iodineActors import IodineServer, SendApp, PacedClient
 
 class IodineDNSConfig(DNSConfig):
-    def __init__(self, monitor, applications, weird_networks, clients, resolvers, nameservers, root_nameservers, network) -> None:
+    def __init__(self, monitor, applications, weird_networks, clients, paced_client, resolvers, nameservers, root_nameservers, network) -> None:
         self.monitor = monitor
+        self.paced_client = paced_client
         self.applications = applications
         self.tunnels = weird_networks
         super().__init__(clients, resolvers, nameservers, root_nameservers, network)
@@ -75,6 +76,9 @@ class IodineDNSConfig(DNSConfig):
         if self.model_type == 'prob':
             res += '  --- WMonitor\n'
             res += '  ' + self.monitor.to_maude() + '\n'
+            if self.paced_client:
+                res += '  ' + self.paced_client.to_maude() + '\n'
+                res += f'  [id, to {address_to_maude(self.paced_client.address)} : start, 0]\n'
             res += '  --- App start messages\n'
             for app in self.applications:
                 if isinstance(app, SendApp) and app.start >= 0:

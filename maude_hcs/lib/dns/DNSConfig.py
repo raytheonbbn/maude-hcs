@@ -30,6 +30,7 @@ from pathlib import Path
 import os
 from maude_hcs.lib import GLOBALS
 from Maude.attack_exploration.src.config import Config
+from Maude.attack_exploration.src.conversion_utils import address_to_maude
 from .cache import ResolverCache
 
 TOPLEVELDIR = Path(os.path.dirname(__file__)).parent.parent
@@ -110,13 +111,22 @@ class DNSConfig(Config):
     def to_maude_prob(self, param_dict, path) -> str:
         res = '\n'.join((
                 f'load {self.weirdpath}/probabilistic/iodine_dns',                
-                f'load {path}test/probabilistic-model/test_helpers',
+                f'load {path}test/probabilistic-model/test_helpers\n',
+				))
 
-                '\n--- This maude file has been created automatically from the Python representation.\n',
+        if self.paced_client:
+                res += f'load {self.weirdpath}/probabilistic/paced-client\n'
+                
+        res += '\n--- This maude file has been created automatically from the Python representation.\n'
 
+        res += '\n'.join((
                 'mod IODINE_TEST is\n',
                 'inc IODINE_DNS + TEST-HELPERS .\n\n'
         ))
+
+        if self.paced_client:
+                res += 'inc PACED-CLIENT .\n\n'
+                res += f'op {address_to_maude(self.paced_client.address)} : -> Address .\n'
 
         res += self._to_maude_common_definitions(param_dict)
         res += self._to_maude_caches()
