@@ -30,6 +30,7 @@ load ../../../../deps/dns_formalization/Maude/src/common/_aux
 
 mod MYLISTS is
   pr AUX-COMMON .
+  pr RANDOM .
 
   ---- Lists of messages (sent or received by apps)
   --- sort MsgList .  
@@ -269,6 +270,7 @@ mod IODINE_NODE is
   var MIdAddr MIdAddr1 : MapIdAddr .
   var IdA IdA1 : IdAddr .
   vars ALICEREADY WCLIENTREADY : Bool .
+  vars FILE_SIZE PKT_SIZE PKT_COUNTER PktSize : Nat .
 
 --------  Nesting/Meta configuration  attribute
   op conf:_ : Config -> Attribute [ctor] .
@@ -284,8 +286,12 @@ mod IODINE_NODE is
   ---  Alice sends weird messages to Bob via WNameserver
   ------------------------------------------------------
   op SendApp : -> ActorType [ctor] .  
+  --- file destination
+  op fileDestAddr:_ : Address -> Attribute [ctor] .
   --- who to send to? (the iodine client)
   op toAddr:_ : Address -> Attribute [ctor] .
+  --- bool indicating queue is ready (set to false if pre-populating queue).
+  op queuePopulated:_ : Bool -> Attribute [ctor] .
   ---- packets to send
   op queue:_ : PacketList -> Attribute [ctor] . 
   ---- packets sent
@@ -294,10 +300,15 @@ mod IODINE_NODE is
   op numAdmittedPkts:_ : Nat -> Attribute [ctor] .
   --- bool indicating wclient ready
   op wclientReady:_ : Bool -> Attribute [ctor] .
+  --- The per-packet overhead in bytes.
+  op packetOverhead : -> Nat .
 
   op makeSendApp : Address Address -> Actor [ctor] .
   eq makeSendApp(AliceAddr, BobAddr) =
     < AliceAddr : SendApp | toAddr: BobAddr, queue: mtpl, sent: mtpl > .
+
+  op getFilePackets : AttributeSet -> PacketList .
+  eq getFilePackets(Attrs, queue: PACKET_LIST) = PACKET_LIST .
 
   op getNumAdmittedPkts : AttributeSet -> Nat .
   eq getNumAdmittedPkts(Attrs, numAdmittedPkts: N) = N .
@@ -312,6 +323,22 @@ mod IODINE_NODE is
       /\ msgOut := (to ADDR from AliceAddr : PACKET)
   .
   eq sendPkt(Attrs, AliceAddr) = {Attrs, nullMsg} [owise] .
+
+  ---            Attributes   Src     Dest  FileSize PacketSize
+  op packetize : AttributeSet Address Address Nat Nat -> AttributeSet .
+  eq packetize((Attrs, queue: PACKET_LIST), AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE) = (Attrs, queue: $packetize(mtpl, AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE, 0))
+  .
+
+  ---          CurrentPktList Src   Dest   FileSize PktSize Counter
+  op $packetize : PacketList Address Address Nat Nat Nat -> PacketList .
+  eq $packetize(PACKET_LIST, AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE, PKT_COUNTER) = 
+      (if FILE_SIZE > PKT_SIZE
+       then
+         $packetize(PACKET_LIST ; packet(AliceAddr, BobAddr, PKT_COUNTER, PKT_SIZE + packetOverhead, false), AliceAddr, BobAddr, FILE_SIZE + (- PKT_SIZE), PKT_SIZE, s PKT_COUNTER)
+       else
+         (PACKET_LIST ; packet(AliceAddr, BobAddr, PKT_COUNTER, FILE_SIZE + packetOverhead, true))
+       fi)
+    .
 
   --------------------------------
   --- [App Bob] --- 
@@ -570,6 +597,8 @@ mod PACKET_FRAGMENT_TEST is
   ops AliceAddr BobAddr addrWNS cAddr : -> Address . 
 
   op wClientAttrs : -> AttributeSet .
+
+  eq packetOverhead = 33 .
 endm
 
 set show advisories off .
@@ -579,6 +608,7 @@ eof
 ---set trace on .
 set print attribute on .
   
+red packetize((wClientAttrs, queue: mtpl), AliceAddr, BobAddr, 2000, 530) == (wClientAttrs, queue: (packet(AliceAddr, BobAddr, 0, 530 + packetOverhead, false) ; packet(AliceAddr, BobAddr, 1, 530 + packetOverhead, false) ; packet(AliceAddr, BobAddr, 2, 530 + packetOverhead, false) ; packet(AliceAddr, BobAddr, 3, 410 + packetOverhead, true))) .
 red nm(fragment(AliceAddr, BobAddr, 1, 1, 100, false, true)) . 'microsoft . 'com . root .
 red fragment(nm(fragment(AliceAddr, BobAddr, 1, 1, 100, false, true))) ==  fragment(AliceAddr, BobAddr, 1, 1, 100, false, true) .
 red fragment(label(1)) == nilFragment .
