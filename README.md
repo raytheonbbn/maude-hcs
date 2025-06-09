@@ -95,6 +95,24 @@ Look at the `corporate-iodine.json` file above to see the configuration paramete
 The probabilistic model will combine the nondeterministic params as well as the 
 probabilistic params (whic override the nondeterministic ones).
 
+For background traffic, a paced client (ActorType PacedClient) can be configured in ``corporate-iodine.json`` 
+file to act as a pacing query generator. This is part of the `underlying_network` config and is only included
+in the probabilitic configuration.
+
+```shell
+    "background_traffic" : {
+        "num_paced_clients" : 1,
+        "paced_client_address_prefix" : "pcAddr",
+        "paced_client_Tlimit" : 2,
+        "paced_client_MaxQPS" : 50
+    },
+```
+A pacing generator sends a new query when receiving a paceTO (timeout) message (and resets the timer / sends a new paceTO message).  Responses are just dropped.  
+ * ``num_paced_clients`` the number of clients to spawn 
+ * ``paced_client_address_prefix`` represents the actor's address prefix appended with an id (e.g., `pcAddr0`), unique per spawned client
+ * ``paced_client_Tlimit`` is an integer denoting max runtime in seconds
+ * ``paced_client_MaxQPS`` specifies the maximum queries per second (High = 50, Medium = 30, Low = 15)
+
 ## Support for other network configurations
 
 To generate a model that uses characteristics defined in a shadow file, specify:
@@ -161,8 +179,8 @@ maude-hcs scheck [-h] [--advise]
 options:
   --help, -h              Show help message and exit
   --advise                Do not suppress debug messages from Maude  
-  --file FILE             Maude source file specifying the model-checking problem. If --protocol is specified, this parameter becomes optional, and if specified overrides the protocol smc file.
   --protocol PR           The protocol module being analyzed e.g., dns, which points to an smc file specific to that protocol. 
+  --file FILE             Maude source file specifying the model-checking problem. If --protocol is specified, this parameter becomes optional, and if specified overrides the protocol smc file.
   --test TEST             Test generated from maude-hcs, default=results/generated_test.maude
   --initial INITIAL       Initial term, default=initConfig
   --query QUERY           QuaTEx query, default=smc/query.quatex

@@ -1,5 +1,5 @@
-set show advisories off .
-load ../maude_hcs/deps/dns_formalization/Maude/src/probabilistic-model/dns
+--- set show advisories off .
+---load ../maude_hcs/deps/dns_formalization/Maude/src/probabilistic-model/dns
 
 *****  < wildcard . 'example . 'com . root, txt, 3600.0, nullAddr > .
 
@@ -16,11 +16,12 @@ query when it receives a lostTO for a message that
 has no response, or when a response arrives for which
 the lostTO has not already arrived.
 
-    mkPacedClient(ADDR,RSV,N,TOP,TOQ) 
+    mkPacedClient(ADDR,RSV,NAME,N,TOP,TOQ) 
     
 constructs a PacedClient actor
 ADDR is the actors address
-RSF is the resolver it sends to
+RSV is the resolver it sends to
+NAME the domain name to send queries to
 N the max number of queries to generate
 TOP is the paceTO period.  
    if TOP > 0.0 the actor is pacing
@@ -178,12 +179,12 @@ op `{_;_`} : AttributeSet Config -> AttrsMsgs .
 
 op PacedClient : -> ActorType .
 
-op mkPacedClient : Address Address Nat Float Float -> Actor .
-eq mkPacedClient(ADDR,RSV,N,TOP,TOQ) =
+op mkPacedClient : Address Address Name Nat Float Float -> Actor .
+eq mkPacedClient(ADDR,RSV, NAME, N,TOP,TOQ) =
 < ADDR : PacedClient |
      ctr: 0,  --- counter for generating query Ids
      qmx: N,  --- max number of queries
-     basedom: ('example . 'com . root),
+     basedom: NAME,
      localN: 'www,
      qtype: a,
      resolver: RSV,
@@ -235,8 +236,9 @@ mod PACED-CLIENT is
       {T, to CL : start}
     =>  
       < CL : Client |  STATE0 >
-      [delay, msg0, drop?]
-      [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+      [0.0, msg0, 0]
+      --- [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+      [TOT + genRandom(0., 0.0001), msg1, 0]
    if {STATE0 ; msgs} := sendBQ(CL,STATE)
    /\ msg0 := getQueryM(msgs)
    /\ msg1 := getTimeOutM(msgs)
@@ -255,8 +257,9 @@ mod PACED-CLIENT is
   {T, to CL from RSV : response}
 =>
   < CL : Client | STATE1 >
-  [delay, msg0, drop?]
-  [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+  [delay, msg0, drop?] ---- TODO FIx delay and drop!
+  --- [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+  [TOT + genRandom(0., 0.0001), msg1, 0]  
   if {STATE0, true} := checkW4R(STATE,response)
    ---- qr and resp:onse expected
   /\ {STATE1 ; msgs} := sendBQ(CL,STATE0)
@@ -301,8 +304,9 @@ eq checkW4R(STATE, response)
   {T, to CL : lostTO(msg)}
 =>
   < CL : Client | STATE1 >
-  [delay, msg0, drop?]
-  [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+  [delay, msg0, drop?] ---- TODO FIx delay and drop!
+  --- [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+  [TOT + genRandom(0., 0.0001), msg1, 0]  
   if {STATE0,true} := checkW4Lost(STATE,msg)
   /\ {STATE1 ; msgs} := sendBQ(CL,STATE0)
   /\ msg0 := getQueryM(msgs)
@@ -343,8 +347,9 @@ eq checkW4Lost(STATE, msg)
   {T, to CL : paceTO}
 =>
   < CL : Client | STATE0 >
-  [delay, msg0, drop?]
-  [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+  [0.0, msg0, 0]
+  --- [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+  [TOT + genRandom(0., 0.0001), msg1, 0]  
   if checkQMx(STATE) 
   /\ {STATE0 ; msgs} := sendBQ(CL,STATE)
   /\ msg0 := getQueryM(msgs)
@@ -371,9 +376,8 @@ eq checkQMx(STATE) = false [owise] .
 endm
   
 eof
+***(
 Warning: "paced-client.maude", line 88 (mod PACED-CLIENT-AUX): multiple distinct
     parses for statement
 eq genQName (J, QQNAME) = qid (string (QQNAME) + string (J, 10)) .
-
-
-
+)
