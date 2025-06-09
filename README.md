@@ -95,20 +95,23 @@ Look at the `corporate-iodine.json` file above to see the configuration paramete
 The probabilistic model will combine the nondeterministic params as well as the 
 probabilistic params (whic override the nondeterministic ones).
 
-For background traffic, a paced client (ActorType PacedClient) can be configured in ``corporate-iodine.json`` file to act as a pacing query generator.
+For background traffic, a paced client (ActorType PacedClient) can be configured in ``corporate-iodine.json`` 
+file to act as a pacing query generator. This is part of the `underlying_network` config and is only included
+in the probabilitic configuration.
 
 ```shell
     "background_traffic" : {
-        "include_paced_client" : true,
-        "paced_client_address" : "pcAddr",
+        "num_paced_clients" : 1,
+        "paced_client_address_prefix" : "pcAddr",
         "paced_client_Tlimit" : 2,
         "paced_client_MaxQPS" : 50
     },
 ```
 A pacing generator sends a new query when receiving a paceTO (timeout) message (and resets the timer / sends a new paceTO message).  Responses are just dropped.  
-``paced_client_address`` represents the actor's address.  
-``paced_client_Tlimit`` is an integer denoting max runtime in seconds.  
-``paced_client_MaxQPS`` specifies the maximum queries per second (High = 50, Medium = 30, Low = 15).
+ * ``num_paced_clients`` the number of clients to spawn 
+ * ``paced_client_address_prefix`` represents the actor's address prefix appended with an id (e.g., `pcAddr0`), unique per spawned client
+ * ``paced_client_Tlimit`` is an integer denoting max runtime in seconds
+ * ``paced_client_MaxQPS`` specifies the maximum queries per second (High = 50, Medium = 30, Low = 15)
 
 ## Support for other network configurations
 

@@ -133,19 +133,20 @@ class WMonitor:
         return res
 
 class PacedClient:
-		def __init__(self, address, resolverAddress, N, TOP, TOQ) -> None:
-				self.address = address
-				self.resolverAddress = resolverAddress
-				self.N = N
-				self.TOP = TOP
-				self.TOQ = TOQ
+    def __init__(self, address, resolverAddress, NAME, N, TOP, TOQ) -> None:
+        self.address = address
+        self.resolverAddress = resolverAddress
+        self.NAME = NAME
+        self.N = N
+        self.TOP = TOP
+        self.TOQ = TOQ
 
-		def __str__(self) -> str:
-				return f'< {self.address} : PacedClient | Attrs >'
+    def __str__(self) -> str:
+            return f'< {self.address} : PacedClient | Attrs >'
 
-		def to_maude(self) -> str:
-				res = f'mkPacedClient({self.address},{self.resolverAddress},{self.N},{self.TOP},{self.TOQ})'
-				return res
+    def to_maude(self) -> str:
+            res = f'mkPacedClient({self.address},{self.resolverAddress}, {name_to_maude(self.NAME)}, {self.N},{self.TOP},{self.TOQ})'
+            return res
 
 class IResolver(Resolver):
 

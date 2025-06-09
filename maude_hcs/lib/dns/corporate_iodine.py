@@ -172,9 +172,9 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
     bobAddr = args['rcv_app_address']    
     start_send_app = float(args["app_start_send_time"])
     include_dns_client = args['include_dns_client']
-    args = run_args["background_traffic"]
-    include_paced_client = args['include_paced_client']
-    paced_client_address = args['paced_client_address']
+    args = args["background_traffic"]
+    num_paced_clients = int(args['num_paced_clients'])
+    paced_client_address = args['paced_client_address_prefix']
     paced_client_N = int(args['paced_client_Tlimit'] * args['paced_client_MaxQPS'])
     paced_client_TOP = 1.0 / args['paced_client_MaxQPS']
     paced_client_TOQ = 0.1 # not used 
@@ -193,11 +193,11 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
         clients.append( Client('cAddr', [query], nameserverCORP) )
 
     # paced client
-    paced_client = None
-    if include_paced_client :
-        paced_client = PacedClient(paced_client_address,resolver_name,paced_client_N,paced_client_TOP, paced_client_TOQ)
+    paced_clients = []
+    for i in range(num_paced_clients):        
+        paced_clients.append(PacedClient(f'{paced_client_address}{i}', nameserverCORP.address, f'{EE_NAME}.com.', paced_client_N, paced_client_TOP, paced_client_TOQ))
 
-    C = IodineDNSConfig(monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, paced_client, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
+    C = IodineDNSConfig(monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, paced_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     C.set_params(run_args.get('nondeterministic_parameters', {}), run_args.get('probabilistic_parameters', {}))
     C.set_model_type(_args.model)
     return C
