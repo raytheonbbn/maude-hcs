@@ -143,6 +143,30 @@ link delays and loss in our formal model.
 ```
 > TODO: Currently we use a hardcoded mapping from GML node labels to internal nodes but that should be straighforward to externalize.
 
+## Other externalized parameters
+The Maude model includes the following parameters whose value can be specified or varied, sometimes from direct parsing of the shadow file passed with the `-t` argment.
+### Packet size(s)
+The size of the packets presented to the Iodine client may be pre-populated or generated from a file size.
+_Pre-populated packet sizes_
+Use `send_app_queue_pkt_sizes` to specify the list of sizes (in Bytes) of the packets that should be sent by the Application, and set `overwrite_queue` to false.
+
+_Generated random packet sizes_
+If `overwrite_queue` is set to true, the Maude model will compute the queue of packets at start time from the `fileSize` (in Bytes), `packetOverhead` (in Bytes), and:
+* `packetSize` (in Bytes) for _fixed_ packet size in nondeterministic mode. Packet sizes will be the quotient of fileSize over packetSize and overhead, except for the last one, which will be the remainder.
+* `packetSize` and `maxPacketSize` (in Bytes) for _fixed_ packet size (if `maxPacketSize` is equal to `packetSize`) or _random_ packet size (otherwise) in probabilistic mode. Packet sizes will be sampled uniformly between `packetSize` and `maxPacketSize` (or the remaining file bytes) plus overhead.
+> TODO: Read `packetSize` and `maxPacketSize` from `chunk_size_min` and `chunk_size_max`, applied as a percentage of the MTU size (passed by the `-m` argument on the Iodine command line) in the send application profile's yaml file.
+
+### Application packet pacing interval
+The send application paces its packet transmission not to overwhelm the Iodine link, which could cause unrecoverable packet drops. The pace interval the amount of time after which the send application is allowed to transmit a packet after the previous one. This value may be:
+* `random`: The application random is uniformly sampled between `pacingTimeoutDelay` and `pacingTimeoutDelayMax`.
+* `fixed`: The application pacing interval is fixed if `pacingTimeoutDelay` and `pacingTimeoutDelayMax` are equal.
+> TODO: Read the pacing timeout values from `chunk_spacing_min` and `chunk_spacing_max` in the send application profile's yaml file.
+
+### Maximum fragment length
+Iodine divides packets into fragments of fixed but settable size (in Bytes). If too large for a single query, the Maude Iodine model will split packets into smaller fragments, which it thens encapsulates into queries.  The maximum size of each fragment is settable via `maxFragmentLen` (in Bytes) but fixed for every run.
+> TODO: Read the maximum fragment length from the maximum DNS request length limit (passed by the `-M` argument on the Iodine command line) and per-query overhead (currently unknown).
+
+
 # Run configurations
 
 ## Standalone run with Maude
