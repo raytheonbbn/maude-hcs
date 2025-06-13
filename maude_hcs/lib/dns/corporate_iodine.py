@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
         run_args is the json configuration from use cases
 """
 def corporate_iodine(_args, run_args) -> IodineDNSConfig:
+    preamble = run_args["output"].get("preamble", [])
     args = run_args["underlying_network"]
     addr_prefix = args.get("addr_prefix", "addrNS")
 
@@ -201,5 +202,6 @@ def corporate_iodine(_args, run_args) -> IodineDNSConfig:
 
     C = IodineDNSConfig(monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, paced_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     C.set_params(run_args.get('nondeterministic_parameters', {}), run_args.get('probabilistic_parameters', {}))
+    C.set_preamble(preamble)
     C.set_model_type(_args.model)
     return C

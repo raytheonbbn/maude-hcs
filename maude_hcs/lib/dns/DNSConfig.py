@@ -36,6 +36,7 @@ from .cache import ResolverCache
 TOPLEVELDIR = Path(os.path.dirname(__file__)).parent.parent
 DNS_MAUDE_ROOT = Path("deps/dns_formalization/Maude")
 WEIRD_DNS_MAUDE_ROOT = Path(os.path.dirname(__file__)).joinpath(Path("maude/"))
+
 CWD = Path.cwd()
 
 class DNSConfig(Config):
@@ -45,6 +46,7 @@ class DNSConfig(Config):
         self.model_type = GLOBALS.MODEL_TYPES[0]
         self.path = str(TOPLEVELDIR.joinpath(DNS_MAUDE_ROOT)) + os.path.sep
         self.weirdpath = str(WEIRD_DNS_MAUDE_ROOT)
+        self.preamble = None
         super().__init__(clients, resolvers, nameservers, root_nameservers, network)
 
     def set_params(self, nondet_params : dict, prob_params : dict):
@@ -56,6 +58,9 @@ class DNSConfig(Config):
             raise Exception(f'Type {type} must be in {GLOBALS.MODEL_TYPES}')
         self.model_type = type
 
+    def set_preamble(self, L: list[str] = []):
+        self.preamble = L
+        
     # Override to exclude the monitor
     def _to_maude_actors(self) -> str:
         res = '  --- Clients\n'
@@ -82,13 +87,19 @@ class DNSConfig(Config):
     # override update the modules imported
     def to_maude_nondet(self, param_dict, path) -> str:
         res = '\n'.join((
+                '--- This maude file has been created automatically from the Python representation ---\n',
                 f'load {self.weirdpath}/nondet/iodine_dns',
                 #f'load {path}src/nondet-model/dns',
-                f'load {path}test/nondet-model/test_helpers',
-
-                '\n--- This maude file has been created automatically from the Python representation.\n',
-
-                'mod IODINE_TEST is\n',
+                f'load {path}test/nondet-model/test_helpers'
+        ))
+        # add preamble 
+        res += '\n'
+        res += '\n'.join([pr for pr in self.preamble])
+        res += '\n\n'
+        
+        # define module
+        res += '\n'.join((
+                f'mod {GLOBALS.MODULE_NAME} is\n',
                 'inc IODINE_DNS + TEST-HELPERS .\n\n'
         ))
 
@@ -109,16 +120,20 @@ class DNSConfig(Config):
         return res        
 
     def to_maude_prob(self, param_dict, path) -> str:
-        res = '\n'.join((
+        res = '--- This maude file has been created automatically from the Python representation ---\n'
+        res += '\n'.join((            
                 f'load {self.weirdpath}/probabilistic/iodine_dns',
                 f'load {self.weirdpath}/probabilistic/paced-client\n'
                 f'load {path}test/probabilistic-model/test_helpers\n',                
 				))
-                
-        res += '\n--- This maude file has been created automatically from the Python representation.\n'
+
+        # add preamble 
+        res += '\n'
+        res += '\n'.join([pr for pr in self.preamble])
+        res += '\n\n'
 
         res += '\n'.join((
-                'mod IODINE_TEST is\n',
+                f'mod {GLOBALS.MODULE_NAME} is\n',
                 'inc IODINE_DNS + PACED-CLIENT + TEST-HELPERS .\n\n'
         ))
 
