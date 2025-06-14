@@ -31,6 +31,7 @@ from maude_hcs.analysis import HCSAnalysis
 from maude_hcs.lib import GLOBALS
 from maude_hcs.parsers.hcsconfig import HCSConfig
 from maude_hcs.parsers.shadowconf import ShadowConfig, HostConfig, ProcessConfig, parse_shadow_config
+from maude_hcs.parsers.configfactory import Protocol, buildHCSConfig
 
 import logging
 import json
@@ -61,12 +62,10 @@ def handle_command(command, parser, args):
 def handle_generate(args, parser):
     logger.debug("Handle maude generation")
     if args.run_args:
-        hcsconfig = HCSConfig.from_json(args.run_args)
+        hcsconfig = buildHCSConfig(args.protocol, Path(args.run_args.name))
     elif args.shadow_filename:        
+        # First convert shadow config to HCSConfig
         shadowconf = parse_shadow_config(Path(args.shadow_filename.name))
-        shadowconf.network.save('./results/topo.json')
-        return
-
         hcsconfig = HCSConfig.from_shadow(args.shadow_filename)
     else:
         raise Exception('Either specify a run args config file or a shadow yaml config file')

@@ -26,6 +26,7 @@
 #
 # MAUDE_HCS: end
 
+from maude_hcs.lib.common.paramtopo import ParameterizedTopo
 from maude_hcs.lib.dns.IodineDNSConfig import IodineDNSConfig
 from Maude.attack_exploration.src.actors import Nameserver, Client
 from Maude.attack_exploration.src.query import Query
@@ -33,6 +34,7 @@ from Maude.attack_exploration.src.network import *
 from maude_hcs.lib.dns import DNS_GLOBALS
 from maude_hcs.lib.dns.iodineActors import IodineClient, IodineServer, SendApp, ReceiveApp, WMonitor, PacedClient, IResolver
 from maude_hcs.lib.dns.utils import makePackets
+from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig
 from maude_hcs.parsers.hcsconfig import HCSConfig
 from .cache import CacheEntry, ResolverCache
 from .corporate import createAuthZone, createRootZone, createTLDZone
@@ -48,7 +50,7 @@ logger = logging.getLogger(__name__)
         _args is the command line args
         run_args is the json configuration from use cases
 """
-def corporate_iodine(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:    
+def corporate_iodine(_args, hcsconf :  DNSHCSConfig) -> IodineDNSConfig:    
     addr_prefix   = hcsconf.underlying_network.addr_prefix    
     ROOT_NAME     = hcsconf.underlying_network.root_name
     COM_NAME      = hcsconf.underlying_network.com_name
@@ -60,23 +62,10 @@ def corporate_iodine(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     populateCache = hcsconf.underlying_network.populate_resolver_cache
     record_ttl    = hcsconf.underlying_network.record_ttl
     
-    # Get links while we are at it.  For now, these have Maude_HCS names.
-    node_names = [EE_NAME, resolver_name, PWND2_NAME, iodineClAddr, CORP_NAME, ROOT_NAME, COM_NAME]
+    # Get links while we are at it.  For now, these have Maude_HCS names.    
     iodineClAddr   = hcsconf.weird_network.client_address    
-    links         = hcsconf.underlying_network.links
-    links.update(hcsconf.weird_network.links)
-    # translate the link names to Maude_HCS full names.
-    links = ast.literal_eval(str(links)
-                .replace("pwnd2_name", PWND2_NAME)
-                .replace("client_address", iodineClAddr)
-                .replace("resolver_name", resolver_name)
-                .replace("corporate_name", CORP_NAME)
-                .replace("everythingelse_name", EE_NAME)
-                .replace("com", COM_NAME)
-                # Assume root is not named explicitly in our use case.
-                .replace("root", ROOT_NAME))
     # These links contain link characteristics and have now the proper names.
-    parameterized_network = ParameterizedNetwork(links)
+    parameterized_network = ParameterizedTopo(hcsconf.topology)
 
     ADDR_NS_ROOT  = f"{addr_prefix}{ROOT_NAME}"
     ADDR_NS_COM   = f"{addr_prefix}{COM_NAME}"

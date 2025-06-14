@@ -118,7 +118,11 @@ def build_cli_parser():
             default=GLOBALS.MODEL_TYPES[0],
             help=f'Choose one of the following options: {", ".join(GLOBALS.MODEL_TYPES)}. Default is {GLOBALS.MODEL_TYPES[0]}.'
     )
-
+    parser.add_argument('--protocol', dest='protocol', required=False, 
+            choices=GLOBALS.MODULES,
+            default=GLOBALS.MODULES[0],
+            help=f'Choose one of the following options: {", ".join(GLOBALS.MODULES)}. Default is {GLOBALS.MODULES[0]}.'
+    )
     cmd_parser = parser.add_subparsers(title='command', dest='command')    
     cmd_parser.required = True
     generate_parser = cmd_parser.add_parser('generate')
@@ -130,11 +134,6 @@ def build_cli_parser():
         help='do not suppress debug messages from Maude',
         dest='advise',
         action='store_true'
-    )
-    parser_scheck.add_argument('--protocol', dest='protocol', required=False, 
-            choices=GLOBALS.MODULES,
-            default=GLOBALS.MODULES[0],
-            help=f'Choose one of the following options: {", ".join(GLOBALS.MODULES)}. Default is {GLOBALS.MODULES[0]}.'
     )
     parser_scheck.add_argument('--file', help='Maude source file specifying the model-checking problem', required=False)
     parser_scheck.add_argument('--test', help='maude-hcs generated test, default=results/generated_test.maude', default='results/generated_test.maude')

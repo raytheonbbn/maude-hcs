@@ -19,6 +19,9 @@ class Link:
     jitter: float
     loss: float    
 
+    def is_similar_to(self, link):
+       return self.latency == link.latency and self.jitter == link.jitter and self.loss == link.loss       
+
 @dataclass_json
 @dataclass
 class Node:
@@ -36,6 +39,12 @@ class Topology:
     isDirected: bool
     nodes: list[Node] = field(default_factory=list)
     links: list[Link] = field(default_factory=list)
+
+    def getNodebyId(self, id_):
+       for node in self.nodes:
+          if node.id == id_:
+             return node
+       return None
 
     @staticmethod
     def from_gml(gml_path: str):      
