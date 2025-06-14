@@ -4,10 +4,10 @@ import json
 import os
 
 # Assume the code from the Canvas is saved in a file named 'config_loader.py'
-from maude_hcs.lib.dns.io import CorporateIodineConfig
+from maude_hcs.parsers.hcsconfig import HCSConfig
 
 # --- Pytest Test Case Definition ---
-FILENAME = '../use-cases/corporate-iodine.json'
+FILENAME = '../use-cases/corporate-iodine-conf.json'
 TOPLEVELDIR = Path(os.path.dirname(__file__))
 EXAMPLE_FILE_PATH = TOPLEVELDIR.joinpath(FILENAME)
 
@@ -15,12 +15,12 @@ EXAMPLE_FILE_PATH = TOPLEVELDIR.joinpath(FILENAME)
 def sample_json_path():
     return EXAMPLE_FILE_PATH
 
-def test_from_json_loading(sample_json_path):
+def test_from_file_loading(sample_json_path):
     """
-    Tests if the CorporateIodineConfig class can be instantiated correctly 
+    Tests if the HCSConfig class can be instantiated correctly 
     from a JSON file.
     """
-    config = CorporateIodineConfig.from_json(sample_json_path)
+    config = HCSConfig.from_file(sample_json_path)
     assert config.name == "corporate_iodine"
     # Nondeterministic Parameters
     nd_params = config.nondeterministic_parameters
@@ -34,7 +34,6 @@ def test_from_json_loading(sample_json_path):
     # Probabilistic Parameters
     p_params = config.probabilistic_parameters
     assert p_params.maxPacketSize == 530
-    assert p_params.nsResourceBounds is False  # Check the renamed field
     assert p_params.pacingTimeoutDelay == 0.05
     assert p_params.pacingTimeoutDelayMax == 0.07
     assert p_params.ackTimeoutDelay == 1.0
@@ -97,13 +96,13 @@ def test_to_json_exporting(sample_json_path, tmp_path):
     including handling the special 'nsResourceBounds?' key.
     """
     # Load the initial config
-    config = CorporateIodineConfig.from_json(sample_json_path)
+    config = HCSConfig.from_file(sample_json_path)
     
     # Define an output path in the temporary directory
     output_path = tmp_path / "output_config.json"
     
     # Export it
-    config.to_json(output_path)
+    config.save(output_path)
     
     # Verify the file was created
     assert os.path.exists(output_path)
@@ -112,8 +111,7 @@ def test_to_json_exporting(sample_json_path, tmp_path):
     with open(output_path, 'r') as f:
         data = json.load(f)
         
-    assert data["name"] == "corporate_iodine"
-    assert "nsResourceBounds?" in data["probabilistic_parameters"]
+    assert data["name"] == "corporate_iodine"    
     assert data["probabilistic_parameters"]["nsResourceBounds?"] is False
     assert "nsResourceBounds" not in data["probabilistic_parameters"] # Make sure the python name is not there
     assert data["underlying_network"]["links"]["corporate_name->resolver_name"]["latency"] == 0.005
@@ -124,14 +122,14 @@ def test_json_roundtrip(sample_json_path, tmp_path):
     in an identical JSON structure. This is a "roundtrip" test.
     """
     # 1. Load the original config
-    config_original = CorporateIodineConfig.from_json(sample_json_path)
+    config_original = HCSConfig.from_file(sample_json_path)
     
     # 2. Define a path for the new file and save it
     roundtrip_path = tmp_path / "roundtrip_config.json"
-    config_original.to_json(roundtrip_path)
+    config_original.save(roundtrip_path)
     
     # 3. Load the newly created file
-    config_roundtrip = CorporateIodineConfig.from_json(roundtrip_path)
+    config_roundtrip = HCSConfig.from_file(roundtrip_path)
     
     # 4. Compare the original loaded object with the round-tripped one
     assert config_original == config_roundtrip

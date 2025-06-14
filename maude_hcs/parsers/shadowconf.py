@@ -1,13 +1,19 @@
+import logging
+from pathlib import Path
 import yaml
 import shlex
 import os
+
+from maude_hcs.parsers.graph import Topology
+
+logger = logging.getLogger(__name__)
 
 class ShadowConfig:
     """
     A Python object representing the parsed Shadow YAML configuration.
     This class acts as the root container for the entire configuration.
     """
-    def __init__(self, network=None, hosts=None, general=None):
+    def __init__(self, network:Topology = None, hosts=None, general=None):
         # Stores the network topology configuration
         self.network = network
         # Stores a dictionary of host configurations, keyed by host name
@@ -31,18 +37,18 @@ class GeneralConfig:
         return f"GeneralConfig(stop_time={self.stop_time}, data_directory='{self.data_directory}', template_directory='{self.template_directory}')"
 
 
-class NetworkConfig:
-    """
-    Represents the network configuration, typically defining the topology.
-    """
-    def __init__(self, graph_type=None, graph_path=None):
-        # Type of the network graph (e.g., 'gml', 'graphml')
-        self.graph_type = graph_type
-        # Path to the network graph file
-        self.graph_path = graph_path
+# class NetworkConfig:
+#     """
+#     Represents the network configuration, typically defining the topology.
+#     """
+#     def __init__(self, graph_type=None, graph_path=None):
+#         # Type of the network graph (e.g., 'gml', 'graphml')
+#         self.graph_type = graph_type
+#         # Path to the network graph file
+#         self.graph_path = graph_path
 
-    def __repr__(self):
-        return f"NetworkConfig(graph_type='{self.graph_type}', graph_path='{self.graph_path}')"
+#     def __repr__(self):
+#         return f"NetworkConfig(graph_type='{self.graph_type}', graph_path='{self.graph_path}')"
 
 class HostConfig:
     """
@@ -94,7 +100,7 @@ class ProcessConfig:
                 f"log_level='{self.log_level}')")
 
 
-def parse_shadow_config(file_path):
+def parse_shadow_config(file_path: Path) -> 'ShadowConfig':
     """
     Parses a Shadow YAML configuration file and returns a Python object.
 
@@ -139,14 +145,16 @@ def parse_shadow_config(file_path):
     if isinstance(raw_network, dict):
         raw_graph = raw_network.get('graph')
         if isinstance(raw_graph, dict):
-            parsed_network_config = NetworkConfig(
-                graph_type=raw_graph.get('type'),
-                graph_path=raw_graph.get('file').get('path') # TODO deal with inline
-            )
+            if raw_graph.get('type') and raw_graph.get('type') == 'gml':
+                rel_gml_path = raw_graph.get('file').get('path')
+                nf = file_path.parent.joinpath(rel_gml_path)
+                parsed_network_config = Topology.from_gml(nf)
+            else:
+                logger.warning(f"Warning: yaml graph type '{raw_graph.get('type')}' is not a gml. We only support gml at the moment. Skipping network graph.")
         elif raw_graph is not None:
-            print(f"Warning: 'network.graph' in '{file_path}' is not a dictionary. Skipping network graph.")
+            logger.warning(f"Warning: 'network.graph' in '{file_path}' is not a dictionary. Skipping network graph.")
     elif raw_network is not None:
-         print(f"Warning: 'network' in '{file_path}' is not a dictionary. Skipping network config.")
+         logger.warning(f"Warning: 'network' in '{file_path}' is not a dictionary. Skipping network config.")
 
 
     # Parse hosts configuration

@@ -29,8 +29,9 @@
 from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
 from maude_hcs.lib import GLOBALS
-from maude_hcs.parsers.graph import parse_shadow_gml, get_node_names, get_edge_delays_by_label, get_edge_info_by_label
-from maude_hcs.parsers.shadowconf import parse_shadow_config, HostConfig, GeneralConfig, NetworkConfig, ProcessConfig
+from maude_hcs.parsers.hcsconfig import HCSConfig
+from maude_hcs.parsers.shadowconf import ShadowConfig, HostConfig, ProcessConfig, parse_shadow_config
+
 import logging
 import json
 from pathlib import Path
@@ -59,24 +60,22 @@ def handle_command(command, parser, args):
 
 def handle_generate(args, parser):
     logger.debug("Handle maude generation")
-    run_args = json.load(args.run_args)
-    run_args["shadow"] = {}
-    run_args["topology"] = {}
-    if args.shadow_filename:
-      sf = Path(args.shadow_filename)
-      shadow_conf  = parse_shadow_config(sf)
-      nf = sf.parent.joinpath(shadow_conf.network.graph_path)
-      topology_graph  = parse_shadow_gml(nf)
-      run_args["topology"] = {
-          "node_names": get_node_names(topology_graph),
-          "edges_delay": get_edge_delays_by_label(topology_graph),
-          "edges_info": get_edge_info_by_label(topology_graph)
-      }
-    result = HCSAnalysis(args, run_args, shadow_conf).generate()
+    if args.run_args:
+        hcsconfig = HCSConfig.from_json(args.run_args)
+    elif args.shadow_filename:        
+        shadowconf = parse_shadow_config(Path(args.shadow_filename.name))
+        shadowconf.network.save('./results/topo.json')
+        return
+
+        hcsconfig = HCSConfig.from_shadow(args.shadow_filename)
+    else:
+        raise Exception('Either specify a run args config file or a shadow yaml config file')
+
+    result = HCSAnalysis(args, hcsconfig).generate()
     filename = args.filename
     if filename == None:
-        filename = f'generated_{run_args.get("name", "unknown")}_{args.model}'
-    save_output(parser, run_args, result, filename)
+        filename = f'generated_{hcsconfig.name}_{args.model}'
+    save_output(parser, hcsconfig, result, filename)
 
 def handle_scheck(args, parser):
     logger.debug("Handle umaudemc scheck")

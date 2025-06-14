@@ -1,7 +1,7 @@
 import os
 import pytest
 from pathlib import Path
-from maude_hcs.parsers.shadowconf import ShadowConfig, GeneralConfig, NetworkConfig, HostConfig, ProcessConfig, parse_shadow_config
+from maude_hcs.parsers.shadowconf import ShadowConfig, GeneralConfig, HostConfig, ProcessConfig, parse_shadow_config
 # --- Pytest Test Case Definition ---
 EXAMPLE_YAML_CONTENT = """
 general:
@@ -11,7 +11,7 @@ general:
 
 network:
   graph:
-    type: gml
+    type: sometype
     file:
         path: /path/to/your/network.gml
         compression: null
@@ -98,10 +98,7 @@ def test_general_config_parsing(config_obj):
 
 def test_network_config_parsing(config_obj):
     """Test parsing of the 'network' section."""
-    assert config_obj.network is not None, "'network' section not parsed."
-    assert isinstance(config_obj.network, NetworkConfig)
-    assert config_obj.network.graph_type == "gml"
-    assert config_obj.network.graph_path == "/path/to/your/network.gml"
+    assert config_obj.network is None, "We didnt expect to parse non gml network"
 
 def test_hosts_exist(config_obj):
     """Test that hosts are parsed and correct host names are present."""

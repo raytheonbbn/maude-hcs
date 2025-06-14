@@ -4,7 +4,7 @@ import os
 import tempfile
 import logging
 
-from maude_hcs.parsers.graph import parse_shadow_gml, get_edge_delays_by_label
+from maude_hcs.parsers.graph import Topology, parse_shadow_gml, get_edge_delays_by_label
 
 # GML content identical to the example file provided earlier
 # Embedding it here makes the test self-contained
@@ -13,9 +13,9 @@ graph [
   directed 1
   id "ExampleNet"
   label "A small test network for Shadow parsing"
-  node [ id 0 label "HostA" asn 100 ip_addr "10.0.0.1" host_bandwidth_up 100000000 host_bandwidth_down 100000000 ]
+  node [ id 0 label "HostA" asn 100 ip_addr "10.0.0.1" host_bandwidth_up "1Gbps" host_bandwidth_down "1Gbps" ]
   node [ id 1 label "Router1" asn 200 ]
-  node [ id 2 label "HostB" asn 100 ip_addr "10.0.0.2" host_bandwidth_up 50000000 host_bandwidth_down 100000000 ]
+  node [ id 2 label "HostB" asn 100 ip_addr "10.0.0.2" host_bandwidth_up "5Gbps" host_bandwidth_down "1Gbps" ]
   edge [ source 0 target 1 label "Link_HostA_to_Router1" latency "10.5ms" jitter "1.2ms" packet_loss 0.01 ]
   edge [ source 1 target 0 label "Link_Router1_to_HostA" latency "10.5ms" jitter "0.0ms" packet_loss 0.0 ]
   edge [ source 1 target 2 label "Link_Router1_to_HostB" latency "15.0ms" jitter "2.0ms" packet_loss 0.005 ]
@@ -80,10 +80,10 @@ def test_node_attributes(parsed_graph):
     assert node0_attrs.get('asn') == 100
     assert isinstance(node0_attrs.get('asn'), int)
     assert node0_attrs.get('ip_addr') == "10.0.0.1"
-    assert node0_attrs.get('host_bandwidth_up') == 100000000
-    assert isinstance(node0_attrs.get('host_bandwidth_up'), int)
-    assert node0_attrs.get('host_bandwidth_down') == 100000000
-    assert isinstance(node0_attrs.get('host_bandwidth_down'), int)
+    assert node0_attrs.get('host_bandwidth_up') == "1Gbps"
+    assert isinstance(node0_attrs.get('host_bandwidth_up'), str)
+    assert node0_attrs.get('host_bandwidth_down') == "1Gbps"
+    assert isinstance(node0_attrs.get('host_bandwidth_down'), str)
 
     # Node 1 (Router1)
     assert 1 in parsed_graph.nodes
@@ -103,10 +103,10 @@ def test_node_attributes(parsed_graph):
     assert node2_attrs.get('asn') == 100
     assert isinstance(node2_attrs.get('asn'), int)
     assert node2_attrs.get('ip_addr') == "10.0.0.2"
-    assert node2_attrs.get('host_bandwidth_up') == 50000000
-    assert isinstance(node2_attrs.get('host_bandwidth_up'), int)
-    assert node2_attrs.get('host_bandwidth_down') == 100000000
-    assert isinstance(node2_attrs.get('host_bandwidth_down'), int)
+    assert node2_attrs.get('host_bandwidth_up') == "5Gbps"
+    assert isinstance(node2_attrs.get('host_bandwidth_up'), str)
+    assert node2_attrs.get('host_bandwidth_down') == "1Gbps"
+    assert isinstance(node2_attrs.get('host_bandwidth_down'), str)
 
 def test_edge_existence(parsed_graph):
     """Verify that all expected directed edges exist."""
@@ -224,3 +224,19 @@ def test_get_edge_delays_by_label_invalid_input():
         get_edge_delays_by_label("not a graph")
     with pytest.raises(TypeError):
         get_edge_delays_by_label(nx.Graph()) # Undirected graph
+
+def test_topology_parsing(parsed_graph):
+    topo = Topology.from_gml_graph(parsed_graph)
+    assert len(topo.nodes) == 3
+#       node [ id 0 label "HostA" asn 100 ip_addr "10.0.0.1" host_bandwidth_up 100000000 host_bandwidth_down 100000000 ]
+#   node [ id 1 label "Router1" asn 200 ]
+#   node [ id 2 label "HostB" asn 100 ip_addr "10.0.0.2" host_bandwidth_up 50000000 host_bandwidth_down 100000000 ]
+    node0 = topo.nodes[0]
+    assert node0.id == 0 and node0.label == 'HostA' and node0.ip_address == "10.0.0.1" and node0.host_bandwidth_up == "1Gbps" and node0.host_bandwidth_down == "1Gbps"
+    node1 = topo.nodes[1]
+    assert node1.id == 1
+    link0= topo.links[0]
+    #   edge [ source 0 target 1 label "Link_HostA_to_Router1" latency "10.5ms" jitter "1.2ms" packet_loss 0.01 ]
+    assert link0.src_id == 0 and link0.dst_id == 1 and link0.label == "Link_HostA_to_Router1" and link0.latency == 0.0105 and link0.loss == 0.01 and link0.jitter == 0.0012
+    assert len(topo.links) == 4
+
