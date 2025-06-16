@@ -47,8 +47,13 @@ class Topology:
        return None
     
     def getNodebyLabel(self, label_):
+       # exact match to start
        for node in self.nodes:
           if node.label == label_:
+             return node
+       # partial matches
+       for node in self.nodes:
+          if label_ in node.label:
              return node
        return None
 

@@ -61,16 +61,13 @@ def handle_command(command, parser, args):
 
 def handle_generate(args, parser):
     logger.debug("Handle maude generation")
-    if args.run_args:
-        hcsconfig = buildHCSConfig(args.protocol, Path(args.run_args.name))
-    elif args.shadow_filename:        
-        # First convert shadow config to HCSConfig
-        shadowconf = parse_shadow_config(Path(args.shadow_filename.name))
-        hcsconfig = HCSConfig.from_shadow(args.shadow_filename)
-    else:
-        raise Exception('Either specify a run args config file or a shadow yaml config file')
-
+    if args.run_args and args.shadow_filename:
+        raise Exception('Either specify a json HCS config with --run-args OR a shadow config, but not both.')
+    # get the configuration object    
+    hcsconfig = buildHCSConfig(args, Path(args.run_args.name))
+    # instantiate the analysis and generate
     result = HCSAnalysis(args, hcsconfig).generate()
+    # save the output
     filename = args.filename
     if filename == None:
         filename = f'generated_{hcsconfig.name}_{args.model}'

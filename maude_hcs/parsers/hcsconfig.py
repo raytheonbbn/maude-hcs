@@ -50,12 +50,12 @@ class Application:
 @dataclass
 class Output:
     """Dataclass for output and reporting settings."""
-    directory: str
-    result_format: str
-    save_output: bool
-    force_save: bool
-    visualize: bool
-    preamble: List[str]
+    directory: str = "./results"
+    result_format: str = "maude"
+    save_output: bool = True
+    force_save: bool = False
+    visualize: bool = False
+    preamble: List[str] = []
 
 @dataclass_json
 @dataclass

@@ -46,12 +46,12 @@
 | `nondeterministic_parameters.packetOverhead` | `33` |
 | `nondeterministic_parameters.maxMinimiseCount` | `0` |
 | `nondeterministic_parameters.maxFragmentLen` | Iodine divides packets into fragments of fixed but settable size (in Bytes). If too large for a single query, the Maude Iodine model will split packets into smaller fragments, which it thens encapsulates into queries.  The maximum size of each fragment is settable via `maxFragmentLen` (in Bytes) but fixed for every run. E.g., `100` |
-| `nondeterministic_parameters.maxFragmentTx` | `20` |
+| `nondeterministic_parameters.maxFragmentTx` | The maximum number of fragment transmission tries by the iodine client. E.g., `20` |
 |**probabilistic_parameters** (override the above)||
 | `probabilistic_parameters.maxPacketSize` | if `packetSize` is equal to `maxPacketSize`, (in Bytes) the packet sizes are fixed. If however it is different than `packetSize`, packet sizes will be sampled uniformly between `nondeterministic_parameters.packetSize` and `maxPacketSize` (or the remaining file bytes) plus overhead. E.g.,  `530` |
 | `probabilistic_parameters.pacingTimeoutDelay` | The send application paces its packet transmission not to overwhelm the Iodine link, which could cause unrecoverable packet drops. The pace interval the amount of time after which the send application is allowed to transmit a packet after the previous one. This value may be: *random*: The application random is uniformly sampled between `pacingTimeoutDelay` and `pacingTimeoutDelayMax`; or *fixed* if `pacingTimeoutDelay` and `pacingTimeoutDelayMax` are equal. E.g., `0.05` |
 | `probabilistic_parameters.pacingTimeoutDelayMax` | See `pacingTimeoutDelay` above. E.g., `0.07` |
-| `probabilistic_parameters.ackTimeoutDelay` | `1.0` |
+| `probabilistic_parameters.ackTimeoutDelay` | Iodine client fragment timeout delay (how long to wait before a retry if it hasnt heard a response) E.g., `1.0` |
 |**output**||
 | `output.directory` | `results` |
 | `output.result_format` | `maude` |
@@ -60,15 +60,6 @@
 | `output.visualize` | `false` |
 | `output.preamble` | The set of statement to add to the preamble of the comiled Maude file e.g., `['set clear rules off .', 'set print attribute off .', 'set show advisories off .']` |
 
-> TODO: Read `packetSize` and `maxPacketSize` from `chunk_size_min` and `chunk_size_max`, applied as a percentage of the MTU size (passed by the `-m` argument on the Iodine command line) in the send application profile's yaml file.
-
-### Application packet pacing interval
-
-> TODO: Read the pacing timeout values from `chunk_spacing_min` and `chunk_spacing_max` in the send application profile's yaml file.
-
-### Maximum fragment length
-
-> TODO: Read the maximum fragment length from the maximum DNS request length limit (passed by the `-M` argument on the Iodine command line) and per-query overhead (currently unknown).
 
 # GML Overview 
 The shadow yaml file also references a network GML file path.

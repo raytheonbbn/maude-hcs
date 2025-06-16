@@ -81,6 +81,13 @@ class HostConfig:
                 f"bandwidth_up='{self.bandwidth_up}', bandwidth_down='{self.bandwidth_down}', "
                 f"latency='{self.latency}', cpu_frequency={self.cpu_frequency}, ...)")
 
+    def getProcessByPName(self, name:str):
+        # the first arg in args
+        for process in self.processes:
+            if process.args and len(process.args) >0 and process.args[0] == name:
+                return process
+        return None
+
 class ProcessConfig:
     """
     Represents the configuration for a single process to be run on a host.

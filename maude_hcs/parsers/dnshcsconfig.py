@@ -1,78 +1,82 @@
 import json
+from pathlib import Path
 from typing import List
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
 
-from .hcsconfig import Application, BackgroundTraffic, HCSConfig, NondeterministicParameters, ProbabilisticParameters, UnderlyingNetwork, WeirdNetwork
-
+from maude_hcs.parsers.shadowconf import parse_shadow_config
+from .hcsconfig import Application, BackgroundTraffic, HCSConfig, NondeterministicParameters, Output, ProbabilisticParameters, UnderlyingNetwork, WeirdNetwork
+from . import load_yaml_to_dict
 
 @dataclass_json
 @dataclass
 class DNSUnderlyingNetwork(UnderlyingNetwork):    
-    root_name: str
-    tld_name:  str
-    tld_domain: str    
-    resolver_name: str
-    corporate_name: str
-    corporate_domain: str
-    everythingelse_name: str
-    everythingelse_domain: str
-    everythingelse_num_records: int
-    pwnd2_name: str
-    pwnd2_domain: str
-    populate_resolver_cache: bool    
-    addr_prefix: str
-    record_ttl_a: int # TTL for authoritative non-NS 'A' names; disables caching of queries 
-    record_ttl: int # TTL for all other records
+    root_name: str                      = 'root'
+    tld_name:  str                      = 'tld'
+    tld_domain: str                     = 'com.'
+    resolver_name: str                  = ''
+    corporate_name: str                 = ''
+    corporate_domain: str               = 'corporate.com.'
+    everythingelse_name: str            = ''
+    everythingelse_domain: str          = 'internet.com.'
+    everythingelse_num_records: int     = 1
+    pwnd2_name: str                     = ''
+    pwnd2_domain: str                   = ''
+    populate_resolver_cache: bool       = True
+    addr_prefix: str                    = 'addr-'
+    # TTL for authoritative non-NS 'A' names; disables caching of queries 
+    record_ttl_a: float                   = 0.0
+    # TTL for all other records
+    record_ttl: float                     = 3600.0
     
 @dataclass_json
 @dataclass
 class DNSWeirdNetwork(WeirdNetwork):
     """Dataclass for the 'weird' (covert) network configuration."""
-    client_name: str
-    client_weird_qtype: str
-    severWResponseTTL: float
-    monitor_address: str      
+    client_name: str = ''
+    client_weird_qtype: str = ''
+    severWResponseTTL: float = 0.0
+    monitor_address: str = 'addrMon'
 
 @dataclass_json
 @dataclass
 class DNSNondeterministicParameters(NondeterministicParameters):
     """Dataclass for nondeterministic simulation parameters."""
-    fileSize: int
-    packetSize: int
-    packetOverhead: int
-    maxMinimiseCount: int
-    maxFragmentLen: int
-    maxFragmentTx: int
+    fileSize: int = 100
+    packetSize: int = 1
+    packetOverhead: int = 1
+    maxMinimiseCount: int = 0
+    maxFragmentLen: int = 1
+    maxFragmentTx: int = 1
 
 @dataclass_json
 @dataclass
 class DNSProbabilisticParameters(ProbabilisticParameters):
     """Dataclass for probabilistic simulation parameters."""
-    maxPacketSize: int
-    pacingTimeoutDelay: float
-    pacingTimeoutDelayMax: float
-    ackTimeoutDelay: float    
+    maxPacketSize: int = 1
+    pacingTimeoutDelay: float = 0.0
+    pacingTimeoutDelayMax: float = 0.0
+    ackTimeoutDelay: float = 0.0
 
 @dataclass_json
 @dataclass
 class DNSBackgroundTraffic(BackgroundTraffic):
     """Dataclass for background traffic parameters."""    
-    num_paced_clients: int
-    paced_client_name: str
-    paced_client_Tlimit: int
-    paced_client_MaxQPS: int    
+    num_paced_clients: int = 1
+    paced_client_name: str = ''
+    paced_client_Tlimit: int = 1
+    paced_client_MaxQPS: int = 1
 
 @dataclass_json
 @dataclass
 class SimplexApplication(Application):
     """Dataclass for the application layer configuration."""
-    send_app_address: str
-    overwrite_queue: bool
-    send_app_queue_pkt_sizes: List[int]
-    app_start_send_time: float
-    rcv_app_address: str
-    include_dns_client: bool
+    send_app_address: str   = ''
+    overwrite_queue: bool   = True
+    send_app_queue_pkt_sizes: List[int] = field(default_factory=list)
+    app_start_send_time: float = 0.0
+    rcv_app_address: str    = ''
+    include_dns_client: bool    = False
 
 @dataclass_json
 @dataclass
@@ -91,51 +95,78 @@ class DNSHCSConfig(HCSConfig):
         return DNSHCSConfig.from_dict(data)
 
     @staticmethod
-    def from_shadow(file_path: str) -> 'HCSConfig':
-        pass
-        # run_args = json.load(args.run_args)
-        # run_args["shadow"] = {}
-        # run_args["topology"] = {}
-        # if args.shadow_filename:
-        # sf = Path(args.shadow_filename)
-        # shadow_conf  = parse_shadow_config(sf)
-        # nf = sf.parent.joinpath(shadow_conf.network.graph_path)
-        # topology_graph  = parse_shadow_gml(nf)
-        # run_args["topology"] = {
-        #     "node_names": get_node_names(topology_graph),
-        #     "edges_delay": get_edge_delays_by_label(topology_graph),
-        #     "edges_info": get_edge_info_by_label(topology_graph)
-        # }
+    def from_shadow(file_path: Path) -> 'DNSHCSConfig':
+        # First parse the shadow config
+        shadowconf = parse_shadow_config(file_path)
+        # Then create the HCS config one object at a time
+        un = DNSUnderlyingNetwork()
+        un.module = 'dns'
+        un.root_name = shadowconf.network.getNodebyLabel('root').label
+        un.tld_name = shadowconf.network.getNodebyLabel('tld').label
+        un.tld_domain = 'com.' # TODO parse zome files??
+        un.resolver_name = shadowconf.network.getNodebyLabel('public-dns').label
+        un.corporate_name = shadowconf.network.getNodebyLabel('local-dns').label
+        un.corporate_domain = 'corporate.com.' # TODO parse zome files??
+        un.everythingelse_name = shadowconf.network.getNodebyLabel('internet-dn').label
+        un.everythingelse_domain = 'internet.com.' # TODO parse zome files??
+        un.everythingelse_num_records = 1
+        un.pwnd2_name = shadowconf.network.getNodebyLabel('application-server').label
+        un.pwnd2_domain = shadowconf.hosts['application-server'].getProcessByPName('iodined').args[-1]
+        un.populate_resolver_cache = True        
+        un.record_ttl_a = 0.0        
+        un.record_ttl = 3600.0
+        # > now the weird net
+        wn = DNSWeirdNetwork()
+        wn.module = 'dns'
+        wn.client_name = 'application-client'
+        wn.client_weird_qtype = 'a'
+        wn.severWResponseTTL = 0.0 # where do we get this from??
+        wn.monitor_address = 'monAddr'
+        app = SimplexApplication()
+        app.module = 'simplex'
+        app.send_app_address   = 'Alice'
+        app.overwrite_queue   = True
+        app.app_start_send_time = 1.0 # is this defined somewhere?
+        app.rcv_app_address = 'Bob'
+        app.include_dns_client  = False        
+        # > bg
+        bg = DNSBackgroundTraffic()
+        bg.num_paced_clients = 1 # can probably get this from yaml?
+        bg.paced_client_name = 'dnsperf'
+        bg.paced_client_Tlimit = 10 # ??
+        bg.paced_client_MaxQPS = int(shadowconf.hosts['dnsperf'].getProcessByPName('./dnsperf_profiles.sh').args[-1])
+        # > nondeterministic params
+        ndp = DNSNondeterministicParameters()
+        # args: "python3 src/cp1_client.py -f data/input/large.dat -l data/logs/ -c 1 -a application_profiles/medium_static.yaml -m 1024 -s 42"
+        def _fz(s:str):
+            if s.contains('small'): return 100
+            if s.contains('medium'): return 1000
+            if s.contains('large'): return 10000       
+        ndp.fileSize = _fz(shadowconf.hosts['application-client'].getProcessByPName('python3').args[3])
+        # > Read `packetSize` and `maxPacketSize` from `chunk_size_min` and `chunk_size_max`, applied as a percentage of the MTU size (passed by the `-m` argument on the Iodine command line) in the send application profile's yaml file.
+        app_params = load_yaml_to_dict(file_path.parent.joinpath(shadowconf.hosts['application-client'].getProcessByPName('python3').args[9]))
+        assert shadowconf.hosts['application-client'].getProcessByPName('python3').args[10] == "-m", 'expected -m instead'
+        mtu = int(shadowconf.hosts['application-client'].getProcessByPName('python3').args[11])
+        ndp.packetSize = int(app_params['chunk_size_min'])*mtu
+        # > Read the pacing timeout values from `chunk_spacing_min` and `chunk_spacing_max` in the send application profile's yaml file.
+        ndp.packetOverhead = 33
+        ndp.maxMinimiseCount = 0
+        # > Read the maximum fragment length from the maximum DNS request length limit (passed by the `-M` argument on the Iodine command line) and per-query overhead (currently unknown).
+        assert shadowconf.hosts['application-client'].getProcessByPName('iodine').args[2] == "-M"
+        ndp.maxFragmentLen = int(shadowconf.hosts['application-client'].getProcessByPName('iodine').args[3])
+        ndp.maxFragmentTx = 20
+        pp = DNSProbabilisticParameters()
+        pp.maxPacketSize = int(app_params['chunk_size_max'])*mtu
+        pp.pacingTimeoutDelay = float(app_params['chunk_spacing_min'])
+        pp.pacingTimeoutDelayMax = float(app_params['chunk_spacing_max'])
+        pp.ackTimeoutDelay = 1.0
 
-    #if _args.topology_filename:
-    #   args          = run_args.get("topology")
-    #   node_names    = args["node_names"]
-    #   edges_info    = args["edges_info"]
-    #   # Create a parameterized network object.  It needs more than edges_info.
-    #   # edges_info is link characteristics from the shadow file.
-    #   # We can hand these edges info to parameterized_network now because it already
-    #   # has the proper names.  We will need to translate the other stuff.
-    #   parameterized_network = ParameterizedNetwork(edges_info)
-    #   # See if there exist shadow names; will be needed to grab link characteristics.
-    #   EE_NAME       = find_node_name(node_names, [EE_NAME, "internet"])
-    #   CORP_NAME     = find_node_name(node_names, [CORP_NAME, "local"])
-    #   resolver_name = find_node_name(node_names, [resolver_name, "public"])
-    #   PWND2_NAME    = find_node_name(node_names, [PWND2_NAME, "server"])
-    #   iodineClAddr  = find_node_name(node_names, [CLIENT_NAME, "client"])
-    #   ROOT_NAME     = find_node_name(node_names, ["root"], default="root")
-    #   COM_NAME      = find_node_name(node_names, ["com", "tld"])
-    #   # parameterized_network will attach the link characteristics, which have
-    #   # shadow names, to the network defined in our config file, which has 
-    #   # Maude_HCS names.
-    #   # Translate the link names from Maude_HCS to shadow names to allow that
-    #   # matching.
-    #   links = ast.literal_eval(str(links)
-    #                .replace("pwnd2_name", PWND2_NAME)
-    #                .replace("client_address", iodineClAddr)
-    #                .replace("resolver_name", resolver_name)
-    #                .replace("corporate_name", CORP_NAME)
-    #                .replace("everythingelse_name", EE_NAME)
-    #                .replace("com", COM_NAME)
-    #                # Assume root is not named explicitly in our use case.
-    #                .replace("root", ROOT_NAME)
-    #              )        
+        return DNSHCSConfig(name=file_path.stem,
+                            topology=shadowconf.network,
+                            output=Output(),
+                            underlying_network=un,
+                            weird_network=wn,
+                            application=app,
+                            background_traffic=bg,
+                            nondeterministic_parameters=ndp,
+                            probabilistic_parameters=pp)
