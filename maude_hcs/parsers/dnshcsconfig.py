@@ -9,24 +9,29 @@ from .hcsconfig import Application, BackgroundTraffic, HCSConfig, Nondeterminist
 @dataclass_json
 @dataclass
 class DNSUnderlyingNetwork(UnderlyingNetwork):    
-    root_name: str      = field(default="root")
-    com_name:  str      = field(default="com")    
-    populate_resolver_cache: bool   = field(default=True)
-    record_ttl: int     = 3600
-    addr_prefix: str    = 'addrNS'
-    everythingelse_name: str    = ''
-    everythingelse_num_records: int = 1
-    pwnd2_name: str = ''
-    pwnd2_base_name: str    =''
-    resolver_name: str  =''
-    corporate_name: str   ='' 
-
+    root_name: str
+    tld_name:  str
+    tld_domain: str    
+    resolver_name: str
+    corporate_name: str
+    corporate_domain: str
+    everythingelse_name: str
+    everythingelse_domain: str
+    everythingelse_num_records: int
+    pwnd2_name: str
+    pwnd2_domain: str
+    populate_resolver_cache: bool    
+    addr_prefix: str
+    record_ttl_a: int # TTL for authoritative non-NS 'A' names; disables caching of queries 
+    record_ttl: int # TTL for all other records
+    
 @dataclass_json
 @dataclass
 class DNSWeirdNetwork(WeirdNetwork):
     """Dataclass for the 'weird' (covert) network configuration."""
-    client_address: str
+    client_name: str
     client_weird_qtype: str
+    severWResponseTTL: float
     monitor_address: str      
 
 @dataclass_json
@@ -47,14 +52,14 @@ class DNSProbabilisticParameters(ProbabilisticParameters):
     maxPacketSize: int
     pacingTimeoutDelay: float
     pacingTimeoutDelayMax: float
-    ackTimeoutDelay: float
+    ackTimeoutDelay: float    
 
 @dataclass_json
 @dataclass
 class DNSBackgroundTraffic(BackgroundTraffic):
     """Dataclass for background traffic parameters."""    
     num_paced_clients: int
-    paced_client_address_prefix: str
+    paced_client_name: str
     paced_client_Tlimit: int
     paced_client_MaxQPS: int    
 

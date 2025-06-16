@@ -33,6 +33,9 @@ from Maude.attack_exploration.src.query import Query
 from Maude.attack_exploration.src.network import *
 from maude_hcs.lib.dns import DNS_GLOBALS
 from typing import Tuple, List
+
+from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig
+from maude_hcs.parsers.hcsconfig import HCSConfig
 from .iodineActors import IResolver
 from .cache import ResolverCache, CacheEntry
 from maude_hcs.parsers.graph import find_node_name
@@ -42,75 +45,76 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def createAuthZone(domain_name: str, NAME:str, parent:Zone, num_records:int, TTL:int = 3600) -> Tuple[Zone, List]:
+def createAuthZone(domain_name: str, NAME:str, parent:Zone, num_records:int, TTL:int = 3600, TTL_A:int = 0.0) -> Tuple[Zone, List]:
         DNS_GLOBALS.counter += 1
-        records = [Record(f'www{index}.{domain_name}.com.', 'A', TTL, f'{DNS_GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
-        zone_records  = [Record(f'{domain_name}.com.', 'SOA', TTL, f'{TTL}')]
+        records = [Record(f'tmp{index}.{domain_name}', 'A', TTL_A, f'{DNS_GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
+        zone_records  = [Record(domain_name, 'SOA', TTL, f'{TTL}')]
         ns_records = [    
-                Record(f'{domain_name}.com.', 'NS', TTL, f'ns.{domain_name}.com.'),
-                Record(f'ns.{domain_name}.com.', 'A', TTL, NAME)
+                Record(domain_name, 'NS', TTL, f'ns.{domain_name}'),
+                Record(f'ns.{domain_name}', 'A', TTL, NAME)
             ]
         zone_records.extend(ns_records)
         zone_records.extend(records)
-        zone_records.append(Record(f'*.{domain_name}.com.', 'TXT', TTL, '...'))
-        return Zone(f'{domain_name}.com.', parent, zone_records), ns_records
+        # Append wildcard name
+        zone_records.append(Record(f'*.{domain_name}', 'A', TTL_A, f'{DNS_GLOBALS.counter}.{num_records}.1.2'))
+        return Zone(domain_name, parent, zone_records), ns_records
 
-def createRootZone(run_args, TTL:int = 3600) -> Tuple[Zone, List]:
-    # root zone
-    # TODO: This mapping to shadow names, if available, should happen somewhereelse
-    # and be passed already in the correct name.
-    args        = run_args.get("topology")
-    node_names  = args.get("node_names", None)
-    addr_prefix = args.get("addr_prefix", "addrNS")
-    ROOT_NAME   = find_node_name(node_names, ["root"], default="root")
-    COM_NAME    = find_node_name(node_names, ["com", "tld"])
-    ADDR_NS_ROOT= f"{addr_prefix}{ROOT_NAME}"
-    ADDR_NS_COM = f"{addr_prefix}{COM_NAME}"
+def createRootZone(hcsconf:DNSHCSConfig, TTL:int = 3600) -> Tuple[Zone, List]:
+    # root zone    
+    root_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.root_name)
+    assert root_node, "Root node undefined"   
+    tld_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.tld_name)
+    assert tld_node, "TLD node undefined"   
+    
     # zone apex
     records = [Record('', 'SOA', TTL, f'{TTL}')]
     ns_records = [
             Record('', 'NS', TTL, 'a.root-servers.net.'),
             # delegations and glue
-            Record('a.root-servers.net.', 'A', TTL, ADDR_NS_ROOT),            
+            Record('a.root-servers.net.', 'A', TTL, root_node.address),            
     ]
     records.extend(ns_records)
     # non auth - glue 
     records.extend([
-        Record('com.', 'NS', TTL, 'ns.com.'),
-        Record('ns.com.', 'A', TTL, ADDR_NS_COM),
+        Record(hcsconf.underlying_network.tld_domain, 'NS', TTL, f'ns.{hcsconf.underlying_network.tld_domain}'),
+        Record(f'ns.{hcsconf.underlying_network.tld_domain}', 'A', TTL, tld_node.address),
         ])
     return Zone('', None, records), ns_records
 
-def createTLDZone(run_args, zoneRoot, TTL:int = 3600) -> Tuple[Zone, List]:
-    # TODO: This mapping to shadow names, if available, should happen somewhereelse
-    # and be passed already in the correct name.
-    args          = run_args.get("topology")
-    node_names    = args.get("node_names", None)
-    addr_prefix   = args.get("addr_prefix", "addrNS")
-    EE_NAME       = find_node_name(node_names, ["example", "internet"])
-    CORP_NAME     = find_node_name(node_names, ["corp", "local"])
-    PWND2_NAME    = find_node_name(node_names, ["pwnd2", "server"])
-    COM_NAME      = find_node_name(node_names, ["com", "tld"])
-    ADDR_NS_COM   = f"{addr_prefix}{COM_NAME}"
-    pwnd_basename = run_args.get("underlying_network").get("pwnd2_base_name").rstrip(".com")
+def createTLDZone(hcsconf:DNSHCSConfig, zoneRoot, TTL:int = 3600) -> Tuple[Zone, List]:    
+    root_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.root_name)
+    assert root_node, "Root node undefined"   
+    tld_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.tld_name)
+    assert tld_node, "TLD node undefined"   
+    ee_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.everythingelse_name)
+    assert ee_node, "Everythingelse node undefined"
+    pwnd2_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.pwnd2_name)
+    assert pwnd2_node, "PWND2 node undefined"
+    corp_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.corporate_name)
+    assert corp_node, "Corp node undefined"
+    tld_domain = hcsconf.underlying_network.tld_domain
+    corp_domain = hcsconf.underlying_network.corporate_domain
+    ee_domain = hcsconf.underlying_network.everythingelse_domain
+    pwnd_domain = hcsconf.underlying_network.pwnd2_domain
+
     
-    records = [Record('com.', 'SOA', TTL, f'{TTL}')]
+    records = [Record(tld_domain, 'SOA', TTL, f'{TTL}')]
     ns_records = [
-        Record('com.', 'NS', TTL, 'ns.com.'),
-        Record('ns.com.', 'A', TTL, ADDR_NS_COM),
+        Record(tld_domain, 'NS', TTL, f'ns.{tld_domain}'),
+        Record(f'ns.{tld_domain}', 'A', TTL, tld_node.address)
     ]
     records.extend(ns_records)
     # non auth - glue
     records.extend([
-        Record(f'{EE_NAME}.com.', 'NS', TTL, f'ns.{EE_NAME}.com.'),
-        Record(f'ns.{EE_NAME}.com.', 'A', TTL, f'addrNS{EE_NAME}'),
-        Record(f'{pwnd_basename}.com.', 'NS', TTL, f'ns.{pwnd_basename}.com.'),
-        Record(f'ns.{pwnd_basename}.com.', 'A', TTL, f'addrNS{PWND2_NAME}'),
-        Record(f'{CORP_NAME}.com.', 'NS', TTL, f'ns.{CORP_NAME}.com.'),
-        Record(f'ns.{CORP_NAME}.com.', 'A', TTL, f'addrNS{CORP_NAME}'),
+        Record(ee_domain, 'NS', TTL, f'ns.{ee_domain}'),
+        Record(f'ns.{ee_domain}', 'A', TTL, ee_node.address),
+        Record(pwnd_domain, 'NS', TTL, f'ns.{pwnd_domain}'),
+        Record(f'ns.{pwnd_domain}', 'A', TTL, pwnd2_node.address),
+        Record(corp_domain, 'NS', TTL, f'ns.{corp_domain}'),
+        Record(f'ns.{corp_domain}', 'A', TTL, corp_node.address)        
     ])
     # com TLD zone
-    return Zone('com.', zoneRoot, records), ns_records
+    return Zone(tld_domain, zoneRoot, records), ns_records
 
 def corporate(_args, run_args, shadow_conf:ShadowConfig = None) -> DNSConfig:
     # TODO: This mapping to shadow names, if available, should happen somewhereelse

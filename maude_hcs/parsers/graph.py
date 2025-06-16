@@ -45,6 +45,12 @@ class Topology:
           if node.id == id_:
              return node
        return None
+    
+    def getNodebyLabel(self, label_):
+       for node in self.nodes:
+          if node.label == label_:
+             return node
+       return None
 
     @staticmethod
     def from_gml(gml_path: str):      

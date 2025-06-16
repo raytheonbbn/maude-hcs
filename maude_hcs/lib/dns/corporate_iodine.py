@@ -31,14 +31,11 @@ from maude_hcs.lib.dns.IodineDNSConfig import IodineDNSConfig
 from Maude.attack_exploration.src.actors import Nameserver, Client
 from Maude.attack_exploration.src.query import Query
 from Maude.attack_exploration.src.network import *
-from maude_hcs.lib.dns import DNS_GLOBALS
 from maude_hcs.lib.dns.iodineActors import IodineClient, IodineServer, SendApp, ReceiveApp, WMonitor, PacedClient, IResolver
 from maude_hcs.lib.dns.utils import makePackets
 from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig
-from maude_hcs.parsers.hcsconfig import HCSConfig
 from .cache import CacheEntry, ResolverCache
 from .corporate import createAuthZone, createRootZone, createTLDZone
-import ast
 from maude_hcs.parsers.graph import *
 from maude_hcs.parsers.shadowconf import *
 import logging
@@ -50,52 +47,55 @@ logger = logging.getLogger(__name__)
         _args is the command line args
         run_args is the json configuration from use cases
 """
-def corporate_iodine(_args, hcsconf :  DNSHCSConfig) -> IodineDNSConfig:    
+def corporate_iodine(_args, hcsconf :  DNSHCSConfig) -> IodineDNSConfig:
+    def getTopologyNode(_name:str):
+        return hcsconf.topology.getNodebyLabel(_name)
     addr_prefix   = hcsconf.underlying_network.addr_prefix    
-    ROOT_NAME     = hcsconf.underlying_network.root_name
-    COM_NAME      = hcsconf.underlying_network.com_name
-    EE_NAME       = hcsconf.underlying_network.everythingelse_name
-    PWND2_NAME    = hcsconf.underlying_network.pwnd2_name
-    CORP_NAME     = hcsconf.underlying_network.corporate_name
-    resolver_name = hcsconf.underlying_network.resolver_name
+    root_node = getTopologyNode(hcsconf.underlying_network.root_name)
+    assert root_node, "Root node undefined"
+    tld_node = getTopologyNode(hcsconf.underlying_network.tld_name)
+    assert tld_node, "TLD node undefined"
+    ee_node = getTopologyNode(hcsconf.underlying_network.everythingelse_name)
+    assert ee_node, "Everythingelse node undefined"
+    pwnd2_node = getTopologyNode(hcsconf.underlying_network.pwnd2_name)
+    assert pwnd2_node, "PWND2 node undefined"
+    corp_node = getTopologyNode(hcsconf.underlying_network.corporate_name)
+    assert corp_node, "Corp node undefined"
+    resolver_node = getTopologyNode(hcsconf.underlying_network.resolver_name)
+    assert resolver_node, "Resolver node undefined"
+    iodineCl_node = getTopologyNode(hcsconf.weird_network.client_name)
+    assert iodineCl_node, "Iodine client node undefined"
+    bg_client_node = getTopologyNode(hcsconf.background_traffic.paced_client_name)
+    assert bg_client_node, "Background traffic client undefined"
+    tld_domain = hcsconf.underlying_network.tld_domain
+    corp_domain = hcsconf.underlying_network.corporate_domain
+    ee_domain = hcsconf.underlying_network.everythingelse_domain
+    pwnd_domain = hcsconf.underlying_network.pwnd2_domain
     num_records   = hcsconf.underlying_network.everythingelse_num_records
     populateCache = hcsconf.underlying_network.populate_resolver_cache
     record_ttl    = hcsconf.underlying_network.record_ttl
+    record_ttl_a    = hcsconf.underlying_network.record_ttl_a    
     
-    # Get links while we are at it.  For now, these have Maude_HCS names.    
-    iodineClAddr   = hcsconf.weird_network.client_address    
     # These links contain link characteristics and have now the proper names.
     parameterized_network = ParameterizedTopo(hcsconf.topology)
-
-    ADDR_NS_ROOT  = f"{addr_prefix}{ROOT_NAME}"
-    ADDR_NS_COM   = f"{addr_prefix}{COM_NAME}"
-
     
     cacheRecords = []
     # root zone
-
-    zoneRoot, ns_records = createRootZone(run_args, record_ttl)
+    zoneRoot, ns_records = createRootZone(hcsconf, record_ttl)
     cacheRecords.extend(ns_records)
-
-
     # com zone
-    zoneCom, ns_records = createTLDZone(run_args, zoneRoot, record_ttl)
+    zoneCom, ns_records = createTLDZone(hcsconf, zoneRoot, record_ttl)
     cacheRecords.extend(ns_records)
-
-    # EverythingElse EE zone
-
-    zoneEverythingelse, ns_records = createAuthZone(EE_NAME,  f"{addr_prefix}{EE_NAME}", zoneCom, num_records, record_ttl)
+    # Auth zones
+    zoneEverythingelse, ns_records = createAuthZone(ee_domain, ee_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
     cacheRecords.extend(ns_records)
-    # PWND2 domain name may be different than PWND2 server name.
-    # TODO: Grab it from the shadow file, if available.
-    pwd2_domain_name  = run_args["underlying_network"].get("pwnd2_base_name")
-    zonepwnd2, ns_records = createAuthZone(pwd2_domain_name.rstrip(".com"), f"{addr_prefix}{PWND2_NAME}", zoneCom, num_records, record_ttl)  
+    zonepwnd2, ns_records = createAuthZone(pwnd_domain, pwnd2_node.address, zoneCom, num_records, record_ttl, record_ttl_a)  
     cacheRecords.extend(ns_records)
-    zonecorp, ns_records = createAuthZone(CORP_NAME, f"{addr_prefix}{CORP_NAME}", zoneCom, num_records, record_ttl)
+    zonecorp, ns_records = createAuthZone(corp_domain, corp_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
     cacheRecords.extend(ns_records)
 
     
-    resolver = IResolver(resolver_name)
+    resolver = IResolver(resolver_node.address)
     cacheEntries = []
     for rec in cacheRecords:
         cacheEntries.append(CacheEntry(rec))
@@ -104,56 +104,53 @@ def corporate_iodine(_args, hcsconf :  DNSHCSConfig) -> IodineDNSConfig:
         resolver.cache = ResolverCache('resolverCache', cacheEntries)
 
 
-    nameserverRoot = Nameserver(ADDR_NS_ROOT, [zoneRoot])
-    nameserverCom = Nameserver(ADDR_NS_COM, [zoneCom])
-    nameserverEE = Nameserver(f'{addr_prefix}{EE_NAME}', [zoneEverythingelse])
-    nameserverCORP = Nameserver(f'{addr_prefix}{CORP_NAME}', [zonecorp], forwardonly=resolver.address)
-    nameserverPWND2 = Nameserver(f'{addr_prefix}{PWND2_NAME}', [zonepwnd2])
+    nameserverRoot = Nameserver(root_node.address, [zoneRoot])
+    nameserverCom = Nameserver(tld_node.address, [zoneCom])
+    nameserverEE = Nameserver(ee_node.address, [zoneEverythingelse])
+    nameserverCORP = Nameserver(corp_node.address, [zonecorp], forwardonly=resolver.address)
+    nameserverPWND2 = Nameserver(pwnd2_node.address, [zonepwnd2])
 
     
-    root_nameservers = {'a.root-servers.net.': ADDR_NS_ROOT}
+    root_nameservers = {'a.root-servers.net.': root_node.address}
 
-    # tunnels 
-    args = run_args["weird_network"]
-    iodineCl = IodineClient(iodineClAddr, pwd2_domain_name, args['client_weird_qtype'], nameserverCORP.address)
-    iodineSvr = IodineServer(f'{addr_prefix}{PWND2_NAME}', nameserverPWND2)
-    monitorAddr = args.get('monitor_address', DNS_GLOBALS.ADDR_MONITOR)
-    # applications
-    args = run_args["application"]
-    pkt_sizes = args["send_app_queue_pkt_sizes"]
-    overwrite_queue = args["overwrite_queue"]
-    aliceAddr = args['send_app_address']
-    bobAddr = args['rcv_app_address']    
-    start_send_app = float(args["app_start_send_time"])
-    include_dns_client = args['include_dns_client']
-    args = args["background_traffic"]
-    num_paced_clients = int(args['num_paced_clients'])
-    paced_client_address = args['paced_client_address_prefix']
-    paced_client_N = int(args['paced_client_Tlimit'] * args['paced_client_MaxQPS'])
-    paced_client_TOP = 1.0 / args['paced_client_MaxQPS']
+    # tunnels     
+    qtype = hcsconf.weird_network.client_weird_qtype
+    iodineCl = IodineClient(iodineCl_node.address, pwnd_domain, qtype, nameserverCORP.address)
+    iodineSvr = IodineServer(pwnd2_node.address, nameserverPWND2, hcsconf.weird_network.severWResponseTTL)
+    monitorAddr = hcsconf.weird_network.monitor_address
+    # applications    
+    pkt_sizes = hcsconf.application.send_app_queue_pkt_sizes
+    overwrite_queue = hcsconf.application.overwrite_queue
+    aliceAddr = hcsconf.application.send_app_address
+    bobAddr = hcsconf.application.rcv_app_address
+    start_send_app = float(hcsconf.application.app_start_send_time)
+    include_dns_client = hcsconf.application.include_dns_client
+    
+    num_paced_clients = int(hcsconf.background_traffic.num_paced_clients)    
+    paced_client_N = int(hcsconf.background_traffic.paced_client_Tlimit * hcsconf.background_traffic.paced_client_MaxQPS)
+    paced_client_TOP = 1.0 / hcsconf.background_traffic.paced_client_MaxQPS
     paced_client_TOQ = 0.1 # not used 
     # app sends packets to the iodineClAddr
     packets = None if overwrite_queue else makePackets(aliceAddr, bobAddr, pkt_sizes)
-    sndApp = SendApp(aliceAddr, bobAddr, iodineClAddr, packets, overwrite_queue, start_send_app)
+    sndApp = SendApp(aliceAddr, bobAddr, iodineCl_node.address, packets, overwrite_queue, start_send_app)
     rcvApp = ReceiveApp(bobAddr)
-    host_names = [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP, resolver, nameserverPWND2, iodineCl, iodineSvr]
-    parameterized_network.create_links(host_names, links)
-    
+
     # monitor
     monitor = WMonitor(monitorAddr)
-
     clients = []
     if include_dns_client:
-        query = Query(1, f'www0.{EE_NAME}.com.', 'A')
+        query = Query(1, f'www.{ee_domain}', 'A')
         clients.append( Client('cAddr', [query], nameserverCORP) )
 
     # paced client
     paced_clients = []
-    for i in range(num_paced_clients):        
-        paced_clients.append(PacedClient(f'{paced_client_address}{i}', nameserverCORP.address, f'{EE_NAME}.com.', paced_client_N, paced_client_TOP, paced_client_TOQ))
-
-    C = IodineDNSConfig(monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, paced_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
-    C.set_params(run_args.get('nondeterministic_parameters', {}), run_args.get('probabilistic_parameters', {}))
+    client_suffixes = ['']
+    if num_paced_clients > 1:
+        client_suffixes = range(num_paced_clients)
+    for suffix in client_suffixes:
+        paced_clients.append(PacedClient(f'{bg_client_node.address}{suffix}', nameserverCORP.address, ee_domain, paced_client_N, paced_client_TOP, paced_client_TOQ))
+    C = IodineDNSConfig(monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, paced_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)    
+    C.set_params(hcsconf.nondeterministic_parameters.to_dict(), hcsconf.probabilistic_parameters.to_dict())
     C.set_preamble(hcsconf.output.preamble)
     C.set_model_type(_args.model)
     return C

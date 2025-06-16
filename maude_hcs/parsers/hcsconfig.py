@@ -1,6 +1,6 @@
 import json
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Any
+from dataclasses import dataclass
+from typing import List
 
 from dataclasses_json import dataclass_json
 
@@ -13,13 +13,13 @@ from maude_hcs.parsers.graph import Topology
 @dataclass
 class NondeterministicParameters:
     """Dataclass for nondeterministic simulation parameters."""
-    module: str
+    pass
 
 @dataclass_json
 @dataclass
 class ProbabilisticParameters:
     """Dataclass for probabilistic simulation parameters."""
-    module: str
+    pass
 
 @dataclass_json
 @dataclass

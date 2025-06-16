@@ -38,18 +38,24 @@ def test_from_file_loading(sample_json_path):
     assert p_params.pacingTimeoutDelayMax == 0.07
     assert p_params.ackTimeoutDelay == 1.0
 
+
     # Underlying Network
     u_net = config.underlying_network
     assert u_net.module == "dns"
     assert u_net.populate_resolver_cache is True
     assert u_net.record_ttl == 3600
-    assert u_net.addr_prefix == "addrNS"
-    assert u_net.everythingelse_name == "example"
+    assert u_net.addr_prefix == "addr-"
+    assert u_net.everythingelse_name == "internet-dns"
     assert u_net.everythingelse_num_records == 2
-    assert u_net.pwnd2_name == "pwnd2"
-    assert u_net.pwnd2_base_name == "pwnd2.com."
-    assert u_net.resolver_name == "rAddr"
-    assert u_net.corporate_name == "corporate"
+    assert u_net.pwnd2_name == "application-server"
+    assert u_net.pwnd2_domain == "pwnd2.com."
+    assert u_net.tld_domain == "com."
+    assert u_net.everythingelse_domain == "internet.com."
+    assert u_net.corporate_domain == "corporate.com."
+    assert u_net.resolver_name == "public-dns"
+    assert u_net.corporate_name == "local-dns"
+    assert u_net.root_name == "root-dns"
+    assert u_net.tld_name == "tld-dns"
 
     # Topology
     topo = config.topology
@@ -59,8 +65,9 @@ def test_from_file_loading(sample_json_path):
     # Weird Network
     w_net = config.weird_network
     assert w_net.module == "iodine"
-    assert w_net.client_address == "iodineC"
+    assert w_net.client_name == "application-client"
     assert w_net.client_weird_qtype == "a"
+    assert w_net.severWResponseTTL == 0.0
     assert w_net.monitor_address == "monAddr"    
     
     # Application
@@ -76,7 +83,7 @@ def test_from_file_loading(sample_json_path):
     # Background Traffic (nested in Application)
     bg_traffic = config.background_traffic
     assert bg_traffic.num_paced_clients == 1
-    assert bg_traffic.paced_client_address_prefix == "pcAddr"
+    assert bg_traffic.paced_client_name == "dnsperf"
     assert bg_traffic.paced_client_Tlimit == 2
     assert bg_traffic.paced_client_MaxQPS == 50
 
