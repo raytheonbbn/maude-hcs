@@ -78,97 +78,31 @@ pip install -e .
 # Auto generate configurations
 
 For now we can generate initial configurations using `generate` command.
-Pass a use case config file as follows,
+HCS Configurations can be directly passed in json using HCS configuration parameters, 
+or using a Shadow experiment configuration. Each of these is described next. 
 
-To generate a vanilla DNS config (without iodine),
-```shell
-maude-hcs --verbose --run-args=./use-cases/corporate-base.json --model=nondet generate
-```
+## Using HCS json Configuration 
+Pass a maude-hcs json configuration file as follows,
 
 To generate a probabilistic DNS model config with iodine and specify the output filename,
 ```shell
-maude-hcs --verbose --run-args=./use-cases/corporate-iodine.json --model=prob --filename=generated_test generate
+maude-hcs --verbose --run-args=./use-cases/corporate-iodine-conf.json --model=prob --protocol=dns --filename=generated_test_aa generate
 ```
 And set `--model=nondet` to generate a nondeterministic version.
 
-Look at the `corporate-iodine.json` file above to see the configuration parameters.
-The probabilistic model will combine the nondeterministic params as well as the 
+See example [corporate-iodine-conf.json](./use-cases/corporate-iodine-conf.json) configuration file, and refer to [HCSParamsGuide](./HCSParamsGuide.md) for a description of the parameters.
+Note that probabilistic model will combine the nondeterministic params as well as the 
 probabilistic params (whic override the nondeterministic ones).
 
-For background traffic, a paced client (ActorType PacedClient) can be configured in ``corporate-iodine.json`` 
-file to act as a pacing query generator. This is part of the `underlying_network` config and is only included
-in the probabilitic configuration.
 
-```shell
-    "background_traffic" : {
-        "num_paced_clients" : 1,
-        "paced_client_address_prefix" : "pcAddr",
-        "paced_client_Tlimit" : 2,
-        "paced_client_MaxQPS" : 50
-    },
-```
-A pacing generator sends a new query when receiving a paceTO (timeout) message (and resets the timer / sends a new paceTO message).  Responses are just dropped.  
- * ``num_paced_clients`` the number of clients to spawn 
- * ``paced_client_address_prefix`` represents the actor's address prefix appended with an id (e.g., `pcAddr0`), unique per spawned client
- * ``paced_client_Tlimit`` is an integer denoting max runtime in seconds
- * ``paced_client_MaxQPS`` specifies the maximum queries per second (High = 50, Medium = 30, Low = 15)
-
-## Support for other network configurations
-
+## Using Shadow yaml configuration
 To generate a model that uses characteristics defined in a shadow file, specify:
 ```shell
 --shadow-filename <path_to_shadow_file.yaml>
 ```
 The shadow yaml file specifies the network, host, and process configurations.
 
-The shadow yaml file also references a network GML file path.
-A [GML file](https://shadow.github.io/docs/guide/network_graph_spec.html) specifies the
-network graph nodes and link characteristics. For example, below we show a node 
-and an edge/link. Links have latency, jitter, and packet loss which translate to 
-link delays and loss in our formal model.  
-```
- node [
-    id 1
-    label "public_dns"
-    host_bandwidth_down "1Gbps"
-    host_bandwidth_up "1Gbps"
-  ]
-  ...
-  edge [
-    source 1
-    target 5
-    label "public_dns to application_server"
-    latency "5ms"
-    jitter "0ms"
-    packet_loss 0.0
-  ]
-  ....
-```
-> TODO: Currently we use a hardcoded mapping from GML node labels to internal nodes but that should be straighforward to externalize.
-
-## Other externalized parameters
-The Maude model includes the following parameters whose value can be specified or varied, sometimes from direct parsing of the shadow file passed with the `-t` argment.
-### Packet size(s)
-The size of the packets presented to the Iodine client may be pre-populated or generated from a file size.
-_Pre-populated packet sizes_
-Use `send_app_queue_pkt_sizes` to specify the list of sizes (in Bytes) of the packets that should be sent by the Application, and set `overwrite_queue` to false.
-
-_Generated random packet sizes_
-If `overwrite_queue` is set to true, the Maude model will compute the queue of packets at start time from the `fileSize` (in Bytes), `packetOverhead` (in Bytes), and:
-* `packetSize` (in Bytes) for _fixed_ packet size in nondeterministic mode. Packet sizes will be the quotient of fileSize over packetSize and overhead, except for the last one, which will be the remainder.
-* `packetSize` and `maxPacketSize` (in Bytes) for _fixed_ packet size (if `maxPacketSize` is equal to `packetSize`) or _random_ packet size (otherwise) in probabilistic mode. Packet sizes will be sampled uniformly between `packetSize` and `maxPacketSize` (or the remaining file bytes) plus overhead.
-> TODO: Read `packetSize` and `maxPacketSize` from `chunk_size_min` and `chunk_size_max`, applied as a percentage of the MTU size (passed by the `-m` argument on the Iodine command line) in the send application profile's yaml file.
-
-### Application packet pacing interval
-The send application paces its packet transmission not to overwhelm the Iodine link, which could cause unrecoverable packet drops. The pace interval the amount of time after which the send application is allowed to transmit a packet after the previous one. This value may be:
-* `random`: The application random is uniformly sampled between `pacingTimeoutDelay` and `pacingTimeoutDelayMax`.
-* `fixed`: The application pacing interval is fixed if `pacingTimeoutDelay` and `pacingTimeoutDelayMax` are equal.
-> TODO: Read the pacing timeout values from `chunk_spacing_min` and `chunk_spacing_max` in the send application profile's yaml file.
-
-### Maximum fragment length
-Iodine divides packets into fragments of fixed but settable size (in Bytes). If too large for a single query, the Maude Iodine model will split packets into smaller fragments, which it thens encapsulates into queries.  The maximum size of each fragment is settable via `maxFragmentLen` (in Bytes) but fixed for every run.
-> TODO: Read the maximum fragment length from the maximum DNS request length limit (passed by the `-M` argument on the Iodine command line) and per-query overhead (currently unknown).
-
+> TODO continue here
 
 # Run configurations
 
