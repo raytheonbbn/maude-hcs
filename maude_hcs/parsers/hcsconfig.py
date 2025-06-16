@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List
 
 from dataclasses_json import dataclass_json
@@ -55,7 +55,7 @@ class Output:
     save_output: bool = True
     force_save: bool = False
     visualize: bool = False
-    preamble: List[str] = []
+    preamble: List[str]     = field(default_factory=list)
 
 @dataclass_json
 @dataclass

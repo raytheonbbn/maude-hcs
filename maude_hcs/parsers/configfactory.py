@@ -8,15 +8,15 @@ class Protocol(Enum):
     DNS = "DNS"
     TCP = "TCP"
 
-def buildHCSConfig(args, path: Path):
+def buildHCSConfig(args):
     protocol = args.protocol
     if protocol.upper() == Protocol.DNS.value:        
         # build from run args
         if args.run_args:
-            return DNSHCSConfig.from_file(path)
+            return DNSHCSConfig.from_file(Path(args.run_args.name))
         # build from shadow
         elif args.shadow_filename:
-            return DNSHCSConfig.from_shadow(path)
+            return DNSHCSConfig.from_shadow(Path(args.shadow_filename.name))
     else:
         raise ValueError("Unsupported protocol")
 

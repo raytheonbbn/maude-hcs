@@ -45,7 +45,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def createAuthZone(domain_name: str, NAME:str, parent:Zone, num_records:int, TTL:int = 3600, TTL_A:int = 0.0) -> Tuple[Zone, List]:
+def createAuthZone(domain_name: str, NAME:str, parent:Zone, num_records:int, TTL:int = 3600, TTL_A:int = 0) -> Tuple[Zone, List]:
         DNS_GLOBALS.counter += 1
         records = [Record(f'tmp{index}.{domain_name}', 'A', TTL_A, f'{DNS_GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
         zone_records  = [Record(domain_name, 'SOA', TTL, f'{TTL}')]

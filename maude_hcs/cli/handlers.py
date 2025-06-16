@@ -64,7 +64,7 @@ def handle_generate(args, parser):
     if args.run_args and args.shadow_filename:
         raise Exception('Either specify a json HCS config with --run-args OR a shadow config, but not both.')
     # get the configuration object    
-    hcsconfig = buildHCSConfig(args, Path(args.run_args.name))
+    hcsconfig = buildHCSConfig(args)
     # instantiate the analysis and generate
     result = HCSAnalysis(args, hcsconfig).generate()
     # save the output

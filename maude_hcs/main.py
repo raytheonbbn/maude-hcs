@@ -102,7 +102,7 @@ def add_initial_data_args(parser):
 
 def build_cli_parser():
     parser = argparse.ArgumentParser("maude-hcs")
-    parser.add_argument('--verbose', action='store_true', help='turn on logging')    
+    parser.add_argument('--verbose', action='store_true', help='turn on logging')
     parser.add_argument('--run-args-file', dest='run_args', type=lambda x: is_valid_file(parser, x),
                         metavar='FILE', required=False, help=f'File containing all of the run arguments')
     parser.add_argument("--shadow-filename",
