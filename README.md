@@ -102,7 +102,10 @@ To generate a model that uses characteristics defined in a shadow file, specify:
 ```
 The shadow yaml file specifies the network, host, and process configurations.
 
-> TODO continue here
+Assuming the shadow network config is located in directory `../pwnd-cp1`, run
+```shell
+maude-hcs --verbose --shadow-filename=../pwnd-cp1/shadow_files/examples/cp1_sim_config.yaml --model=prob --protocol=dns --filename=generated_test_shadow generate
+```
 
 # Run configurations
 
