@@ -271,6 +271,7 @@ mod IODINE_NODE is
   var IdA IdA1 : IdAddr .
   vars ALICEREADY WCLIENTREADY : Bool .
   vars FILE_SIZE PKT_SIZE PKT_COUNTER PktSize : Nat .
+  var sTTL : Float .
 
 --------  Nesting/Meta configuration  attribute
   op conf:_ : Config -> Attribute [ctor] .
@@ -512,6 +513,7 @@ mod IODINE_NODE is
   --- The last fragment number received.
   op currentFragment:_ : Nat -> Attribute [ctor] .
   op lastFragment:_ : Bool -> Attribute [ctor] .
+  op severWResponseTTL:_ : Float -> Attribute [ctor] .
 
 
   --- op qRcd:_ : Config ->  Attribute [ctor] .  --- msgConf
@@ -538,7 +540,7 @@ mod IODINE_NODE is
   op extractS : AttributeSet Config -> AttributeSetMsgs .
   ceq extractS(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans, msg}
     if  nm(F) . NAME1 := NAME
-    /\ (pendingFragments: FRAGMENT_LIST, lastFragment: B, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG, Attrs) := wattrs
+    /\ (pendingFragments: FRAGMENT_LIST, lastFragment: B, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG, severWResponseTTL: sTTL, Attrs) := wattrs
     /\ wattrsTrans :=
         *** If this is a different seqNo, or a previous Fragment,
         (if (getSeqNo(F) =/= SEQ_CTR) or (getFragmentNumber(F) <= CUR_FRAG)
@@ -551,10 +553,10 @@ mod IODINE_NODE is
                 fi)
           *** Else, this is the new fragment of the current packet, accept (move fragment number forward).
           *** TODO: This does not handle when the fragment number could be 2 or more past the last one.
-          else ((pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), currentSeqNo: getSeqNo(F), currentFragment: getFragmentNumber(F)), Attrs)
+          else ((pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), currentSeqNo: getSeqNo(F), currentFragment: getFragmentNumber(F), severWResponseTTL: sTTL), Attrs)
           fi)
     ---- simply ACK fragment (NAME contains fragment; RCODE 0 is success)
-    /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, 3600.0, nullAddr >, nil, nil, 0))
+    /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, sTTL, nullAddr >, nil, nil, 0))
     .
 
   *** Clear the previous fragments, keep only this newly received one, and start

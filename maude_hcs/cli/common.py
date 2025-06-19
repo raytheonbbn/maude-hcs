@@ -26,6 +26,7 @@
 #
 # MAUDE_HCS: end
 
+from maude_hcs.parsers.hcsconfig import HCSConfig
 from maude_hcs.serialize import MaudeHCSEncoder
 import logging
 import sys
@@ -46,15 +47,14 @@ def _legalize_name(name):
 def name_object(name, ending='json'):
     return f'{_legalize_name(name)}.{ending}'
 
-def save_output(parser, args, target, filename):
-    output_args = args.get('output')
-    if output_args.get('save_output'):
-        output_dir = os.path.join('.', output_args.get('directory'))
+def save_output(parser, hcsconfig: HCSConfig, target, filename):    
+    if hcsconfig.output.save_output:
+        output_dir = os.path.join('.', hcsconfig.output.directory)
         logger.debug(output_dir)
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        format = output_args.get('result_format')
+        format = hcsconfig.output.result_format
 
-        handle_write_to_directory(parser, output_dir, output_args.get('force_save'),
+        handle_write_to_directory(parser, output_dir, hcsconfig.output.force_save,
                                   lambda: MaudeHCSEncoder(format).encode(target),
                                   name_object(filename, format))
 

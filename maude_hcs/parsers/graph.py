@@ -1,7 +1,123 @@
+#!/usr/bin/env python
+# MAUDE_HCS: maude_hcs
+#
+# Software Markings (UNCLASS)
+# PWNDD Software
+#
+# Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+#
+# Contract No: HR00112590083
+# Contractor Name: RTX BBN Technologies Inc.
+# Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
+#
+# The U.S. Government's rights to use, modify, reproduce, release, perform,
+# display, or disclose these technical data and software are defined in the
+# Article VII: Data Rights clause of the OTA.
+#
+# This document does not contain technology or technical data controlled under
+# either the U.S. International Traffic in Arms Regulations or the U.S. Export
+# Administration Regulations.
+#
+# DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+# unlimited.
+#
+# Notice: Markings. Any reproduction of this computer software, computer
+# software documentation, or portions thereof must also reproduce the markings
+# contained herein.
+#
+# MAUDE_HCS: end
+
+from dataclasses import dataclass, field
+import json
+from dataclasses_json import dataclass_json
 import networkx as nx
 import logging
 
 logger = logging.getLogger(__name__)
+
+@dataclass_json
+@dataclass
+class Link:
+    """Represents a network link with its properties."""    
+    src_id: int
+    src_label: str
+    dst_id: int
+    dst_label: str
+    label: str
+    latency: float
+    jitter: float
+    # Loss probability:
+    loss: float    
+
+    def is_similar_to(self, link):
+       return self.latency == link.latency and self.jitter == link.jitter and self.loss == link.loss       
+
+@dataclass_json
+@dataclass
+class Node:
+    """Represents a network node with its properties."""
+    id: int
+    label: str
+    address: str
+    ip_address: str
+    host_bandwidth_up: str
+    host_bandwidth_down: str
+
+@dataclass_json
+@dataclass
+class Topology:
+    isDirected: bool
+    nodes: list[Node] = field(default_factory=list)
+    links: list[Link] = field(default_factory=list)
+
+    def getNodebyId(self, id_):
+       for node in self.nodes:
+          if node.id == id_:
+             return node
+       return None
+    
+    def getNodebyLabel(self, label_):
+       # exact match to start
+       for node in self.nodes:
+          if node.label == label_:
+             return node
+       # partial matches
+       for node in self.nodes:
+          if label_ in node.label:
+             return node
+       return None
+
+    @staticmethod
+    def from_gml(gml_path: str):      
+      return Topology.from_gml_graph(parse_shadow_gml(gml_path))
+
+    @staticmethod
+    def from_gml_graph(graph: nx.DiGraph):      
+      nodes = []
+      links = []
+      for id in graph.nodes:
+         node = graph.nodes[id]
+         nodes.append(
+            Node(id=id, label=node.get("label"), address=node.get("label").replace('_', '-'), ip_address=node.get("ip_addr", ''), host_bandwidth_up=node.get("host_bandwidth_up"), host_bandwidth_down=node.get("host_bandwidth_down"))
+          )
+      for u_id, v_id, edge_data in graph.edges(data=True):
+        source_node_data  = graph.nodes[u_id]
+        target_node_data  = graph.nodes[v_id]
+        source_label      = source_node_data.get("label")
+        target_label      = target_node_data.get("label")
+        latency_value     = parse_latency_str(edge_data.get("latency", "-1."))
+        jitter_value      = parse_latency_str(edge_data.get("jitter", "0s"))
+        loss_value        = parse_loss_str(edge_data.get("packet_loss", "0."))
+        if source_label is None or target_label is None or latency_value == -1.:
+          raise ValueError("Missing or malformatted information")
+        links.append(Link(src_id=u_id, src_label=source_label, dst_id=v_id, dst_label=target_label, label=edge_data.get("label",''), latency=latency_value, jitter=jitter_value, loss=loss_value))
+      return Topology(isDirected=False, nodes=nodes, links=links)
+    
+    def save(self, full_path: str):
+      formatted = json.dumps(self.to_dict(), indent=4)
+      with open(full_path, 'w') as f:
+        f.write(formatted)
+       
 
 def _simple_type_converter(value_str):
     """
@@ -248,7 +364,7 @@ def parse_latency_str(latency_str: str) -> float:
     unit_divisor = 1e3
   elif 'us' in latency_str:
     unit_divisor  = 1e6
-  latency_str = ''.join(filter(str.isdigit, latency_str))
+  latency_str = latency_str.replace('ms','').replace('us','').replace('s','')
   try:
     numeric_latency = float(latency_str) / unit_divisor
   except ValueError as e:

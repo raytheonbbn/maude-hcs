@@ -27,21 +27,26 @@
 #
 # MAUDE_HCS: end
 
+from enum import Enum
 from pathlib import Path
-from typing import Any, Dict
 
-import yaml
+from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig
+
+class Protocol(Enum):
+    """An enumeration for network protocols."""
+    DNS = "DNS"
+    TCP = "TCP"
+
+def buildHCSConfig(args):
+    protocol = args.protocol
+    if protocol.upper() == Protocol.DNS.value:        
+        # build from run args
+        if args.run_args:
+            return DNSHCSConfig.from_file(Path(args.run_args.name))
+        # build from shadow
+        elif args.shadow_filename:
+            return DNSHCSConfig.from_shadow(Path(args.shadow_filename.name))
+    else:
+        raise ValueError("Unsupported protocol")
 
 
-def load_yaml_to_dict(file_path: Path) -> Dict[Any, Any]:
-    print(f'attempting to open {file_path}')
-    if not file_path.is_file():
-        raise FileNotFoundError(f"Error: The file '{file_path}' was not found.")
-
-    with open(file_path, 'r') as stream:
-        try:
-            # safe_load is recommended over load for security
-            return yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            print(f"Error parsing YAML file: {exc}")
-            raise

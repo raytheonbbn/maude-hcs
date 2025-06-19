@@ -26,6 +26,7 @@
 #
 # MAUDE_HCS: end
 
+from maude_hcs.parsers.hcsconfig import HCSConfig
 from .corporate import corporate
 from .corporate_iodine import corporate_iodine
 
@@ -36,13 +37,13 @@ class KnownUNetworks:
             'corporate_iodine': self._fixed_network(corporate_iodine)
         }
     
-    def create(self, args, run_args):        
-        conf = self.constructors[run_args["name"]](args, run_args)
+    def create(self, args, hcsconf:HCSConfig):        
+        conf = self.constructors[hcsconf.name](args, hcsconf)
         return conf
     
     def _fixed_network(self, Cls):
-        def make(args, run_args):
-            conf = Cls(args, run_args)
+        def make(args, hcsconf:HCSConfig):
+            conf = Cls(args, hcsconf)
             return conf
         return make
     

@@ -46,9 +46,10 @@ class ReceiveApp:
 
 class IodineServer:
 
-    def __init__(self, address, nameServer : Nameserver) -> None:
+    def __init__(self, address, nameServer : Nameserver, severWResponseTTL: float) -> None:
         self.address = address        
         self.nameServer = nameServer
+        self.severWResponseTTL = severWResponseTTL
 
     def __str__(self) -> str:
         return f'< {self.address} : WNameserver | Attrs >'
@@ -60,6 +61,7 @@ class IodineServer:
         res += f"    currentSeqNo: 0,\n"
         res += f"    currentFragment: 0,\n"
         res += f'    lastFragment: false,\n'
+        res += f'    severWResponseTTL: {self.severWResponseTTL},\n' # {:.2f}'.format()
         res += f'    conf: ({strNS}) >'
         return res
 
