@@ -182,16 +182,19 @@ class DNSHCSConfig(HCSConfig):
         app_params = load_yaml_to_dict(file_path.parent.parent.parent.joinpath('application').joinpath(shadowconf.hosts['application_client'].getProcessByPName('python3').args[9]))
         assert shadowconf.hosts['application_client'].getProcessByPName('python3').args[10] == "-m", 'expected -m instead'
         mtu = int(shadowconf.hosts['application_client'].getProcessByPName('python3').args[11])
-        ndp.packetSize = int((app_params['chunk_size_min']/100)*mtu)
-        # > Read the pacing timeout values from `chunk_spacing_min` and `chunk_spacing_max` in the send application profile's yaml file.
         ndp.packetOverhead = 33
+        ndp.packetSize = int((app_params['chunk_size_min']/100)*mtu) - ndp.packetOverhead
+        assert ndp.packetSize > 0
+        # > Read the pacing timeout values from `chunk_spacing_min` and `chunk_spacing_max` in the send application profile's yaml file.
         ndp.maxMinimiseCount = 0
         # > Read the maximum fragment length from the maximum DNS request length limit (passed by the `-M` argument on the Iodine command line) and per-query overhead (currently unknown).
         assert shadowconf.hosts['application_client'].getProcessByPName('iodine').args[2] == "-M"
         ndp.maxFragmentLen = int(shadowconf.hosts['application_client'].getProcessByPName('iodine').args[3])
+        # Not all maxFragmentLen, specified by -M flag, is usable for the payload.  Based on coarse measurements, it is closer to:
+        ndp.maxFragmentLen = int((ndp.maxFragmentLen - 31.5) / 1.2)
         ndp.maxFragmentTx = 20
         pp = DNSProbabilisticParameters()
-        pp.maxPacketSize = int((app_params['chunk_size_max']/100)*mtu)
+        pp.maxPacketSize = int((app_params['chunk_size_max']/100)*mtu) - ndp.packetOverhead
         pp.pacingTimeoutDelay = float(app_params['chunk_spacing_min'])
         pp.pacingTimeoutDelayMax = float(app_params['chunk_spacing_max'])
         pp.ackTimeoutDelay = 1.0
