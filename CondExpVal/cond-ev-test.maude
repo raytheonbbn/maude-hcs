@@ -1,0 +1,192 @@
+set show advisories off .
+
+load actor  --- drop address composition Address by sort Id
+load apmaude
+load sampler
+
+
+mod COND-EV-TEST is
+  inc SAMPLER .   
+  inc SCHEDULER .
+
+vars alice bob mon : Address .
+vars fsz max freq  j : Nat .
+vars dly todly nse drp fl T : Float .
+vars body : Content .
+vars attrs attrs0 attrs1 : AttributeSet .
+vars b B : Bool .
+vars cfig cfig0 : Config .
+
+ops Sender Receiver Monitor : -> ActorType .
+
+op eof  : -> Content .
+op pkt : Nat -> Content .
+op send : -> Content . 
+
+************* Sender
+**** Sender attributes
+op fSize:_ : Nat -> Attribute [ctor] .
+op sendMax:_ : Nat -> Attribute [ctor] .
+op count:_ : Nat -> Attribute [ctor] .
+op rcvr:_ : Address -> Attribute [ctor] .
+op timeOut:_ : Float -> Attribute [ctor] .    
+op delay:_  : Float -> Attribute [ctor] .
+op noise:_  : Float -> Attribute [ctor] .
+op drop:_  : Float -> Attribute [ctor] .  
+              --- don't drop if 0.0
+
+**** Sender constructor
+op mkSender : Address Address Nat Nat Nat
+               Float Float Float -> Actor .
+eq mkSender(alice,bob,fsz,max,freq,dly,nse,drp) =
+  < alice : Sender | 
+       fSize: fsz,
+       sendMax: max,
+       count: 0,
+       rcvr: bob,
+       timeOut:  float(1 / freq),
+       delay: dly,
+       noise: nse,
+       drop: drp
+ > .
+ 
+ crl [send]:
+    < alice : Sender | attrs, count: j >
+    < mon : Monitor | attrs1, first: fl >
+    {T, to alice : send}
+  =>
+   < alice : Sender | attrs, count: s j >
+   < mon : Monitor | attrs1, 
+                     first: (if j == 0 then T else fl fi) >
+   [dly + genRandom(0.0,nse),
+     (to bob from alice : body),
+     (if drp > 0.0 
+      then (if sampleBerWithP(drp) then 1 else 0 fi) 
+      else 0 fi)  ]
+    (if s j <=  max 
+     then 
+     [todly + genRandom(0.0,nse), to alice : send, 0]
+     else null fi)
+ if delay: dly, noise: nse, drop: drp, timeOut: todly, 
+       sendMax: max, rcvr: bob, fSize: fsz, attrs0 
+    := attrs 
+ /\ body := (if j == fsz then eof else pkt(j) fi)
+ [print "send j: " j " at T: " T ]
+.   
+
+************ Receiver
+
+op mkReceiver : Address -> Actor .
+eq mkReceiver(bob) = < bob : Receiver | noneAS > .
+
+rl [rcvPkts] :
+  < bob : Receiver | attrs >
+  {T, to bob from alice : pkt(j)}
+  =>
+  < bob : Receiver | attrs >
+ [print "rcv  j: " j " at T: " T ]
+  .
+     
+rl [rcvEof] :
+  < bob : Receiver | attrs >
+  < mon : Monitor | attrs1, last: fl, done: b >
+  {T, to bob from alice : eof}
+  =>
+  < bob : Receiver | attrs >
+  < mon : Monitor | attrs1, last: T, done: true >
+ [print "rcv eof  at T: " T ]
+  .     
+
+
+************ Monitor
+
+op first:_ : Float -> Attribute .
+op last:_ : Float -> Attribute .
+op done:_ : Bool -> Attribute .
+
+op mkMonitor : Address -> Actor .
+eq mkMonitor(mon) =
+  < mon : Monitor | first: 0.0, last: 0.0, done: false > .
+
+op limit : -> Float .
+eq limit = 1000.0 .
+
+ops A B M : -> Address .
+
+op initState : Address Address Address
+               Nat Nat Nat Float Float Float -> Config .
+eq initState(alice,bob,mon,fsz,max,freq,dly,nse,drp) =
+      mkSender(alice,bob,fsz,max,freq,dly,nse,drp) 
+      mkReceiver(bob) 
+      mkMonitor(mon)
+     [0.0, to A : send, 0]
+   .
+
+**** 20 msg/sec = .05 sec todly,
+ 
+op iSmall : Float Float Float -> Config .
+eq iSmall(dly,nse,drp) = 
+   initState(A,B,M,10,15,20,dly,nse,drp) .
+
+op iBig : Float Float Float -> Config .
+eq iBig(dly,nse,drp) = 
+   initState(A,B,M,100,150,20,dly,nse,drp) .
+
+**** no loss
+op initConfig : -> Config .
+eq initConfig = run({0.0 | nil} iSmall(0.04,0.001,0.0) ,limit) .
+
+**** with loss
+op initConfigL : -> Config .
+eq initConfigL = run({0.0 | nil} iSmall(0.04,0.001,0.1) ,limit) .
+
+
+endm
+
+set clear rules off .
+eof
+
+set print attribute on .
+
+**** does it work
+rew  run({0.0 | nil} iSmall(0.04,0.001,0.0) ,limit) .
+rew  run({0.0 | nil} iSmall(0.05,0.001,0.0) ,limit) .
+rew [ run({0.0 | nil} iSmall(0.06,0.001,0.0) ,limit) .
+
+**** adding loss
+rew run({0.0 | nil} iSmall(0.04,0.001,0.1) ,limit) .
+
+
+**** repeating the above  5 or so times drops eof
+**** resulting in terminated execution and
+**** < M : Monitor | first: 0.0, last: 0.0, done: false >
+
+
+**** higher loss rate
+rew [100] run({0.0 | nil} iSmall(0.04,0.001,0.3) ,limit) .
+
+**** varied send pacing
+rew [100] run({0.0 | nil} iSmall(0.05,0.001,0.0) ,limit) .
+rew [100] run({0.0 | nil} iSmall(0.06,0.001,0.0) ,limit) .
+
+**** bigger file, doesn't seem useful
+rew run({0.0 | nil}, iBig(0.04,0.001,0.0) ,limit) .
+
+
+***(
+  
+latency(st) = if isDone(st) then last - first else # latency
+
+can we find sender parameters such that
+  latency is defined but smc goes onn   (fsize 10, fmax 10000)
+     isdone true or last > 0.0
+  latency is sometimes not defined (failed = true) 
+      but execution terminates  (eof dropped, last = 0.0
+      )
+
+add failure condition
+   done/term is true -- set by scheduler
+)
+     
+     
+  

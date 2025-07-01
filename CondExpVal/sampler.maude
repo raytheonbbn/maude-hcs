@@ -1,0 +1,48 @@
+mod SAMPLER is
+  pr RANDOM .
+  pr COUNTER .
+  pr CONVERSION .
+
+  op sampleBerWithP : Float -> [Bool] .
+  op sampleUniWithInt : Nat -> [Nat] .
+  op sampleUniform : Float Float -> [Float] .
+  op genRandom : Float Float -> [Float] .
+  op sampleExp : Float -> [Float] .
+
+  --- TODO: do we really want to exclude 1.0? In the maude book, they use 4294967295
+  op rand : -> [Float] .
+  rl [rnd] : rand => float(random(counter) / 4294967296) .
+
+  op rrand : -> [Rat] .
+  rl [rrnd] : rrand => random(counter) / 4294967296 .
+
+  vars n s : Nat .
+  var R R1 Min Max RAND : Float .
+
+  eq sampleBerWithP(R) = if rand < R then true else false fi .
+  eq sampleUniWithInt(n) = random(counter) rem n .
+  eq genRandom(Min, Max) = rand * (Max - Min) + Min .
+  eq sampleExp(R) = (- log(rand)) / R .
+
+  op sampleNormal : -> [Float] .
+  op $sampleNormal : Float -> [Float] .
+  eq sampleNormal = $sampleNormal(rand) .
+  eq $sampleNormal(RAND) = sqrt(- 2.0 * log(RAND)) * cos(2.0 * pi * RAND) .
+
+
+  vars MEAN SD : Float .    --- mean and standard deviation
+
+  op sampleNormalWithMeanSd : Float Float -> [Float] .
+  eq sampleNormalWithMeanSd(MEAN, SD) = MEAN + SD * sampleNormal .
+
+  op sampleLogNormal : Float Float -> [Float] .
+  eq sampleLogNormal(MEAN, SD) = exp(MEAN + SD * sampleNormal) .
+
+  op sampleUniform : Float Float -> [Float] .
+  eq sampleUniform(Min, Max) = (if (Min == Max) then Min else (Min + rand * (Max - Min)) fi) .
+
+  vars SHAPE SCALE : Float .  --- Shape k and scale lambda parameters
+
+  op sampleWeibull : Float Float -> [Float] .
+  eq sampleWeibull(SHAPE, SCALE) = SCALE * exp((1.0 / SHAPE) * log(- log(rand))) .  --- k, lambda
+endm
