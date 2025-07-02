@@ -193,6 +193,7 @@ class DNSHCSConfig(HCSConfig):
         # Change this number if different codec is desired:
         # 18.72% for Base128
         # 37.22% for Base64
+        # Base32 is likely around 60%
         codec_overhead = 0.1872
         # Not all maxFragmentLen, specified by -M flag, is usable for the payload.  Based on current understanding of Iodine overhead (+3B) encoded + 12B non encoded:
         # Payload_size  = (hostname_len - 12 - 3 x (1 + 0.1872)) / (1 + 0.1872)
