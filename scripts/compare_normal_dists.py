@@ -15,8 +15,8 @@ def kl_divergence_normal(params1, params2):
     Returns:
         float: The KL divergence from P to Q.
     """
-    mean1, std1 = params1
-    mean2, std2 = params2
+    mean1, std1, name1 = params1
+    mean2, std2, name2 = params2
 
     # Ensure standard deviations are positive
     if std1 <= 0 or std2 <= 0:
@@ -30,7 +30,7 @@ def kl_divergence_normal(params1, params2):
 
     return kl_div
 
-def compare_theoretical_distributions(params1, params2):
+def compare_theoretical_distributions(params1, params2, title="Comparison of Two Theoretical Distributions"):
     """
     Visualizes and quantifies the difference between two theoretical normal distributions.
 
@@ -61,7 +61,7 @@ def compare_theoretical_distributions(params1, params2):
     ax.plot(x, pdf2, lw=2, label=f'{name2}: N(μ={mean2}, σ={std2})', color='salmon')
     ax.fill_between(x, pdf2, alpha=0.2, color='salmon')
 
-    ax.set_title('Comparison of Two Theoretical Normal Distributions')
+    ax.set_title(title)
     ax.set_xlabel('Value')
     ax.set_ylabel('Probability Density')
     ax.legend()
