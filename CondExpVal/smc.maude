@@ -1,0 +1,63 @@
+load cond-ev-test
+
+mod SMC is
+
+  inc COND-EV-TEST .
+  inc APMAUDE .
+
+  var AC : ActorConfig .
+  var attrs : AttributeSet .
+
+  var C : Config .
+  var id : Nat .
+  vars len, len' : Nat .
+  var last? : Bool .
+  vars T T' : Float .
+  var ADDR AppAddrFrom AppAddrTo : Address .
+  var B : Bool .
+
+  op getMonitor : Config -> Actor .
+  eq getMonitor (C < ADDR : Monitor | attrs >) = 
+                 < ADDR : Monitor | attrs > .
+
+  op getLatency : Actor -> Float .
+  eq getLatency (< ADDR : Monitor | first: T, last: T', attrs > )   = T' - T .
+  
+  op isDone : Config -> Bool .
+  eq isDone ({ F:Float | nil } AC 
+              < ADDR : Monitor |  attrs, done: B > )  = B .
+  
+***(
+  eq isDone ({ F:Float | nil } AC 
+             < ADDR : Monitor |  attrs, last: T > )  = 
+              T > 0.0 .
+) 
+  eq isDone (C) = false [owise] .
+
+
+endm
+
+eof
+
+
+umaudemc --no-advise scheck smc initConfig latency.quatex -a 0.05 --assign pmaude
+Number of simulations = 30
+  μ = 0.5456791488434886        σ = 0.0008641986512029663     r = 0.00032269707973726035
+
+
+umaudemc --no-advise scheck smc initConfigL latency.quatex -a 0.05 --assign pmaude 
+
+Same config but .1 probability of loss
+Does not terminate,  presumably the eof message was lost
+and Maude is stuttering.
+
+
+***(
+Condition for sample to be undefined
+
+**** exe terminated and file not delivered
+op sampleUndef : Config -> Bool .
+eq sampleUndef({ F:Float | nil } AC 
+            < ADDR : Monitor |  attrs, done: B > )
+            = not B .
+)

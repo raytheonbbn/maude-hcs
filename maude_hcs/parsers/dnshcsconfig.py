@@ -189,9 +189,15 @@ class DNSHCSConfig(HCSConfig):
         ndp.maxMinimiseCount = 0
         # > Read the maximum fragment length from the maximum DNS request length limit (passed by the `-M` argument on the Iodine command line) and per-query overhead (currently unknown).
         assert shadowconf.hosts['application_client'].getProcessByPName('iodine').args[2] == "-M"
-        ndp.maxFragmentLen = int(shadowconf.hosts['application_client'].getProcessByPName('iodine').args[3])
-        # Not all maxFragmentLen, specified by -M flag, is usable for the payload.  Based on coarse measurements, it is closer to:
-        ndp.maxFragmentLen = int((ndp.maxFragmentLen - 31.5) / 1.2)
+        ndp.maxFragmentLen = int(shadowconf.hosts['application_client'].getProcessByPName('iodine').args[3]) - 2
+        # Change this number if different codec is desired:
+        # 18.72% for Base128
+        # 37.22% for Base64
+        # Base32 is likely around 60%
+        codec_overhead = 0.1872
+        # Not all maxFragmentLen, specified by -M flag, is usable for the payload.  Based on current understanding of Iodine overhead (+3B) encoded + 12B non encoded:
+        # Payload_size  = (hostname_len - 12 - 3 x (1 + 0.1872)) / (1 + 0.1872)
+        ndp.maxFragmentLen = round((ndp.maxFragmentLen - 12 - 3 * (1 + codec_overhead)) / (1 + codec_overhead))
         ndp.maxFragmentTx = 20
         pp = DNSProbabilisticParameters()
         pp.maxPacketSize = int((app_params['chunk_size_max']/100)*mtu) - ndp.packetOverhead
