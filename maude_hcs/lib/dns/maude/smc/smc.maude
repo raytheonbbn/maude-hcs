@@ -33,17 +33,17 @@ mod SMC is
   eq getLatency (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len', true), T') ; PTL'''), attrs >) = T' - T .
 
   op inputFileSize : -> Nat [ctor] .
-  eq inputFileSize = 510 .
+  eq inputFileSize = 10000 .
 
   op getGoodput : Actor -> Float .
-  eq getGoodput (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len', true), T') ; PTL'''), attrs >) = float(inputFileSize) / (T' - T) .
+  eq getGoodput (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len', true), T') ; PTL'''), attrs >) = float(8 * inputFileSize) / (T' - T) .
 
   op getPTLLen : PacketTimestampList -> Nat .
   eq getPTLLen (nilPacketTimestamp) = 0 .
   eq getPTLLen (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len, last?), T)) = len + getPTLLen (PTL) .
 
   op getThroughput : Actor -> Float .
-  eq getThroughput (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len', true), T') ; PTL'''), attrs >) = float(getPTLLen((PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len', true), T') ; PTL'''))) / (T' - T) .
+  eq getThroughput (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len', true), T') ; PTL'''), attrs >) = float(getPTLLen((PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len', true), T') ; PTL''')) * 8) / (T' - T) .
 
   op isDone : Config -> Bool .
   eq isDone ({ F:Float | nil } AC < ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len, true), T) ; PTL'), attrs >) 
