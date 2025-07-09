@@ -42,14 +42,17 @@ EOF
 
 SIM_FULL_FILENAME=$1
 METRIC_NAME=$2
+DELTA=0.5
 
 quatex_command=""
 case "$METRIC_NAME" in
   "goodput")
     quatex_command="goodput"
+    DELTA=1000
     ;;
   "throughput")
     quatex_command="throughput"
+    DELTA=1000
     ;;
   "all")
     quatex_command="all"
@@ -69,4 +72,4 @@ GENERATED_FILENAME="generated_$SIM_FILENAME"
 echo "Writing generated file $GENERATED_FILENAME, running $quatex_command quatex"
 
 maude-hcs --verbose --shadow-filename=$SIM_FULL_FILENAME --model=prob --protocol=dns --filename=$GENERATED_FILENAME generate
-maude-hcs --verbose scheck --test ./results/$GENERATED_FILENAME.maude --query ./smc/$quatex_command.quatex -j 0
+maude-hcs --verbose scheck --delta $DELTA --test ./results/$GENERATED_FILENAME.maude --query ./smc/$quatex_command.quatex -j 0
