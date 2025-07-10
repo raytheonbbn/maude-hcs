@@ -12,9 +12,9 @@ def smc(shadow_file:Path, generated_test_path:Path, smc_path:Path):
         subprocess.run(gen_cmd, stdout=subprocess.DEVNULL)        
         result = {}
         queries = {
-             'latency.quatex': 1,
-             'throughput.quatex': 200,
-             'goodput.quatex': 200
+             'latency.quatex': 0.5,
+             'throughput.quatex': 75,
+             'goodput.quatex': 75
         }
         result['gen cmd'] = ' '.join([x for x in gen_cmd])
         print(f'{result['gen cmd']}')
@@ -26,12 +26,11 @@ def smc(shadow_file:Path, generated_test_path:Path, smc_path:Path):
             start = time.perf_counter()
             scheck_output = subprocess.run(scheck_cmd, capture_output=True, text=True, check=True)
             end = time.perf_counter()
-            print(f"time: {end - start:.2f} seconds")
+            T = end - start            
             new_result = json.loads(scheck_output.stdout)
-            T = end - start
-            
             result[query]['smc'] = new_result
-            result[query]['time'] = T
+            result[query]['time'] = f'{T:.2f} seconds'
+            print(f"time ({query}): {result[query]['time']}")
             
 
         return result
