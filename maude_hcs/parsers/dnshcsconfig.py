@@ -37,6 +37,13 @@ from maude_hcs.parsers.shadowconf import parse_shadow_config
 from .hcsconfig import Application, BackgroundTraffic, HCSConfig, NondeterministicParameters, Output, ProbabilisticParameters, UnderlyingNetwork, WeirdNetwork
 from . import load_yaml_to_dict
 
+
+QPS = {
+    'low': 15,
+    'medium': 30,
+    'high':50
+}
+
 @dataclass_json
 @dataclass
 class DNSUnderlyingNetwork(UnderlyingNetwork):    
@@ -167,8 +174,8 @@ class DNSHCSConfig(HCSConfig):
         bg = DNSBackgroundTraffic()
         bg.num_paced_clients = 1 # can probably get this from yaml?
         bg.paced_client_name = 'dnsperf'
-        bg.paced_client_Tlimit = 10 # ??
-        bg.paced_client_MaxQPS = int(shadowconf.hosts['dnsperf'].getProcessByPName('./dnsperf_profiles.sh').args[-1])
+        bg.paced_client_Tlimit = int(shadowconf.hosts['dnsperf'].getProcessByPName('./dnsperf_profiles.sh').args[-1])
+        bg.paced_client_MaxQPS = QPS[shadowconf.hosts['dnsperf'].getProcessByPName('./dnsperf_profiles.sh').args[-2]]
         # > nondeterministic params
         ndp = DNSNondeterministicParameters()
         # args: "python3 src/cp1_client.py -f data/input/large.dat -l data/logs/ -c 1 -a application_profiles/medium_static.yaml -m 1024 -s 42"
@@ -179,6 +186,7 @@ class DNSHCSConfig(HCSConfig):
         ndp.fileSize = _fz(shadowconf.hosts['application_client'].getProcessByPName('python3').args[3])
         # > Read `packetSize` and `maxPacketSize` from `chunk_size_min` and `chunk_size_max`, applied as a percentage of the MTU size (passed by the `-m` argument on the Iodine command line) in the send application profile's yaml file.
         # TODO path to app yaml file needs a consistent way to get to
+        print(f'>>>>>>>> {file_path}')
         app_params = load_yaml_to_dict(file_path.parent.parent.parent.joinpath('application').joinpath(shadowconf.hosts['application_client'].getProcessByPName('python3').args[9]))
         assert shadowconf.hosts['application_client'].getProcessByPName('python3').args[10] == "-m", 'expected -m instead'
         mtu = int(shadowconf.hosts['application_client'].getProcessByPName('python3').args[11])
