@@ -2,34 +2,37 @@ import json
 from pathlib import Path
 import subprocess
 import time
-import itertools
-from datetime import datetime
 import sys
 import os
-import matplotlib.pyplot as plt
 
 TOPLEVELDIR = Path(os.path.dirname(__file__))
 
-# maude-hcs --verbose --shadow-filename=$SIM_FULL_FILENAME --model=prob --protocol=dns --filename=$GENERATED_FILENAME generate
-# maude-hcs --verbose scheck --delta $DELTA --test ./results/$GENERATED_FILENAME.maude --query ./smc/$quatex_command.quatex -j 0
 def smc(shadow_file:Path, generated_test_path:Path, smc_path:Path):
-        subprocess.run(["maude-hcs", "--protocol=dns", "--shadow-filename=" + str(shadow_file.resolve()), "--model=prob", "--filename=" + str(generated_test_path.resolve()), "generate"], stdout=subprocess.DEVNULL)
-        start = time.perf_counter()
+        gen_cmd = ["maude-hcs", "--protocol=dns", "--shadow-filename=" + str(shadow_file.resolve()), "--model=prob", "--filename=" + str(generated_test_path.resolve()), "generate"]
+        subprocess.run(gen_cmd, stdout=subprocess.DEVNULL)        
         result = {}
         queries = {
-             'latency.quatex': 0.5,
-             'throughput.quatex': 150,
-             'goodput.quatex': 150
+             'latency.quatex': 1,
+             'throughput.quatex': 500,
+             'goodput.quatex': 500
         }
+        result['gen cmd'] = ' '.join([x for x in gen_cmd])
+        print(f'{result['gen cmd']}')
         for query, delta in queries.items():
-            scheck_output = subprocess.run(["maude-hcs", "scheck", "--test=" + str(generated_test_path.resolve()), f"--query={str(Path.joinpath(smc_path, query).resolve())}", "--format", "json", "-j", "0", f"-d{str(delta)}"], capture_output=True, text=True, check=True)
+            result[query] = {}            
+            scheck_cmd = ["maude-hcs", "scheck", "--test=" + str(generated_test_path.resolve()), f"--query={str(Path.joinpath(smc_path, query).resolve())}", "--format", "json", "-j", "0", f"-d{str(delta)}"]
+            result[query]['scheck cmd'] = ' '.join([x for x in scheck_cmd])
+            print(f'{result[query]['scheck cmd']}')
+            start = time.perf_counter()
+            scheck_output = subprocess.run(scheck_cmd, capture_output=True, text=True, check=True)
             end = time.perf_counter()
             print(f"time: {end - start:.2f} seconds")
             new_result = json.loads(scheck_output.stdout)
             T = end - start
-            result[query] = {}
+            
             result[query]['smc'] = new_result
             result[query]['time'] = T
+            
 
         return result
 
@@ -47,7 +50,7 @@ def main():
         os.mkdir(result_path)
     print(f'Loading shadow configs from {use_case_path}')
     files = sorted(list(filter(lambda x: x.endswith('yaml'), os.listdir(use_case_path))))
-    for file in files:
+    for file in files[:1]:
         path = Path(os.path.join(use_case_path, file))
         print(f'Processing {path.resolve()}')
         result = smc(path, Path.joinpath(result_path, f'{path.stem}'), smc_path)
