@@ -13,8 +13,8 @@ def smc(shadow_file:Path, generated_test_path:Path, smc_path:Path):
         result = {}
         queries = {
              'latency.quatex': 1,
-             'throughput.quatex': 500,
-             'goodput.quatex': 500
+             'throughput.quatex': 200,
+             'goodput.quatex': 200
         }
         result['gen cmd'] = ' '.join([x for x in gen_cmd])
         print(f'{result['gen cmd']}')
@@ -50,7 +50,7 @@ def main():
         os.mkdir(result_path)
     print(f'Loading shadow configs from {use_case_path}')
     files = sorted(list(filter(lambda x: x.endswith('yaml'), os.listdir(use_case_path))))
-    for file in files[:1]:
+    for file in files:
         path = Path(os.path.join(use_case_path, file))
         print(f'Processing {path.resolve()}')
         result = smc(path, Path.joinpath(result_path, f'{path.stem}'), smc_path)
