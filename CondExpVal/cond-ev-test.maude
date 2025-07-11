@@ -130,7 +130,11 @@ eq iSmall(dly,nse,drp) =
 
 op iBig : Float Float Float -> Config .
 eq iBig(dly,nse,drp) = 
-   initState(A,B,M,100,150,20,dly,nse,drp) .
+   initState(A,B,M,100,150,20,0.04,0.001,0.0) .
+
+**** vary trailing bkg traffic (after eof)
+op iBkg : Nat -> Config .
+eq iBkg(max) = initState(A,B,M,15,max,20,0.04,0.001,0.0) .
 
 **** no loss
 op initConfig : -> Config .
@@ -139,6 +143,24 @@ eq initConfig = run({0.0 | nil} iSmall(0.04,0.001,0.0) ,limit) .
 **** with loss
 op initConfigL : -> Config .
 eq initConfigL = run({0.0 | nil} iSmall(0.04,0.001,0.1) ,limit) .
+
+
+op initConfigBkg30 : -> Config .
+eq initConfigBkg30 = run({0.0 | nil} iBkg(30),limit) .
+
+op initConfigBkg100 : -> Config .
+eq initConfigBkg100 = run({0.0 | nil} iBkg(100),limit) .
+
+op initConfigBkg30 : -> Config .
+eq initConfigBkg30 = run({0.0 | nil} iBkg(30),limit) .
+
+
+
+op initConfigBkg1k-2k : -> Config .
+eq initConfigBkg1k-2k = 
+    run({0.0 | nil} 
+    initState(A,B,M,1000,2000,20,0.04,0.001,0.0), 
+    limit) .
 
 
 endm
@@ -172,6 +194,9 @@ rew [100] run({0.0 | nil} iSmall(0.06,0.001,0.0) ,limit) .
 **** bigger file, doesn't seem useful
 rew run({0.0 | nil}, iBig(0.04,0.001,0.0) ,limit) .
 
+**** varying amt of traffic after eof
+rew run({0.0 | nil}, iBkg(30),limit) .
+rew run({0.0 | nil}, iBkg(100),limit) .
 
 ***(
   
