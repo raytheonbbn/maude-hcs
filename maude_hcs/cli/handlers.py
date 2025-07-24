@@ -71,7 +71,7 @@ def handle_generate(args, parser):
     filename = args.filename
     if filename == None:
         filename = f'generated_{hcsconfig.name}_{args.model}'
-    save_output(parser, hcsconfig, result, filename)
+    save_output(parser, hcsconfig, result, filename)    
 
 def handle_scheck(args, parser):
     logger.debug("Handle umaudemc scheck")

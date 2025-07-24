@@ -57,6 +57,8 @@ def save_output(parser, hcsconfig: HCSConfig, target, filename):
         handle_write_to_directory(parser, output_dir, hcsconfig.output.force_save,
                                   lambda: MaudeHCSEncoder(format).encode(target),
                                   name_object(filename, format))
+        # save the hcsconfig as well         
+        hcsconfig.save(os.path.join(output_dir, name_object(f'{filename}-hcsconfig')))
 
 def handle_write_to_directory(parser, output_dir, force, get_contents, preferred_file_name):
     output_file = os.path.join(output_dir, preferred_file_name)
