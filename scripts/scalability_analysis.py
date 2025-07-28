@@ -145,14 +145,26 @@ dnsperf_cli_loc_pub_svr_drop = {
     "fileSize": [1000,2000,4000,8000]
 }
 
-def smc(param_space, delta=0.5):
+dnsperf_query = {
+    "label": "dnsperf_query",
+    "dnsperfNodes": [1],
+    "dnsperfMaxQPS": [15,30,50,75,100],
+    "dnsperfTlimit": [20],   # needs to be set to the max
+    "app_pacing": [0.01],
+    "pub_svr_drop": [0,10],
+    "fragSize": [180],
+    "chunkSize": [530],
+    "fileSize": [1,8000]
+}
+
+def smc(param_space, delta=0.5, alpha=0.05, fixed=True, hybrid=False, seq=False):
     config_path = "../use-cases/corporate-iodine-conf.json"
     with open(config_path, "r") as f:
         config = json.load(f)
     links = config.get("topology", {}).get("links", [])
 
     experiment = param_space.pop("label")
-    result_path = output_dir + "/" + experiment + "-delta-" + str(delta) + ".json" 
+    result_path = output_dir + "/" + experiment + "-delta-" + str(delta) + "-alpha-" + str(alpha) +".json" 
     print(result_path)
     if not os.path.exists(result_path) or os.stat(result_path).st_size == 0:
         with open(result_path, "w") as f:
@@ -219,8 +231,21 @@ def smc(param_space, delta=0.5):
     
         print(generated_test_path)         
         subprocess.run(["maude-hcs", "--run-args=" + modified_config_path, "--model=prob", "--filename=" + generated_test_path, "generate"], stdout=subprocess.DEVNULL)
+
+        if hybrid == True: 
+            scheck_output = subprocess.run(["maude-hcs", "scheck", "--test=./results/" + generated_test_path + ".maude", "--format", "json", "-j", "0", "-d" + str(delta), "-a" + str(alpha), "--seed", "0", "--nsims" ,"30-30"], capture_output=True, text=True, check=True)
+            tmp_result = json.loads(scheck_output.stdout)
+            query = tmp_result["queries"][0]
+            delta_estimate = 0.05 * query["mean"]
+            delta = delta_estimate
+
+        if fixed == True or hybrid == True:
+            nsim_range = str("30-100")
+        else: 
+            nsim_range = str("30-")
         start = time.perf_counter()
-        scheck_output = subprocess.run(["maude-hcs", "scheck", "--test=./results/" + generated_test_path + ".maude", "--format", "json", "-j", "0", "-d" + str(delta)], capture_output=True, text=True, check=True)
+
+        scheck_output = subprocess.run(["maude-hcs", "scheck", "--test=./results/" + generated_test_path + ".maude", "--format", "json", "-j", "0", "-d" + str(delta), "-a" + str(alpha), "--seed", "0", "--nsims", nsim_range], capture_output=True, text=True, check=True)
         end = time.perf_counter()
         print(f"time: {end - start:.2f} seconds")
         new_result = json.loads(scheck_output.stdout)
@@ -233,12 +258,12 @@ def smc(param_space, delta=0.5):
 
         param_space["label"] = experiment 
 
-def plot_baseline(param_space, delta=0.5):
+def plot_baseline(param_space, delta=0.5, alpha=0.05):
     latencys = []
     filesizes = []
 
     param_label = param_space.pop("label") 
-    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".json" 
+    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".json" 
     with open(result_path, "r") as f:
         result = json.load(f)
         print("loaded data from", result_path)
@@ -248,27 +273,27 @@ def plot_baseline(param_space, delta=0.5):
         latencys.append(query["mean"])
         filesizes.append(v["fileSize"])
 
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(7.5,4.5))
     #plt.scatter(filesizes, latencys, c='blue')
     plt.plot(filesizes, latencys, marker='o', linestyle='--')
     plt.title("Baseline Performance (AppPacing 0.01 Seconds, FragSize 180 Bytes, ChunkSize 530 Bytes)")
     plt.xlabel("FileSize (Bytes)") 
     plt.ylabel("Latency (Seconds)") 
 
-    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".png"
+    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".png"
     plt.savefig(png_path)
     print("saved to", png_path)
     
     param_space["label"] = param_label 
 
-def plot_two(param_space, key, vals, title, delta=0.5):
+def plot_two(param_space, key, vals, title, delta=0.5, alpha=0.05):
     latencys_1 = []
     latencys_2 = []
     filesize_1 = []
     filesize_2 = []
 
     param_label = param_space.pop("label") 
-    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".json" 
+    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".json" 
     with open(result_path, "r") as f:
         result = json.load(f)
         print("loaded data from", result_path)
@@ -282,7 +307,7 @@ def plot_two(param_space, key, vals, title, delta=0.5):
             latencys_2.append(query["mean"])
             filesize_2.append(v["fileSize"])
 
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(7.5,4.5))
     plt.plot(filesize_1, latencys_1, marker='o', linestyle='--', label=str(vals[0]))
     plt.plot(filesize_2, latencys_2, marker='o', linestyle='--', label=str(vals[1]))
     plt.title(title)
@@ -290,13 +315,13 @@ def plot_two(param_space, key, vals, title, delta=0.5):
     plt.ylabel("Latency (Seconds)") 
     plt.legend()
 
-    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".png"
+    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".png"
     plt.savefig(png_path)
     print("saved to", png_path)
     
     param_space["label"] = param_label 
 
-def plot_four(param_space, key, vals, title, delta=0.5):
+def plot_four(param_space, key, vals, title, delta=0.5, alpha=0.05):
     latencys_1 = []
     latencys_2 = []
     latencys_3 = []
@@ -307,7 +332,7 @@ def plot_four(param_space, key, vals, title, delta=0.5):
     filesize_4 = []
 
     param_label = param_space.pop("label") 
-    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".json" 
+    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".json" 
     with open(result_path, "r") as f:
         result = json.load(f)
         print("loaded data from", result_path)
@@ -327,7 +352,7 @@ def plot_four(param_space, key, vals, title, delta=0.5):
             latencys_4.append(query["mean"])
             filesize_4.append(v["fileSize"])
 
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(7.5,4.5))
     plt.plot(filesize_1, latencys_1, marker='o', linestyle='--', label=str(vals[0]))
     plt.plot(filesize_2, latencys_2, marker='o', linestyle='--', label=str(vals[1]))
     plt.plot(filesize_3, latencys_3, marker='o', linestyle='--', label=str(vals[2]))
@@ -337,13 +362,13 @@ def plot_four(param_space, key, vals, title, delta=0.5):
     plt.ylabel("Latency (Seconds)") 
     plt.legend()
 
-    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".png"
+    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".png"
     plt.savefig(png_path)
     print("saved to", png_path)
 
     param_space["label"] = param_label 
 
-def plot_link_drop(param_space, title, delta=0.5):
+def plot_link_drop(param_space, title, delta=0.5, alpha=0.05):
     latencys_1 = []
     latencys_2 = []
     latencys_3 = []
@@ -362,7 +387,7 @@ def plot_link_drop(param_space, title, delta=0.5):
     filesize_8 = []
 
     param_label = param_space.pop("label")
-    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".json"
+    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".json"
     with open(result_path, "r") as f:
         result = json.load(f)
         print("loaded data from", result_path)
@@ -394,7 +419,7 @@ def plot_link_drop(param_space, title, delta=0.5):
             latencys_8.append(query["mean"])
             filesize_8.append(v["fileSize"])
 
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(7.5,4.5))
     plt.plot(filesize_1, latencys_1, marker='o', linestyle='--', label=" 0,  0,  0")
     plt.plot(filesize_2, latencys_2, marker='x', linestyle='--', label=" 0,  0, 10")
     plt.plot(filesize_3, latencys_3, marker='x', linestyle='--', label=" 0, 10,  0")
@@ -408,13 +433,13 @@ def plot_link_drop(param_space, title, delta=0.5):
     plt.ylabel("Latency (Seconds)")
     legend = plt.legend()
 
-    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".png"
+    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".png"
     plt.savefig(png_path)
     print("saved to", png_path)
 
     param_space["label"] = param_label
 
-def plot_three(param_space, key, vals, title, delta=0.5):
+def plot_three(param_space, key, vals, title, delta=0.5, alpha=0.05):
     latencys_1 = []
     latencys_2 = []
     latencys_3 = []
@@ -423,7 +448,7 @@ def plot_three(param_space, key, vals, title, delta=0.5):
     filesize_3 = []
 
     param_label = param_space.pop("label") 
-    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".json" 
+    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".json" 
     with open(result_path, "r") as f:
         result = json.load(f)
         print("loaded data from", result_path)
@@ -440,7 +465,7 @@ def plot_three(param_space, key, vals, title, delta=0.5):
             latencys_3.append(query["mean"])
             filesize_3.append(v["fileSize"])
 
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(7.5,4.5))
     plt.plot(filesize_1, latencys_1, marker='o', linestyle='--', label=str(vals[0]))
     plt.plot(filesize_2, latencys_2, marker='o', linestyle='--', label=str(vals[1]))
     plt.plot(filesize_3, latencys_3, marker='o', linestyle='--', label=str(vals[2]))
@@ -449,13 +474,13 @@ def plot_three(param_space, key, vals, title, delta=0.5):
     plt.ylabel("Latency (Seconds)") 
     plt.legend()
 
-    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".png"
+    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".png"
     plt.savefig(png_path)
     print("saved to", png_path)
 
     param_space["label"] = param_label 
 
-def plot_loss_latency(param_space, key, vals, output_fn, title, delta=0.5):
+def plot_loss_latency(param_space, key, vals, output_fn, title, delta=0.5, alpha=0.05):
     latencys_1 = []
     latencys_2 = []
     latencys_3 = []
@@ -468,7 +493,7 @@ def plot_loss_latency(param_space, key, vals, output_fn, title, delta=0.5):
     loss_5 = []
 
     param_label = param_space.pop("label")
-    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".json"
+    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".json"
     with open(result_path, "r") as f:
         result = json.load(f)
         print("loaded data from", result_path)
@@ -491,7 +516,7 @@ def plot_loss_latency(param_space, key, vals, output_fn, title, delta=0.5):
             latencys_5.append(query["mean"])
             loss_5.append(v["pub_svr_drop"])
 
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(7.5,4.5))
     plt.plot(loss_1, latencys_1, marker='o', linestyle='--', label=str(vals[0]))
     plt.plot(loss_2, latencys_2, marker='o', linestyle='--', label=str(vals[1]))
     plt.plot(loss_3, latencys_3, marker='o', linestyle='--', label=str(vals[2]))
@@ -502,13 +527,13 @@ def plot_loss_latency(param_space, key, vals, output_fn, title, delta=0.5):
     plt.ylabel("Latency (Seconds)")
     plt.legend()
 
-    png_path = output_dir + "/" + output_fn + "-delta-" + str(delta) + ".png"
+    png_path = output_dir + "/" + output_fn + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".png"
     plt.savefig(png_path)
     print("saved to", png_path)
 
     param_space["label"] = param_label 
 
-def plot_smc_time(param_space, key, vals, title, delta=0.5):
+def plot_smc_time(param_space, key, vals, title, delta=0.5, alpha=0.05):
     time_1 = []
     time_2 = []
     time_3 = []
@@ -519,7 +544,7 @@ def plot_smc_time(param_space, key, vals, title, delta=0.5):
     filesize_4 = []
 
     param_label = param_space.pop("label") 
-    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".json" 
+    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".json" 
     with open(result_path, "r") as f:
         result = json.load(f)
         print("loaded data from", result_path)
@@ -538,7 +563,7 @@ def plot_smc_time(param_space, key, vals, title, delta=0.5):
             time_4.append(v["time"])
             filesize_4.append(v["fileSize"])
 
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(7.5,4.5))
     plt.plot(filesize_1, time_1, marker='o', linestyle='--', label=str(vals[0]))
     plt.plot(filesize_2, time_2, marker='o', linestyle='--', label=str(vals[1]))
     plt.plot(filesize_3, time_3, marker='o', linestyle='--', label=str(vals[2]))
@@ -548,13 +573,13 @@ def plot_smc_time(param_space, key, vals, title, delta=0.5):
     plt.ylabel("SMC Runtime (Seconds)") 
     plt.legend()
 
-    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "_smc_time.png"
+    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + "_smc_time.png"
     plt.savefig(png_path)
     print("saved to", png_path)
 
     param_space["label"] = param_label 
 
-def plot_smc_nsim(param_space, key, vals, title, delta=0.5):
+def plot_smc_nsim(param_space, key, vals, title, delta=0.5, alpha=0.05):
     time_1 = []
     time_2 = []
     time_3 = []
@@ -565,7 +590,7 @@ def plot_smc_nsim(param_space, key, vals, title, delta=0.5):
     filesize_4 = []
 
     param_label = param_space.pop("label") 
-    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".json" 
+    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".json" 
     with open(result_path, "r") as f:
         result = json.load(f)
         print("loaded data from", result_path)
@@ -584,7 +609,7 @@ def plot_smc_nsim(param_space, key, vals, title, delta=0.5):
             time_4.append(v["scheck"]["nsims"])
             filesize_4.append(v["fileSize"])
 
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(7.5,4.5))
     plt.plot(filesize_1, time_1, marker='o', linestyle='--', label=str(vals[0]))
     plt.plot(filesize_2, time_2, marker='o', linestyle='--', label=str(vals[1]))
     plt.plot(filesize_3, time_3, marker='o', linestyle='--', label=str(vals[2]))
@@ -594,13 +619,13 @@ def plot_smc_nsim(param_space, key, vals, title, delta=0.5):
     plt.ylabel("SMC Number of Samples") 
     plt.legend()
 
-    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "_smc_nsim.png"
+    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + "_smc_nsim.png"
     plt.savefig(png_path)
     print("saved to", png_path)
 
     param_space["label"] = param_label 
 
-def plot_smc_time_dnsperf(param_space, key, vals, title, delta=0.5):
+def plot_smc_time_dnsperf(param_space, key, vals, title, delta=0.5, alpha=0.05):
     time_1 = []
     time_2 = []
     time_3 = []
@@ -609,7 +634,7 @@ def plot_smc_time_dnsperf(param_space, key, vals, title, delta=0.5):
     filesize_3 = []
 
     param_label = param_space.pop("label") 
-    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + ".json" 
+    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + ".json" 
     with open(result_path, "r") as f:
         result = json.load(f)
         print("loaded data from", result_path)
@@ -625,7 +650,7 @@ def plot_smc_time_dnsperf(param_space, key, vals, title, delta=0.5):
             time_3.append(v["time"])
             filesize_3.append(v["fileSize"])
 
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(7.5,4.5))
     plt.plot(filesize_1, time_1, marker='o', linestyle='--', label=str(vals[0]))
     plt.plot(filesize_2, time_2, marker='o', linestyle='--', label=str(vals[1]))
     plt.plot(filesize_3, time_3, marker='o', linestyle='--', label=str(vals[2]))
@@ -634,13 +659,13 @@ def plot_smc_time_dnsperf(param_space, key, vals, title, delta=0.5):
     plt.ylabel("SMC Runtime (Seconds)") 
     plt.legend()
 
-    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "_smc_time.png"
+    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + "_smc_time.png"
     plt.savefig(png_path)
     print("saved to", png_path)
 
     param_space["label"] = param_label 
 
-def plot_smc_nsim_dnsperf(param_space, key, vals, title, delta=0.5):
+def plot_smc_nsim_dnsperf(param_space, key, vals, title, delta=0.5, alpha=0.05):
     time_1 = []
     time_2 = []
     time_3 = []
@@ -649,7 +674,7 @@ def plot_smc_nsim_dnsperf(param_space, key, vals, title, delta=0.5):
     filesize_3 = []
 
     param_label = param_space.pop("label") 
-    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) +".json" 
+    result_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) +".json" 
     with open(result_path, "r") as f:
         result = json.load(f)
         print("loaded data from", result_path)
@@ -665,7 +690,7 @@ def plot_smc_nsim_dnsperf(param_space, key, vals, title, delta=0.5):
             time_3.append(v["scheck"]["nsims"])
             filesize_3.append(v["fileSize"])
 
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(7.5,4.5))
     plt.plot(filesize_1, time_1, marker='o', linestyle='--', label=str(vals[0]))
     plt.plot(filesize_2, time_2, marker='o', linestyle='--', label=str(vals[1]))
     plt.plot(filesize_3, time_3, marker='o', linestyle='--', label=str(vals[2]))
@@ -674,7 +699,7 @@ def plot_smc_nsim_dnsperf(param_space, key, vals, title, delta=0.5):
     plt.ylabel("SMC Number of Samples (Seconds)") 
     plt.legend()
 
-    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "_smc_nsim.png"
+    png_path = output_dir + "/" + param_label + "-delta-" + str(delta) + "-alpha-" + str(alpha) + "_smc_nsim.png"
     plt.savefig(png_path)
     print("saved to", png_path)
 
@@ -719,8 +744,8 @@ def main():
     plot_smc_time_dnsperf(dnsperf_pub_svr_drop, "paced_client_MaxQPS", [15,30,50], "SMC Runtime with Background Traffic (QPS) and Public <-> Server Link Loss (10 %)")
     plot_smc_nsim_dnsperf(dnsperf_pub_svr_drop, "paced_client_MaxQPS", [15,30,50], "SMC Number of Samples with Background Traffic (QPS) and Public <-> Server Link Loss (10 %)")
 
-    smc(pub_svr_drop, 1)
-    smc(pub_svr_drop, 5)
+    smc(pub_svr_drop, delta=1)
+    smc(pub_svr_drop, delta=5)
     plot_four(pub_svr_drop, "pub_svr_drop", [0,10,20,30], "Performance (Delta=1) with Public <-> Server Link Loss (%)", 1) 
     plot_four(pub_svr_drop, "pub_svr_drop", [0,10,20,30], "Performance (Delta=5) with Public <-> Server Link Loss (%)", 5) 
     plot_smc_time(pub_svr_drop, "pub_svr_drop", [0,10,20,30], "SMC Runtime (Delta=1) with Public <-> Server Link Loss (%)", 1)
@@ -730,6 +755,17 @@ def main():
 
     plot_smc_time_dnsperf(dnsperf_pub_svr_drop, "paced_client_MaxQPS", [15,30,50], "SMC Runtime with Background Traffic (QPS) and Public <-> Server Link Loss (10 %)")
     plot_smc_nsim_dnsperf(dnsperf_pub_svr_drop, "paced_client_MaxQPS", [15,30,50], "SMC Number of Samples with Background Traffic (QPS) and Public <-> Server Link Loss (10 %)")
+
+    smc(dnsperf_query)
+
+    smc(pub_svr_drop, alpha=0.1)
+    smc(pub_svr_drop, alpha=0.01)
+    plot_four(pub_svr_drop, "pub_svr_drop", [0,10,20,30], "Performance (Alpha=0.1) with Public <-> Server Link Loss (%)", alpha=0.1) 
+    plot_four(pub_svr_drop, "pub_svr_drop", [0,10,20,30], "Performance (Alpha=0.01) with Public <-> Server Link Loss (%)", alpha=0.01) 
+    plot_smc_time(pub_svr_drop, "pub_svr_drop", [0,10,20,30], "SMC Runtime (Alpha=0.1) with Public <-> Server Link Loss (%)", alpha=0.1)
+    plot_smc_time(pub_svr_drop, "pub_svr_drop", [0,10,20,30], "SMC Runtime (Alpha=0.01) with Public <-> Server Link Loss (%)", alpha=0.01)
+    plot_smc_nsim(pub_svr_drop, "pub_svr_drop", [0,10,20,30], "SMC Number of Samples (Alpha=0.1) with Public <-> Server Link Loss (%)", alpha=0.1)
+    plot_smc_nsim(pub_svr_drop, "pub_svr_drop", [0,10,20,30], "SMC Number of Samples (Alpha=0.01) with Public <-> Server Link Loss (%)", alpha=0.01)
 
 if __name__ == "__main__":
     main()
