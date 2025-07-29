@@ -66,17 +66,24 @@ make_tarball() {
                     results/latency.quatex \
                     results/smc.maude \
                     DEVELOPER.md \
+                    docs \
+                    HCSParamsGuide.md \
                     NOTES.md \
                     pyproject.toml \
                     README.md \
+                    runexp.sh \
                     maude_hcs.egg-info \
                     maude_hcs/*.py \
+                    maude_hcs/cli/*.py \
                     maude_hcs/deps/dns_formalization \
+                    maude_hcs/lib/common/*.py \
                     maude_hcs/lib/dns/*.py \
                     maude_hcs/lib/dns/README.md \
                     maude_hcs/lib/dns/maude/common \
                     maude_hcs/lib/dns/maude/nondet \
                     maude_hcs/lib/dns/maude/probabilistic \
+                    maude_hcs/lib/dns/maude/smc \
+                    maude_hcs/parsers/*.py \
                     manifest.txt)
     if [ $? -ne 0 ]; then
         echo "ERROR: make_tarball failed"
