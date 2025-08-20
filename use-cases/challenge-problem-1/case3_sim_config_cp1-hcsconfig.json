@@ -1,0 +1,211 @@
+{
+    "name": "corporate_iodine",
+    "topology": {
+        "isDirected": false,
+        "nodes": [
+            {
+                "id": 0,
+                "label": "local-dns",
+                "address": "local-dns",
+                "ip_address": "",
+                "host_bandwidth_up": "1Gbps",
+                "host_bandwidth_down": "1Gbps"
+            },
+            {
+                "id": 1,
+                "label": "public-dns",
+                "address": "public-dns",
+                "ip_address": "",
+                "host_bandwidth_up": "1Gbps",
+                "host_bandwidth_down": "1Gbps"
+            },
+            {
+                "id": 2,
+                "label": "root-dns",
+                "address": "root-dns",
+                "ip_address": "",
+                "host_bandwidth_up": "1Gbps",
+                "host_bandwidth_down": "1Gbps"
+            },
+            {
+                "id": 3,
+                "label": "tld-dns",
+                "address": "tld-dns",
+                "ip_address": "",
+                "host_bandwidth_up": "1Gbps",
+                "host_bandwidth_down": "1Gbps"
+            },
+            {
+                "id": 4,
+                "label": "internet-dns",
+                "address": "internet-dns",
+                "ip_address": "",
+                "host_bandwidth_up": "1Gbps",
+                "host_bandwidth_down": "1Gbps"
+            },
+            {
+                "id": 5,
+                "label": "application-server",
+                "address": "application-server",
+                "ip_address": "",
+                "host_bandwidth_up": "1Gbps",
+                "host_bandwidth_down": "1Gbps"
+            },
+            {
+                "id": 6,
+                "label": "application-client",
+                "address": "application-client",
+                "ip_address": "",
+                "host_bandwidth_up": "1Gbps",
+                "host_bandwidth_down": "1Gbps"
+            },
+            {
+                "id": 7,
+                "label": "dnsperf",
+                "address": "dnsperf",
+                "ip_address": "",
+                "host_bandwidth_up": "1Gbps",
+                "host_bandwidth_down": "1Gbps"
+            }
+        ],
+        "links": [
+            {
+                "src_id": 0,
+                "src_label": "local-dns",
+                "dst_id": 6,
+                "dst_label": "application-client",
+                "label": "local_dns to application_client",
+                "latency": 0.0,
+                "jitter": 0.0,
+                "loss": 0.0
+            },
+            {
+                "src_id": 0,
+                "src_label": "local-dns",
+                "dst_id": 7,
+                "dst_label": "dnsperf",
+                "label": "local_dns to dnsperf",
+                "latency": 0.0,
+                "jitter": 0.0,
+                "loss": 0.0
+            },
+            {
+                "src_id": 1,
+                "src_label": "public-dns",
+                "dst_id": 0,
+                "dst_label": "local-dns",
+                "label": "public_dns to local_dns",
+                "latency": 0.027,
+                "jitter": 0.0,
+                "loss": 5.0
+            },
+            {
+                "src_id": 1,
+                "src_label": "public-dns",
+                "dst_id": 2,
+                "dst_label": "root-dns",
+                "label": "public_dns to root_dns",
+                "latency": 0.01,
+                "jitter": 0.0,
+                "loss": 0.0
+            },
+            {
+                "src_id": 1,
+                "src_label": "public-dns",
+                "dst_id": 3,
+                "dst_label": "tld-dns",
+                "label": "public_dns to tld_dns",
+                "latency": 0.01,
+                "jitter": 0.0,
+                "loss": 0.0
+            },
+            {
+                "src_id": 1,
+                "src_label": "public-dns",
+                "dst_id": 4,
+                "dst_label": "internet-dns",
+                "label": "public_dns to internet_dns",
+                "latency": 0.025,
+                "jitter": 0.02,
+                "loss": 0.0
+            },
+            {
+                "src_id": 1,
+                "src_label": "public-dns",
+                "dst_id": 5,
+                "dst_label": "application-server",
+                "label": "public_dns to application_server",
+                "latency": 0.027,
+                "jitter": 0.0,
+                "loss": 5.0
+            }
+        ]
+    },
+    "output": {
+        "directory": "./results",
+        "result_format": "maude",
+        "save_output": true,
+        "force_save": true,
+        "visualize": false,
+        "preamble": [
+            "set clear rules off .",
+            "set print attribute off .",
+            "set show advisories off ."
+        ]
+    },
+    "underlying_network": {
+        "module": "dns",
+        "root_name": "root-dns",
+        "tld_name": "tld-dns",
+        "tld_domain": "com.",
+        "resolver_name": "public-dns",
+        "corporate_name": "local-dns",
+        "corporate_domain": "corporate.com.",
+        "everythingelse_name": "internet-dns",
+        "everythingelse_domain": "internet.com.",
+        "everythingelse_num_records": 1,
+        "pwnd2_name": "application-server",
+        "pwnd2_domain": "pwnd.com.",
+        "populate_resolver_cache": true,
+        "addr_prefix": "addr-",
+        "record_ttl_a": 0,
+        "record_ttl": 3600
+    },
+    "weird_network": {
+        "module": "dns",
+        "client_name": "application-client",
+        "client_weird_qtype": "a",
+        "severWResponseTTL": 0.0,
+        "monitor_address": "monAddr"
+    },
+    "application": {
+        "module": "simplex",
+        "send_app_address": "Alice",
+        "overwrite_queue": true,
+        "send_app_queue_pkt_sizes": [],
+        "app_start_send_time": 1.0,
+        "rcv_app_address": "Bob",
+        "include_dns_client": false
+    },
+    "background_traffic": {
+        "module": "dns",
+        "num_paced_clients": 1,
+        "paced_client_name": "dnsperf",
+        "paced_client_Tlimit": 32,
+        "paced_client_MaxQPS": 30
+    },
+    "nondeterministic_parameters": {
+        "fileSize": 10000,
+        "packetSize": 80,
+        "packetOverhead": 33,
+        "maxMinimiseCount": 0,
+        "maxFragmentLen": 136,
+        "maxFragmentTx": 20
+    },
+    "probabilistic_parameters": {
+        "maxPacketSize": 1097,
+        "pacingTimeoutDelay": 0.01,
+        "pacingTimeoutDelayMax": 1.0,
+        "ackTimeoutDelay": 1.0
+    }
+}

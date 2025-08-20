@@ -1,0 +1,246 @@
+--- This maude file has been created automatically from the Python representation ---
+load /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs/maude_hcs/lib/dns/maude/probabilistic/iodine_dns
+load /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs/maude_hcs/lib/dns/maude/probabilistic/paced-client
+load /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs/maude_hcs/deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+mod IODINE_TEST is
+
+inc IODINE_DNS + PACED-CLIENT + TEST-HELPERS .
+
+eq monitorQueryLog? = true .
+
+eq fileSize = 10000 .
+eq packetSize = 475 .
+eq packetOverhead = 33 .
+eq maxMinimiseCount = 0 .
+eq maxFragmentLen = 121 .
+eq maxFragmentTx = 20 .
+eq maxPacketSize = 701 .
+eq pacingTimeoutDelay = 0.35 .
+eq pacingTimeoutDelayMax = 0.65 .
+eq ackTimeoutDelay = 1.0 .
+
+--- Actor addresses
+ops Alice Bob application-client application-server dnsperf internet-dns local-dns mAddr monAddr public-dns root-dns tld-dns : -> Address .
+
+--- "SBELT": fallback if there are no known name servers
+op sb : -> ZoneState .
+eq sb = < root ('a . 'root-servers . 'net . root |-> root-dns) > .
+
+--- Zone files
+op zone : -> List{Record} .
+eq zone =
+  < root, soa, 3600.0, soaData(3600.0) >
+  < root, ns, 3600.0, 'a . 'root-servers . 'net . root >
+  < 'a . 'root-servers . 'net . root, a, 3600.0, root-dns >
+  < 'com . root, ns, 3600.0, 'ns . 'com . root >
+  < 'ns . 'com . root, a, 3600.0, tld-dns > .
+
+op zonePwndCom : -> List{Record} .
+eq zonePwndCom =
+  < 'pwnd . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
+  < 'ns . 'pwnd . 'com . root, a, 3600.0, application-server >
+  < 'tmp0 . 'pwnd . 'com . root, a, 0.0, 2 . 0 . 1 . 2 >
+  < wildcard . 'pwnd . 'com . root, a, 0.0, 2 . 1 . 1 . 2 > .
+
+op zoneCorporateCom : -> List{Record} .
+eq zoneCorporateCom =
+  < 'corporate . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
+  < 'ns . 'corporate . 'com . root, a, 3600.0, local-dns >
+  < 'tmp0 . 'corporate . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
+  < wildcard . 'corporate . 'com . root, a, 0.0, 3 . 1 . 1 . 2 > .
+
+op zoneInternetCom : -> List{Record} .
+eq zoneInternetCom =
+  < 'internet . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
+  < 'ns . 'internet . 'com . root, a, 3600.0, internet-dns >
+  < 'tmp0 . 'internet . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >
+  < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1 . 1 . 2 > .
+
+op zoneCom : -> List{Record} .
+eq zoneCom =
+  < 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'com . root, ns, 3600.0, 'ns . 'com . root >
+  < 'ns . 'com . root, a, 3600.0, tld-dns >
+  < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
+  < 'ns . 'internet . 'com . root, a, 3600.0, internet-dns >
+  < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
+  < 'ns . 'pwnd . 'com . root, a, 3600.0, application-server >
+  < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
+  < 'ns . 'corporate . 'com . root, a, 3600.0, local-dns > .
+
+--- Caches
+op resolverCache : -> Cache .
+eq resolverCache =
+  cacheEntry(< root, ns, 3600.0, 'a . 'root-servers . 'net . root >, 1)
+  cacheEntry(< 'a . 'root-servers . 'net . root, a, 3600.0, root-dns >, 1)
+  cacheEntry(< 'com . root, ns, 3600.0, 'ns . 'com . root >, 1)
+  cacheEntry(< 'ns . 'com . root, a, 3600.0, tld-dns >, 1)
+  cacheEntry(< 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >, 1)
+  cacheEntry(< 'ns . 'internet . 'com . root, a, 3600.0, internet-dns >, 1)
+  cacheEntry(< 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >, 1)
+  cacheEntry(< 'ns . 'pwnd . 'com . root, a, 3600.0, application-server >, 1)
+  cacheEntry(< 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >, 1)
+  cacheEntry(< 'ns . 'corporate . 'com . root, a, 3600.0, local-dns >, 1) .
+--- Initial configuration
+op initState : -> Config .
+eq initState =
+  --- Client start messages
+  --- Clients
+  --- Resolvers
+  < public-dns : Resolver |
+    cache: resolverCache,
+    nxdomainCache: nilNxdomainCache,
+    nodataCache: nilNodataCache,
+    sbelt: sb,
+    workBudget: emptyIN,
+    blockedQueries: eptQSS,
+    sentQueries: eptQSS >
+  --- Nameservers
+  < root-dns : Nameserver |
+    db: (zone),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >
+  < tld-dns : Nameserver |
+    db: (zoneCom),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >
+  < internet-dns : Nameserver |
+    db: (zoneInternetCom),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >
+  < local-dns : Nameserver |
+    db: (zoneCorporateCom),
+    queue: nilQueue,
+    forwardonly: public-dns,
+    queriesFwd: nilTAQL >
+  --- tunnels
+  < application-client : WClient |
+    resv: local-dns,
+    wDom: 'pwnd . 'com . root,
+    weirdQType: a,
+    queryCtr: 0,
+    seqCtr: 0,
+    fragments: mtfl,
+    fragmentsSize: 0,
+    currFragment: 0,
+    appAddrMap: mtIdAddr,
+    numAttempts: 0 >
+  < application-server : WNameserver |
+    pendingFragments: mtfl,
+    currentSeqNo: 0,
+    currentFragment: 0,
+    lastFragment: false,
+    severWResponseTTL: 0.0,
+    conf: (< application-server : Nameserver |
+    db: (zonePwndCom),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >) >
+  --- applications
+  < Alice : SendApp |
+    fileDestAddr: Bob,
+    toAddr: (application-client),
+    queuePopulated: false,
+    queue: (mtpl),
+    numAdmittedPkts: 1,
+    wclientReady: true,
+    sent: mtpl > 
+  < Bob : RcvApp |
+    rcvd: mtpl >
+  --- WMonitor
+  < monAddr : WMonitor |
+    querySent: nilQueryTimestamp,
+    queryRcvd: nilQueryTimestamp,
+    pktSent: nilPacketTimestamp,
+    pktRcvd: nilPacketTimestamp >
+  mkPacedClient(dnsperf,local-dns, 'internet . 'com . root, 2500,0.02,0.1)
+  [genRandom(0.0, 0.0001), to dnsperf : start, 0]
+  --- App start messages
+  [1.0, (to Alice : start), 0] 
+  .
+
+ --- Link Characteristic definitions
+op LinkType-0 : -> AttributeSet .
+eq LinkType-0 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+op LinkType-1 : -> AttributeSet .
+eq LinkType-1 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.038),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.069),
+  (canDrop: true)
+  .
+
+op LinkType-2 : -> AttributeSet .
+eq LinkType-2 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.01),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+op LinkType-3 : -> AttributeSet .
+eq LinkType-3 = 
+  (delayStd: 0.01334),
+  (delayType: "Normal"),
+  (delayMean: 0.025),
+  (delayConst: 0.),
+  (noiseMin: 0.),
+  (noiseMax: 0.),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+op LinkType-4 : -> AttributeSet .
+eq LinkType-4 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.043),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.072),
+  (canDrop: true)
+  .
+
+eq LinkData =
+  aaa(local-dns,application-client,LinkType-0)
+  aaa(local-dns,dnsperf,LinkType-0)
+  aaa(public-dns,local-dns,LinkType-1)
+  aaa(public-dns,root-dns,LinkType-2)
+  aaa(public-dns,tld-dns,LinkType-2)
+  aaa(public-dns,internet-dns,LinkType-3)
+  aaa(public-dns,application-server,LinkType-4)
+.
+
+op initConfig : -> Config .
+eq initConfig = run({0.0 | nil} initState,limit) .
+endm
