@@ -1,0 +1,411 @@
+--- set show advisories off .
+---load ../maude_hcs/deps/dns_formalization/Maude/src/probabilistic-model/dns
+
+*****  < wildcard . 'example . 'com . root, txt, 3600.0, nullAddr > .
+
+***(
+
+A paced client (ActorType PacedClient) can be configured
+act as a pacing query generator, or a query response(qr) 
+query generator.
+A pacing generator sends a new query when receiving 
+a paceTO (timeout) message (and resets the timer / sends
+a new paceTo message).  responses are just dropped.
+A qr generator has a lostTO timer.  It send a new
+query when it receives a lostTO for a message that
+has no response, or when a response arrives for which
+the lostTO has not already arrived.
+
+    mkPacedClient(ADDR,RSV,NAME,N,TOP,TOQ) 
+    
+constructs a PacedClient actor
+ADDR is the actors address
+RSV is the resolver it sends to
+NAME the domain name to send queries to
+N the max number of queries to generate
+TOP is the paceTO period.  
+   if TOP > 0.0 the actor is pacing
+   if TOP <= 0.0 the actor is qr
+TOQ is the lostTO time -- if too small the qr will
+   become a pacing timer as the responses will be too late.
+
+PACED-CLIENT-AUX defines attributes, aux functions
+and the mkPacedClient constructor
+
+PACED-CLIENT  defines the rules and rule helper functions
+)
+***(  
+PacedClient response to messages:
+
+rcv start  send  query, -> (attrs,msgs) -
+     -- create msg, update w4s, set losttimer(msg)
+ 
+if pacing
+          
+rcv response  update w4s
+rcv paceTO send next query, set paceTO
+--- there will be no lostTOs created
+
+if not pacing
+
+rcv response
+    update w4s
+    if w4 response  then send query, set lostTO
+   
+rcv lost TO(msg)  
+    update w4s         
+    if qr and waiting4 msg then send query, set lotTO
+--- will not be any paceTos set
+
+----------------------------
+The main work is done by the function sendBQ 
+ mode qr  send query w link delay,  
+          send lostTO(msg) to self with lostTO delay
+  pacing  send query w link delay
+          send paceTO to self with paceTO delay
+
+Variations:
+  what about switching between paced an qr?        
+  changine the pacing interval from time to time
+)
+
+mod PACED-CLIENT-AUX is
+  inc DNS .
+  inc QID .
+  inc CONVERSION .
+
+  --- Variables
+  var C msgs msgs0 : Config .
+  var msg msg0 msg1 : Msg .
+  vars CL RSV NS ADDR ADDR' : Address .
+  vars ID ID' : Id .
+  vars NAME NAME'  QNAME  : Name .
+  var QQNAME : Qid .
+  var Q : Query .
+  var QTYPE : RType .
+  var QS : List{Query} .
+
+  vars R R' : Record .
+  vars RS RS' : List{Record} .
+  vars STATE STATE' ATTRS ATTRS0 ATTRS1 ATTRSX
+         : AttributeSet .
+  var RCODE : Nat .
+  vars N N' J M : Nat .
+  var B : Bool .
+  vars T T' TO  TOP TOQ : Float . --- timestamp
+  vars F TTL TTL' : Float .
+  var RESP : Response .
+
+op PacedClient : -> ActorType .
+
+op ctr:_ : Nat ->  Attribute [ctor] .
+           --- counter for generating query Ids
+op qmx:_ : Nat -> Attribute [ctor] .  
+          --- max number of queries
+
+op basedom:_  : Name -> Attribute [ctor] .
+op localN:_   : Name -> Attribute [ctor] .
+op qtype:_    : RType -> Attribute [ctor] .
+**** op resolver:_ : Address -> Attribute [ctor] .
+
+op paced?:_ : Bool -> Attribute [ctor] .
+op lostTO:_ : Float -> Attribute [ctor] .
+op paceTO:_ : Float -> Attribute [ctor] .
+op noiseStdP:_ : Float -> Attribute [ctor] .   
+              --- paced noise can be larger
+op noiseStdL:_ : Float -> Attribute [ctor] .   
+              --- lost noise can be small 
+op w4s:_ : Config -> Attribute [ctor] . 
+               --- 0 or more msgs
+
+op paceTO : -> Content .
+op lostTO : Msg -> Content .
+
+**** generate final element of Query name
+op genQName : Nat Qid -> Qid .
+eq genQName(J, QQNAME) = qid(string(QQNAME) + string(J,10)) .
+        
+******        id  final basedom      
+op genQuery : Nat Name  Name RType -> Query .
+ceq genQuery(J,QQNAME,NAME,QTYPE) 
+      = query(J,(QNAME . NAME), QTYPE) 
+if QNAME := genQName(J,QQNAME) .
+
+**** assumes max not exceeded
+**** produce qmsg and tomsg
+op sendBQ : Address AttributeSet -> AttrsMsgs .
+ceq sendBQ(ADDR,ATTRS) = {ATTRSX ; msg0 msg1}
+if ATTRS0, (ctr: J),(w4s: msgs ) := ATTRS
+/\ ATTRS1,  (resolver: RSV),   (paced?: B), 
+            (basedom: NAME),  (localN: QNAME), 
+            (qtype: QTYPE) := ATTRS0 
+/\ Q := genQuery(J,QNAME,NAME,QTYPE) 
+/\ msg0 := (to RSV from ADDR : Q)
+/\ msg1 := (if B
+            then (to ADDR : paceTO)
+            else (to ADDR : lostTO(msg0))
+            fi)
+/\  ATTRSX :=  (ctr: s J), (w4s: (msg0 msgs)),  ATTRS0
+.
+
+op getTOTime : AttributeSet -> Float .
+eq getTOTime(ATTRS, (paced?: true), (paceTO: TO)) = TO .
+eq getTOTime(ATTRS, (paced?: false), (lostTO: TO)) = TO .
+
+op getTOStd : AttributeSet -> Float .
+eq getTOStd(ATTRS, (paced?: true), (noiseStdP: TO)) = TO .
+eq getTOStd(ATTRS, (paced?: false), (noiseStdL: TO)) = TO .
+
+**** config is null or a query and a timeout to self
+op getQueryM : Config -> Config .
+op getTimeOutM : Config -> Config .
+eq getQueryM(C (to ADDR from ADDR' : Q)) 
+     = (to ADDR from ADDR' : Q) .
+eq getQueryM(C) = null [owise] .
+eq getTimeOutM(C (to ADDR : lostTO(msg) )) 
+         =  (to ADDR : lostTO(msg) )  .
+eq getTimeOutM(C (to ADDR : paceTO )) 
+         =  (to ADDR : paceTO ) .
+eq getTimeOutM(C) = null [owise] .
+
+sort AttrsBool .
+op `{_`,_`} : AttributeSet Bool -> AttrsBool .
+
+sort AttrsMsgs .
+op `{_;_`} : AttributeSet Config -> AttrsMsgs .
+
+****  eq delay = 0.005 + genRandom(0., 0.0001) . 
+               ---sampleLogNormal(0.0, 1.0) . ---0.01 .
+
+op PacedClient : -> ActorType .
+
+op mkPacedClient : Address Address Name Nat Float Float -> Actor .
+eq mkPacedClient(ADDR,RSV, NAME, N,TOP,TOQ) =
+< ADDR : PacedClient |
+     ctr: 0,  --- counter for generating query Ids
+     qmx: N,  --- max number of queries
+     basedom: NAME,
+     localN: 'www,
+     qtype: a,
+     resolver: RSV,
+     paced?: (TOP > 0.0),
+     lostTO: TOQ,
+     paceTO: TOP,
+     noiseStdP: .5,
+     noiseStdL: .001,
+     w4s: null
+     > .
+
+endm
+
+**** mkPacedClient(pcAddr,rAddr,10,0.5,0.0)
+
+mod PACED-CLIENT is
+  inc PACED-CLIENT-AUX .
+  inc WMONITOR .
+  
+  --- Variables
+  vars C msgs msgs0 : Config .
+  vars CL RSV NS ADDR ADDR1 ADDR' MON : Address .
+  vars QQNAME : Qid .
+  vars ID ID' : Id .
+  vars msg msg0 msg1 : Msg .
+  vars NAME NAME'  QNAME SNAME : Name .
+
+  var Q : Query .
+  var QTYPE : RType .
+  var QS : List{Query} .
+  
+
+  vars R R' : Record .
+  vars RS RS' ANS AUTH ADD : List{Record} .
+  vars STATE STATE0 STATE1 : AttributeSet .
+  var RCODE : Nat .
+  vars N N' N'' J M : Nat .
+  var B : Bool .
+  vars T T' : Float . --- timestamp
+  vars F TOT TON  TO : Float .
+  vars RESP  response : Response .
+
+  ----------------
+  --- [CLIENT] ---
+  ----------------
+  --- Send first query
+  --- Assumption: One single resolver for each client.
+  crl [pclient-start] :  
+      < CL : PacedClient | STATE >
+      {T, to CL : start}
+    =>  
+      < CL : Client |  STATE0 >
+      [0.0, msg0, 0]
+      --- [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+      [TOT + genRandom(0., 0.0001), msg1, 0]
+   if {STATE0 ; msgs} := sendBQ(CL,STATE)
+   /\ msg0 := getQueryM(msgs)
+   /\ msg1 := getTimeOutM(msgs)
+   /\ TOT := getTOTime(STATE)
+   /\ TON := getTOStd(STATE)
+   [print "PC  (" T "start received" ]
+   .
+   
+  ----------------
+  --- [CLIENT] ---
+  ----------------
+  --- > Receive response from resolver 
+  ----  send out next query if required
+  crl [pclient-recv-resp] :
+  < CL : Client | STATE >
+  {T, to CL from RSV : response}
+=>
+  < CL : Client | STATE1 >
+  [delay, msg0, drop?] ---- TODO FIx delay and drop!
+  --- [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+  [TOT + genRandom(0., 0.0001), msg1, 0]  
+  if {STATE0, true} := checkW4R(STATE,response)
+   ---- qr and resp:onse expected
+  /\ {STATE1 ; msgs} := sendBQ(CL,STATE0)
+  /\ msg0 := getQueryM(msgs)
+  /\ msg1 := getTimeOutM(msgs)
+  /\ TOT := getTOTime(STATE)
+  /\ TON := getTOStd(STATE)
+   [print "PC  (" T ") response " response  " sending"]
+   .
+
+  crl [pclient-recv-resp] :
+  < CL : Client | STATE >
+  {T, to CL from RSV : response}
+=>
+  < CL : Client | STATE0 >
+---- pacing or (qr and response not expected and amx<j)
+if {STATE0,false} := checkW4R(STATE,response)
+   [print "PC  (" T ") response " response  " no send"]
+.
+
+*** B is true if a query should be sent
+***  not pacing, w4s matched resp, max not exceeded  
+op checkW4R : AttributeSet Response -> AttrsBool .
+ceq checkW4R((STATE, (w4s: msgs)), response)
+    = {(STATE, (w4s: msgs0)), J < N and not B}
+if msgs0 (to ADDR from ADDR1 : query(ID,QNAME,QTYPE)) 
+      := msgs  
+/\ response(ID, SNAME, ANS, AUTH, ADD, RCODE) 
+      := response
+/\ STATE0, (ctr: J), (qmx: N), (paced?: B) := STATE
+.
+eq checkW4R(STATE, response) 
+     = {STATE, false} [owise] .
+
+
+  ----------------
+  --- [CLIENT] ---
+  ----------------
+  --- > Receive Lost Timeout --- thus not pacing
+ crl [pclient-recv-lostTO] :
+  < CL : Client | STATE >
+  {T, to CL : lostTO(msg)}
+=>
+  < CL : Client | STATE1 >
+  [delay, msg0, drop?] ---- TODO FIx delay and drop!
+  --- [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+  [TOT + genRandom(0., 0.0001), msg1, 0]  
+  if {STATE0,true} := checkW4Lost(STATE,msg)
+  /\ {STATE1 ; msgs} := sendBQ(CL,STATE0)
+  /\ msg0 := getQueryM(msgs)
+  /\ msg1 := getTimeOutM(msgs)
+  /\ TOT := getTOTime(STATE1)
+  /\ TON := getTOStd(STATE1)
+   [print "PC  (" T ") lostTO " msg  " sending"]
+   .
+
+ crl [pclient-recv-lostTO] :
+  < CL : Client | STATE >
+  {T, to CL : lostTO(msg)}
+=>
+  < CL : Client | STATE0 >
+if {STATE0,false} := checkW4Lost(STATE,msg)
+   [print "PC  (" T ") lostTO " msg  " dropping"]
+.
+
+**** TODO checkW4Lost should check for last pkt
+*** B is true if a query should be sent
+*** not pacing, w4s matched lost msg, max not exceeded  
+op checkW4Lost : AttributeSet Msg -> AttrsBool .
+ceq checkW4Lost((STATE, (w4s: (msgs0 msg))), msg)
+    = {(STATE, (w4s: msgs0)), J < N and not B}
+if (STATE0, (ctr: J), (qmx: N), (paced?: B) )
+    := STATE
+.
+eq checkW4Lost(STATE, msg) 
+      = {STATE , false} [owise].
+
+
+**************************************************
+  ----------------
+  --- [CLIENT] ---
+  ----------------
+  --- > Receive Pace Timeout -- must be pacing
+ crl [client-recv-paceTO] :
+  < CL : Client | STATE >
+  < ADDR : WMonitor | STATE1 >
+  {T, to CL : paceTO}
+=>
+  < CL : Client | STATE0 >
+  < ADDR : WMonitor | STATE1 >
+  [0.0, msg0, 0]
+  --- [TOT + sampleLogNormal(0.0,TON), msg1, 0]
+  [TOT + genRandom(0., 0.0001), msg1, 0]  
+  if checkQMx(STATE,STATE1) 
+  /\ {STATE0 ; msgs} := sendBQ(CL,STATE)
+  /\ msg0 := getQueryM(msgs)
+  /\ msg1 := getTimeOutM(msgs)
+  /\ TOT := getTOTime(STATE0)
+  /\ TON := getTOStd(STATE0)
+  [print "PC  (" T ") paceTO sending \n  " msg0  " " msg1] 
+.
+
+ crl [client-recv-paceTO] :
+  < CL : Client | STATE >
+  < ADDR : WMonitor | STATE1 >
+  {T, to CL : paceTO}
+=>
+  < CL : Client | STATE >
+  < ADDR : WMonitor | STATE1 >
+  
+  if not(checkQMx(STATE,STATE1))
+   [print "PC  (" T ") paceTO "  " quitting"]
+.
+
+***(
+op checkQMx : AttributeSet -> Bool .
+eq checkQMx(STATE, ctr: J, qmx: N) = J < N .
+eq checkQMx(STATE) = false [owise] .
+)
+op checkQMx : AttributeSet AttributeSet -> Bool .
+eq checkQMx((STATE, ctr: J, qmx: N),STATE1) 
+   =
+ J < N and not(lastPkt(STATE1)) .
+eq checkQMx(STATE,STATE1) = false [owise] .
+
+vars monAddr AADDR BADDR :  Address .
+vars j len : Nat .
+vars PTL PTL' PTL'' PTL''' : PacketTimestampList .
+**** vars T : Float .
+
+op lastPkt : AttributeSet -> Bool .
+eq lastPkt((STATE, 
+     (pktRcvd: (PTL ;   
+    packetTimestamp(packet(AADDR,BADDR,j,len,true), 
+                    T) ; 
+                PTL'))) ) = true .
+
+eq lastPkt(STATE) = false [owise] .
+
+
+endm
+  
+eof
+***(
+Warning: "paced-client.maude", line 88 (mod PACED-CLIENT-AUX): multiple distinct
+    parses for statement
+eq genQName (J, QQNAME) = qid (string (QQNAME) + string (J, 10)) .
+)
