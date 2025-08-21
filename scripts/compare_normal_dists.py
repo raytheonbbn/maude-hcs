@@ -1,7 +1,12 @@
+import json
+import os
+from pathlib import Path
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
 
+TOPLEVELDIR = Path(os.path.dirname(__file__))
 
 def kl_divergence_normal(params1, params2):
     """
@@ -161,7 +166,7 @@ def compare_normal_distributions(sample1, sample2):
         print("   - Conclusion: There is no statistically significant difference in the means.")
 
 
-def compare_experimental_to_smc(sample, theoretical_params, verbose=False, plot=False):
+def compare_experimental_to_smc(sample, theoretical_params, title='', verbose=False, plot=False, results_dir='./'):
     """
     Visualizes and statistically compares a sample to a theoretical normal distribution.
 
@@ -189,7 +194,7 @@ def compare_experimental_to_smc(sample, theoretical_params, verbose=False, plot=
         ax1.hist(sample, bins=30, density=True, alpha=0.7, label='Sample Histogram', color='skyblue')
         x = np.linspace(min(sample), max(sample), 200)
         ax1.plot(x, stats.norm.pdf(x, theoretical_mean, theoretical_std), 'r-', lw=2, label='Theoretical PDF')
-        ax1.set_title('Sample Histogram vs. Theoretical PDF')
+        ax1.set_title('Sample Histogram vs. Theoretical PDF')        
         ax1.set_xlabel('Value')
         ax1.set_ylabel('Density')
         ax1.legend()
@@ -199,9 +204,10 @@ def compare_experimental_to_smc(sample, theoretical_params, verbose=False, plot=
         ax2.set_title('Q-Q Plot against Theoretical Normal Distribution')
         # The default labels are "Theoretical quantiles" and "Ordered Values", which are fine.
 
-        fig.suptitle('Visual Comparison of Experimental to SMC Distribution', fontsize=16)
+        fig.suptitle(f'Visual Comparison of Experimental to SMC Distribution {title}', fontsize=16)
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        plt.show()
+        #plt.show()
+        plt.savefig(results_dir)
 
     # --- 2. Statistical Tests ---
     ttest_stat, ttest_p_value = stats.ttest_1samp(sample, theoretical_mean)
@@ -250,7 +256,55 @@ def compare_experimental_to_smc(sample, theoretical_params, verbose=False, plot=
     return means_different, std_different
 
 
+def main():
+    args = sys.argv
+    if len(args) != 4:
+         print(f'Expecting two arguments (1) the path of the directory with SMC results files, and (2) path of directory with experimental results files, and (3) path to result dir')
+         sys.exit(1)
+    smc_results_path = TOPLEVELDIR.joinpath(sys.argv[1])
+    exp_results_path = TOPLEVELDIR.joinpath(sys.argv[2])    
+    results_path = TOPLEVELDIR.joinpath(sys.argv[3])
+    print(results_path)
+    if not os.path.exists(results_path):
+        os.mkdir(results_path)
+    print(f'Loading SMC results from {smc_results_path}')
+    smc_files = sorted(list(filter(lambda x: x.endswith('json'), os.listdir(smc_results_path))))
+    exp_files = sorted(list(filter(lambda x: x.endswith('json'), os.listdir(exp_results_path))))
+    for file in smc_files:
+        print("\n" + "="*80 + "\n")
+        path = Path(os.path.join(smc_results_path, file))
+        name = path.stem
+        exp_file = [f for f in exp_files if name in f]
+        assert len(exp_file) == 1, f'expenting to find a matching experiment file with name {name}'
+        exp_path = Path(os.path.join(exp_results_path, exp_file[0]))
+        print(f'Processing {name} at smc path {path.resolve()} and exp path {exp_path.resolve()}')
+        # get the mean and std from smc path
+        with open(path, 'r') as f:
+            data = json.load(f)
+        latency_mean = float(data['latency.quatex']['smc']['queries'][0]['mean'])
+        latency_std = float(data['latency.quatex']['smc']['queries'][0]['std'])
+        latency_nsims = int(data['latency.quatex']['smc']['nsims'])
+        print(f'Theoretical (SMC) stats: mean={latency_mean}, std={latency_std}, nsims={latency_nsims}')
+        # get the samples fr
+        latency_samples = []
+        with open(exp_path, 'r') as f:
+            data = json.load(f)
+        for i in range(1000):
+            if str(i) in data[exp_path.stem]:
+                if data[exp_path.stem][str(i)]["checksum_validation"]:
+                    latency_samples.append(float(data[exp_path.stem][str(i)]['latency']))
+        print(f'Experimental samples nsamples={len(latency_samples)}')
+        print(latency_samples)
+        print('\n')        
+        # comparing two normal distributions: one is based on samples, the other is theoretical (mean, variance)
+        figpath = Path(os.path.join(results_path, exp_path.stem))
+        means_different, std_different = compare_experimental_to_smc(latency_samples, (latency_mean, latency_std), title=exp_path.stem, verbose=True, plot=True, results_dir=figpath)
+        print(f'Means different?={means_different}, Std different?={std_different}')
+
+
 if __name__ == '__main__':
+    main()
+    exit(0)
     # # Set the seed for reproducibility.
     # np.random.seed(42)
 
