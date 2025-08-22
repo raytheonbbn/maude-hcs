@@ -289,7 +289,8 @@ def main():
         latency_samples = []
         with open(exp_path, 'r') as f:
             data = json.load(f)
-        for i in range(1000):
+        ns = len(data[exp_path.stem])
+        for i in range(ns):
             if str(i) in data[exp_path.stem]:
                 if data[exp_path.stem][str(i)]["checksum_validation"]:
                     latency_samples.append(float(data[exp_path.stem][str(i)]['latency']))
