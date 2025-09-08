@@ -65,6 +65,7 @@ make_tarball() {
                     results/examplar_corporate_prob.maude \
                     results/latency.quatex \
                     results/smc.maude \
+                    smc \
                     DEVELOPER.md \
                     docs \
                     HCSParamsGuide.md \
