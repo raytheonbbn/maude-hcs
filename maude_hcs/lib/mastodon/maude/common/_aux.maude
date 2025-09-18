@@ -6,19 +6,30 @@ mod MASTODON_NODE is
   pr STRING .
   pr AUX-COMMON .
 
+  --- A Mastodon Toot Status or Media ID.
   sorts MasId .
   subsort Nat < MasId .
+  --- A Mastodon list of MasIds.
   sorts MasIdList .
   subsort MasId < MasIdList .
+  --- A media / image file name.
   sorts MediaFilename .
   subsort String < MediaFilename .
+  --- A list of media file names.
   sorts MediaFilenameList .
   subsort MediaFilename < MediaFilenameList .
+  --- A client Program Counter operation.
   sorts Op .
   subsort String < Op .
+  --- A client Program Counter.
   sorts OpStack .
   subsort Op < OpStack .
-  sorts Post .
+  --- A Mastodon post / status.
+  sorts Toot .
+  sorts Url .
+  subsort String < Url .
+  sorts UrlList .
+  subsort Url < UrlList .
 
   op emptyOpStack : -> OpStack [ctor] .
   op _:_ : OpStack OpStack -> OpStack [ctor assoc id: emptyOpStack] .
@@ -29,16 +40,26 @@ mod MASTODON_NODE is
   op emptyMediaFilenameList : -> MediaFilenameList [ctor] .
   op _::_ : MediaFilenameList MediaFilenameList -> MediaFilenameList [ctor assoc id: emptyMediaFilenameList] .
 
+  op emptyUrlList : -> UrlList [ctor] .
+  op _;_ : UrlList UrlList -> UrlList [ctor assoc id: emptyUrlList] .
+
   op nilOp : -> Op .
   op nilMediaName : -> MediaFilename .
   op nilMasId : -> MasId .
+  op nilUrl : -> Url .
 
   --- Op strings ---
-  op MEDIA-URL-GET-OP : -> Op .
-  eq MEDIA-URL-GET-OP = "get_media_from_url" .
+  op GET-STATUS-OP : -> Op .
+  eq GET-STATUS-OP = "get_status" .
 
-  op MEDIA-POST-GET-OP : -> Op .
-  eq MEDIA-POST-GET-OP = "get_media_from_post" .
+  op GET-MEDIA-URL-OP : -> Op .
+  eq GET-MEDIA-URL-OP = "get_media_from_url" .
+
+  op GET-MEDIA-POST-OP : -> Op .
+  eq GET-MEDIA-POST-OP = "get_media_from_post" .
+
+  op GET-MEDIA-HASHTAG-OP : -> Op .
+  eq GET-MEDIA-HASHTAG-OP = "get_media_from_hashtag" .
 
   op POST-MEDIA-OP : -> Op .
   eq POST-MEDIA-OP = "post_media" .
@@ -56,16 +77,22 @@ mod MASTODON_NODE is
   vars masIdList MAS_ID_LIST : MasIdList .
   vars mediaName MEDIA_NAME : MediaFilename .
   vars mediaFilenameList MEDIA_FILENAME_LIST MEDIA_FILENAME_LIST' : MediaFilenameList .
-  vars opStack OP_STACK : OpStack .
+  vars currentOpStack OP_STACK : OpStack .
   vars currentOp CURRENT_OP : Op .
   vars postStatus POSTING_STATUS STATUS : Op .
-  vars mediaLocation URL : String .
+  vars TOOT : Toot .
+  vars hashtag HASHTAG : String .
+  vars mediaLocation url URL : Url .
+  vars urlList urlList' URL_LIST : UrlList .
 
   -------------
   ---[Messages]
   -------------
   op replyStatus:_ : String -> Attribute [ctor] .
   op postId:_ : MasId -> Attribute [ctor] .
+  op mediaAttachments:_ : UrlList -> Attribute [ctor] .
+  op media:_ : String -> Attribute [ctor] .
+  op toot:_ : Toot -> Attribute [ctor] .
 
   --------------------
   ---[Mastodon Client]
@@ -80,8 +107,19 @@ mod MASTODON_NODE is
   op postingMedia:_ : MediaFilenameList -> Attribute [ctor] .
   op postingMediaIds:_ : MasIdList -> Attribute [ctor] .
   op postingText:_ : String -> Attribute [ctor] .
+  --- The list of URL media / images to get (usually from a post or series of posts).
+  op gettingMediaUrls:_ : UrlList -> Attribute [ctor] .
+  --- The list of media / images being retreived.
+  op gettingMedias:_ : MediaFilenameList -> Attribute [ctor] .
+  --- The list of posts to get (usually from a hashtag search).
+  op gettingPosts:_ : MasIdList -> Attribute [ctor] .
 
   --- Eqs ---
+  ----- For Messages -----
+  op getUrlList : Toot -> UrlList .
+  eq getUrlList(TOOT) = ("url0" ; "url1" ; "url2") .
+
+  ----- For Client attributes -----
   op getThisAddr : AttributeSet -> Address .
   eq getThisAddr(masClAttrs, masClAddr: MAS_CLIENT_ADDR) = MAS_CLIENT_ADDR .
 
@@ -107,10 +145,13 @@ mod MASTODON_NODE is
   eq popOp(masClAttrs, opStack: emptyOpStack) = (masClAttrs, opStack: emptyOpStack) .
 
   op popOp : OpStack -> OpStack .
-  eq popOp(opStack : (CURRENT_OP : OP_STACK)) = OP_STACK .
+  eq popOp(CURRENT_OP : OP_STACK) = OP_STACK .
 
   op pushOp : AttributeSet Op -> AttributeSet .
   eq pushOp((masClAttrs, opStack: OP_STACK), CURRENT_OP) = (masClAttrs, opStack: (CURRENT_OP : OP_STACK)) .
+
+  op pushOp : AttributeSet OpStack -> AttributeSet .
+  eq pushOp((masClAttrs, opStack: currentOpStack), OP_STACK) = (masClAttrs, opStack: (currentOpStack : OP_STACK)) .
 
   op pushOp : OpStack Op -> OpStack .
   eq pushOp(OP_STACK, CURRENT_OP) = (CURRENT_OP : OP_STACK) .
@@ -119,19 +160,28 @@ mod MASTODON_NODE is
   eq popMediaList(MEDIA_NAME :: MEDIA_FILENAME_LIST) = MEDIA_FILENAME_LIST .
   eq popMediaList(emptyMediaFilenameList) = emptyMediaFilenameList .
 
+  op popUrlList : UrlList -> UrlList .
+  eq popUrlList(URL ; URL_LIST) = URL_LIST .
+  eq popUrlList(emptyUrlList) = emptyUrlList .
+
   op peekMediaList : MediaFilenameList -> MediaFilename .
   eq peekMediaList(mediaFilenameList : (MEDIA_NAME :: MEDIA_FILENAME_LIST)) = MEDIA_NAME .
   eq peekMediaList(emptyMediaFilenameList) = nilMediaName .
 
   op popMediaIdList : MasIdList -> MasIdList .
-  eq popMediaIdList(masIdList : (postId : MAS_ID_LIST)) = MAS_ID_LIST .
-  eq popMediaIdList(masIdList : emptyMasIdList) = emptyMasIdList .
+  eq popMediaIdList(postId : MAS_ID_LIST) = MAS_ID_LIST .
+  eq popMediaIdList(emptyMasIdList) = emptyMasIdList .
 
   op peekMediaIdList : MasIdList -> MasId .
-  eq peekMediaIdList(masIdList : (postId : MAS_ID_LIST)) = postId .
-  eq peekMediaIdList(masIdList : emptyMasIdList) = nilMasId .
+  eq peekMediaIdList(postId : MAS_ID_LIST) = postId .
+  eq peekMediaIdList(emptyMasIdList) = nilMasId .
 
-  --- The post method.  This will change and get far more complex.
+  op peekUrlList : UrlList -> Url .
+  eq peekUrlList(url ; URL_LIST) = url .
+  eq peekUrlList(emptyUrlList) = nilUrl .
+
+  --- The post method.
+  --- TODO: Upgrade to send an actual HTTP request.
   op post : MediaFilename Address Address -> String .
   eq post(MEDIA_NAME, toAddr, fromAddr) = "OK" .
 
@@ -142,8 +192,15 @@ mod MASTODON_NODE is
   eq post(STATUS, MAS_ID_LIST, toAddr, fromAddr) = "OK" .
 
   --- The get method.
-  op get : String -> String .
+  --- TODO: Upgrade to send an actual HTTP request.
+  op get : Url -> String .
   eq get(URL) = "OK" .
+
+  op get : MasId -> String .
+  eq get(postId) = "OK" .
+
+  op get : String -> String .
+  eq get(hashtag) = "OK" .
 
   ---Upload an attachment---
   op uploadNewMedia : AttributeSet String -> AttributeSet .
@@ -166,22 +223,30 @@ mod MASTODON_NODE is
   op uploadNewStatusWImages : AttributeSet String MediaFilenameList -> AttributeSet .
   ceq uploadNewStatusWImages((masClAttrs, opStack: OP_STACK, postingText: POSTING_STATUS, postingMedia: MEDIA_FILENAME_LIST'), STATUS, (MEDIA_NAME :: MEDIA_FILENAME_LIST)) =
     masClAttrsNext
-    if masClAttrsTrans := (masClAttrs, opStack: (POST-STATUS-W-MEDIA-OP : OP_STACK), postingText: STATUS, postingMedia: MEDIA_FILENAME_LIST)
-      /\ masClAttrsNext := uploadNewMedia(masClAttrsTrans, MEDIA_NAME)
+      if masClAttrsTrans := (masClAttrs, opStack: (POST-STATUS-W-MEDIA-OP : OP_STACK), postingText: STATUS, postingMedia: MEDIA_FILENAME_LIST)
+        /\ masClAttrsNext := uploadNewMedia(masClAttrsTrans, MEDIA_NAME)
     .
 
   ---Download media at url---
-  op downloadMediaAtUrl : AttributeSet String -> AttributeSet .
+  op downloadMediaAtUrl : AttributeSet Url -> AttributeSet .
   ceq downloadMediaAtUrl(masClAttrs, mediaLocation) =
-    pushOp(masClAttrs, MEDIA-URL-GET-OP)
-    if get(mediaLocation) == "OK"
+    pushOp(masClAttrs, GET-MEDIA-URL-OP)
+      if get(mediaLocation) == "OK"
     .
 
   ---Download all media in post---
-  op downloadMediaInPost : AttributeSet MasId -> AttributeSet .
-  ceq downloadMediaInPost(masClAttrs, postId) =
-    pushOp(masClAttrs, MEDIA-POST-GET-OP)
-    if get() == "OK"
+  op downloadMediaAtPost : AttributeSet MasId -> AttributeSet .
+  ceq downloadMediaAtPost(masClAttrs, postId) =
+    pushOp(masClAttrs, GET-MEDIA-POST-OP)
+      if get(postId) == "OK"
+    .
+
+  ---Download all media from posts resulting in hashtag search.
+  op downloadMediaAtHashtag : AttributeSet String -> AttributeSet .
+  --- TODO: Replace this with actually parsing the response and filling in the attachment urls to get.
+  ceq downloadMediaAtHashtag((masClAttrs, gettingMediaUrls: URL_LIST), hashtag) =
+    pushOp((masClAttrs, gettingMediaUrls: emptyUrlList), (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP))
+      if get(hashtag) == "OK"
     .
 
   --- Handle a reply from the server, for a media posting request.
@@ -199,13 +264,35 @@ mod MASTODON_NODE is
       if peekOp(masClAttrs) == POST-STATUS-OP
     .
 
+  --- Handle a reply from the server, for a statuses by hashtag get request.
+  ---              MsgAttributes ClientAttributes
+  ceq handleReply((msgAttrs, replyStatus: "OK"), masClAttrs) =
+    handleStatusGetReply(msgAttrs, popOp(masClAttrs))
+      if peekOp(masClAttrs) == GET-STATUS-OP
+    .
+  
+
+  --- Handle a reply from the server for a get media by URL request.
+  ---              MsgAttributes ClientAttributes
+  ceq handleReply((msgAttrs, replyStatus: "OK"), masClAttrs) =
+    handleMediaGetByUrl(msgAttrs, masClAttrs)
+      if peekOp(masClAttrs) == GET-MEDIA-URL-OP
+    .
+
+  --- Handle a reply from the server, for a get media by Id request.
+  ---              MsgAttributes ClientAttributes
+  ceq handleReply((msgAttrs, replyStatus: "OK"), masClAttrs) =
+    handleMediaGetById(msgAttrs, masClAttrs)
+      if peekOp(masClAttrs) == GET-MEDIA-POST-OP
+    .
+
   --- Handle a Media posting reply.
   ---                       MsgAttributes ClientAttributes  ClientAttributes
   op handleMediaPostReply : AttributeSet AttributeSet -> AttributeSet .
   ceq handleMediaPostReply((msgAttrs, postId: POST_ID), (masClAttrs, opStack: OP_STACK, postingMediaIds: masIdList)) = 
     masClAttrsNext
-    if masClAttrsTrans := (masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: (masIdList : POST_ID))
-      /\ masClAttrsNext := cueNextOp(masClAttrsTrans)
+      if masClAttrsTrans := (masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: (masIdList : POST_ID))
+        /\ masClAttrsNext := cueNextPostOp(masClAttrsTrans)
     . 
 
   --- Handle a Status posting reply.
@@ -213,30 +300,96 @@ mod MASTODON_NODE is
   op handleStatusPostReply : AttributeSet AttributeSet -> AttributeSet .
   ceq handleStatusPostReply((msgAttrs, postId: POST_ID), (masClAttrs, opStack: OP_STACK, postingMediaIds: MAS_ID_LIST)) =
     masClAttrsNext
-    if masClAttrsNext := (masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: emptyMasIdList)
+      if masClAttrsNext := (masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: emptyMasIdList)
     .
     
   --- Finish handling a reply from the server.
-  op cueNextOp : AttributeSet -> AttributeSet .
-  ceq cueNextOp(masClAttrs, postingMedia: MEDIA_FILENAME_LIST) =
+  op cueNextPostOp : AttributeSet -> AttributeSet .
+  ceq cueNextPostOp(masClAttrs, postingMedia: MEDIA_FILENAME_LIST) =
     masClAttrsNext
-    *** Get the next media name that might need to be uploaded.
-    if mediaName := peekMediaList(MEDIA_FILENAME_LIST)
-         *** Prepare a pop of the media list.
-      /\ mediaFilenameList := popMediaList(MEDIA_FILENAME_LIST)
-         *** Get the current op from the stack.
-      /\ currentOp := peekOp(masClAttrs)
-      /\ masClAttrsNext := 
-          (if currentOp == POST-STATUS-W-MEDIA-OP
-          *** If posting a status with attachments, check if there are attachments left to upload.
-            then (if mediaName == nilMediaName
-                    *** If no more attachment to upload, upload status with media Ids.
-                    then uploadNewStatus((masClAttrs, postingMedia: emptyMediaFilenameList), "This is a complete toot", getPostingMediaIds(masClAttrs, postingMedia: MEDIA_FILENAME_LIST))
-                    *** If attachments left to upload, upload the next one.
-                    else uploadNewMedia((masClAttrs, postingMedia: mediaFilenameList), mediaName)
+      *** Get the next media name that might need to be uploaded.
+      if mediaName := peekMediaList(MEDIA_FILENAME_LIST)
+           *** Prepare a pop of the media list.
+        /\ mediaFilenameList := popMediaList(MEDIA_FILENAME_LIST)
+           *** Get the current op from the stack.
+        /\ currentOp := peekOp(masClAttrs)
+        /\ masClAttrsNext := 
+            (if currentOp == POST-STATUS-W-MEDIA-OP
+            *** If posting a status with attachments, check if there are attachments left to upload.
+              then (if mediaName == nilMediaName
+                      *** If no more attachment to upload, upload status with media Ids.
+                      then uploadNewStatus((masClAttrs, postingMedia: emptyMediaFilenameList), "This is a complete toot", getPostingMediaIds(masClAttrs, postingMedia: MEDIA_FILENAME_LIST))
+                      *** If attachments left to upload, upload the next one.
+                      else uploadNewMedia((masClAttrs, postingMedia: mediaFilenameList), mediaName)
+                   fi)
+              *** Otherwise, done.
+              else (masClAttrs, postingMedia: MEDIA_FILENAME_LIST)
+           fi)
+    .
+
+  --- Handle a Get post.
+  ---                      MsgAttributes ClientAttributes  ClientAttributes
+  op handleStatusGetReply : AttributeSet AttributeSet -> AttributeSet .
+  ceq handleStatusGetReply((msgAttrs, toot: TOOT), (masClAttrs, opStack: OP_STACK, gettingMediaUrls: URL_LIST)) =
+    masClAttrsNext
+      if currentOp := peekOp(OP_STACK)
+        /\ (url ; urlList) := getUrlList(TOOT)
+        /\ masClAttrsNext := 
+          (if currentOp == GET-MEDIA-HASHTAG-OP
+          *** If currently downloading all media related to hashtag
+            then (if url == nilUrl
+                  then (masClAttrs, opStack: popOp(OP_STACK), gettingMediaUrls: emptyUrlList) *** TODO: Replace this with a call to reassemble the media together into a message from Alice.
+                  else downloadMediaAtUrl((masClAttrs, opStack: OP_STACK, gettingMediaUrls: urlList), url)
                  fi)
-            *** Otherwise, done.
-            else (masClAttrs, postingMedia: MEDIA_FILENAME_LIST)
+            *** Then download the media at next url.
+            else (masClAttrs, opStack: popOp(OP_STACK), gettingMediaUrls: URL_LIST)
+            *** Else we are done.
+          fi)
+    .
+
+  --- Handle a Get media in post by Url reply.
+  ---                      MsgAttributes ClientAttributes  ClientAttributes
+  op handleMediaGetByUrl : AttributeSet AttributeSet -> AttributeSet .
+  eq handleMediaGetByUrl((msgAttrs, media: MEDIA_NAME), (masClAttrs, opStack: OP_STACK, gettingMediaUrls: URL_LIST, gettingMedias: mediaFilenameList)) =
+    cueNextGetOp((masClAttrs, gettingMedias: (mediaFilenameList :: MEDIA_NAME)), opStack: popOp(OP_STACK), gettingMediaUrls: URL_LIST)
+    .
+
+  --- Handle a Get media in post by Id reply.
+  ---                  MsgAttributes ClientAttributes  ClientAttributes
+  op handleMediaGetById : AttributeSet AttributeSet -> AttributeSet .
+  ceq handleMediaGetById((msgAttrs, mediaAttachments: urlList), (masClAttrs, opStack: OP_STACK, gettingMediaUrls: URL_LIST)) =
+    masClAttrsNext
+      if url := peekUrlList(urlList)
+        /\ urlList' := popUrlList(urlList)
+        /\ masClAttrsNext := downloadMediaAtUrl((masClAttrs, opStack: OP_STACK, gettingMediaUrls: urlList'), url)
+    .
+
+  op cueNextGetOp : AttributeSet -> AttributeSet .
+  ceq cueNextGetOp(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: URL_LIST) =
+    masClAttrsNext
+      if url := peekUrlList(URL_LIST)
+        /\ urlList := popUrlList(URL_LIST)
+        /\ masClAttrsNext := 
+            (if currentOp == GET-MEDIA-POST-OP
+              then (if url == nilUrl
+                      then finishGetMediaFromPost(masClAttrs, opStack: OP_STACK, gettingMediaUrls: emptyUrlList)
+                      else downloadMediaAtUrl((masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: urlList), url)
+                   fi)
+              else finishGetMediaFromPost(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: URL_LIST)
+            fi)
+    .
+
+  op finishGetMediaFromPost : AttributeSet -> AttributeSet .
+  ceq finishGetMediaFromPost(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: URL_LIST) =
+    masClAttrsNext
+      if url := peekUrlList(URL_LIST)
+      /\ masClAttrsNext :=
+         (if currentOp == GET-MEDIA-HASHTAG-OP
+            then (if url == nilUrl
+                   then (masClAttrs, opStack: OP_STACK, gettingMediaUrls: emptyUrlList)
+                   else downloadMediaAtUrl((masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: popUrlList(URL_LIST)), url)
+                 fi)
+            else (masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: emptyUrlList)
          fi)
     .
 
@@ -252,6 +405,10 @@ mod MASTODON_TEST is
 endm
 
 ---set trace on .
+red handleReply((msgTestAttrs, replyStatus: "OK"), (masClTestAttrs, opStack: (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList))
+.
+---red handleReply((msgTestAttrs, replyStatus: "OK", media: "img0.jpg"), (masClTestAttrs, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList, gettingMedias: emptyMediaFilenameList)) .
+eof
 
 *** Check the behavior of the Op stack.
 red peekOp(masClTestAttrs, opStack: POST-MEDIA-OP) == POST-MEDIA-OP .
@@ -259,47 +416,83 @@ red peekOp(masClTestAttrs, opStack: emptyOpStack) == nilOp .
 red popMediaList(emptyMediaFilenameList) == emptyMediaFilenameList .
 
 *** Clean upload of file media.
-red uploadNewMedia((masClTestAttrs, opStack: emptyOpStack), "img0.jpg") ==
-  (masClTestAttrs, opStack: POST-MEDIA-OP)
+red uploadNewMedia((masClTestAttrs, opStack: emptyOpStack), "img0.jpg")
+  == (masClTestAttrs, opStack: POST-MEDIA-OP)
   .
 
 *** Test a media post reply (no other context).
-red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, opStack: (POST-MEDIA-OP : emptyOpStack), postingMedia: emptyMediaFilenameList, postingMediaIds: emptyMasIdList)) ==
-  (masClTestAttrs, opStack: emptyOpStack, postingMedia: emptyMediaFilenameList, postingMediaIds: 445)
+red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, opStack: (POST-MEDIA-OP : emptyOpStack), postingMedia: emptyMediaFilenameList, postingMediaIds: emptyMasIdList))
+  == (masClTestAttrs, opStack: emptyOpStack, postingMedia: emptyMediaFilenameList, postingMediaIds: 445)
   .
 
 *** Clean upload of status.
-red uploadNewStatus((masClTestAttrs, opStack: emptyOpStack), "This is a new toot", emptyMasIdList)  == 
-  (masClTestAttrs, opStack: POST-STATUS-OP)
+red uploadNewStatus((masClTestAttrs, opStack: emptyOpStack), "This is a new toot", emptyMasIdList)
+  == (masClTestAttrs, opStack: POST-STATUS-OP)
   .
 *** Clean upload of status with media Ids.
-red uploadNewStatus((masClTestAttrs, opStack: emptyOpStack), "This is a new toot", (45 : 98)) == 
-  (masClTestAttrs, opStack: POST-STATUS-OP)
+red uploadNewStatus((masClTestAttrs, opStack: emptyOpStack), "This is a new toot", (45 : 98))
+  == (masClTestAttrs, opStack: POST-STATUS-OP)
   .
 
 *** Test a clean status post reply (no other context).
-red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, postingMediaIds: (45 : 98), opStack: (POST-STATUS-OP : emptyOpStack))) == 
-  (masClTestAttrs, postingMediaIds: emptyMasIdList, opStack: emptyOpStack)
+red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, postingMediaIds: (45 : 98), opStack: (POST-STATUS-OP : emptyOpStack)))
+  == (masClTestAttrs, postingMediaIds: emptyMasIdList, opStack: emptyOpStack)
   .
 
 *** Test a status with media post.
-red uploadNewStatusWImages((masClTestAttrs, opStack: emptyOpStack, postingText: "", postingMedia: emptyMediaFilenameList), "This is a new toot with image attachments", "img0.jpg") ==
-  (masClTestAttrs, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingText: "This is a new toot with image attachments", postingMedia: emptyMediaFilenameList)
+red uploadNewStatusWImages((masClTestAttrs, opStack: emptyOpStack, postingText: "", postingMedia: emptyMediaFilenameList), "This is a new toot with image attachments", "img0.jpg")
+  ==  (masClTestAttrs, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingText: "This is a new toot with image attachments", postingMedia: emptyMediaFilenameList)
   .
 
 *** Test a media post reply in the context of a status upload when there is no media left to upload.
-red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: emptyMediaFilenameList, postingMediaIds: emptyMasIdList)) ==
-  (masClTestAttrs, opStack: (POST-STATUS-OP : POST-STATUS-W-MEDIA-OP), postingMedia: emptyMediaFilenameList, postingMediaIds: 445)
+red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: emptyMediaFilenameList, postingMediaIds: emptyMasIdList))
+  == (masClTestAttrs, opStack: (POST-STATUS-OP : POST-STATUS-W-MEDIA-OP), postingMedia: emptyMediaFilenameList, postingMediaIds: 445)
   .
 
 *** Test a media post reply in the context of a status upload when there is one media left to upload.
-red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: "img1.jpg", postingMediaIds: emptyMasIdList)) ==
-  (masClTestAttrs, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: emptyMediaFilenameList, postingMediaIds: 445)
+red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: "img1.jpg", postingMediaIds: emptyMasIdList))
+  == (masClTestAttrs, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: emptyMediaFilenameList, postingMediaIds: 445)
   .
 
 *** Get a media at a given URL.
-red downloadMediaAtUrl((masClTestAttrs, opStack: emptyOpStack), "www.media_location.com") ==
-  (masClTestAttrs, opStack: MEDIA-URL-GET-OP)
+red downloadMediaAtUrl((masClTestAttrs, opStack: emptyOpStack), "www.media_location.com")
+  == (masClTestAttrs, opStack: GET-MEDIA-URL-OP)
   .
+
+*** Get all media from a post Id.
+red downloadMediaAtPost((masClTestAttrs, opStack: emptyOpStack), 446)
+  == (masClTestAttrs, opStack: GET-MEDIA-POST-OP)
+  .
+
+*** Get all media from a hashtag search.
+red downloadMediaAtHashtag((masClTestAttrs, opStack: emptyOpStack, gettingMediaUrls: "url0"), "cat")
+  == (masClTestAttrs, opStack: (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList)
+  .
+
+*** Test a status get reply in the context of an all-media download via hashtag search.
+red handleReply((msgTestAttrs, replyStatus: "OK"), (masClTestAttrs, opStack: (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList))
+  == (masClTestAttrs, opStack: emptyOpStack, gettingMediaUrls: emptyUrlList)
+  .
+
+
+*** Test a media get reply (from a post id).
+red handleReply((msgTestAttrs, replyStatus: "OK", mediaAttachments: ("url0" ; "url1" ; "url2")), (masClTestAttrs, opStack: GET-MEDIA-POST-OP, gettingMediaUrls: emptyUrlList))
+  == (masClTestAttrs, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-POST-OP), gettingMediaUrls: ("url1" ; "url2"))
+  .
+
+*** Test a media get reply (from a URL) during the process of getting all media from all posts with a certain hashtag.
+*** There is only one post with the hashtag, and only one media to retreive.
+red handleReply((msgTestAttrs, replyStatus: "OK", media: "img0.jpg"), (masClTestAttrs, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList, gettingMedias: emptyMediaFilenameList))
+  == (masClTestAttrs, opStack: emptyOpStack, gettingMediaUrls: emptyUrlList, gettingMedias: "img0.jpg")
+  .
+
+*** Test a media get reply (from a URL) during the process of getting all media from all posts with a certain hashtag.
+*** There is only one post with the hashtag, and three media to retreive.
+red handleReply((msgTestAttrs, replyStatus: "OK", media: "img0.jpg"), (masClTestAttrs, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: ("url1" ; "url2"), gettingMedias: emptyMediaFilenameList))
+  == (masClTestAttrs, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: "url2", gettingMedias: "img0.jpg")
+  .
+
+*** Test a media get reply (from a URL) during the process of getting all media from all posts with a certain hashtag.
+*** There is only one post with the hashtag, and two media to retreive.
 
 
