@@ -80,7 +80,7 @@ mod MASTODON_NODE is
   vars currentOpStack OP_STACK : OpStack .
   vars currentOp CURRENT_OP : Op .
   vars postStatus POSTING_STATUS STATUS : Op .
-  vars TOOT : Toot .
+  vars toot TOOT : Toot .
   vars hashtag HASHTAG : String .
   vars mediaLocation url URL : Url .
   vars urlList urlList' URL_LIST : UrlList .
@@ -137,8 +137,8 @@ mod MASTODON_NODE is
   eq peekOp(masClAttrs) = nilOp [owise] .
 
   op peekOp : OpStack -> Op .
-  eq peekOp(opStack: (CURRENT_OP : OP_STACK)) = CURRENT_OP .
-  eq peekOp(opStack: emptyOpStack) = nilOp [owise] .
+  eq peekOp((CURRENT_OP : OP_STACK)) = CURRENT_OP .
+  eq peekOp(emptyOpStack) = nilOp [owise] .
 
   op popOp : AttributeSet -> AttributeSet .
   eq popOp(masClAttrs, opStack: (CURRENT_OP : OP_STACK)) = (masClAttrs, opStack: OP_STACK) .
@@ -402,13 +402,12 @@ mod MASTODON_TEST is
   inc MASTODON_NODE .
 
   ops masClTestAttrs msgTestAttrs : -> AttributeSet .
+
+  vars testToot : Toot .
 endm
 
 ---set trace on .
-red handleReply((msgTestAttrs, replyStatus: "OK"), (masClTestAttrs, opStack: (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList))
-.
----red handleReply((msgTestAttrs, replyStatus: "OK", media: "img0.jpg"), (masClTestAttrs, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList, gettingMedias: emptyMediaFilenameList)) .
-eof
+---eof
 
 *** Check the behavior of the Op stack.
 red peekOp(masClTestAttrs, opStack: POST-MEDIA-OP) == POST-MEDIA-OP .
@@ -470,10 +469,9 @@ red downloadMediaAtHashtag((masClTestAttrs, opStack: emptyOpStack, gettingMediaU
   .
 
 *** Test a status get reply in the context of an all-media download via hashtag search.
-red handleReply((msgTestAttrs, replyStatus: "OK"), (masClTestAttrs, opStack: (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList))
-  == (masClTestAttrs, opStack: emptyOpStack, gettingMediaUrls: emptyUrlList)
+red handleReply((msgTestAttrs, replyStatus: "OK", toot: testToot), (masClTestAttrs, opStack: (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList))
+  == (masClTestAttrs, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: ("url1" ; "url2"))
   .
-
 
 *** Test a media get reply (from a post id).
 red handleReply((msgTestAttrs, replyStatus: "OK", mediaAttachments: ("url0" ; "url1" ; "url2")), (masClTestAttrs, opStack: GET-MEDIA-POST-OP, gettingMediaUrls: emptyUrlList))
