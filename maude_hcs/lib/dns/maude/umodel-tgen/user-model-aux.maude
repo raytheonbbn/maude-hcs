@@ -1,0 +1,72 @@
+set show advisories off .
+
+load ../../../../deps/dns_formalization/Maude/src/common/actor.maude
+load ../../../../deps/dns_formalization/Maude/src/probabilistic-model/apmaude.maude
+
+**** view Address from TRIV to ADDRESS is sort Elt to Address . endv
+
+fmod MY-SAMPLER is
+  pr RANDOM .
+  pr CONVERSION .
+
+  vars MEAN SD RAND  Min Max : Float .  
+  var j : Nat .
+  
+  op sampleNormalX : Nat -> [Float] .
+  op $sampleNormalX : Float -> [Float] .
+  eq sampleNormalX(j) = 
+      $sampleNormalX(float(random(j) / 4294967296) ) .
+  eq $sampleNormalX(RAND) = 
+       sqrt(- 2.0 * log(RAND)) * cos(2.0 * pi * RAND) .
+ 
+  op sampleNormalWithMeanSdX : Float Float Nat -> [Float] .
+  eq sampleNormalWithMeanSdX(MEAN, SD, j) = MEAN + SD * sampleNormalX(j) .
+
+  op genRandomX : Nat Float Float -> [Float] .
+  eq genRandomX(j,Min, Max) = 
+       float(random(j) / 4294967296) * (Max - Min) + Min .
+ 
+endfm
+
+fmod USER-MODEL-AUX is
+ inc ACTOR-MODEL .
+ inc CONVERSION .
+ inc MAP{String,Float} .
+ inc MAP{String,Address} .
+ 
+ 
+ **** these are just attributes, new sort to avoid
+ **** possible attribure name conflicts
+ 
+  sorts Param Params . 
+  subsort Param < Params .
+
+  op mtParam : -> Params [ctor] .
+  op _`,_ : Params Params -> Params 
+            [ctor assoc comm id: mtParam] .
+
+  sort StringL .
+  subsort String < StringL .
+  op nilStr : -> StringL [ctor] .
+  op _;_ : StringL StringL -> StringL
+          [ctor assoc  id: nilStr] .
+
+
+***** UM message content
+  op next : -> Content [ctor] .
+  op task : String -> Content [ctor] .
+  op status : String Float -> Content [ctor] .
+
+
+  op randCtr : Nat -> Actor [ctor] .
+
+  endfm
+
+view Params from TRIV to USER-MODEL-AUX is
+  sort Elt to Params .
+endv
+
+view Map`{String`,Float`} from TRIV to MAP{String,Float} is
+   sort Elt to Map{String,Float} .
+endv   
+

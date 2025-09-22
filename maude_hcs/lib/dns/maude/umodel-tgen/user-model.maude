@@ -1,0 +1,296 @@
+set show advisories off .
+***(
+load ../../../../deps/dns_formalization/Maude/src/common/actor.maude
+load ../../../../deps/dns_formalization/Maude/src/probabilistic-model/apmaude.maude
+)
+
+
+load user-model-aux.maude
+
+mod USER-MODEL is
+  inc USER-MODEL-AUX .
+  inc SCHEDULER .
+ inc MAP{String,Params} .
+ inc MAP{String,Map`{String`,Float`}} .
+ inc MY-SAMPLER .
+ 
+vars addr umAddr : Address .
+vars mm : MModel .
+vars amap : Map{String,Address} .
+vars markov : Map{String,Map{String,Float}} .
+vars waits : Map{String,Params} .
+vars weights : Map{String,Float} .
+vars init sid sid1 mname str : String .
+vars params : Params .
+vars states : StringL .
+vars j  i n : Nat .
+vars msg : Msg .
+vars T  wt fl rnd  wtsum fmean fstd : Float .
+vars dmsg : ScheduleMsg .
+vars dmsgs : Config .  --- null or dmsg
+
+
+sort MModel .
+****    name  states     markov     
+op mm : String StringL Map{String,Map{String,Float}} 
+****        waits          other
+        Map{String,Params} Params
+        -> MModel [ctor] .
+
+--- the Params in the waits Map are NormalDistParams 
+op  mean:_ : Float -> Param [ctor]  .
+op  std:_  : Float -> Param [ctor] .
+
+---- The final Params arguement is an attribute set
+----  making the `other parameters' explicit
+
+op maxSteps:_ : Nat -> Param [ctor] .
+op stopTime:_ : Float -> Param [ctor] .
+
+op getMarkov : MModel -> Map{String,Map{String,Float}} .
+op getWaits : MModel -> Map{String,Params} .
+op getParams : MModel -> Params .
+op getStates : MModel -> StringL .
+
+eq getMarkov(mm(mname,states,markov,waits,params)) = markov .
+eq getWaits(mm(mname,states,markov,waits,params)) = waits .
+eq getParams(mm(mname,states,markov,waits,params)) = params .
+eq getStates(mm(mname,states,markov,waits,params)) = states .
+
+op getMaxSteps : MModel -> Nat .
+ceq getMaxSteps(mm) = j
+if (maxSteps: j), params := getParams(mm) .
+eq getMaxSteps(mm) = 0 [owise] .
+
+op getStopTime : MModel -> Float .
+ceq getStopTime(mm) = T
+if stopTime: T, params := getParams(mm) .
+eq getStopTime(mm) = 0.0 [owise] .
+
+op chooseState : MModel String Nat -> String .
+ceq chooseState(mm,sid,j) =
+     chooseWt(weights,states,j)
+if weights := getMarkov(mm)[sid]
+/\ states := getStates(mm) .
+
+***(
+**** non-det version
+op chooseWt : Map{String,Float} StringL -> String .
+eq chooseWt(waits (sid |-> wt),states) = wt .
+)
+
+**** probabalistic version
+op chooseWt : Map{String,Float} StringL Nat -> String .
+op chooseWtX : Map{String,Float} StringL Float Float
+              -> String .
+
+eq chooseWt(weights,states,j) =
+ chooseWtX(weights,states, 
+           float(random(j) / 4294967296) ,0.0) .
+ 
+eq chooseWtX((weights, sid |-> wt),(sid ; states), rnd,wtsum)
+    =
+ (if (wtsum < rnd) and (rnd <= wtsum + wt)
+  then sid
+  else chooseWtX(weights,states,rnd,wtsum + wt)
+  fi)
+ .
+
+**** shouldn't happen
+eq chooseWtX(weights,states, rnd,wtsum) = "idle" [owise] .
+
+
+***( 
+NB: The initial state is also one of the `other parameters'.  I propose that this should be a configuration parameter for a given scenario.
+)
+---- A UM actor executes an MM. 
+op UM : -> ActorType .
+
+---- Its attribures are
+op mmodel:_ : MModel -> Attribute [ctor] .
+op curState:_ : String -> Attribute [ctor] .
+op nsteps:_ : Nat -> Attribute [ctor] .
+op ready:_ : Bool -> Attribute [ctor] .
+op actMap:_ : Map{String,Address} -> Attribute [ctor] .
+     ---- address of actor for task associated with 
+     ---- a state (nullAddr if the state is "idle").
+
+***** UM message content
+
+op mkUMactor : Address MModel Map{String,Address} String 
+    -> Actor .
+eq mkUMactor (addr,mm,amap,init) =
+  < addr : UM | mmodel: mm, curState: init, actMap: amap,
+                nsteps: 0, ready: true >
+.
+
+                
+---- A UM actor has two rules
+***( plain messages (to .. from .. : content) are for
+instant/local communication )
+
+crl[requestTask]:
+{T, (to umAddr : next)} --- initial msg or action complete
+< umAddr : UM | mmodel: mm, curState: sid, nsteps: j,
+                    actMap: amap, ready: true >
+=>
+< umAddr : UM | mmodel: mm, curState: sid, nsteps: j,
+                    actMap: amap, ready: false >
+msg
+if addr := amap[sid]                    
+/\ msg :=
+   (if (addr == nullAddr)
+    then (to umAddr from umAddr : status("noop",T))
+    else (to addr from umAddr : task(sid)) 
+    fi)
+[print "requestTask to " umAddr " at " T " curState " sid]    
+.                       
+
+crl[endTask]:
+randCtr(j) 
+(to umAddr  from addr : status(str,T))  
+< umAddr : UM | mmodel: mm, curState: sid, nsteps: n,
+                    actMap: amap, ready: false >
+=>
+< umAddr : UM | mmodel: mm, curState: sid1, 
+                    nsteps: s n, actMap: amap, 
+                    ready: true >
+randCtr(s s j) --- rule uses 2 random values
+dmsgs
+if sid1 := chooseState(mm,sid,j)  ---- prob
+/\ wt := genMMDelay(mm,sid1,s j)
+/\ dmsgs := if (s n < getMaxSteps(mm)) and 
+               (T + wt <= getStopTime(mm))
+  then [wt, (to umAddr : next),0]
+  else null   --- stopping condition
+  fi
+[print "endTask to " umAddr " at " T " statu " str]    
+  .              
+
+op genMMDelay : MModel String Nat -> [Float] .
+ceq genMMDelay(mm,sid1,j) = 
+           sampleNormalWithMeanSdX(fmean,fstd,j)
+if (mean: fmean, std: fstd, params) := getWaits(mm)[sid1]
+.
+
+endm 
+eof
+
+***(
+T&E Example 
+normal:
+ mastodon_markov:
+   media : {media: 0.25, download: 0.25, wait: .50}
+   download : {media: 0.25, download: 0.25, wait: .50}
+   wait : {media: 0.25, download: 0.25, wait: .50}
+ mastodon_waits:
+   media : {mean: 20.0, std: 2.0}
+   download : {mean: 20.0,, std: 4.0}
+   wait :  {mean: 20.0,, std: 5.0}
+)
+
+***(mod UM-SCENARIO is
+  inc USER-MODEL .
+  
+***** dns model  
+op markovD : -> Map{String,Map{String,Float}} .
+op waitsD : -> Map{String,Params} .
+op paramsD : -> Params .
+op statesD : -> StringL .
+op umodelD : -> MModel .
+
+eq statesD = "query"  ; "idle" .
+eq markovD = 
+("query" |-> ("query" |-> 0.65, "idle" |-> 0.35)),
+("idle"  |-> ("query" |-> 0.85, "idle" |-> 0.15))
+ .
+
+eq waitsD = 
+ ( "query" |-> (mean: 15.0, std: 2.0)),
+  ("idle" |-> (mean: 15.0, std: 5.0))
+ .
+
+eq paramsD =
+  (maxSteps: 5),
+  (stopTime: 200.0) 
+.
+
+eq umodelD = mm("dnsUM",statesD,markovD,waitsD,paramsD) .
+
+
+***** mastodon model  
+op markovM : -> Map{String,Map{String,Float}} .
+op waitsM : -> Map{String,Params} .
+op paramsM : -> Params .
+op statesM : -> StringL .
+op umodelM : -> MModel .
+
+eq statesM = "media" ; "download" ; "idle" .
+
+eq markovM = 
+(
+"media" |-> ("media" |-> 0.25, "download" |-> 0.25, "idle" |-> 0.50),
+"download" |-> ("media" |-> 0.25, "download" |-> 0.25, "idle" |-> 0.50),
+"idle" |-> ("media" |-> 0.25, "download" |-> 0.25, "idle" |-> 0.50)
+) .
+
+eq waitsM =
+  "media" |-> (mean: 20.0, std: 2.0),
+  "download" |-> (mean: 20.0, std: 4.0),
+  "idle" |-> (mean: 20.0, std: 5.0)
+.
+
+eq paramsM =
+  (maxSteps: 5),
+  (stopTime: 100.0) 
+.
+
+eq umodelM = mm("masUM",statesM,markovM,waitsM,paramsM) .
+
+endm  
+
+mod UM-TEST is
+  inc UM-SCENARIO .
+  
+op umDaddr : -> Address .
+op dnsTAddr : -> Address .
+op amapD : -> Map{String,Address} .
+
+eq amapD = ("query" |-> dnsTAddr ), ("idle" |-> nullAddr) .
+
+op umDA : -> Actor .
+eq umDA = mkUMactor (umDaddr,umodelD,amapD,"idle") .
+
+op initD : -> Config .
+eq initD = {0.0 | nil} randCtr(1) umDA [1.0, (to umDaddr : next),0] .
+
+
+op umMA : -> Actor .
+op umMaddr : -> Address .
+op amapM : -> Map{String,Address} .
+
+op masTAddr : -> Address .
+eq amapM = ("media" |-> masTAddr),
+           ("download" |-> masTAddr),
+           ("idle" |-> nullAddr ) .           
+eq umMA = mkUMactor (umMaddr,umodelM,amapD,"idle") .
+
+op initM : -> Config .
+eq initM = {0.0 | nil} randCtr(1) umMA [1.0, (to umMaddr : next),0] .
+
+
+endm  
+
+)
+eof
+
+set print attribute on .
+
+rew 
+randCtr(1) umDA {1.0, (to umDaddr : next)}  .
+
+rew run({1.0 | nil} randCtr(1) umDA {1.0, (to umDaddr : next)},100.0) .
+
+rew run({1.0 | nil} randCtr(1) umMA {1.0, (to umMaddr : next)},100.0) .
+
+

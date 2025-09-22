@@ -1,0 +1,232 @@
+set show advisories off .
+load user-model.maude
+load dnsTask.maude
+
+
+mod UM-SCENARIO is
+  inc USER-MODEL .
+  
+***** dns model  
+op markovD : -> Map{String,Map{String,Float}} .
+op waitsD : -> Map{String,Params} .
+op paramsD : -> Params .
+op statesD : -> StringL .
+op umodelD : -> MModel .
+
+eq statesD = "query"  ; "idle" .
+eq markovD = 
+("query" |-> ("query" |-> 0.65, "idle" |-> 0.35)),
+("idle"  |-> ("query" |-> 0.85, "idle" |-> 0.15))
+ .
+
+eq waitsD = 
+ ( "query" |-> (mean: 15.0, std: 2.0)),
+  ("idle" |-> (mean: 15.0, std: 5.0))
+ .
+
+eq paramsD =
+  (maxSteps: 5),
+  (stopTime: 200.0) 
+.
+
+eq umodelD = mm("dnsUM",statesD,markovD,waitsD,paramsD) .
+
+
+***** mastodon model  
+op markovM : -> Map{String,Map{String,Float}} .
+op waitsM : -> Map{String,Params} .
+op paramsM : -> Params .
+op statesM : -> StringL .
+op umodelM : -> MModel .
+
+eq statesM = "media" ; "download" ; "idle" .
+
+eq markovM = 
+(
+"media" |-> ("media" |-> 0.25, "download" |-> 0.25, "idle" |-> 0.50),
+"download" |-> ("media" |-> 0.25, "download" |-> 0.25, "idle" |-> 0.50),
+"idle" |-> ("media" |-> 0.25, "download" |-> 0.25, "idle" |-> 0.50)
+) .
+
+eq waitsM =
+  "media" |-> (mean: 20.0, std: 2.0),
+  "download" |-> (mean: 20.0, std: 4.0),
+  "idle" |-> (mean: 20.0, std: 5.0)
+.
+
+eq paramsM =
+  (maxSteps: 5),
+  (stopTime: 100.0) 
+.
+
+eq umodelM = mm("masUM",statesM,markovM,waitsM,paramsM) .
+
+endm  
+
+mod UM-TEST is
+  inc UM-SCENARIO .
+  
+op umDaddr : -> Address .
+op dnsTAddr : -> Address .
+op amapD : -> Map{String,Address} .
+
+eq amapD = ("query" |-> dnsTAddr ), ("idle" |-> nullAddr) .
+
+op umDA : -> Actor .
+eq umDA = mkUMactor (umDaddr,umodelD,amapD,"idle") .
+
+op initD : -> Config .
+eq initD = {0.0 | nil} randCtr(1) umDA [1.0, (to umDaddr : next),0] .
+
+
+op umMA : -> Actor .
+op umMaddr : -> Address .
+op amapM : -> Map{String,Address} .
+
+op masTAddr : -> Address .
+eq amapM = ("media" |-> masTAddr),
+           ("download" |-> masTAddr),
+           ("idle" |-> nullAddr ) .           
+eq umMA = mkUMactor (umMaddr,umodelM,amapD,"idle") .
+
+op initM : -> Config .
+eq initM = {0.0 | nil} randCtr(1) umMA [1.0, (to umMaddr : next),0] .
+
+
+endm  
+
+mod DNSTASK-SCENARIO is
+ inc DNS-TASK .
+ 
+ op dnsTPar : -> Params .
+ 
+ op dnameDb : -> NameList .
+ eq dnameDb = ('foo . 'com . root) ('baz . 'org . root) 
+              ('bar . 'edu . root) .
+ eq dnsTPar = (
+     nameDb: dnameDb,
+     retryTO: 5.0,
+     retryMax: 2 
+ )
+.
+
+op fakeRSV : -> ActorType .
+vars i rj j : Nat .
+vars T : Float .
+vars rAddr addr : Address .
+vars name : Name .
+vars qtype : RType .
+
+
+rl[fakeRsp]:
+randCtr(rj)
+{T, to rAddr from addr : query(i,name,qtype)}
+< rAddr : fakeRSV | ctr: j > 
+=>
+< rAddr : fakeRSV | ctr: s j > 
+randCtr(s rj)
+[defaultDelay + genRandomX(rj, 0.0, 0.01), 
+ (to addr from rAddr : response(i,name,nil,nil,nil,0)),
+ 0]
+[print "FakeRsv at " T]
+.
+
+op mkFakeRSV : Address -> Actor .
+eq mkFakeRSV(rAddr) = < rAddr : fakeRSV | ctr: 0 > .
+
+endm
+
+mod TEST-DNSTASK is
+  inc DNSTASK-SCENARIO .
+  
+  eq defaultDelay = 1.5 .
+  
+  ops umDAddr dnsTAddr rsvAddr : -> Address .
+
+  op dnsTA : -> Actor .
+  eq dnsTA =  mkDnsTA(dnsTAddr,rsvAddr,dnsTPar) .
+
+  op fakeRSV : -> Actor .
+  eq fakeRSV = mkFakeRSV(rsvAddr) .
+
+endm
+
+
+mod TEST-UM-DNS is
+  inc UM-SCENARIO .
+  inc DNSTASK-SCENARIO .
+
+  eq defaultDelay = 1.5 .
+  
+  ops umDAddr dnsTAddr rsvAddr : -> Address .
+
+  op amapD : -> Map{String,Address} .
+  eq amapD = ("query" |-> dnsTAddr ), ("idle" |-> nullAddr) .
+
+  op umDA : -> Actor .
+  eq umDA = mkUMactor (umDAddr,umodelD,amapD,"idle") .
+
+  op dnsTA : -> Actor .
+  eq dnsTA =  mkDnsTA(dnsTAddr,rsvAddr,dnsTPar) .
+
+  op fakeRSV : -> Actor .
+  eq fakeRSV = mkFakeRSV(rsvAddr) .
+
+  op iC : -> Config .
+  eq iC = randCtr(1) umDA dnsTA fakeRSV {1.0,(to umDAddr : next)} .
+
+endm
+eof  
+  
+set print attribute on .
+rew iC .
+
+set print attribute on .
+rew run({1.0 | nil} iC,210.00) .
+
+
+requestTask to umDAddr at 1.0 curState "idle"
+endTask to umDAddr at 1.0 statu "noop"
+requestTask to umDAddr at 1.5644675058157139e+1 curState "query"
+DNSTask startDNSTask sends to rsvAddr from dnsTAddr : query(0, 'bar . 'edu . root, a)
+FakeRsv at 1.7151826951806854e+1
+DNSTask dnsResponse sends success to umDAddr at 1.8657275783580683e+1
+endTask to umDAddr at 1.8657275783580683e+1 statu "success"
+DNSTask dnsTOretryCancel nRetry: n 0 w4 noQuery TOQuery query(0, 'bar . 'edu . root, a)
+    at 2.0644734342618776e+1
+requestTask to umDAddr at 2.7843863011695444e+1 curState "idle"
+endTask to umDAddr at 2.7843863011695444e+1 statu "noop"
+requestTask to umDAddr at 4.17060364354763e+1 curState "query"
+DNSTask startDNSTask sends to rsvAddr from dnsTAddr : query(1, 'baz . 'org . root, a)
+FakeRsv at 4.3214479092917202e+1
+DNSTask dnsResponse sends success to umDAddr at 4.4723396822934767e+1
+endTask to umDAddr at 4.4723396822934767e+1 statu "success"
+DNSTask dnsTOretryCancel nRetry: n 0 w4 noQuery TOQuery query(1, 'baz . 'org . root, a)
+    at 4.6706107954412801e+1
+requestTask to umDAddr at 6.0253436388298226e+1 curState "query"
+DNSTask startDNSTask sends to rsvAddr from dnsTAddr : query(2, 'foo . 'com . root, a)
+FakeRsv at 6.1759464022002007e+1
+DNSTask dnsResponse sends success to umDAddr at 6.3267381272336294e+1
+endTask to umDAddr at 6.3267381272336294e+1 statu "success"
+DNSTask dnsTOretryCancel nRetry: n 0 w4 noQuery TOQuery query(2, 'foo . 'com . root, a)
+    at 6.525352081487263e+1
+
+rewrites: 652 in 0ms cpu (0ms real) (786489 rewrites/second)
+result Config: randCtr(23)
+{6.525352081487263e+1 |
+nil}
+
+< umDAddr : UM | mmodel: mm("dnsUM", "query" ; "idle", ("idle" |->
+("idle" |-> 1.4999999999999999e-1, "query" |->
+8.4999999999999998e-1), "query" |-> ("idle" |->
+3.4999999999999998e-1, "query" |-> 6.5000000000000002e-1)), ("idle"
+|-> mean: 1.5e+1, std: 5.0, "query" |-> mean: 1.5e+1, std: 2.0),
+maxSteps: 5, stopTime: 2.0e+2), curState: "idle", nsteps: 5, ready:
+true, actMap: ("idle" |-> nullAddr, "query" |-> dnsTAddr) >
+
+< dnsTAddr : DNSTask | dnsPar: (nameDb: ('foo . 'com . root 'baz .
+'org . root 'bar . 'edu . root), retryTO: 5.0, retryMax: 2), ctr: 3,
+lenNDB: 3, nRetry: 0, w4: noQuery, replyTo: nullAddr, dnsRsv:
+rsvAddr >
+
+< rsvAddr : fakeRSV | ctr: 3 >
