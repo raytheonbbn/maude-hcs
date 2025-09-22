@@ -184,6 +184,19 @@ def build_cli_parser():
         default=1
     )
     parser_scheck.add_argument(
+      '--distribute',
+      help='Distribute the computation over some machines'
+    )
+    parser_scheck.add_argument(
+      '-D',
+      action='append',
+      help='Define a constant to be used in QuaTEx expressions'
+    )
+    parser_scheck.add_argument(
+      '--dump',
+      help='Dump query evaluations into the given file',
+    )
+    parser_scheck.add_argument(
         '--format', '-f',
         help='Output format for the simulation results, default=text',
         choices=['text', 'json'],
