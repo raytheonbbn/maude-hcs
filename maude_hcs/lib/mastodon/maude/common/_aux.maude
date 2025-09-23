@@ -1,3 +1,30 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- PWNDD Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- Contract No: HR00112590083
+--- Contractor Name: RTX BBN Technologies Inc.
+--- Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
+---
+--- The U.S. Government's rights to use, modify, reproduce, release, perform,
+--- display, or disclose these technical data and software are defined in the
+--- Article VII: Data Rights clause of the OTA.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein.
+---
+--- MAUDE_HCS: end
 
 *** Load DNS aux for the types, even though this is not a DNS related actor.
 load ../../../../deps/dns_formalization/Maude/src/common/_aux
@@ -30,6 +57,49 @@ mod MASTODON_NODE is
   subsort String < Url .
   sorts UrlList .
   subsort Url < UrlList .
+
+  --- ----------
+  --- [Messages]
+  --- ----------
+  --- An HTTP request has:
+  --- A direction: GET, POST
+  ---   GETs have a type (url, statuses, media, search, timelines, etc.)
+  ---     Each type has different options
+  ---       Getting a file: url
+  ---       statuses: string of toot message
+  ---       timelines: hashtag, limit (optional)
+
+  ---   POSTs have a type (statuses, media, etc.)
+  ---     statuses: have a text, may have attachment Ids
+  ---     media: have an image
+
+
+  --- An HTTP response has:
+  ---   A status (OK, ACCEPTED, etc.)
+  ---   A json-formatted response of posts
+  ---     For POST request, post will include new media or status Id
+  ---     For GET request, post will include a list of posts with attachment urls
+  sorts HttpRequest HttpResponse .
+  sorts GetRequest PostRequest .
+
+  --- Tell Maude this is compatible with being a message.
+  subsorts HttpRequest HttpResponse < Content .
+
+  op makeHttpRequest : GetRequest Url -> HttpRequest .
+  --- Create an HTTP Request for a Hashtag search (GET).
+  op makeHttpRequest : GetRequest String -> HttpRequest .
+  op makeHttpRequest : GetRequest String Nat -> HttpRequest .
+  --- Create an HTTP Request for posting a status or a status with attachment ids (POST).
+  op makeHttpRequest : PostRequest String -> HttpRequest .
+  op makeHttpRequest : PostRequest String MasIdList -> HttpRequest .
+  --- Create an HTTP Request for posting a media (POST).
+  op makeHttpRequest : PostRequest MediaFilename -> HttpRequest .
+
+  --- TODO: Create HTTP response that is a file.
+  --- Create an HTTP Response for a Media post (returns post id).
+  op makeHttpResponse : String MasId -> HttpResponse .
+  --- Create an HTTPE Response for a Hashtag search (returns post ids, urls, etc.).
+  op makeHttpResponse : String UrlList -> HttpResponse .
 
   op emptyOpStack : -> OpStack [ctor] .
   op _:_ : OpStack OpStack -> OpStack [ctor assoc id: emptyOpStack] .
@@ -117,6 +187,7 @@ mod MASTODON_NODE is
   --- Eqs ---
   ----- For Messages -----
   op getUrlList : Toot -> UrlList .
+  *** TODO: Create module for Toots, get the right URLs.
   eq getUrlList(TOOT) = ("url0" ; "url1" ; "url2") .
 
   ----- For Client attributes -----
@@ -396,6 +467,11 @@ mod MASTODON_NODE is
   --------------------
   ---
   --------------------
+
+  --------------------
+  ---[Mastodon Server]
+  --------------------
+  --- Attributes ---
 endm
 
 mod MASTODON_TEST is
