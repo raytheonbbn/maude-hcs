@@ -89,10 +89,13 @@ mod MASTODON_NODE is
   ---     For GET request, post will include a list of posts with attachment urls
   sorts HttpMsg HttpRequest HttpResponse .
   sorts GetRequest PostRequest .
+  sorts ResponseToot .
+  sorts ResponseTootList .
 
   --- Tell Maude this is compatible with being a message.
   subsorts HttpRequest HttpResponse < Content .
-  subsorts HttpMsg < Msg .
+  subsort HttpMsg < Msg .
+  subsort ResponseToot < ResponseTootList .
 
   op postRequest  : -> PostRequest .
   op getRequest : -> GetRequest .
@@ -102,6 +105,8 @@ mod MASTODON_NODE is
     (to toAddr from fromAddr : httpRequest) .
 
   op makeHttpMsg : HttpResponse Address Address -> HttpMsg .
+  eq makeHttpMsg(httpResponse, toAddr, fromAddr) =
+    (to toAddr from fromAddr : httpResponse) .
   op makeHttpRequest : GetRequest Url -> HttpRequest .
   op makeHttpRequest : GetRequest MasId -> HttpRequest .
   --- Create an HTTP Request for a Hashtag search (GET).
@@ -113,12 +118,18 @@ mod MASTODON_NODE is
   --- Create an HTTP Request for posting a media (POST).
   op makeHttpRequest : PostRequest MediaFilename -> HttpRequest .
 
-  --- TODO: Create HTTP response that is a file.
-  --- Create an HTTP Response for a Media post (returns post id).
-  op makeHttpResponse : String MasId -> HttpResponse .
-  --- Create an HTTPE Response for a Hashtag search (returns post ids, urls, etc.).
-  op makeHttpResponse : String UrlList -> HttpResponse .
+  --- Create an HTTP Response with a file (returns the file after a get).
+  op makeHttpResponse : String MediaFilename -> HttpResponse .
+  --- Create an HTTP Response that contains a list of Toots info.
+  op makeHttpResponse : String ResponseTootList -> HttpResponse .
+  --- Response contains Post Id.
+  op makeResponseToot : MasId -> ResponseToot .
+  --- Response contains Post Id and Post text.
+  op makeResponseToot : MasId String -> ResponseToot .
+  --- Response contains Post Id, Post Text and List of Attachment urls.
+  op makeResponseToot : MasId String UrlList -> ResponseToot .
 
+  vars httpMsg HTTP_MSG : HttpMsg .
   vars httpRequest HTTP_REQUEST : HttpRequest .
   vars httpResponse HTTP_RESPONSE : HttpResponse .
 
@@ -128,6 +139,9 @@ mod MASTODON_NODE is
   op emptyMasIdList : -> MasIdList [ctor] .
   op _:_ : MasIdList MasIdList -> MasIdList [ctor assoc id: emptyMasIdList] .
   
+  op emptyResponseTootList : -> ResponseTootList [ctor] .
+  op _:_ : ResponseTootList ResponseTootList -> ResponseTootList [ctor assoc id: emptyResponseTootList] .
+
   op emptyMediaFilenameList : -> MediaFilenameList [ctor] .
   op _::_ : MediaFilenameList MediaFilenameList -> MediaFilenameList [ctor assoc id: emptyMediaFilenameList] .
 
@@ -162,7 +176,7 @@ mod MASTODON_NODE is
   eq POST-STATUS-W-MEDIA-OP = "post_status_w_media" .
   
   --- Variables ---
-  vars fromAddr toAddr MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
+  vars fromAddr toAddr FROM-ADDR TO-ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
   vars masClAttrs masClAttrsNext masClAttrsTrans msgAttrs : AttributeSet .
   vars masClAttrsMsg : AttributeSetMsgs .
   vars postId POST_ID : MasId .
@@ -174,19 +188,12 @@ mod MASTODON_NODE is
   vars currentOpStack OP_STACK : OpStack .
   vars currentOp CURRENT_OP : Op .
   vars postStatus POSTING_STATUS STATUS : Op .
+  vars responseToot RESPONSE_TOOT : ResponseToot .
+  vars responseTootList RESPONSE_TOOT_LIST : ResponseTootList .
   vars toot TOOT : Toot .
   vars hashtag HASHTAG POST_TEXT : String .
   vars mediaLocation url URL : Url .
   vars urlList urlList' URL_LIST : UrlList .
-
-  -------------
-  ---[Messages]
-  -------------
-  op replyStatus:_ : String -> Attribute [ctor] .
-  op postId:_ : MasId -> Attribute [ctor] .
-  op mediaAttachments:_ : UrlList -> Attribute [ctor] .
-  op media:_ : String -> Attribute [ctor] .
-  op toot:_ : Toot -> Attribute [ctor] .
 
   --------------------
   ---[Mastodon Client]
@@ -211,8 +218,26 @@ mod MASTODON_NODE is
   --- Eqs ---
   ----- For Messages -----
   op getUrlList : Toot -> UrlList .
-  *** TODO: Create module for Toots, get the right URLs.
-  eq getUrlList(TOOT) = ("url0" ; "url1" ; "url2") .
+
+  op getUrlList : ResponseToot -> UrlList .
+  eq getUrlList(makeResponseToot(POST_ID, POST_TEXT, URL_LIST)) = URL_LIST .
+
+  op getUrlList : ResponseTootList -> UrlList .
+  eq getUrlList(RESPONSE_TOOT : RESPONSE_TOOT_LIST) =
+    (getUrlList(RESPONSE_TOOT) ; getUrlList(RESPONSE_TOOT_LIST))
+    .
+  eq getUrlList(emptyResponseTootList) = emptyUrlList .
+
+  op getHttpResponse : HttpMsg -> HttpResponse .
+  eq getHttpResponse(makeHttpMsg(HTTP_RESPONSE, TO-ADDR, FROM-ADDR)) = HTTP_RESPONSE .
+
+  op getPostId : ResponseToot -> MasId .
+  eq getPostId(makeResponseToot(POST_ID)) = POST_ID .
+  eq getPostId(makeResponseToot(POST_ID, POST_TEXT)) = POST_ID .
+  eq getPostId(makeResponseToot(POST_ID, POST_TEXT, URL_LIST)) = POST_ID .
+
+  op getPostId : ResponseTootList -> MasId .
+  eq getPostId(RESPONSE_TOOT : RESPONSE_TOOT_LIST) = getPostId(RESPONSE_TOOT) .
 
   ----- For Client attributes -----
   op getThisAddr : AttributeSet -> Address .
@@ -357,54 +382,58 @@ mod MASTODON_NODE is
     .
 
   --- Handle a reply from the server, for a media posting request.
+  op handleReply : HttpMsg AttributeSet -> AttributeSetMsgs .
+  eq handleReply(HTTP_MSG, masClAttrs) =
+    handleReply(getHttpResponse(HTTP_MSG), masClAttrs)
+    .
+
   ---              MsgAttributes ClientAttributes
-  op handleReply : AttributeSet AttributeSet -> AttributeSetMsgs .
-  ceq handleReply((msgAttrs, replyStatus: "OK"), masClAttrs) =
-    handleMediaPostReply(msgAttrs, masClAttrs)
+  op handleReply : HttpResponse AttributeSet -> AttributeSetMsgs .
+  ceq handleReply(makeHttpResponse("OK", RESPONSE_TOOT_LIST), masClAttrs) =
+    handleMediaPostReply(getPostId(RESPONSE_TOOT_LIST), masClAttrs)
       if peekOp(masClAttrs) == POST-MEDIA-OP
     .
 
   --- Handle a reply from the server, for a status posting request.
   ---              MsgAttributes ClientAttributes
-  ceq handleReply((msgAttrs, replyStatus: "OK"), masClAttrs) =
-    {handleStatusPostReply(msgAttrs, masClAttrs), nullMsg}
+  ceq handleReply(makeHttpResponse("OK", RESPONSE_TOOT_LIST), masClAttrs) =
+    { handleStatusPostReply(getPostId(RESPONSE_TOOT_LIST), masClAttrs), nullMsg }
       if peekOp(masClAttrs) == POST-STATUS-OP
     .
 
   --- Handle a reply from the server, for a statuses by hashtag get request.
   ---              MsgAttributes ClientAttributes
-  ceq handleReply((msgAttrs, replyStatus: "OK"), masClAttrs) =
-    handleStatusGetReply(msgAttrs, popOp(masClAttrs))
+  ceq handleReply(makeHttpResponse("OK", RESPONSE_TOOT_LIST), masClAttrs) =
+    handleStatusGetReply(RESPONSE_TOOT_LIST, popOp(masClAttrs))
       if peekOp(masClAttrs) == GET-STATUS-OP
     .
 
   --- Handle a reply from the server for a get media by URL request.
   ---              MsgAttributes ClientAttributes
-  ceq handleReply((msgAttrs, replyStatus: "OK"), masClAttrs) =
-    handleMediaGetByUrl(msgAttrs, masClAttrs)
+  ceq handleReply(makeHttpResponse("OK", MEDIA_NAME), masClAttrs) =
+    handleMediaGetByUrl(MEDIA_NAME, masClAttrs)
       if peekOp(masClAttrs) == GET-MEDIA-URL-OP
     .
 
   --- Handle a reply from the server, for a get media by Id request.
   ---              MsgAttributes ClientAttributes
-  ceq handleReply((msgAttrs, replyStatus: "OK"), masClAttrs) =
-    handleMediaGetById(msgAttrs, masClAttrs)
+  ceq handleReply(makeHttpResponse("OK", RESPONSE_TOOT_LIST), masClAttrs) =
+    handleMediaGetById(getUrlList(RESPONSE_TOOT_LIST), masClAttrs)
       if peekOp(masClAttrs) == GET-MEDIA-POST-OP
     .
 
   --- Handle a Media posting reply.
   ---                       MsgAttributes ClientAttributes  ClientAttributes
-  op handleMediaPostReply : AttributeSet AttributeSet -> AttributeSetMsgs .
-  eq handleMediaPostReply((msgAttrs, postId: POST_ID), (masClAttrs, opStack: OP_STACK, postingMediaIds: masIdList)) = 
+  op handleMediaPostReply : MasId AttributeSet -> AttributeSetMsgs .
+  eq handleMediaPostReply(POST_ID, (masClAttrs, opStack: OP_STACK, postingMediaIds: masIdList)) =
     cueNextPostOp(masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: (masIdList : POST_ID))
-    . 
+    .
 
   --- Handle a Status posting reply.
   ---                       MsgAttributes ClientAttributes  ClientAttributes
-  op handleStatusPostReply : AttributeSet AttributeSet -> AttributeSet .
-  ceq handleStatusPostReply((msgAttrs, postId: POST_ID), (masClAttrs, opStack: OP_STACK, postingMediaIds: MAS_ID_LIST)) =
-    masClAttrsNext
-      if masClAttrsNext := (masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: emptyMasIdList)
+  op handleStatusPostReply : MasId AttributeSet -> AttributeSet .
+  eq handleStatusPostReply(POST_ID, (masClAttrs, opStack: OP_STACK, postingMediaIds: MAS_ID_LIST)) =
+    (masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: emptyMasIdList)
     .
     
   --- Finish handling a reply from the server.
@@ -431,13 +460,13 @@ mod MASTODON_NODE is
            fi)
     .
 
-  --- Handle a Get post.
+  --- Handle a Get response from a get toot or hashtag search.
   ---                      MsgAttributes ClientAttributes  ClientAttributes
-  op handleStatusGetReply : AttributeSet AttributeSet -> AttributeSetMsgs .
-  ceq handleStatusGetReply((msgAttrs, toot: TOOT), (masClAttrs, opStack: OP_STACK, gettingMediaUrls: URL_LIST)) =
+  op handleStatusGetReply : ResponseTootList AttributeSet -> AttributeSetMsgs .
+  ceq handleStatusGetReply(RESPONSE_TOOT_LIST, (masClAttrs, opStack: OP_STACK, gettingMediaUrls: URL_LIST)) =
     masClAttrsMsg
       if currentOp := peekOp(OP_STACK)
-        /\ (url ; urlList) := getUrlList(TOOT)
+        /\ (url ; urlList) := getUrlList(RESPONSE_TOOT_LIST)
         /\ masClAttrsMsg := 
           (if currentOp == GET-MEDIA-HASHTAG-OP
           *** If currently downloading all media related to hashtag
@@ -453,15 +482,15 @@ mod MASTODON_NODE is
 
   --- Handle a Get media in post by Url reply.
   ---                      MsgAttributes ClientAttributes  ClientAttributes
-  op handleMediaGetByUrl : AttributeSet AttributeSet -> AttributeSetMsgs .
-  eq handleMediaGetByUrl((msgAttrs, media: MEDIA_NAME), (masClAttrs, opStack: OP_STACK, gettingMediaUrls: URL_LIST, gettingMedias: mediaFilenameList)) =
+  op handleMediaGetByUrl : MediaFilename AttributeSet -> AttributeSetMsgs .
+  eq handleMediaGetByUrl(MEDIA_NAME, (masClAttrs, opStack: OP_STACK, gettingMediaUrls: URL_LIST, gettingMedias: mediaFilenameList)) =
     cueNextGetOp((masClAttrs, gettingMedias: (mediaFilenameList :: MEDIA_NAME)), opStack: popOp(OP_STACK), gettingMediaUrls: URL_LIST)
     .
 
   --- Handle a Get media in post by Id reply.
   ---                  MsgAttributes ClientAttributes  ClientAttributes
-  op handleMediaGetById : AttributeSet AttributeSet -> AttributeSetMsgs .
-  ceq handleMediaGetById((msgAttrs, mediaAttachments: urlList), (masClAttrs, opStack: OP_STACK, gettingMediaUrls: URL_LIST)) =
+  op handleMediaGetById : UrlList AttributeSet -> AttributeSetMsgs .
+  ceq handleMediaGetById(urlList, (masClAttrs, opStack: OP_STACK, gettingMediaUrls: URL_LIST)) =
     masClAttrsMsg
       if url := peekUrlList(urlList)
         /\ urlList' := popUrlList(urlList)
@@ -518,13 +547,16 @@ mod MASTODON_TEST is
 endm
 
 ---set trace on .
----red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: "img1.jpg", postingMediaIds: emptyMasIdList)) .
 ---eof
 
 *** Check the behavior of the Op stack.
 red peekOp(masClTestAttrs, opStack: POST-MEDIA-OP) == POST-MEDIA-OP .
 red peekOp(masClTestAttrs, opStack: emptyOpStack) == nilOp .
 red popMediaList(emptyMediaFilenameList) == emptyMediaFilenameList .
+
+*** Check the behavior of the responses.
+red getUrlList(makeResponseToot(88, "Post text", ("url0.com" ; "url1.com"))) == ("url0.com" ; "url1.com") .
+red getUrlList((makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com"))) : (makeResponseToot(109, "Post 109 text", ("url2.com")))) == ("url0.com" ; "url1.com" ; "url2.com") .
 
 *** Clean upload of file media.
 red uploadNewMedia((masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack), "img0.jpg")
@@ -533,7 +565,7 @@ red uploadNewMedia((masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TE
   .
 
 *** Test a media post reply (no other context).
-red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, opStack: (POST-MEDIA-OP : emptyOpStack), postingMedia: emptyMediaFilenameList, postingMediaIds: emptyMasIdList))
+red handleReply(makeHttpResponse("OK", makeResponseToot(445)), (masClTestAttrs, opStack: (POST-MEDIA-OP : emptyOpStack), postingMedia: emptyMediaFilenameList, postingMediaIds: emptyMasIdList))
   == { (masClTestAttrs, opStack: emptyOpStack, postingMedia: emptyMediaFilenameList, postingMediaIds: 445),
        nullMsg }
   .
@@ -550,7 +582,7 @@ red uploadNewStatus((masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: T
   .
 
 *** Test a clean status post reply (no other context).
-red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, postingMediaIds: (45 : 98), opStack: (POST-STATUS-OP : emptyOpStack)))
+red handleReply(makeHttpResponse("OK", makeResponseToot(445)), (masClTestAttrs, postingMediaIds: (45 : 98), opStack: (POST-STATUS-OP : emptyOpStack)))
   == { (masClTestAttrs, postingMediaIds: emptyMasIdList, opStack: emptyOpStack),
        nullMsg }
   .
@@ -562,13 +594,13 @@ red uploadNewStatusWImages((masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServer
   .
 
 *** Test a media post reply in the context of a status upload with media attachments when there is no media left to upload.
-red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: emptyMediaFilenameList, postingMediaIds: emptyMasIdList, postingText: "Toot with media"))
+red handleReply(makeHttpResponse("OK", makeResponseToot(445)), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: emptyMediaFilenameList, postingMediaIds: emptyMasIdList, postingText: "Toot with media"))
   == { (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (POST-STATUS-OP : POST-STATUS-W-MEDIA-OP), postingMedia: emptyMediaFilenameList, postingMediaIds: 445, postingText: "Toot with media"),
        (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, "Toot with media", 445)) }
   .
 
 *** Test a media post reply in the context of a status upload with media attachments when there is one media left to upload.
-red handleReply((msgTestAttrs, replyStatus: "OK", postId: 445), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: "img1.jpg", postingMediaIds: emptyMasIdList))
+red handleReply(makeHttpResponse("OK", makeResponseToot(445)), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: "img1.jpg", postingMediaIds: emptyMasIdList))
   == { (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: emptyMediaFilenameList, postingMediaIds: 445),
        (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, "img1.jpg")) }
   .
@@ -592,27 +624,28 @@ red downloadMediaAtHashtag((masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServer
   .
 
 *** Test a status get reply in the context of an all-media download via hashtag search.
-red handleReply((msgTestAttrs, replyStatus: "OK", toot: testToot), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList))
-  == { (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: ("url1" ; "url2")),
-       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(getRequest, "url0")) }
+red handleReply(makeHttpResponse("OK", makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com" ; "url2.com"))),
+                (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList))
+  == { (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: ("url1.com" ; "url2.com")),
+       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(getRequest, "url0.com")) }
   .
 
 *** Test a media get reply (from a post id).
-red handleReply((msgTestAttrs, replyStatus: "OK", mediaAttachments: ("url0" ; "url1" ; "url2")), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: GET-MEDIA-POST-OP, gettingMediaUrls: emptyUrlList))
-  == { (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-POST-OP), gettingMediaUrls: ("url1" ; "url2")),
-       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(getRequest, "url0")) }
+red handleReply(makeHttpResponse("OK", makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com" ; "url2.com"))), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: GET-MEDIA-POST-OP, gettingMediaUrls: emptyUrlList))
+  == { (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-POST-OP), gettingMediaUrls: ("url1.com" ; "url2.com")),
+       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(getRequest, "url0.com")) }
   .
 
 *** Test a media get reply (from a URL) during the process of getting all media from all posts with a certain hashtag.
 *** There is only one post with the hashtag, and only one media to retreive.
-red handleReply((msgTestAttrs, replyStatus: "OK", media: "img0.jpg"), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList, gettingMedias: emptyMediaFilenameList))
+red handleReply(makeHttpResponse("OK", "img0.jpg"), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList, gettingMedias: emptyMediaFilenameList))
   == { (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack, gettingMediaUrls: emptyUrlList, gettingMedias: "img0.jpg"),
       nullMsg }
   .
 
 *** Test a media get reply (from a URL) during the process of getting all media from all posts with a certain hashtag.
 *** There is only one post with the hashtag, and three media to retreive.
-red handleReply((msgTestAttrs, replyStatus: "OK", media: "img0.jpg"), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: ("url1" ; "url2"), gettingMedias: emptyMediaFilenameList))
+red handleReply(makeHttpResponse("OK", "img0.jpg"), (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: ("url1" ; "url2"), gettingMedias: emptyMediaFilenameList))
   == { (masClTestAttrs, masClAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: "url2", gettingMedias: "img0.jpg"),
        (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(getRequest, "url1")) }
   .
