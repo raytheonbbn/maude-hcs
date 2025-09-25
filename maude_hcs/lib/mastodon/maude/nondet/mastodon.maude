@@ -1,0 +1,68 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- PWNDD Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- Contract No: HR00112590083
+--- Contractor Name: RTX BBN Technologies Inc.
+--- Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
+---
+--- The U.S. Government's rights to use, modify, reproduce, release, perform,
+--- display, or disclose these technical data and software are defined in the
+--- Article VII: Data Rights clause of the OTA.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein.
+---
+--- MAUDE_HCS: end
+
+load ./_aux
+
+mod MASTODON is
+  inc MASAUX .
+
+  vars ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
+  vars attrs attrsNext : AttributeSet .
+  vars httpResponse : HttpResponse .
+  vars msgOut : Msg .
+  vars HASHTAG : String .
+
+  -------------------------------
+  --- [Mastodon Client] --- Rules
+  -------------------------------
+
+  --- Receive HTTP Response from server.
+  crl [mascl-receive-http-resp]:
+  < MAS_CLIENT_ADDR : MasClient | attrs >
+    (to MAS_CLIENT_ADDR from MAS_SERVER_ADDR : httpResponse)
+  => 
+  < MAS_CLIENT_ADDR : MasClient | attrsNext >
+    (if msgOut == nullMsg then null else msgOut fi)
+
+  if {attrsNext, msgOut} := handleReply(httpResponse, attrs)
+  [print "Mastodon Client handling HTTP Response from Server, sending " msgOut]
+  .
+
+  --- Receive command from Alice Raceboat to search hashtag and get all media.
+  crl [mascl-get-media-hashtag]:
+  < MAS_CLIENT_ADDR : MasClient | attrs >
+    (to MAS_CLIENT_ADDR : GetMediaHashtag(HASHTAG))
+  =>
+  < MAS_CLIENT_ADDR : MasClient | attrsNext >
+    msgOut
+
+  if {attrsNext, msgOut} := downloadMediaAtHashtag(attrs, HASHTAG)
+  [print "Mastodon Client start collecting all media associated with " HASHTAG " - send " msgOut]
+  .
+
+endm
