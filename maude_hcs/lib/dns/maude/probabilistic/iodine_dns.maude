@@ -261,11 +261,11 @@ crl [wnameserver-receive-query-weird]:
   --- send the next fragment to WNameServer.
   crl [iClientExtractFromServer]:
     < ADDR : WClient | resv: RESOLVER, wattrs >
-    < MON : WMonitor | querySent: QTL, monAttrs >
+    < MON : WMonitor | querySent: QTL, pktRcvd: PTL, monAttrs >
       {T, (to ADDR from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))}
     =>
     < ADDR : WClient | wattrsNext >       
-    < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
+    < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, pktRcvd: if msgOutExt == nullMsg then (PTL ; packetTimestamp(Pkt, T)) else PTL fi, monAttrs >
     (if msgOutExt == nullMsg 
      then [0.0, (to getFromAddr(response(ID, SNAME, ANS, AUTH, ADD, RCODE)) : start), 0]
      else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
@@ -280,6 +280,11 @@ crl [wnameserver-receive-query-weird]:
           else sendFragment(wattrsTrans, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
+      /\ Pkt := 
+          if txComplete
+            then packet(getFromAddr(response(ID, SNAME, ANS, AUTH, ADD, RCODE)), getToAddr(SNAME), getSeqNo(SNAME), 0, true)
+            else nilPacket
+          fi
       [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt]
     .
 
