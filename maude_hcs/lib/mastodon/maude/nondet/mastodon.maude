@@ -31,15 +31,29 @@ load ./_aux
 mod MASTODON is
   inc MASAUX .
 
-  vars ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
+  vars raceboatCl ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
   vars attrs attrsNext : AttributeSet .
+  vars raceboatReq : Content .
+  vars httpRequest : HttpRequest .
   vars httpResponse : HttpResponse .
-  vars msgOut : Msg .
-  vars HASHTAG : String .
+  vars MEDIA : MediaFilename .
+  vars msgIn msgOut : Msg .
+  vars TEXT HASHTAG : String .
 
   -------------------------------
   --- [Mastodon Client] --- Rules
   -------------------------------
+  
+  --- Dispatch the proper request depending on the Raceboat client command.
+  op dispatchRaceboatCommand : AttributeSet Content -> AttributeSetMsgs .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    uploadNewStatus(attrs, TEXT, emptyMasIdList)
+    if PostStatus(TEXT) := raceboatReq
+    .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    uploadNewMedia(attrs, MEDIA)
+    if PostMedia(MEDIA) := raceboatReq
+    .
 
   --- Receive HTTP Response from server.
   crl [mascl-receive-http-resp]:
@@ -48,12 +62,39 @@ mod MASTODON is
   => 
   < MAS_CLIENT_ADDR : MasClient | attrsNext >
     (if msgOut == nullMsg then null else msgOut fi)
-
   if {attrsNext, msgOut} := handleReply(httpResponse, attrs)
   [print "Mastodon Client handling HTTP Response from Server, sending " msgOut]
   .
 
-  --- Receive command from Alice Raceboat to search hashtag and get all media.
+
+  --- Receive Command from Alice.
+  crl [mascl-receive-alice-req]:
+  < MAS_CLIENT_ADDR : MasClient | attrs >
+    (to MAS_CLIENT_ADDR from raceboatCl : raceboatReq)
+  => 
+  < MAS_CLIENT_ADDR : MasClient | attrsNext >
+    msgOut
+  if { attrsNext, msgOut } := dispatchRaceboatCommand(attrs, raceboatReq)
+  [print "Mastodon Client handling command " raceboatReq " from Raceboat, sending " msgOut]
+  .  
+
+  -------------------------------
+  --- [Mastodon Server] --- Rules
+  -------------------------------
+
+  --- Receive HTTP request from the client.
+  crl [massrv-receive-http-req]:
+  < MAS_SERVER_ADDR : MasServer | attrs >
+    msgIn
+  =>
+  < MAS_SERVER_ADDR : MasServer | attrsNext >
+    (if msgOut == nullMsg then null else msgOut fi)
+
+  if { attrsNext, msgOut } := handleRequest(msgIn, attrs)
+  [print "Mastodon Server handling HTTP Request, sending " msgOut]
+  .
+
+  --- Receive command from Bob Raceboat to search hashtag and get all media.
   crl [mascl-get-media-hashtag]:
   < MAS_CLIENT_ADDR : MasClient | attrs >
     (to MAS_CLIENT_ADDR : GetMediaHashtag(HASHTAG))
@@ -66,3 +107,4 @@ mod MASTODON is
   .
 
 endm
+
