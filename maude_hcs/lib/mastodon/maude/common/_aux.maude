@@ -61,6 +61,8 @@ mod MASTODON_NODE is
   sorts AttributeSetMsgs .
   ----              serverAttrs Msgs
 
+  op makeMediaFilename : String -> MediaFilename .
+
   --- TODO: Merge with the same definition in Iodine (should probably be moved to a common .maude file)
   op nullMsg : -> Msg .
   op `{_`,_`} : AttributeSet Config -> AttributeSetMsgs [ctor] .
@@ -116,6 +118,7 @@ mod MASTODON_NODE is
   op makeHttpRequest : GetRequest String Nat -> HttpRequest .
   --- Create an HTTP Request for posting a status or a status with attachment ids (POST).
   op makeHttpRequest : PostRequest String -> HttpRequest .
+  eq makeHttpRequest(postRequest, POST_TEXT) = makeHttpRequest(postRequest, POST_TEXT, emptyMasIdList) .
   --- Create an HTTP Request for posting a status with attachment ids.
   op makeHttpRequest : PostRequest String MasIdList -> HttpRequest .
   --- Create an HTTP Request for posting a media (POST).
@@ -236,12 +239,16 @@ mod MASTODON_NODE is
   op getSrcAddr : HttpMsg -> Address .
   eq getSrcAddr(makeHttpMsg(HTTP_REQUEST, TO-ADDR, FROM-ADDR)) = FROM-ADDR .
   eq getSrcAddr(makeHttpMsg(HTTP_RESPONSE, TO-ADDR, FROM-ADDR)) = FROM-ADDR .
+  eq getSrcAddr((to TO-ADDR from FROM-ADDR : HTTP_REQUEST)) = FROM-ADDR .
+  eq getSrcAddr((to TO-ADDR from FROM-ADDR : HTTP_RESPONSE)) = FROM-ADDR .
 
   op getHttpResponse : HttpMsg -> HttpResponse .
   eq getHttpResponse(makeHttpMsg(HTTP_RESPONSE, TO-ADDR, FROM-ADDR)) = HTTP_RESPONSE .
+  eq getHttpResponse((to TO-ADDR from FROM-ADDR : HTTP_RESPONSE)) = HTTP_RESPONSE .
 
   op getHttpRequest : HttpMsg -> HttpRequest .
   eq getHttpRequest(makeHttpMsg(HTTP_REQUEST, TO-ADDR, FROM-ADDR)) = HTTP_REQUEST .
+  eq getHttpRequest((to TO-ADDR from FROM-ADDR : HTTP_REQUEST)) = HTTP_REQUEST .
 
   op getPostId : ResponseToot -> MasId .
   eq getPostId(makeResponseToot(POST_ID)) = POST_ID .
@@ -346,7 +353,7 @@ mod MASTODON_NODE is
   eq get(hashtag, LIMIT, toAddr, fromAddr) = makeHttpMsg(makeHttpRequest(getRequest, hashtag, LIMIT), toAddr, fromAddr) .
 
   ---Upload an attachment---
-  op uploadNewMedia : AttributeSet String -> AttributeSetMsgs .
+  op uploadNewMedia : AttributeSet MediaFilename -> AttributeSetMsgs .
   eq uploadNewMedia((masClAttrs, opStack: OP_STACK), MEDIA_NAME) =
     { (masClAttrs, opStack: (POST-MEDIA-OP : OP_STACK)) , 
       post(MEDIA_NAME, getMastodonServerAddr(masClAttrs), getThisAddr(masClAttrs)) }
@@ -397,6 +404,9 @@ mod MASTODON_NODE is
   op handleReply : HttpMsg AttributeSet -> AttributeSetMsgs .
   eq handleReply(HTTP_MSG, masClAttrs) =
     handleReply(getHttpResponse(HTTP_MSG), masClAttrs)
+    .
+  eq handleReply((to MAS_CLIENT_ADDR from MAS_SERVER_ADDR : HTTP_RESPONSE), masClAttrs) =
+    handleReply(HTTP_RESPONSE, masClAttrs)
     .
 
   ---              MsgAttributes ClientAttributes
@@ -551,6 +561,8 @@ mod MASTODON_NODE is
   --- This Server's address.
   op thisAddr:_ : Address -> Attribute [ctor] .
 
+  --- The last Id of the toot to have been inserted.
+  --- The next toot is inserted at the incremented Id.
   op currentMapId:_ : Nat -> Attribute [ctor] .
   op tootMap:_ : IdTootMap -> Attribute [ctor] .
 
@@ -562,6 +574,9 @@ mod MASTODON_NODE is
   vars idMediaMap ID_MEDIA_MAP : IdMediaMap .
   vars mapId CURRENT_MAP_ID : Nat .
   vars toot TOOT : Toot .
+
+  --- TODO: Need to create actual URLs.
+  op makeUrl : -> Url .
 
   ------------
   --- Toot Map
@@ -596,59 +611,77 @@ mod MASTODON_NODE is
   sorts IdMedia IdMediaMap .
   subsorts IdMedia < IdMediaMap .
 
-  op _~>_ : Nat MediaFilename -> IdMedia [ctor] .
+  op _~>(_, _) : Nat MediaFilename Url -> IdMedia [ctor] .
   op emptyIdMediaMap : -> IdMediaMap .
   op _:_ : IdMediaMap IdMediaMap -> IdMediaMap [ctor assoc comm id: emptyIdMediaMap] .
 
-  op insertMedia : IdMediaMap Nat MediaFilename -> IdMediaMap .
-  eq insertMedia(idMediaMap, CURRENT_MAP_ID, MEDIA_NAME) =
-    idMediaMap : (CURRENT_MAP_ID ~> MEDIA_NAME)
+  op insertMedia : IdMediaMap Nat MediaFilename Url -> IdMediaMap .
+  eq insertMedia(idMediaMap, CURRENT_MAP_ID, MEDIA_NAME, URL) =
+    idMediaMap : (CURRENT_MAP_ID ~> (MEDIA_NAME, URL))
     .
 
-  op insertMedia : AttributeSet MediaFilename -> AttributeSet .
-  eq insertMedia((masServerAttrs, currentMapId: mapId, mediaMap: idMediaMap), MEDIA_NAME) =
-    (masServerAttrs, currentMapId: s mapId, mediaMap: insertMedia(idMediaMap, s mapId, MEDIA_NAME))
+  op insertMedia : AttributeSet MediaFilename Url -> AttributeSet .
+  eq insertMedia((masServerAttrs, currentMapId: mapId, mediaMap: idMediaMap), MEDIA_NAME, URL) =
+    (masServerAttrs, currentMapId: s mapId, mediaMap: insertMedia(idMediaMap, s mapId, MEDIA_NAME, URL))
     .
 
-  op getMedia : IdMediaMap Nat -> MediaFilename .
-  eq getMedia((idMediaMap : (mapId ~> MEDIA_NAME)), mapId) = MEDIA_NAME .
+  op getMediaUrl : IdMediaMap Nat -> Url .
+  eq getMediaUrl((idMediaMap : (mapId ~> (MEDIA_NAME, URL))), mapId) = URL .
 
   op getUrlList : IdMediaMap MasIdList -> UrlList .
   eq getUrlList(idMediaMap, (MAS_ID_LIST : postId)) =
-    (getUrlList(idMediaMap, MAS_ID_LIST) ; getMedia(idMediaMap, postId))
+    (getUrlList(idMediaMap, MAS_ID_LIST) ; getMediaUrl(idMediaMap, postId))
     .
 
   op getUrlList : AttributeSet MasIdList -> UrlList .
   eq getUrlList((masServerAttrs, mediaMap: idMediaMap), MAS_ID_LIST) =
     getUrlList(idMediaMap, MAS_ID_LIST)
     .
+  eq getUrlList(idMediaMap, emptyMasIdList) = emptyUrlList .
 
-  --- Handle a request from the client.
+  --- Handle an HTTP Msg request from a client.
   op handleRequest : HttpMsg AttributeSet -> AttributeSetMsgs .
   eq handleRequest(HTTP_MSG, masServerAttrs) =
     handleRequest(getSrcAddr(HTTP_MSG), getHttpRequest(HTTP_MSG), masServerAttrs)
     .
 
+  eq handleRequest((to MAS_SERVER_ADDR from MAS_CLIENT_ADDR : HTTP_REQUEST), masServerAttrs) =
+    handleRequest(MAS_CLIENT_ADDR, HTTP_REQUEST, masServerAttrs)
+    .
+
+  --- Handle a request from a given address.
   op handleRequest : Address HttpRequest AttributeSet -> AttributeSetMsgs .
   eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(postRequest, POST_TEXT, MAS_ID_LIST), masServerAttrs) =
     handleStatusPostRequest(MAS_CLIENT_ADDR, POST_TEXT, MAS_ID_LIST, masServerAttrs)
     .
 
-  op handleStatusPostRequest : Address String AttributeSet -> AttributeSetMsgs .
-  ceq handleStatusPostRequest(MAS_CLIENT_ADDR, POST_TEXT, masServerAttrs) =
-    { masServerAttrsNext, httpMsg }
-    if masServerAttrsNext := insertToot(masServerAttrs, makeToot(POST_TEXT))
+  --- Handle an HTTP Msg to post a media.
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(postRequest, MEDIA_NAME), masServerAttrs) =
+    handleMediaPostRequest(MAS_CLIENT_ADDR, MEDIA_NAME, masServerAttrs)
+    .
+
+  --- Handle a request to post a media.
+  op handleMediaPostRequest : Address MediaFilename AttributeSet -> AttributeSetMsgs .
+  ceq handleMediaPostRequest(MAS_CLIENT_ADDR, MEDIA_NAME, masServerAttrs) =
+    { masServerAttrsNext, outMsg }
+    if masServerAttrsNext := insertMedia(masServerAttrs, MEDIA_NAME, makeUrl)
       /\ (masServerAttrsTrans, currentMapId: CURRENT_MAP_ID) := masServerAttrsNext
-      /\ httpMsg :=  makeHttpMsg(makeHttpResponse("OK", makeResponseToot(CURRENT_MAP_ID)), getThisAddr(masServerAttrs), MAS_CLIENT_ADDR)
+      /\ outMsg := makeHttpMsg(makeHttpResponse("OK", makeResponseToot(CURRENT_MAP_ID)), MAS_CLIENT_ADDR, getThisAddr(masServerAttrs))
+    .
+
+  --- Handle a request to Post a status.
+  op handleStatusPostRequest : Address String AttributeSet -> AttributeSetMsgs .
+  eq handleStatusPostRequest(MAS_CLIENT_ADDR, POST_TEXT, masServerAttrs) =
+    handleStatusPostRequest(MAS_CLIENT_ADDR, POST_TEXT, emptyMasIdList, masServerAttrs)
     .    
 
   op handleStatusPostRequest : Address String MasIdList AttributeSet -> AttributeSetMsgs .
   ceq handleStatusPostRequest(MAS_CLIENT_ADDR, POST_TEXT, MAS_ID_LIST, masServerAttrs) =
-    { masServerAttrsNext, httpMsg }
+    { masServerAttrsNext, outMsg }
     if urlList := getUrlList(masServerAttrs, MAS_ID_LIST)
       /\ masServerAttrsNext := insertToot(masServerAttrs, makeToot(POST_TEXT, urlList))
       /\ (masServerAttrsTrans, currentMapId: CURRENT_MAP_ID) := masServerAttrsNext
-      /\ httpMsg :=  makeHttpMsg(makeHttpResponse("OK", makeResponseToot(CURRENT_MAP_ID)), getThisAddr(masServerAttrs), MAS_CLIENT_ADDR)
+      /\ outMsg := makeHttpMsg(makeHttpResponse("OK", makeResponseToot(CURRENT_MAP_ID)), MAS_CLIENT_ADDR, getThisAddr(masServerAttrs))
     . 
 
   --- TODO: Do owize for fail
@@ -659,6 +692,7 @@ mod MASTODON_TEST is
 
   ops masClTestAttrs masServerTestAttrs : -> AttributeSet .
   ops masClTestAttrsMsg masServerTestAttrsMsg: -> AttributeSetMsgs .
+  ops TEST-HTTP-REQUEST : -> HttpRequest .
   ops TEST-TO-ADDR TEST-FROM-ADDR : -> Address .
 endm
 
@@ -671,13 +705,43 @@ red peekOp(masClTestAttrs, opStack: emptyOpStack) == nilOp .
 red popMediaList(emptyMediaFilenameList) == emptyMediaFilenameList .
 
 *** Check the behavior of the responses.
+red getThisAddr(masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, tootMap: emptyIdTootMap, mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com"))))
+  == TEST-TO-ADDR
+  .
+red getMediaUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), 88) == "url0.com" .
 red getUrlList(makeResponseToot(88, "Post text", ("url0.com" ; "url1.com"))) == ("url0.com" ; "url1.com") .
 red getUrlList((makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com"))) : (makeResponseToot(109, "Post 109 text", ("url2.com")))) == ("url0.com" ; "url1.com" ; "url2.com") .
 
+red getUrlList(((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (66 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (46 ~> (makeMediaFilename("img2.jpg"), "url2.com"))), (88 : 46))
+  == ("url0.com" ; "url2.com")
+  .
+
+red getUrlList((masServerTestAttrs, mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (66 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (46 ~> (makeMediaFilename("img2.jpg"), "url2.com")))), (88 : 46)) 
+  == ("url0.com" ; "url2.com")
+  .
+
+red getSrcAddr((to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, makeMediaFilename("img0.jpg")))) 
+  == TEST-FROM-ADDR
+  .
+
+red getSrcAddr(makeHttpMsg(makeHttpRequest(postRequest, makeMediaFilename("img0.jpg")), TEST-TO-ADDR, TEST-FROM-ADDR)) 
+  == TEST-FROM-ADDR
+  .
+
+red getHttpRequest((to TEST-TO-ADDR from TEST-FROM-ADDR : TEST-HTTP-REQUEST)) == TEST-HTTP-REQUEST .
+
+red makeHttpMsg(makeHttpResponse("OK", makeResponseToot(11)), TEST-TO-ADDR, TEST-FROM-ADDR)
+  == (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpResponse("OK", makeResponseToot(11)))
+  .
+
+red insertToot((masClTestAttrs, currentMapId: 10, tootMap: emptyIdTootMap), makeToot("This is the toot"))
+  == (masClTestAttrs, currentMapId: 11, tootMap: (11 ~> makeToot("This is the toot")))
+  .
+
 *** Clean upload of file media.
-red uploadNewMedia((masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack), "img0.jpg")
+red uploadNewMedia((masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack), makeMediaFilename("img0.jpg"))
   == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: POST-MEDIA-OP), 
-       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, "img0.jpg")) }
+       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, makeMediaFilename("img0.jpg"))) }
   .
 
 *** Test a media post reply (no other context).
@@ -704,9 +768,9 @@ red handleReply(makeHttpResponse("OK", makeResponseToot(445)), (masClTestAttrs, 
   .
 
 *** Test a status with media post.
-red uploadNewStatusWImages((masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack, postingText: "", postingMedia: emptyMediaFilenameList), "This is a new toot with image attachments", "img0.jpg")
+red uploadNewStatusWImages((masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack, postingText: "", postingMedia: emptyMediaFilenameList), "This is a new toot with image attachments", makeMediaFilename("img0.jpg"))
   == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingText: "This is a new toot with image attachments", postingMedia: emptyMediaFilenameList),
-       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, "img0.jpg")) }
+       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, makeMediaFilename("img0.jpg"))) }
   .
 
 *** Test a media post reply in the context of a status upload with media attachments when there is no media left to upload.
@@ -716,9 +780,9 @@ red handleReply(makeHttpResponse("OK", makeResponseToot(445)), (masClTestAttrs, 
   .
 
 *** Test a media post reply in the context of a status upload with media attachments when there is one media left to upload.
-red handleReply(makeHttpResponse("OK", makeResponseToot(445)), (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: "img1.jpg", postingMediaIds: emptyMasIdList))
+red handleReply(makeHttpResponse("OK", makeResponseToot(445)), (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: makeMediaFilename("img1.jpg"), postingMediaIds: emptyMasIdList))
   == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (POST-MEDIA-OP : POST-STATUS-W-MEDIA-OP), postingMedia: emptyMediaFilenameList, postingMediaIds: 445),
-       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, "img1.jpg")) }
+       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, makeMediaFilename("img1.jpg"))) }
   .
 
 *** Get a media at a given URL.
@@ -754,21 +818,45 @@ red handleReply(makeHttpResponse("OK", makeResponseToot(88, "Post 88 text", ("ur
 
 *** Test a media get reply (from a URL) during the process of getting all media from all posts with a certain hashtag.
 *** There is only one post with the hashtag, and only one media to retreive.
-red handleReply(makeHttpResponse("OK", "img0.jpg"), (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList, gettingMedias: emptyMediaFilenameList))
-  == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack, gettingMediaUrls: emptyUrlList, gettingMedias: "img0.jpg"),
+red handleReply(makeHttpResponse("OK", makeMediaFilename("img0.jpg")), (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList, gettingMedias: emptyMediaFilenameList))
+  == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack, gettingMediaUrls: emptyUrlList, gettingMedias: makeMediaFilename("img0.jpg")),
       nullMsg }
   .
 
 *** Test a media get reply (from a URL) during the process of getting all media from all posts with a certain hashtag.
 *** There is only one post with the hashtag, and three media to retreive.
-red handleReply(makeHttpResponse("OK", "img0.jpg"), (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: ("url1" ; "url2"), gettingMedias: emptyMediaFilenameList))
-  == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: "url2", gettingMedias: "img0.jpg"),
+red handleReply(makeHttpResponse("OK", makeMediaFilename("img0.jpg")), (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: ("url1" ; "url2"), gettingMedias: emptyMediaFilenameList))
+  == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: "url2", gettingMedias: makeMediaFilename("img0.jpg")),
        (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(getRequest, "url1")) }
+  .
+
+*** Test handling a media post request.
+red handleRequest(TEST-FROM-ADDR,
+                  makeHttpRequest(postRequest, makeMediaFilename("img0.jpg")),
+                  (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, mediaMap: emptyIdMediaMap))
+  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 11, mediaMap: (11 ~> (makeMediaFilename("img0.jpg"), makeUrl))),
+       (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
+  .
+
+red handleRequest((to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, makeMediaFilename("img0.jpg"))),
+                  (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, mediaMap: emptyIdMediaMap))
+  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 11, mediaMap: (11 ~> (makeMediaFilename("img0.jpg"), makeUrl))),
+       (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
+  .
+
+*** Test handling a status post (with nothing else).
+red handleRequest(TEST-FROM-ADDR,
+                  makeHttpRequest(postRequest, "A new toot with attachments"),
+                  (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, tootMap: emptyIdTootMap, mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))))
+  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 11, tootMap: (11 ~> makeToot("A new toot with attachments", emptyUrlList)), mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))),
+      (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
   .
 
 *** Test handling a status post with media Ids.
 red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(postRequest, "A new toot with attachments", (88 : 46)),
-                  (masServerTestAttrs, currentMapId: 10, tootMap: emptyIdTootMap, mediaMap: ((88 ~> "img0.jpg") : (46 ~> "img1.jpg"))))
+                  (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, tootMap: emptyIdTootMap, mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))))
+  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 11, tootMap: (11 ~> makeToot("A new toot with attachments", ("url0.com" ; "url1.com"))), mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))),
+      (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
   .
 
