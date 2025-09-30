@@ -30,31 +30,38 @@
 # PYTHON_ARGCOMPLETE_OK
 import logging
 import os
-import sys
-
-from pathlib import Path
-
 import argcomplete
 import argparse
+from pathlib import Path
 from maude_hcs.cli import handle_command
 from maude_hcs.lib import GLOBALS
 
-from Maude.attack_exploration.src.zone import Record
-
+LOG_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)s %(message)s"
+DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+TOPLEVELDIR = Path(os.path.dirname(__file__))
 logger = logging.getLogger(__name__)
 
-def init_logging(verbose):
-    _logger = logging.getLogger('maude-hcs')
-    if verbose:
-        _logger.setLevel(logging.DEBUG)
-    else:
-        _logger.setLevel(logging.INFO)
 
-    handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter("{levelname} : {message}", style='{')
-    handler.setFormatter(formatter)
-    _logger.addHandler(handler)
+def init_logging(log_dir, verbose):
+    """
+    Set logging configuration
+    """
+    # fmt = "%(asctime)s - %(levelname)s - %(message)s"
+    # dt = "%Y-%m-%d %H:%M:%S"
+    # logging.basicConfig(level=20, format=fmt, datefmt=dt)
 
+    # Ensure log directory exists
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Set up logging
+    log_file = log_dir / "maude-hcs.log"
+    logging.basicConfig(
+        filename=log_file,
+        encoding="utf-8",
+        level=logging.DEBUG if verbose else logging.INFO,
+        format=LOG_FORMAT,
+        datefmt=DATE_FORMAT,
+    )
 
 def is_valid_file(parser, arg):
     if not os.path.exists(arg):
@@ -103,6 +110,13 @@ def add_initial_data_args(parser):
 def build_cli_parser():
     parser = argparse.ArgumentParser("maude-hcs")
     parser.add_argument('--verbose', action='store_true', help='turn on logging')
+    parser.add_argument(
+        "-l",
+        dest="log_dir",
+        type=str,        
+        default="./logs",
+        help="Directory for client logs.",
+    )
     parser.add_argument('--run-args-file', dest='run_args', type=lambda x: is_valid_file(parser, x),
                         metavar='FILE', required=False, help=f'File containing all of the run arguments')
     parser.add_argument("--shadow-filename",
@@ -220,7 +234,9 @@ def main():
 
     parser = build_cli_parser()
     args = parser.parse_args()
-    init_logging(args.verbose)    
+    log_dir = os.path.join(TOPLEVELDIR, args.log_dir)
+    
+    init_logging(Path(log_dir), args.verbose)    
     
     handle_command(args.command, parser, args)
 
