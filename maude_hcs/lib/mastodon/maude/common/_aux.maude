@@ -28,12 +28,16 @@
 
 *** Load DNS aux for the types, even though this is not a DNS related actor.
 load ../../../../deps/dns_formalization/Maude/src/common/_aux
+load ./media_filename
 load ./tags
+load ./url
 
 mod MASTODON_NODE is
   pr STRING .
   pr AUX-COMMON .
+  pr MEDIA_FILENAMES .
   pr TAGS .
+  pr URLS .
 
   --- A Mastodon Toot Status or Media ID.
   sorts MasId .
@@ -41,33 +45,24 @@ mod MASTODON_NODE is
   --- A Mastodon list of MasIds.
   sorts MasIdList .
   subsort MasId < MasIdList .
-  --- A media / image file name.
-  sorts MediaFilename .
-  subsort String < MediaFilename .
-  --- A list of media file names.
-  sorts MediaFilenameList .
-  subsort MediaFilename < MediaFilenameList .
   --- A client Program Counter operation.
   sorts Op .
   subsort String < Op .
   --- A client Program Counter.
   sorts OpStack .
   subsort Op < OpStack .
-  --- A Mastodon post / status.
-  sorts Url .
-  subsort String < Url .
-  sorts UrlList .
-  subsort Url < UrlList .
 
+  --- A Toot is a post in Mastodon lexicon.  To differenciate between the object, rendered on a client,
+  --- we created ResponseToot, which is the Toot as it appears in an HTTP Response---maybe it is the same
+  --- under the cover.
+  sorts ResponseToot .
+  sorts ResponseTootList .
   ---- Used by iodine server when extracting information from Query
   sorts AttributeSetMsgs .
-  ----              serverAttrs Msgs
 
-  --- Create make functions to deconflict MediaFilename, Tag, from String.
-  op makeMediaFilename : String -> MediaFilename .
-  
   --- TODO: Merge with the same definition in Iodine (should probably be moved to a common .maude file)
   op nullMsg : -> Msg .
+  ----              serverAttrs Msgs
   op `{_`,_`} : AttributeSet Config -> AttributeSetMsgs [ctor] .
 
   --- ----------
@@ -93,11 +88,6 @@ mod MASTODON_NODE is
   ---     For GET request, post will include a list of posts with attachment urls
   sorts HttpMsg HttpRequest HttpResponse .
   sorts GetRequest PostRequest .
-  --- A Toot is a post in Mastodon lexicon.  To differenciate between the object, rendered on a client,
-  --- we created ResponseToot, which is the Toot as it appears in an HTTP Response---maybe it is the 
-  --- under the cover.
-  sorts ResponseToot .
-  sorts ResponseTootList .
 
   --- Tell Maude this is compatible with being a message.
   subsorts HttpRequest HttpResponse < Content .
@@ -156,16 +146,9 @@ mod MASTODON_NODE is
   op emptyResponseTootList : -> ResponseTootList [ctor] .
   op _:_ : ResponseTootList ResponseTootList -> ResponseTootList [ctor assoc id: emptyResponseTootList] .
 
-  op emptyMediaFilenameList : -> MediaFilenameList [ctor] .
-  op _::_ : MediaFilenameList MediaFilenameList -> MediaFilenameList [ctor assoc id: emptyMediaFilenameList] .
-
-  op emptyUrlList : -> UrlList [ctor] .
-  op _;_ : UrlList UrlList -> UrlList [ctor assoc id: emptyUrlList] .
 
   op nilOp : -> Op .
-  op nilMediaName : -> MediaFilename .
   op nilMasId : -> MasId .
-  op nilUrl : -> Url .
 
   --- Op strings ---
   op GET-STATUS-OP : -> Op .
@@ -587,17 +570,18 @@ mod MASTODON_NODE is
   vars mapId CURRENT_MAP_ID : Nat .
   vars toot TOOT : Toot .
 
-  --- TODO: Need to create actual URLs.
-  op makeUrl : -> Url .
 
   ------------
   --- Toot Map
   ------------
+
+  --- TootMap specific sorts.
   sorts Toot .
   sorts IdToot IdTootMap .
 
   subsorts IdToot < IdTootMap .
 
+  --- TootMap specific ops.
   op nilToot : -> Toot .
 
   op makeToot : -> Toot .
@@ -648,9 +632,12 @@ mod MASTODON_NODE is
   ----------------------
   --- Attachment Map ---
   ----------------------
+
+  --- MediaMap specific sorts.
   sorts IdMedia IdMediaMap .
   subsorts IdMedia < IdMediaMap .
 
+  --- MediaMap specific ops.
   op _~>(_, _) : Nat MediaFilename Url -> IdMedia [ctor] .
   op emptyIdMediaMap : -> IdMediaMap .
   op _:_ : IdMediaMap IdMediaMap -> IdMediaMap [ctor assoc comm id: emptyIdMediaMap] .
@@ -695,9 +682,12 @@ mod MASTODON_NODE is
   -------------------------
   --- Hashtag / Tag Map ---
   -------------------------
+
+  --- TagMap specific ops.
   sorts TagPostIds TagPostIdsMap .
   subsorts TagPostIds < TagPostIdsMap .
 
+  --- TagMap specific ops.
   op _~>_ : Tag MasIdList -> TagPostIds [ctor] .
   op emptyTagPostIdsMap : -> TagPostIdsMap .
   op _:_ : TagPostIdsMap TagPostIdsMap -> TagPostIdsMap [ctor assoc comm id: emptyTagPostIdsMap] .
@@ -767,7 +757,7 @@ mod MASTODON_NODE is
   op handleMediaPostRequest : Address MediaFilename AttributeSet -> AttributeSetMsgs .
   ceq handleMediaPostRequest(MAS_CLIENT_ADDR, MEDIA_NAME, masServerAttrs) =
     { masServerAttrsNext, outMsg }
-    if masServerAttrsNext := insertMedia(masServerAttrs, MEDIA_NAME, makeUrl)
+    if masServerAttrsNext := insertMedia(masServerAttrs, MEDIA_NAME, makeUrl(MEDIA_NAME))
       /\ (masServerAttrsTrans, currentMapId: CURRENT_MAP_ID) := masServerAttrsNext
       /\ outMsg := makeHttpMsg(makeHttpResponse("OK", makeResponseToot(CURRENT_MAP_ID)), MAS_CLIENT_ADDR, getThisAddr(masServerAttrs))
     .
@@ -986,13 +976,13 @@ red handleReply(makeHttpResponse("OK", makeMediaFilename("img0.jpg")), (masClTes
 red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(postRequest, makeMediaFilename("img0.jpg")),
                   (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, mediaMap: emptyIdMediaMap))
-  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 11, mediaMap: (11 ~> (makeMediaFilename("img0.jpg"), makeUrl))),
+  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 11, mediaMap: (11 ~> (makeMediaFilename("img0.jpg"), makeUrl(makeMediaFilename("img0.jpg"))))),
        (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
   .
 
 red handleRequest((to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, makeMediaFilename("img0.jpg"))),
                   (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, mediaMap: emptyIdMediaMap))
-  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 11, mediaMap: (11 ~> (makeMediaFilename("img0.jpg"), makeUrl))),
+  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 11, mediaMap: (11 ~> (makeMediaFilename("img0.jpg"), makeUrl(makeMediaFilename("img0.jpg"))))),
        (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
   .
 
