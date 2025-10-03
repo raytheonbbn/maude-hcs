@@ -28,10 +28,12 @@
 
 *** Load DNS aux for the types, even though this is not a DNS related actor.
 load ../../../../deps/dns_formalization/Maude/src/common/_aux
+load ./tags
 
 mod MASTODON_NODE is
   pr STRING .
   pr AUX-COMMON .
+  pr TAGS .
 
   --- A Mastodon Toot Status or Media ID.
   sorts MasId .
@@ -61,8 +63,9 @@ mod MASTODON_NODE is
   sorts AttributeSetMsgs .
   ----              serverAttrs Msgs
 
+  --- Create make functions to deconflict MediaFilename, Tag, from String.
   op makeMediaFilename : String -> MediaFilename .
-
+  
   --- TODO: Merge with the same definition in Iodine (should probably be moved to a common .maude file)
   op nullMsg : -> Msg .
   op `{_`,_`} : AttributeSet Config -> AttributeSetMsgs [ctor] .
@@ -114,8 +117,8 @@ mod MASTODON_NODE is
   op makeHttpRequest : GetRequest Url -> HttpRequest .
   op makeHttpRequest : GetRequest MasId -> HttpRequest .
   --- Create an HTTP Request for a Hashtag search (GET).
-  op makeHttpRequest : GetRequest String -> HttpRequest .
-  op makeHttpRequest : GetRequest String Nat -> HttpRequest .
+  op makeHttpRequest : GetRequest Tag -> HttpRequest .
+  op makeHttpRequest : GetRequest Tag Nat -> HttpRequest .
   --- Create an HTTP Request for posting a status or a status with attachment ids (POST).
   op makeHttpRequest : PostRequest String -> HttpRequest .
   eq makeHttpRequest(postRequest, POST_TEXT) = makeHttpRequest(postRequest, POST_TEXT, emptyMasIdList) .
@@ -128,12 +131,17 @@ mod MASTODON_NODE is
   op makeHttpResponse : String MediaFilename -> HttpResponse .
   --- Create an HTTP Response that contains a list of Toots info.
   op makeHttpResponse : String ResponseTootList -> HttpResponse .
-  --- Response contains Post Id.
+  --- Create an HTTP Response for errors.
+  op makeHttpResponse : String -> HttpResponse .
+  --- Response contains Post Id (for instance after a post request).
   op makeResponseToot : MasId -> ResponseToot .
   --- Response contains Post Id and Post text.
   op makeResponseToot : MasId String -> ResponseToot .
   --- Response contains Post Id, Post Text and List of Attachment urls.
   op makeResponseToot : MasId String UrlList -> ResponseToot .
+  --- Create response from Toot.
+  op makeResponseToot : MasId Toot -> ResponseToot .
+  eq makeResponseToot(postId, makeToot(POST_TEXT, URL_LIST)) = makeResponseToot(postId, POST_TEXT, URL_LIST) .
 
   vars httpMsg HTTP_MSG : HttpMsg .
   vars httpRequest HTTP_REQUEST : HttpRequest .
@@ -196,7 +204,9 @@ mod MASTODON_NODE is
   vars postStatus POSTING_STATUS STATUS : Op .
   vars responseToot RESPONSE_TOOT : ResponseToot .
   vars responseTootList RESPONSE_TOOT_LIST : ResponseTootList .
-  vars hashtag HASHTAG POST_TEXT : String .
+  vars tag_text POST_TEXT : String .
+  vars hashtag tag HASHTAG TAG : Tag .
+  vars tag_list TAG_LIST : TagList .
   vars mediaLocation url URL : Url .
   vars urlList urlList' URL_LIST : UrlList .
 
@@ -345,11 +355,11 @@ mod MASTODON_NODE is
   eq get(postId, toAddr, fromAddr) = makeHttpMsg(makeHttpRequest(getRequest, postId), toAddr, fromAddr) .
 
   --- Get all posts with hashtag.
-  op get : String Address Address -> HttpMsg .
+  op get : Tag Address Address -> HttpMsg .
   eq get(hashtag, toAddr, fromAddr) = makeHttpMsg(makeHttpRequest(getRequest, hashtag), toAddr, fromAddr) .
 
   --- Get all posts with hashtag but limit their number.
-  op get : String Nat Address Address -> HttpMsg .
+  op get : Tag Nat Address Address -> HttpMsg .
   eq get(hashtag, LIMIT, toAddr, fromAddr) = makeHttpMsg(makeHttpRequest(getRequest, hashtag, LIMIT), toAddr, fromAddr) .
 
   ---Upload an attachment---
@@ -393,8 +403,7 @@ mod MASTODON_NODE is
     .
 
   ---Download all media from posts resulting in hashtag search.
-  op downloadMediaAtHashtag : AttributeSet String -> AttributeSetMsgs .
-  --- TODO: Replace this with actually parsing the response and filling in the attachment urls to get.
+  op downloadMediaAtHashtag : AttributeSet Tag -> AttributeSetMsgs .
   eq downloadMediaAtHashtag((masClAttrs, gettingMediaUrls: URL_LIST), hashtag) =
     { pushOp((masClAttrs, gettingMediaUrls: emptyUrlList), (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP)) ,
       get(hashtag, getMastodonServerAddr(masClAttrs), getThisAddr(masClAttrs)) }
@@ -568,10 +577,13 @@ mod MASTODON_NODE is
 
   op mediaMap:_ : IdMediaMap -> Attribute [ctor] .
 
+  op tagMap:_ : TagPostIdsMap -> Attribute [ctor] .
+
   vars masServerAttrs masServerAttrsNext masServerAttrsTrans : AttributeSet .
   vars idTootMap ID_TOOT_MAP : IdTootMap .
   vars masServerResponse : HttpMsg .
   vars idMediaMap ID_MEDIA_MAP : IdMediaMap .
+  vars tagPostIdsMap TAG_POSTID_MAP : TagPostIdsMap .
   vars mapId CURRENT_MAP_ID : Nat .
   vars toot TOOT : Toot .
 
@@ -585,6 +597,8 @@ mod MASTODON_NODE is
   sorts IdToot IdTootMap .
 
   subsorts IdToot < IdTootMap .
+
+  op nilToot : -> Toot .
 
   op makeToot : -> Toot .
   op makeToot : String -> Toot .
@@ -601,8 +615,34 @@ mod MASTODON_NODE is
    .
 
   op insertToot : AttributeSet Toot -> AttributeSet .
+  ceq insertToot((masServerAttrs, currentMapId: mapId, tootMap: idTootMap, tagMap: tagPostIdsMap), TOOT) =
+    (masServerAttrs, currentMapId: s mapId, tootMap: insertToot(idTootMap, s mapId, TOOT), tagMap: insertTag(tagPostIdsMap, tag, s mapId))
+    if tag_list := $extractTag(getStatusFromToot(TOOT))
+      /\ tag := getFirst(tag_list)
+    .
   eq insertToot((masServerAttrs, currentMapId: mapId, tootMap: idTootMap), TOOT) =
     (masServerAttrs, currentMapId: s mapId, tootMap: insertToot(idTootMap, s mapId, TOOT))
+    [owise] .
+
+  op getStatusFromToot : Toot -> String .
+  eq getStatusFromToot(makeToot(POST_TEXT)) = POST_TEXT .
+  eq getStatusFromToot(makeToot(POST_TEXT, URL_LIST)) = POST_TEXT .
+
+  --- Get a toot by post id.
+  op getTootAtPostId : IdTootMap MasId -> Toot .
+  eq getTootAtPostId(idTootMap : (postId ~> TOOT), postId) = TOOT .
+  eq getTootAtPostId(idTootMap, postId) = nilToot .
+
+  --- Get all toots in a list of post ids.
+  op getTootsAtPostIds : IdTootMap MasIdList -> ResponseTootList .
+  eq getTootsAtPostIds(ID_TOOT_MAP, MAS_ID_LIST : postId) =
+    getTootsAtPostIds(ID_TOOT_MAP, MAS_ID_LIST) : makeResponseToot(postId, getTootAtPostId(ID_TOOT_MAP, postId))
+    .
+  eq getTootsAtPostIds(ID_TOOT_MAP, emptyMasIdList) = emptyResponseTootList .
+     
+  op getTootsAtPostIds : AttributeSet MasIdList -> ResponseTootList .
+  eq getTootsAtPostIds((masServerAttrs, tootMap: ID_TOOT_MAP), masIdList) =
+    getTootsAtPostIds(ID_TOOT_MAP, masIdList)
     .
 
   ----------------------
@@ -639,6 +679,56 @@ mod MASTODON_NODE is
     .
   eq getUrlList(idMediaMap, emptyMasIdList) = emptyUrlList .
 
+  --- Get an image from a URL.
+  op getMediaAtUrl : IdMediaMap Url -> MediaFilename .
+  eq getMediaAtUrl((idMediaMap : (mapId ~> (MEDIA_NAME, URL))), URL) = MEDIA_NAME .
+  eq getMediaAtUrl(idMediaMap, URL) = nilMediaName [owise] .
+
+  --- Get images from a list of URLs.
+  op getMediaAtUrlList : IdMediaMap UrlList -> MediaFilenameList .
+  eq getMediaAtUrlList(idMediaMap, (URL_LIST ; url)) =
+    getMediaAtUrlList(idMediaMap, URL_LIST) :: getMediaAtUrl(idMediaMap, url)
+    .
+  eq getMediaAtUrlList(idMediaMap, emptyUrlList) = emptyMediaFilenameList .
+
+
+  -------------------------
+  --- Hashtag / Tag Map ---
+  -------------------------
+  sorts TagPostIds TagPostIdsMap .
+  subsorts TagPostIds < TagPostIdsMap .
+
+  op _~>_ : Tag MasIdList -> TagPostIds [ctor] .
+  op emptyTagPostIdsMap : -> TagPostIdsMap .
+  op _:_ : TagPostIdsMap TagPostIdsMap -> TagPostIdsMap [ctor assoc comm id: emptyTagPostIdsMap] .
+
+  op insertTag : TagPostIdsMap Tag MasId -> TagPostIdsMap .
+  eq insertTag(tagPostIdsMap : (tag ~> MAS_ID_LIST), tag, postId) =
+    tagPostIdsMap : (tag ~> (MAS_ID_LIST : postId))
+    .
+    eq insertTag(tagPostIdsMap, nilTag, postId) = tagPostIdsMap .
+  eq insertTag(tagPostIdsMap, tag, postId) =
+    tagPostIdsMap : (tag ~> postId) [owise]
+    .
+
+  op getPostsAtHashtag : TagPostIdsMap Tag -> MasIdList .
+  eq getPostsAtHashtag(tagPostIdsMap : (tag ~> MAS_ID_LIST), tag) = MAS_ID_LIST .
+  eq getPostsAtHashtag(tagPostIdsMap, tag) = emptyMasIdList [owise] .
+
+  op getPostsAtHashtag : AttributeSet Tag -> MasIdList .
+  eq getPostsAtHashtag((masServerAttrs, tagMap: TAG_POSTID_MAP), tag) =
+    getPostsAtHashtag(TAG_POSTID_MAP, tag)
+    .
+
+  op getPostsAtHashtags : TagPostIdsMap TagList -> MasIdList .
+  eq getPostsAtHashtags(TAG_POSTID_MAP, (TAG_LIST ;; TAG)) =
+    getPostsAtHashtags(TAG_POSTID_MAP, TAG_LIST) : getPostsAtHashtag(TAG_POSTID_MAP, TAG)
+    .
+  eq getPostsAtHashtags(TAG_POSTID_MAP, emptyTagList) = emptyMasIdList .
+
+  --------------------
+  --- Server functions
+  --------------------
   --- Handle an HTTP Msg request from a client.
   op handleRequest : HttpMsg AttributeSet -> AttributeSetMsgs .
   eq handleRequest(HTTP_MSG, masServerAttrs) =
@@ -660,6 +750,19 @@ mod MASTODON_NODE is
     handleMediaPostRequest(MAS_CLIENT_ADDR, MEDIA_NAME, masServerAttrs)
     .
 
+  --- Handle an HTTP Msg to get a media.
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, URL), masServerAttrs) =
+    handleMediaGetRequest(MAS_CLIENT_ADDR, URL, masServerAttrs)
+    .
+
+  --- Handle an HTTP Msg to get a post by Id.
+  --- TODO / Not useful now.
+
+  --- Handle an HTTP Msg to search posts for a hashtag.
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, TAG), masServerAttrs) =
+    handleStatusSearchRequest(MAS_CLIENT_ADDR, TAG, masServerAttrs)
+    .
+
   --- Handle a request to post a media.
   op handleMediaPostRequest : Address MediaFilename AttributeSet -> AttributeSetMsgs .
   ceq handleMediaPostRequest(MAS_CLIENT_ADDR, MEDIA_NAME, masServerAttrs) =
@@ -675,6 +778,7 @@ mod MASTODON_NODE is
     handleStatusPostRequest(MAS_CLIENT_ADDR, POST_TEXT, emptyMasIdList, masServerAttrs)
     .    
 
+  --- Handle a request to Post a status with media Ids.
   op handleStatusPostRequest : Address String MasIdList AttributeSet -> AttributeSetMsgs .
   ceq handleStatusPostRequest(MAS_CLIENT_ADDR, POST_TEXT, MAS_ID_LIST, masServerAttrs) =
     { masServerAttrsNext, outMsg }
@@ -683,8 +787,37 @@ mod MASTODON_NODE is
       /\ (masServerAttrsTrans, currentMapId: CURRENT_MAP_ID) := masServerAttrsNext
       /\ outMsg := makeHttpMsg(makeHttpResponse("OK", makeResponseToot(CURRENT_MAP_ID)), MAS_CLIENT_ADDR, getThisAddr(masServerAttrs))
     . 
+   --- TODO: Do owize for fail
 
-  --- TODO: Do owize for fail
+  --- Handle request to get a media from a URL (immutable).
+  op handleMediaGetRequest : Address Url AttributeSet -> AttributeSetMsgs .
+  ceq handleMediaGetRequest(MAS_CLIENT_ADDR, URL, masServerAttrs) =
+    { masServerAttrs, outMsg }
+    if (masServerAttrsTrans, mediaMap: idMediaMap) := masServerAttrs 
+      /\ mediaName := getMediaAtUrl(idMediaMap, URL)
+      /\ outMsg :=
+          (if mediaName == nilMediaName
+            then makeHttpMsg(makeHttpResponse("NOT_FOUND"),
+                             MAS_CLIENT_ADDR,
+                             getThisAddr(masServerAttrs))
+            else makeHttpMsg(makeHttpResponse("OK", mediaName),
+                             MAS_CLIENT_ADDR,
+                             getThisAddr(masServerAttrs))
+          fi)
+    .
+
+  --- Handle request to search posts with a hashtag (immutable).
+  op handleStatusSearchRequest : Address Tag AttributeSet -> AttributeSetMsgs .
+  ceq handleStatusSearchRequest(MAS_CLIENT_ADDR, tag, masServerAttrs) =
+    { masServerAttrs, outMsg }
+    if masIdList := getPostsAtHashtag(masServerAttrs, tag)
+      /\ RESPONSE_TOOT_LIST := getTootsAtPostIds(masServerAttrs, masIdList)
+      /\ outMsg := makeHttpMsg(makeHttpResponse("OK", RESPONSE_TOOT_LIST),
+                               MAS_CLIENT_ADDR,
+                               getThisAddr(masServerAttrs))
+    .
+  --- TODO: Handle fail.
+
 endm
 
 mod MASTODON_TEST is
@@ -704,11 +837,13 @@ red peekOp(masClTestAttrs, opStack: POST-MEDIA-OP) == POST-MEDIA-OP .
 red peekOp(masClTestAttrs, opStack: emptyOpStack) == nilOp .
 red popMediaList(emptyMediaFilenameList) == emptyMediaFilenameList .
 
-*** Check the behavior of the responses.
-red getThisAddr(masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, tootMap: emptyIdTootMap, mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com"))))
-  == TEST-TO-ADDR
-  .
+*** Check the behavior of tables and utils.
 red getMediaUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), 88) == "url0.com" .
+red getMediaAtUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), "url0.com") == makeMediaFilename("img0.jpg") .
+red getMediaAtUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), "url1.com") == makeMediaFilename("img1.jpg") .
+red getMediaAtUrlList(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), ("url1.com" ; "url0.com"))
+  == (makeMediaFilename("img1.jpg") :: makeMediaFilename("img0.jpg"))
+  .
 red getUrlList(makeResponseToot(88, "Post text", ("url0.com" ; "url1.com"))) == ("url0.com" ; "url1.com") .
 red getUrlList((makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com"))) : (makeResponseToot(109, "Post 109 text", ("url2.com")))) == ("url0.com" ; "url1.com" ; "url2.com") .
 
@@ -720,6 +855,10 @@ red getUrlList((masServerTestAttrs, mediaMap: ((88 ~> (makeMediaFilename("img0.j
   == ("url0.com" ; "url2.com")
   .
 
+red getThisAddr(masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, tootMap: emptyIdTootMap, mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com"))))
+  == TEST-TO-ADDR
+  .
+
 red getSrcAddr((to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, makeMediaFilename("img0.jpg")))) 
   == TEST-FROM-ADDR
   .
@@ -728,6 +867,15 @@ red getSrcAddr(makeHttpMsg(makeHttpRequest(postRequest, makeMediaFilename("img0.
   == TEST-FROM-ADDR
   .
 
+red insertTag(emptyTagPostIdsMap, makeTag("Hashtag"), 20) == (makeTag("Hashtag") ~> 20) .
+red insertTag((makeTag("Hashtag") ~> 20), makeTag("Hashtag"), 30) == (makeTag("Hashtag") ~> (20 : 30)) .
+
+red getPostsAtHashtag((makeTag("Hashtag") ~> (20 : 30)), makeTag("Hashtag")) == (20 : 30) .
+red getPostsAtHashtags(((makeTag("Hashtag") ~> (20 : 30)) : (makeTag("Tag") ~> 40) : (makeTag("Hash") ~> 50)), makeTag("Hashtag") ;; makeTag("Hash"))
+  == (20 : 30 : 50)
+  .
+
+*** Check the behavior of the responses.
 red getHttpRequest((to TEST-TO-ADDR from TEST-FROM-ADDR : TEST-HTTP-REQUEST)) == TEST-HTTP-REQUEST .
 
 red makeHttpMsg(makeHttpResponse("OK", makeResponseToot(11)), TEST-TO-ADDR, TEST-FROM-ADDR)
@@ -736,6 +884,10 @@ red makeHttpMsg(makeHttpResponse("OK", makeResponseToot(11)), TEST-TO-ADDR, TEST
 
 red insertToot((masClTestAttrs, currentMapId: 10, tootMap: emptyIdTootMap), makeToot("This is the toot"))
   == (masClTestAttrs, currentMapId: 11, tootMap: (11 ~> makeToot("This is the toot")))
+  .
+
+red insertToot((masClTestAttrs, currentMapId: 10, tootMap: emptyIdTootMap, tagMap: emptyTagPostIdsMap), makeToot("This is the toot with #tag hashtag."))
+  == (masClTestAttrs, currentMapId: 11, tootMap: (11 ~> makeToot("This is the toot with #tag hashtag.")), tagMap: (makeTag("tag") ~> 11))
   .
 
 *** Clean upload of file media.
@@ -798,9 +950,9 @@ red downloadMediaAtPost((masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr
   .
 
 *** Get all media from a hashtag search.
-red downloadMediaAtHashtag((masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack, gettingMediaUrls: "url0"), "cat")
+red downloadMediaAtHashtag((masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack, gettingMediaUrls: "url0"), makeTag("cat"))
   == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList),
-       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(getRequest, "cat")) }
+       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(getRequest, makeTag("cat"))) }
   .
 
 *** Test a status get reply in the context of an all-media download via hashtag search.
@@ -858,5 +1010,35 @@ red handleRequest(TEST-FROM-ADDR,
                   (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, tootMap: emptyIdTootMap, mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))))
   == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 11, tootMap: (11 ~> makeToot("A new toot with attachments", ("url0.com" ; "url1.com"))), mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))),
       (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
+  .
+
+--- Test handling a media get request from URL -- not found.
+red handleRequest(TEST-FROM-ADDR,
+                  makeHttpRequest(getRequest, "url0.com"),
+                  (masServerTestAttrs, thisAddr: TEST-TO-ADDR, mediaMap: emptyIdMediaMap))
+  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, mediaMap: emptyIdMediaMap),
+        (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("NOT_FOUND")) }
+  .
+
+--- Test handling a media get request from URL -- found and returned.
+red handleRequest(TEST-FROM-ADDR,
+                  makeHttpRequest(getRequest, "url0.com"),
+                  (masServerTestAttrs, thisAddr: TEST-TO-ADDR, mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))))
+  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))),
+        (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeMediaFilename("img0.jpg"))) }
+  .
+
+--- Test handle a status search by hashtag.
+red handleRequest(TEST-FROM-ADDR,
+                  makeHttpRequest(getRequest, makeTag("Tag")),
+                  ((masServerTestAttrs,
+                      thisAddr: TEST-TO-ADDR,
+                      tootMap: (40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com")),
+                      tagMap: ((makeTag("Hashtag") ~> (20 : 30)) : (makeTag("Tag") ~> 40) : (makeTag("Hash") ~> 50)))))
+  == { (masServerTestAttrs,
+          thisAddr: TEST-TO-ADDR,
+          tootMap: (40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com")),
+          tagMap: ((makeTag("Hashtag") ~> (20 : 30)) : (makeTag("Tag") ~> 40) : (makeTag("Hash") ~> 50))),
+        (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(40, makeToot("Toot with hashtag #Tag", "www.catimg.com")))) }
   .
 
