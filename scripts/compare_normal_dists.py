@@ -8,6 +8,23 @@ from scipy import stats
 
 TOPLEVELDIR = Path(os.path.dirname(__file__))
 
+# --- Publication Quality Settings ---
+# Update Matplotlib's runtime configuration to increase font sizes and set colors
+plt.rcParams.update({
+    'font.size': 14,                # Default font size
+    'axes.titlesize': 16,           # Title font size
+    'axes.labelsize': 14,           # X and Y labels font size
+    'xtick.labelsize': 12,          # X tick labels font size
+    'ytick.labelsize': 12,          # Y tick labels font size
+    'legend.fontsize': 12,          # Legend font size
+    'text.color': 'black',          # Default text color
+    'axes.labelcolor': 'black',     # Axis label color
+    'xtick.color': 'black',         # X tick label color
+    'ytick.color': 'black',         # Y tick label color
+    'axes.edgecolor': 'black'       # Plot box edge color
+})
+
+
 def kl_divergence_normal(params1, params2):
     """
     Calculates the Kullback-Leibler (KL) divergence between two normal distributions.
@@ -46,34 +63,8 @@ def compare_theoretical_distributions(params1, params2, title="Comparison of Two
     """
     mean1, std1, name1 = params1
     mean2, std2, name2 = params2
-
-    # --- 1. Visualization ---
-    plt.style.use('seaborn-v0_8-whitegrid')
-    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-
-    # Determine a good range for the x-axis to see both distributions
-    x_min = min(mean1 - 4 * std1, mean2 - 4 * std2)
-    x_max = max(mean1 + 4 * std1, mean2 + 4 * std2)
-    x = np.linspace(x_min, x_max, 500)
-
-    # Calculate the PDFs
-    pdf1 = stats.norm.pdf(x, mean1, std1)
-    pdf2 = stats.norm.pdf(x, mean2, std2)
-
-    # Plot the PDFs
-    ax.plot(x, pdf1, lw=2, label=f'{name1}: N(μ={mean1}, σ={std1})', color='skyblue')
-    ax.fill_between(x, pdf1, alpha=0.2, color='skyblue')
-    ax.plot(x, pdf2, lw=2, label=f'{name2}: N(μ={mean2}, σ={std2})', color='salmon')
-    ax.fill_between(x, pdf2, alpha=0.2, color='salmon')
-
-    ax.set_title(title)
-    ax.set_xlabel('Value')
-    ax.set_ylabel('Probability Density')
-    ax.legend()
-    plt.grid(True)
-    plt.show()
-
-    # --- 2. Quantification ---
+    filename = title.replace(" ", "").replace(")", "") + ".pdf"
+    # --- 1. Quantification ---
     print("--- Quantitative Comparison ---")
     print(f"\n1. Direct Parameter Comparison:")
     print(f"   - Difference in Means (μ1 - μ2): {mean1 - mean2:.4f}")
@@ -90,8 +81,40 @@ def compare_theoretical_distributions(params1, params2, title="Comparison of Two
         print(f"   - KL(Dist 2 || Dist 1): {kl_2_to_1:.4f}")
         print("   Note: KL Divergence is not symmetric. A value of 0 means the distributions are identical.")
 
+        title += "\n"
+        title += f"(μ_{name1} - μ_{name2}): {mean1 - mean2:.4f}, (σ_{name1} - σ_{name2}): {std1 - std2:.4f}\n"
+        title += f"KL({name1} || {name2}): {kl_1_to_2:.4f},  KL({name2} || {name1}): {kl_2_to_1:.4f}"
+
     except ValueError as e:
-        print(f"\nCould not calculate KL Divergence: {e}")
+        print(f"\nCould not calculate KL Divergence: {e}")    
+
+    # --- 2. Visualization ---
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+
+    # Determine a good range for the x-axis to see both distributions
+    x_min = min(mean1 - 4 * std1, mean2 - 4 * std2)
+    x_max = max(mean1 + 4 * std1, mean2 + 4 * std2)
+    x = np.linspace(x_min, x_max, 500)
+    # Calculate the PDFs
+    pdf1 = stats.norm.pdf(x, mean1, std1)
+    pdf2 = stats.norm.pdf(x, mean2, std2)
+
+    # Plot the PDFs
+    ax.plot(x, pdf1, lw=2, label=f'{name1}: N(μ={mean1}, σ={std1})', color='skyblue')
+    ax.fill_between(x, pdf1, alpha=0.2, color='skyblue')
+    ax.plot(x, pdf2, lw=2, label=f'{name2}: N(μ={mean2}, σ={std2})', color='salmon')
+    ax.fill_between(x, pdf2, alpha=0.2, color='salmon')
+
+    ax.set_title(title)    
+    ax.set_xlabel('Value')
+    ax.set_ylabel('Probability Density')
+    ax.legend()
+    plt.grid(True)
+    #plt.show()
+    plt.savefig(Path(f"{filename}"))
+
+    
 
 def compare_normal_distributions(sample1, sample2):
     """
@@ -303,9 +326,110 @@ def main():
         print(f'Means different?={means_different}, Std different?={std_different}')
 
 
+def compare_deviation_baseline():
+    scenarios = {}
+    scenarios["case1"] = {}
+    scenarios["case2"] = {}
+    scenarios["case3"] = {}
+    scenarios["case4"] = {}
+    scenarios["case5"] = {}
+    
+    scenarios["case1"]["Exp"] = (0.023, 0.002)
+    scenarios["case1"]["SMC"] = (0.020, 0.000)
+
+    scenarios["case2"]["Exp"] = (0.677, 0.823)
+    scenarios["case2"]["SMC"] = (0.567, 0.617)
+
+    scenarios["case3"]["Exp"] = (0.331, 0.520)
+    scenarios["case3"]["SMC"] = (0.294,0.424)
+
+    scenarios["case4"]["Exp"] = (0.241, 0.420)
+    scenarios["case4"]["SMC"] = (0.223,0.376)
+
+    scenarios["case5"]["Exp"] = (0.228, 0.355)
+    scenarios["case5"]["SMC"] = (0.217,0.285)
+
+
+    for scenario in scenarios:
+        dist1_params = scenarios[scenario]['Exp'] + (f'Exp',)
+        dist2_params = scenarios[scenario]['SMC'] + (f'SMC',)
+
+        title = f"Comparing {scenario} distributions {dist1_params[2]} with {dist2_params[2]})"
+        print(title)
+        print("="*80)
+        compare_theoretical_distributions(dist1_params, dist2_params, title)
+
+def compare_deviation_hcs_base():
+    scenarios = {}
+    scenarios["case1"] = {}
+    scenarios["case2"] = {}
+    scenarios["case3"] = {}
+    scenarios["case4"] = {}
+    scenarios["case5"] = {}
+    
+    scenarios["case1"]["Exp"] = (0.0427, 0.00044)
+    scenarios["case1"]["SMC"] = (0.040, 0.000)
+
+    scenarios["case2"]["Exp"] = (0.560, 0.540)
+    scenarios["case2"]["SMC"] = (0.594, 0.624)
+
+    scenarios["case3"]["Exp"] = (0.280, 0.346)
+    scenarios["case3"]["SMC"] = (0.312,0.421)
+
+    scenarios["case4"]["Exp"] = (0.235, 0.336)
+    scenarios["case4"]["SMC"] = (0.245,0.379)
+
+    scenarios["case5"]["Exp"] = (0.255, 0.309)
+    scenarios["case5"]["SMC"] = (0.246,0.298)
+
+
+    for scenario in scenarios:
+        dist1_params = scenarios[scenario]['Exp'] + (f'Exp',)
+        dist2_params = scenarios[scenario]['SMC'] + (f'SMC',)
+
+        title = f"Comparing {scenario} distributions {dist1_params[2]} with {dist2_params[2]})"
+        print(title)
+        print("="*80)
+        compare_theoretical_distributions(dist1_params, dist2_params, title)
+
+
+def compare_deviation_hcs_base_fixedN():
+    scenarios = {}
+    scenarios["case1"] = {}
+    scenarios["case2"] = {}
+    scenarios["case3"] = {}
+    scenarios["case4"] = {}
+    scenarios["case5"] = {}
+    
+    scenarios["case1"]["Exp"] = (0.0427, 0.00044)
+    scenarios["case1"]["SMC"] = (0.040, 0.000)
+
+    scenarios["case2"]["Exp"] = (0.560, 0.540)
+    scenarios["case2"]["SMC"] = (0.594, 0.624)
+
+    scenarios["case3"]["Exp"] = (0.280, 0.346)
+    scenarios["case3"]["SMC"] = (0.312,0.421)
+
+    scenarios["case4"]["Exp"] = (0.235, 0.336)
+    scenarios["case4"]["SMC"] = (0.245,0.379)
+
+    scenarios["case5"]["Exp"] = (0.255, 0.309)
+    scenarios["case5"]["SMC"] = (0.246,0.298)
+
+
+    for scenario in scenarios:
+        dist1_params = scenarios[scenario]['Exp'] + (f'Exp',)
+        dist2_params = scenarios[scenario]['SMC'] + (f'SMC',)
+
+        title = f"Comparing {scenario} distributions {dist1_params[2]} with {dist2_params[2]})"
+        print(title)
+        print("="*80)
+        compare_theoretical_distributions(dist1_params, dist2_params, title)
+
 if __name__ == '__main__':
-    main()
-    exit(0)
+    # main()
+    # exit(0)
+
     # # Set the seed for reproducibility.
     # np.random.seed(42)
 
@@ -357,16 +481,23 @@ if __name__ == '__main__':
     # ==============
     # Define the parameters for two normal distributions
     # Format: (mean, standard_deviation)
-    dist1_params = (100, 15, 'T&E')
-    dist2_params = (115, 20, 'Maude-HCS SMC')
+    # dist1_params = (100, 15, 'T&E')
+    # dist2_params = (115, 20, 'Maude-HCS SMC')
 
-    print(f"Comparing Distribution 1 (μ={dist1_params[0]}, σ={dist1_params[1]}) with Distribution 2 (μ={dist2_params[0]}, σ={dist2_params[1]})")
-    print("="*80)
-    compare_theoretical_distributions(dist1_params, dist2_params)
+    # print(f"Comparing Distribution 1 (μ={dist1_params[0]}, σ={dist1_params[1]}) with Distribution 2 (μ={dist2_params[0]}, σ={dist2_params[1]})")
+    # print("="*80)
+    # compare_theoretical_distributions(dist1_params, dist2_params)
 
-    print("\n\n--- Comparing two identical distributions ---")
-    dist3_params = (90, 10, 'T&E')
-    dist4_params = (90, 10, 'Maude-HCS SMC')
-    print(f"Comparing Distribution 3 (μ={dist3_params[0]}, σ={dist3_params[1]}) with Distribution 4 (μ={dist4_params[0]}, σ={dist4_params[1]})")
-    print("="*80)
-    compare_theoretical_distributions(dist3_params, dist4_params)
+    # print("\n\n--- Comparing two identical distributions ---")
+    # dist3_params = (90, 10, 'T&E')
+    # dist4_params = (90, 10, 'Maude-HCS SMC')
+    # print(f"Comparing Distribution 3 (μ={dist3_params[0]}, σ={dist3_params[1]}) with Distribution 4 (μ={dist4_params[0]}, σ={dist4_params[1]})")
+    # print("="*80)
+    # compare_theoretical_distributions(dist3_params, dist4_params)
+
+    # Compares two distributions: baseline UNS send single packet 
+    #compare_deviation_baseline()
+
+    # Compares two distributions: base HCS send single packet (Iodine)
+    compare_deviation_hcs_base()
+

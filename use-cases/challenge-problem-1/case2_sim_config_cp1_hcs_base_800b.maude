@@ -13,18 +13,16 @@ inc IODINE_DNS + PACED-CLIENT + TEST-HELPERS .
 
 eq monitorQueryLog? = true .
 
-eq fileSize = 10000 .
-eq packetSize = 871 .
+eq fileSize = 800 .
+eq packetSize = 100 .
 eq packetOverhead = 33 .
 eq maxMinimiseCount = 0 .
-eq maxFragmentLen = 200 .
+eq maxFragmentLen = 74 .
 eq maxFragmentTx = 20 .
-eq maxPacketSize = 1097 .
+eq maxPacketSize = 100 .
 eq pacingTimeoutDelay = 0.01 .
-eq pacingTimeoutDelayMax = 0.05 .
+eq pacingTimeoutDelayMax = 0.01 .
 eq ackTimeoutDelay = 1.0 .
---- treat wdns server as normal server
-eq lastFragDelay = 0.0 .
 
 --- Actor addresses
 ops Alice Bob application-client application-server dnsperf internet-dns local-dns mAddr monAddr public-dns root-dns tld-dns : -> Address .
@@ -34,6 +32,22 @@ op sb : -> ZoneState .
 eq sb = < root ('a . 'root-servers . 'net . root |-> root-dns) > .
 
 --- Zone files
+op zoneInternetCom : -> List{Record} .
+eq zoneInternetCom =
+  < 'internet . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
+  < 'ns . 'internet . 'com . root, a, 3600.0, internet-dns >
+  < 'tmp0 . 'internet . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >
+  < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1 . 1 . 2 > .
+
+op zonePwndCom : -> List{Record} .
+eq zonePwndCom =
+  < 'pwnd . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
+  < 'ns . 'pwnd . 'com . root, a, 3600.0, application-server >
+  < 'tmp0 . 'pwnd . 'com . root, a, 0.0, 2 . 0 . 1 . 2 >
+  < wildcard . 'pwnd . 'com . root, a, 0.0, 2 . 1 . 1 . 2 > .
+
 op zoneCom : -> List{Record} .
 eq zoneCom =
   < 'com . root, soa, 3600.0, soaData(3600.0) >
@@ -53,22 +67,6 @@ eq zoneCorporateCom =
   < 'ns . 'corporate . 'com . root, a, 3600.0, local-dns >
   < 'tmp0 . 'corporate . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
   < wildcard . 'corporate . 'com . root, a, 0.0, 3 . 1 . 1 . 2 > .
-
-op zonePwndCom : -> List{Record} .
-eq zonePwndCom =
-  < 'pwnd . 'com . root, soa, 3600.0, soaData(3600.0) >
-  < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
-  < 'ns . 'pwnd . 'com . root, a, 3600.0, application-server >
-  < 'tmp0 . 'pwnd . 'com . root, a, 0.0, 2 . 0 . 1 . 2 >
-  < wildcard . 'pwnd . 'com . root, a, 0.0, 2 . 1 . 1 . 2 > .
-
-op zoneInternetCom : -> List{Record} .
-eq zoneInternetCom =
-  < 'internet . 'com . root, soa, 3600.0, soaData(3600.0) >
-  < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
-  < 'ns . 'internet . 'com . root, a, 3600.0, internet-dns >
-  < 'tmp0 . 'internet . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >
-  < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1 . 1 . 2 > .
 
 op zone : -> List{Record} .
 eq zone =
@@ -153,8 +151,8 @@ eq initState =
   < Alice : SendApp |
     fileDestAddr: Bob,
     toAddr: (application-client),
-    queuePopulated: true,
-    queue: (packet(Alice, Bob, 0, 1, true)),
+    queuePopulated: false,
+    queue: (mtpl),
     numAdmittedPkts: 1,
     wclientReady: true,
     sent: mtpl > 
@@ -189,11 +187,11 @@ eq LinkType-1 =
   (delayStd: 0.),
   (delayType: "Constant"),
   (delayMean: 0.),
-  (delayConst: 0.005),
+  (delayConst: 0.048),
   (noiseMin: 0.),
   (noiseMax: 0.00001),
-  (dropP: 0.),
-  (canDrop: false)
+  (dropP: 0.095),
+  (canDrop: true)
   .
 
 op LinkType-2 : -> AttributeSet .
@@ -220,14 +218,26 @@ eq LinkType-3 =
   (canDrop: false)
   .
 
+op LinkType-4 : -> AttributeSet .
+eq LinkType-4 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.049),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.098),
+  (canDrop: true)
+  .
+
 eq LinkData =
   aaa(local-dns,application-client,LinkType-0)
   aaa(local-dns,dnsperf,LinkType-0)
   aaa(public-dns,local-dns,LinkType-1)
-  aaa(public-dns,application-server,LinkType-1)
   aaa(public-dns,root-dns,LinkType-2)
   aaa(public-dns,tld-dns,LinkType-2)
   aaa(public-dns,internet-dns,LinkType-3)
+  aaa(public-dns,application-server,LinkType-4)
 .
 
 op initConfig : -> Config .
