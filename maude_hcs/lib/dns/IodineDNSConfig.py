@@ -28,7 +28,7 @@
 
 from Maude.attack_exploration.src.conversion_utils import address_to_maude
 from .DNSConfig import DNSConfig
-from .iodineActors import IodineServer, SendApp, PacedClient
+from .iodineActors import IodineServer, SendApp, PacedClient, ReceiveApp
 
 class IodineDNSConfig(DNSConfig):
     def __init__(self, monitor, applications, weird_networks, clients, paced_clients, resolvers, nameservers, root_nameservers, network) -> None:
@@ -85,6 +85,8 @@ class IodineDNSConfig(DNSConfig):
             for app in self.applications:
                 if isinstance(app, SendApp) and app.start >= 0:
                     res += f'  [{str(app.start)}, (to {address_to_maude(app.address)} : start), 0] \n'
+                if isinstance(app, ReceiveApp): # TODO: testing for Bob also add start messages for RecvApp
+                    res += f'  [1.0, (to {address_to_maude(app.address)} : start), 0] \n'
         elif self.model_type == 'nondet':
             res += '  --- App start messages\n'
             for app in self.applications:

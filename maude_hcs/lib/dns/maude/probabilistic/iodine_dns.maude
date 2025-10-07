@@ -59,9 +59,12 @@ mod IODINE_DNS is
   vars MON : Address .
   vars FRAGMENT sentFragment : Fragment .
   vars ALICEREADY WCLIENTREADY : Bool .
+  vars BOBREADY WNAMESERVERREADY : Bool .
   var N : Nat .
   vars FILE_SIZE MIN_PKT_SIZE MAX_PKT_SIZE PKT_COUNTER PktSize : Nat .
   var FILE : ByteSeq .
+  var sTTL : Float .
+  var F : Fragment .
 
   op fileSize : -> Nat .
   op packetSize : -> Nat .
@@ -71,9 +74,26 @@ mod IODINE_DNS is
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
   --------------------------------
 
+crl [iServerEmbedding]:
+  < ADDR : WNameserver | wattrs >
+  ---- TODO: Embed monitor behavior
+  {T, (to ADDR from BOB : Pkt)}
+  =>
+  < ADDR : WNameserver | wattrsNext >
+  --- TODO: Delays were copied from WClient, check if still applicable here
+  ---[delayParamd(msgOut), msgOut, dropParamd(msgOut)]
+
+  --- TODO: Also copied these conditions from WClient, check if this makes sense for Iodine Server
+  if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
+      --- Server doesn't send, just fragment the current packet and queue it
+      /\ wattrsNext := handleNewPacket(wattrs, Pkt, maxFragmentLen)
+    [print "(" T ") iServerEmbedding get pkt " Pkt ", making list of fragments"]
+    .
+
 ----  receivs DNS query with standard name
 ----  passthrough
 ----  TODO: merge into single rule below 
+----  TODO: If Bob has data in queue, it needs to load those into WNameerver, 
 crl [wnameserver-receive-query-passthru]:
   < ADDR : WNameserver | wattrs,  
           conf: (wrappedNS)
@@ -128,7 +148,9 @@ crl [wnameserver-receive-query-weird]:
           conf: (wrappedNS) 
   >
   < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
+  --- Message back to Alice
   (if isLastFrag then [lastFragDelay + delayParamd(msgOut), msgOut, dropParamd(msgOut)] else [delayParamd(msgOut), msgOut, dropParamd(msgOut)] fi)
+  --- The message to send to Bob if packet is fully assembled
   (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 1 and step 2
@@ -144,8 +166,74 @@ crl [wnameserver-receive-query-weird]:
   ---------------------------------------
   --- [Receive App] --- Bob
   ---------------------------------------
-  crl [receive-app-rcv-packet]:
-    < ADDR : RcvApp | appAttrs >
+  --- TODO: Bob should have a queue of packets to send back to Alice (from a downstream-bound file)
+  --- TODO: Bob needs to know if it's currently sending a packet. If not then fragment the next packet
+  --- TODO: Bob queues up files like Alice does at the start
+
+  --- TODO: This could be done cleaner if you combine this with packetizeProb 
+  op packetizeBob : AttributeSet Address Address Nat Nat Nat -> AttributeSet .
+  ceq packetizeBob((appAttrs, queue: PACKET_LIST), BOB, ALICE, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE) = appAttrs1
+    if PACKETS' := $packetizeBob(mtpl, BOB, ALICE, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, 0) 
+    /\ appAttrs1 := (appAttrs, queue: PACKETS')
+  .
+
+  ---             CurrentPktList Src   Dest   FileSize Min Max Counter
+  op $packetizeBob : PacketList Address Address Nat Nat Nat Nat -> PacketList .
+  ceq $packetizeBob(PACKET_LIST, BOB, ALICE, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, PKT_COUNTER) = PACKETS
+    if PktSize := floor(MIN_PKT_SIZE + (MAX_PKT_SIZE + (- MIN_PKT_SIZE)) * (random(PKT_COUNTER) / 4294967296))
+      /\ PACKETS :=
+        (if FILE_SIZE > PktSize
+         then
+           $packetizeBob(PACKET_LIST ; packet(BOB, ALICE, PKT_COUNTER, PktSize + packetOverhead, false), BOB, ALICE, FILE_SIZE + (- PktSize), MIN_PKT_SIZE, MAX_PKT_SIZE, s PKT_COUNTER)
+         else
+           (PACKET_LIST ; packet(BOB, ALICE, PKT_COUNTER, FILE_SIZE + packetOverhead, true))
+         fi)
+    .
+
+  --- If Bob has been told to start (by the W name server), packetize its outgoing file 
+  crl [receive-app-send-packet]:
+    < BOB : RcvApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet, wnameserverReady: WNAMESERVERREADY >
+    {T, (to BOB : start)}
+  => 
+    < BOB : RcvApp | appAttrsNext > 
+    --- If going to, send packets to WNameServer
+    (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
+    --- Set pacing timeout for Bob (?) TODO: Check if this is the case
+    (if msgOut == nullMsg then null else [sampleUniform(pacingTimeoutDelay, pacingTimeoutDelayMax), (to BOB : pktTimeout(getPkt(msgOut))), 0] fi)
+    if appAttrsTrans := (if queueSet == true
+                     then (appAttrs, fileDestAddr: ADDR)
+                     else (packetizeBob(appAttrs, BOB, ADDR, fileSize, packetSize, maxPacketSize), fileDestAddr: ADDR)
+                     fi)
+     *** The queue is populated and wnameserver is presumed ready since it sent a start
+    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, wnameserverReady: true)
+    /\ {appAttrsNext, msgOut} := 
+        if getNumAdmittedPkts(appAttrs1) > 0
+          --- If packets are ready to send to WNameServer, do it
+          then sendPktBob(appAttrs1, BOB)
+          --- Otherwise, wait
+          else {appAttrs1, nullMsg}
+        fi
+        [print "(" T ") RcvApp start or nudge from wserver, send possible pkt " msgOut ", setting timeout if not null.  Has packets to send " appAttrsNext]
+.
+
+  crl [receive-app-pkt-timeout]:
+    < BOB : RcvApp | appAttrs, numAdmittedPkts: N >
+    {T, (to BOB : pktTimeout(Pkt'))}
+  =>
+    < BOB : RcvApp | appAttrsNext >
+    (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
+    (if msgOut == nullMsg then null else [sampleUniform(pacingTimeoutDelay, pacingTimeoutDelayMax), (to BOB : pktTimeout(getPkt(msgOut))), 0] fi)
+    if appAttrs1 := (appAttrs, numAdmittedPkts: s N)
+      /\ {appAttrsNext, msgOut} :=
+        if isWNameServerReady(appAttrs1)
+          then sendPktBob(appAttrs1, BOB)
+          else {appAttrs1, nullMsg}
+        fi
+        [print "(" T ") RcvApp timeout, send possible msg " msgOut ", setting timeout if not null"]
+  .
+
+  rl [receive-app-rcv-packet]:
+    < ADDR : RcvApp | rcvd: PACKETS, appAttrs >
     < MON : WMonitor | pktRcvd: PTL, monAttrs >
     {T, (to ADDR from ADDR1 : Pkt)}
   => 
@@ -284,27 +372,29 @@ crl [wnameserver-receive-query-weird]:
   --- If the packet transmission is incomplete 
   --- send the next fragment to WNameServer.
   crl [iClientExtractFromServer]:
-    < ADDR : WClient | resv: RESOLVER, wattrs >
+    < ADDR : WClient | resv: RESOLVER, pendingFragments: FRAGMENT_LIST, wattrs >
     < MON : WMonitor | querySent: QTL, monAttrs >
-      {T, (to ADDR from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))}
+      {T, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME, QTYPE, sTTL, NAME >, AUTH, ADD, RCODE))}
     =>
     < ADDR : WClient | wattrsNext >       
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
     (if msgOutExt == nullMsg 
-     then [0.0, (to getFromAddr(response(ID, SNAME, ANS, AUTH, ADD, RCODE)) : start), 0]
+     then [0.0, (to getFromAddr(response(ID, SNAME, < SNAME, QTYPE, sTTL, NAME >, AUTH, ADD, RCODE)) : start), 0]
      else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
     (if msgOutExt == nullMsg then 
      null 
      else [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
-    if wattrsTrans := extract((resv: RESOLVER, wattrs), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
+    if wattrsTrans := extract((resv: RESOLVER, wattrs), response(ID, SNAME, < SNAME, QTYPE, sTTL, NAME >, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
+      /\ nm(F) := NAME
       /\ {wattrsNext, msgOutExt} :=
         if txComplete
-          then {wattrsTrans, nullMsg}
-          else sendFragment(wattrsTrans, ADDR)
+          then {(pendingFragments: (if F == nilFragment then FRAGMENT_LIST else (FRAGMENT_LIST : F) fi), wattrsTrans), nullMsg}
+          else sendFragment((pendingFragments: (FRAGMENT_LIST : F), wattrsTrans), ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
-      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt]
+      --- TODO remove printout when done debugging
+      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt " got something weird " F]
     .
 
   --- Handle a response from the resolver to WClient that is for a past Fragment.
