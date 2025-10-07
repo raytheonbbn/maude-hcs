@@ -252,6 +252,7 @@ mod IODINE_NODE is
   var msg msgIn msgOut : Msg .
   var NAME NAME1 : Name .
   var F : Fragment .
+  var F' : Fragment .
   var ADDR ADDR1 AliceAddr BobAddr RESOLVER : Address .
   var ID : Id .
   var QTYPE : RType .
@@ -270,7 +271,9 @@ mod IODINE_NODE is
   var MIdAddr MIdAddr1 : MapIdAddr .
   var IdA IdA1 : IdAddr .
   vars ALICEREADY WCLIENTREADY : Bool .
+  vars BOBREADY WNAMESERVERREADY : Bool .
   vars FILE_SIZE PKT_SIZE PKT_COUNTER PktSize : Nat .
+  var downstreamdata : RData .
   var sTTL : Float .
 
 --------  Nesting/Meta configuration  attribute
@@ -325,6 +328,15 @@ mod IODINE_NODE is
   .
   eq sendPkt(Attrs, AliceAddr) = {Attrs, nullMsg} [owise] .
 
+  --- TODO: Consolidate this with the above op, duplicated for test only
+  op sendPktBob : AttributeSet Address -> AttributeSetMsgs .
+  ceq sendPktBob((Attrs, toAddr: ADDR, queue: (PACKET ; PACKET_LIST), sent: PACKET_LIST', numAdmittedPkts: N, wnameserverReady: WNAMESERVERREADY), BobAddr)  =
+    {Attrs3, msgOut}
+    if Attrs3 := (Attrs, toAddr: ADDR, queue: PACKET_LIST, sent: (PACKET ; PACKET_LIST'), numAdmittedPkts: if N > 0 then sd(N,1) else 0 fi, wnameserverReady: false)
+      /\ msgOut := (to ADDR from BobAddr : PACKET)
+  .
+  eq sendPktBob(Attrs, AliceAddr) = {Attrs, nullMsg} [owise] .
+
   ---            Attributes   Src     Dest  FileSize PacketSize
   op packetize : AttributeSet Address Address Nat Nat -> AttributeSet .
   eq packetize((Attrs, queue: PACKET_LIST), AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE) = (Attrs, queue: $packetize(mtpl, AliceAddr, BobAddr, FILE_SIZE, PKT_SIZE, 0))
@@ -347,6 +359,19 @@ mod IODINE_NODE is
   --------------------------------
   op RcvApp : -> ActorType [ctor] .
   op rcvd:_ : PacketList  -> Attribute [ctor] .
+  op fileDestAddr:_ : Address -> Attribute [ctor] .
+  --- who to send to? (the iodine client)
+  op toAddr:_ : Address -> Attribute [ctor] .
+  --- bool indicating queue is ready (set to false if pre-populating queue).
+  op queuePopulated:_ : Bool -> Attribute [ctor] .
+  ---- packets to send
+  op queue:_ : PacketList -> Attribute [ctor] . 
+  ---- packets sent
+  op sent:_ : PacketList -> Attribute [ctor] .
+  --- bool indicating pacing interval passed
+  op numAdmittedPkts:_ : Nat -> Attribute [ctor] .
+  --- bool indicating wclient ready
+  op wnameserverReady:_ : Bool -> Attribute [ctor] .
 
   **** constructor for making receiver app actor
   op mkRcvApp : Address  -> Actor [ctor] .  
@@ -384,6 +409,9 @@ mod IODINE_NODE is
   op weirdQType:_ : RType -> Attribute [ctor] .  
   --- MAP from query id to app address to track where to send responses
   op appAddrMap:_ : MapIdAddr -> Attribute [ctor] .
+
+  op pendingFragments:_ : FragmentList -> Attribute [ctor] .
+
   --- The maximum fragment length (or fragment size).
   op maxFragmentLen : -> Nat .
   --- The maximum number of fragment transmission tries.
@@ -515,6 +543,12 @@ mod IODINE_NODE is
   op lastFragment:_ : Bool -> Attribute [ctor] .
   op severWResponseTTL:_ : Float -> Attribute [ctor] .
 
+  op fragments:_ : FragmentList -> Attribute [ctor] .  
+  --- Looks obsolete.  TODO: Remove?
+  op fragmentsSize:_ : Nat -> Attribute [ctor] .
+  op currFragment:_ : Nat -> Attribute [ctor] .
+  --- number of retransmissions of current fragment
+  op numAttempts:_ : Nat -> Attribute [ctor] . 
 
   --- op qRcd:_ : Config ->  Attribute [ctor] .  --- msgConf
        --- query msg pending response
@@ -536,11 +570,14 @@ mod IODINE_NODE is
   eq isWeird(wattrs, msg) = false [owise] .
  
 
+  op isWNameServerReady : AttributeSet -> Bool .
+  eq isWNameServerReady(Attrs, wnameserverReady: WNAMESERVERREADY) = WNAMESERVERREADY .
+
   ---- Server extract fragment
   op extractS : AttributeSet Config -> AttributeSetMsgs .
-  ceq extractS(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans, msg}
+  ceq extractS(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans', msg}
     if  nm(F) . NAME1 := NAME
-    /\ (pendingFragments: FRAGMENT_LIST, lastFragment: B, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG, severWResponseTTL: sTTL, Attrs) := wattrs
+    /\ (pendingFragments: FRAGMENT_LIST, lastFragment: B, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG, severWResponseTTL: sTTL, fragments: FRAGMENT_LIST', Attrs) := wattrs
     /\ wattrsTrans :=
         *** If this is a different seqNo, or a previous Fragment,
         (if (getSeqNo(F) =/= SEQ_CTR) or (getFragmentNumber(F) <= CUR_FRAG)
@@ -553,10 +590,17 @@ mod IODINE_NODE is
                 fi)
           *** Else, this is the new fragment of the current packet, accept (move fragment number forward).
           *** TODO: This does not handle when the fragment number could be 2 or more past the last one.
-          else ((pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), currentSeqNo: getSeqNo(F), currentFragment: getFragmentNumber(F), severWResponseTTL: sTTL), Attrs)
+          else ((pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), currentSeqNo: getSeqNo(F), currentFragment: getFragmentNumber(F), severWResponseTTL: sTTL, fragments: FRAGMENT_LIST'), Attrs)
           fi)
     ---- simply ACK fragment (NAME contains fragment; RCODE 0 is success)
-    /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, sTTL, nullAddr >, nil, nil, 0))
+    --- If there's a fragment, grab it and embed in the reply. Otherwise, default to null
+    --- TODO: Increment attempts
+    --- TODO: Implement checking if client has acked our last fragment before moving it up
+    /\ F' := grabCurrentFragment(wattrsTrans) 
+    /\ wattrsTrans' := moveFragmentUp(wattrsTrans)
+    /\ downstreamdata := (if F' == nilFragment then nullAddr else nm(F') fi)
+    /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, sTTL, downstreamdata >, nil, nil, 0))
+
     .
 
   *** Clear the previous fragments, keep only this newly received one, and start
