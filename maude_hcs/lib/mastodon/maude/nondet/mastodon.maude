@@ -38,9 +38,11 @@ mod MASTODON is
   vars httpResponse : HttpResponse .
   vars MEDIA : MediaFilename .
   vars MEDIA_LIST : MediaFilenameList .
+  vars POST_ID : MasId .
   vars msgIn msgOut : Msg .
   vars TEXT : String .
   vars HASHTAG TAG : Tag .
+  vars URL : Url .
 
   -------------------------------
   --- [Mastodon Client] --- Rules
@@ -61,8 +63,16 @@ mod MASTODON is
     if PostStatus(TEXT, MEDIA_LIST) := raceboatReq
     .
   ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    downloadPost(attrs, POST_ID)
+    if GetPost(POST_ID) := raceboatReq
+    .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
     downloadMediaAtHashtag(attrs, TAG)
     if GetMediaHashtag(TAG) := raceboatReq
+    .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    downloadMediaAtUrl(attrs, URL)
+    if GetMedia(URL) := raceboatReq
     .
 
   --- Receive HTTP Response from server.
