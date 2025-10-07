@@ -118,6 +118,7 @@ mod MASTODON_NODE is
   op makeHttpRequest : PostRequest MediaFilename -> HttpRequest .
 
   --- Create an HTTP Response with a file (returns the file after a get).
+  ---                   Status
   op makeHttpResponse : String MediaFilename -> HttpResponse .
   --- Create an HTTP Response that contains a list of Toots info.
   op makeHttpResponse : String ResponseTootList -> HttpResponse .
@@ -392,6 +393,13 @@ mod MASTODON_NODE is
       get(hashtag, getMastodonServerAddr(masClAttrs), getThisAddr(masClAttrs)) }
     .
 
+  ---Download toot.
+  op downloadPost : AttributeSet MasId -> AttributeSetMsgs .
+  eq downloadPost(masClAttrs, postId) =
+    { pushOp(masClAttrs, GET-STATUS-OP),
+      get(postId, getMastodonServerAddr(masClAttrs), getThisAddr(masClAttrs)) }
+    .
+
   --- Handle a reply from the server, for a media posting request.
   op handleReply : HttpMsg AttributeSet -> AttributeSetMsgs .
   eq handleReply(HTTP_MSG, masClAttrs) =
@@ -511,6 +519,7 @@ mod MASTODON_NODE is
         /\ masClAttrsMsg := downloadMediaAtUrl((masClAttrs, opStack: OP_STACK, gettingMediaUrls: urlList'), url)
     .
 
+  --- Handle later parts of a Get request.
   op cueNextGetOp : AttributeSet -> AttributeSetMsgs .
   ceq cueNextGetOp(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: URL_LIST) =
     masClAttrsMsg
@@ -525,7 +534,10 @@ mod MASTODON_NODE is
               else finishGetMediaFromPost(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: URL_LIST)
             fi)
     .
+  --- If stack is empty, or there no more URLs to get, we are done.
+  eq cueNextGetOp(masClAttrs) = { masClAttrs, nullMsg } [owise] .
 
+  --- Handle later parts of a Post request.
   op finishGetMediaFromPost : AttributeSet -> AttributeSetMsgs .
   ceq finishGetMediaFromPost(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: URL_LIST) =
     masClAttrsMsg
@@ -539,6 +551,7 @@ mod MASTODON_NODE is
             else {(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: emptyUrlList), nullMsg}
          fi)
     .
+  eq finishGetMediaFromPost(masClAttrs) = { masClAttrs, nullMsg } [owise] .
 
   --------------------
   ---
@@ -746,7 +759,9 @@ mod MASTODON_NODE is
     .
 
   --- Handle an HTTP Msg to get a post by Id.
-  --- TODO / Not useful now.
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, POST_ID), masServerAttrs) =
+    handleGetPostRequest(MAS_CLIENT_ADDR, POST_ID, masServerAttrs)
+    .
 
   --- Handle an HTTP Msg to search posts for a hashtag.
   eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, TAG), masServerAttrs) =
@@ -777,6 +792,15 @@ mod MASTODON_NODE is
       /\ (masServerAttrsTrans, currentMapId: CURRENT_MAP_ID) := masServerAttrsNext
       /\ outMsg := makeHttpMsg(makeHttpResponse("OK", makeResponseToot(CURRENT_MAP_ID)), MAS_CLIENT_ADDR, getThisAddr(masServerAttrs))
     . 
+   --- TODO: Do owize for fail
+
+  --- Handle request to get a post by Id (immutable).
+  op handleGetPostRequest : Address MasId AttributeSet -> AttributeSetMsgs .
+  ceq handleGetPostRequest(MAS_CLIENT_ADDR, POST_ID, masServerAttrs) =
+    { masServerAttrs, outMsg }
+    if RESPONSE_TOOT_LIST := getTootsAtPostIds(masServerAttrs, POST_ID)
+      /\ outMsg := makeHttpMsg(makeHttpResponse("OK", RESPONSE_TOOT_LIST), MAS_CLIENT_ADDR, getThisAddr(masServerAttrs))
+    .
    --- TODO: Do owize for fail
 
   --- Handle request to get a media from a URL (immutable).
@@ -927,6 +951,13 @@ red handleReply(makeHttpResponse("OK", makeResponseToot(445)), (masClTestAttrs, 
        (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, makeMediaFilename("img1.jpg"))) }
   .
 
+*** Get a post by Id.
+red downloadPost((masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack), 8)
+  == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: GET-STATUS-OP),
+       (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(getRequest, 8)) }
+  .
+
+
 *** Get a media at a given URL.
 red downloadMediaAtUrl((masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: emptyOpStack), "www.media_location.com")
   == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: GET-MEDIA-URL-OP),
@@ -998,8 +1029,24 @@ red handleRequest(TEST-FROM-ADDR,
 red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(postRequest, "A new toot with attachments", (88 : 46)),
                   (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, tootMap: emptyIdTootMap, mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))))
-  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 11, tootMap: (11 ~> makeToot("A new toot with attachments", ("url0.com" ; "url1.com"))), mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))),
+  == { (masServerTestAttrs,
+          thisAddr: TEST-TO-ADDR,
+          currentMapId: 11,
+          tootMap: (11 ~> makeToot("A new toot with attachments", ("url0.com" ; "url1.com"))),
+          mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))),
       (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
+  .
+
+--- Test handle a status get request by post Id.
+red handleRequest(TEST-FROM-ADDR,
+                  makeHttpRequest(getRequest, 8),
+                  (masServerTestAttrs,
+                   thisAddr: TEST-TO-ADDR,
+                   tootMap: ((40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com")) : (8 ~> makeToot("Other too", emptyUrlList)))))
+  == { (masServerTestAttrs,
+          thisAddr: TEST-TO-ADDR,
+          tootMap: ((40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com")) : (8 ~> makeToot("Other too", emptyUrlList)))) ,
+       (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(8, makeToot("Other too", emptyUrlList)))) }
   .
 
 --- Test handling a media get request from URL -- not found.
