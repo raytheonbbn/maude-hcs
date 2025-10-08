@@ -147,11 +147,11 @@ mod MASTODON_NODE is
   op makeResponseToot : MasId -> ResponseToot .
   --- Response contains Post Id and Post text.
   op makeResponseToot : MasId String -> ResponseToot .
-  --- Response contains Post Id, Post Text and List of Attachment urls.
-  op makeResponseToot : MasId String UrlList -> ResponseToot .
+  --- Response contains Post Id, Post Text and List of Attachment urls (and corresponding list of Ids).
+  op makeResponseToot : MasId String UrlList MasIdList -> ResponseToot .
   --- Create response from Toot.
   op makeResponseToot : MasId Toot -> ResponseToot .
-  eq makeResponseToot(postId, makeToot(POST_TEXT, URL_LIST)) = makeResponseToot(postId, POST_TEXT, URL_LIST) .
+  eq makeResponseToot(postId, makeToot(POST_TEXT, URL_LIST, MAS_ID_LIST)) = makeResponseToot(postId, POST_TEXT, URL_LIST, MAS_ID_LIST) .
 
   vars httpMsg HTTP_MSG : HttpMsg .
   vars httpRequest HTTP_REQUEST : HttpRequest .
@@ -241,7 +241,7 @@ mod MASTODON_NODE is
   --- Eqs ---
   ----- For Messages -----
   op getUrlList : ResponseToot -> UrlList .
-  eq getUrlList(makeResponseToot(POST_ID, POST_TEXT, URL_LIST)) = URL_LIST .
+  eq getUrlList(makeResponseToot(POST_ID, POST_TEXT, URL_LIST, MAS_ID_LIST)) = URL_LIST .
 
   op getUrlList : ResponseTootList -> UrlList .
   eq getUrlList(RESPONSE_TOOT : RESPONSE_TOOT_LIST) =
@@ -266,7 +266,7 @@ mod MASTODON_NODE is
   op getPostId : ResponseToot -> MasId .
   eq getPostId(makeResponseToot(POST_ID)) = POST_ID .
   eq getPostId(makeResponseToot(POST_ID, POST_TEXT)) = POST_ID .
-  eq getPostId(makeResponseToot(POST_ID, POST_TEXT, URL_LIST)) = POST_ID .
+  eq getPostId(makeResponseToot(POST_ID, POST_TEXT, URL_LIST, MAS_ID_LIST)) = POST_ID .
 
   op getPostId : ResponseTootList -> MasId .
   eq getPostId(RESPONSE_TOOT : RESPONSE_TOOT_LIST) = getPostId(RESPONSE_TOOT) .
@@ -625,7 +625,11 @@ mod MASTODON_NODE is
 
   op makeToot : -> Toot .
   op makeToot : String -> Toot .
-  op makeToot : String UrlList -> Toot .
+  --- Make a toot with a text String, list of URLs attached, and the Ids of these attachments (in the same order).
+  --- NOTE: I decided not to blend URL and Ids in the same sort as any change 
+  --- to that sort ends up carrying through many eqs below.
+  --- It should probably be done, but Toots would need to go out into their own mod.
+  op makeToot : String UrlList MasIdList -> Toot .
 
   op _~>_ : Nat Toot -> IdToot [ctor] .
   op emptyIdTootMap : -> IdTootMap .
@@ -649,7 +653,7 @@ mod MASTODON_NODE is
 
   op getStatusFromToot : Toot -> String .
   eq getStatusFromToot(makeToot(POST_TEXT)) = POST_TEXT .
-  eq getStatusFromToot(makeToot(POST_TEXT, URL_LIST)) = POST_TEXT .
+  eq getStatusFromToot(makeToot(POST_TEXT, URL_LIST, MAS_ID_LIST)) = POST_TEXT .
 
   --- Get a toot by post id.
   op getTootAtPostId : IdTootMap MasId -> Toot .
@@ -824,7 +828,7 @@ mod MASTODON_NODE is
   ceq handleStatusPostRequest(MAS_CLIENT_ADDR, POST_TEXT, MAS_ID_LIST, masServerAttrs) =
     { masServerAttrsNext, outMsg }
     if urlList := getUrlList(masServerAttrs, MAS_ID_LIST)
-      /\ masServerAttrsNext := insertToot(masServerAttrs, makeToot(POST_TEXT, urlList))
+      /\ masServerAttrsNext := insertToot(masServerAttrs, makeToot(POST_TEXT, urlList, MAS_ID_LIST))
       /\ (masServerAttrsTrans, currentMapId: CURRENT_MAP_ID) := masServerAttrsNext
       /\ outMsg := makeHttpMsg(makeHttpResponse("OK", makeResponseToot(CURRENT_MAP_ID)), MAS_CLIENT_ADDR, getThisAddr(masServerAttrs))
     . 
@@ -900,8 +904,8 @@ red getMediaAtUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> 
 red getMediaAtUrlList(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), ("url1.com" ; "url0.com"))
   == (makeMediaFilename("img1.jpg") :: makeMediaFilename("img0.jpg"))
   .
-red getUrlList(makeResponseToot(88, "Post text", ("url0.com" ; "url1.com"))) == ("url0.com" ; "url1.com") .
-red getUrlList((makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com"))) : (makeResponseToot(109, "Post 109 text", ("url2.com")))) == ("url0.com" ; "url1.com" ; "url2.com") .
+red getUrlList(makeResponseToot(88, "Post text", ("url0.com" ; "url1.com"), (86 : 87))) == ("url0.com" ; "url1.com") .
+red getUrlList((makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com"), (86 : 87))) : (makeResponseToot(109, "Post 109 text", ("url2.com"), 108))) == ("url0.com" ; "url1.com" ; "url2.com") .
 
 red getUrlList(((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (66 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (46 ~> (makeMediaFilename("img2.jpg"), "url2.com"))), (88 : 46))
   == ("url0.com" ; "url2.com")
@@ -1019,14 +1023,14 @@ red downloadMediaAtHashtag((masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerA
   .
 
 *** Test a status get reply in the context of an all-media download via hashtag search.
-red handleReply(makeHttpResponse("OK", makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com" ; "url2.com"))),
+red handleReply(makeHttpResponse("OK", makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com" ; "url2.com"), (80 : 81 : 82))),
                 (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: emptyUrlList))
   == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP), gettingMediaUrls: ("url1.com" ; "url2.com")),
        (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(getRequest, "url0.com")) }
   .
 
 *** Test a media get reply (from a post id).
-red handleReply(makeHttpResponse("OK", makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com" ; "url2.com"))), (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: GET-MEDIA-POST-OP, gettingMediaUrls: emptyUrlList))
+red handleReply(makeHttpResponse("OK", makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com" ; "url2.com"), (80 : 81 : 82))), (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: GET-MEDIA-POST-OP, gettingMediaUrls: emptyUrlList))
   == { (masClTestAttrs, thisAddr: TEST-FROM-ADDR, masServerAddr: TEST-TO-ADDR, opStack: (GET-MEDIA-URL-OP : GET-MEDIA-POST-OP), gettingMediaUrls: ("url1.com" ; "url2.com")),
        (to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(getRequest, "url0.com")) }
   .
@@ -1063,7 +1067,11 @@ red handleRequest((to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postReq
 red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(postRequest, "A new toot with attachments"),
                   (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 10, tootMap: emptyIdTootMap, mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))))
-  == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, currentMapId: 11, tootMap: (11 ~> makeToot("A new toot with attachments", emptyUrlList)), mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))),
+  == { (masServerTestAttrs,
+          thisAddr: TEST-TO-ADDR,
+          currentMapId: 11,
+          tootMap: (11 ~> makeToot("A new toot with attachments", emptyUrlList, emptyMasIdList)),
+          mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))),
       (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
   .
 
@@ -1074,7 +1082,7 @@ red handleRequest(TEST-FROM-ADDR,
   == { (masServerTestAttrs,
           thisAddr: TEST-TO-ADDR,
           currentMapId: 11,
-          tootMap: (11 ~> makeToot("A new toot with attachments", ("url0.com" ; "url1.com"))),
+          tootMap: (11 ~> makeToot("A new toot with attachments", ("url0.com" ; "url1.com"), (88 : 46))),
           mediaMap: ((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (46 ~> (makeMediaFilename("img1.jpg"), "url1.com")))),
       (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
   .
@@ -1084,11 +1092,11 @@ red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(getRequest, 8),
                   (masServerTestAttrs,
                    thisAddr: TEST-TO-ADDR,
-                   tootMap: ((40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com")) : (8 ~> makeToot("Other too", emptyUrlList)))))
+                   tootMap: ((40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com", 40)) : (8 ~> makeToot("Other too", emptyUrlList, emptyMasIdList)))))
   == { (masServerTestAttrs,
           thisAddr: TEST-TO-ADDR,
-          tootMap: ((40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com")) : (8 ~> makeToot("Other too", emptyUrlList)))) ,
-       (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(8, makeToot("Other too", emptyUrlList)))) }
+          tootMap: ((40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com", 40)) : (8 ~> makeToot("Other too", emptyUrlList, emptyMasIdList)))) ,
+       (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(8, makeToot("Other too", emptyUrlList, emptyMasIdList)))) }
   .
 
 --- Test handling a media get request from URL -- not found.
@@ -1112,12 +1120,12 @@ red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(getRequest, makeTag("Tag")),
                   ((masServerTestAttrs,
                       thisAddr: TEST-TO-ADDR,
-                      tootMap: (40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com")),
+                      tootMap: (40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com", 39)),
                       tagMap: ((makeTag("Hashtag") ~> (20 : 30)) : (makeTag("Tag") ~> 40) : (makeTag("Hash") ~> 50)))))
   == { (masServerTestAttrs,
           thisAddr: TEST-TO-ADDR,
-          tootMap: (40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com")),
+          tootMap: (40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com", 39)),
           tagMap: ((makeTag("Hashtag") ~> (20 : 30)) : (makeTag("Tag") ~> 40) : (makeTag("Hash") ~> 50))),
-        (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(40, makeToot("Toot with hashtag #Tag", "www.catimg.com")))) }
+        (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(40, makeToot("Toot with hashtag #Tag", "www.catimg.com", 39)))) }
   .
 
