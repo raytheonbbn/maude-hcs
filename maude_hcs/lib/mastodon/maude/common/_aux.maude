@@ -28,23 +28,21 @@
 
 *** Load DNS aux for the types, even though this is not a DNS related actor.
 load ../../../../deps/dns_formalization/Maude/src/common/_aux
+load ./mas_id
 load ./media_filename
 load ./tags
+load ./toot
 load ./url
 
 mod MASTODON_NODE is
   pr STRING .
   pr AUX-COMMON .
+  pr MAS_IDS .
   pr MEDIA_FILENAMES .
   pr TAGS .
+  pr TOOTS .
   pr URLS .
 
-  --- A Mastodon Toot Status or Media ID.
-  sorts MasId .
-  subsort Nat < MasId .
-  --- A Mastodon list of MasIds.
-  sorts MasIdList .
-  subsort MasId < MasIdList .
   --- A client Program Counter operation.
   sorts Op .
   subsort String < Op .
@@ -52,11 +50,6 @@ mod MASTODON_NODE is
   sorts OpStack .
   subsort Op < OpStack .
 
-  --- A Toot is a post in Mastodon lexicon.  To differenciate between the object, rendered on a client,
-  --- we created ResponseToot, which is the Toot as it appears in an HTTP Response---maybe it is the same
-  --- under the cover.
-  sorts ResponseToot .
-  sorts ResponseTootList .
   ---- Used by iodine server when extracting information from Query
   sorts AttributeSetMsgs .
 
@@ -92,7 +85,6 @@ mod MASTODON_NODE is
   --- Tell Maude this is compatible with being a message.
   subsorts HttpRequest HttpResponse < Content .
   subsort HttpMsg < Msg .
-  subsort ResponseToot < ResponseTootList .
 
   --- Infinity for Mastodon Id List length.
   op listInf : -> Nat .
@@ -144,14 +136,6 @@ mod MASTODON_NODE is
   --- Create an HTTP Response for errors.
   op makeHttpResponse : String -> HttpResponse .
   --- Response contains Post Id (for instance after a post request).
-  op makeResponseToot : MasId -> ResponseToot .
-  --- Response contains Post Id and Post text.
-  op makeResponseToot : MasId String -> ResponseToot .
-  --- Response contains Post Id, Post Text and List of Attachment urls (and corresponding list of Ids).
-  op makeResponseToot : MasId String UrlList MasIdList -> ResponseToot .
-  --- Create response from Toot.
-  op makeResponseToot : MasId Toot -> ResponseToot .
-  eq makeResponseToot(postId, makeToot(POST_TEXT, URL_LIST, MAS_ID_LIST)) = makeResponseToot(postId, POST_TEXT, URL_LIST, MAS_ID_LIST) .
 
   vars httpMsg HTTP_MSG : HttpMsg .
   vars httpRequest HTTP_REQUEST : HttpRequest .
@@ -159,16 +143,7 @@ mod MASTODON_NODE is
 
   op emptyOpStack : -> OpStack [ctor] .
   op _:_ : OpStack OpStack -> OpStack [ctor assoc id: emptyOpStack] .
-
-  op emptyMasIdList : -> MasIdList [ctor] .
-  op _:_ : MasIdList MasIdList -> MasIdList [ctor assoc id: emptyMasIdList] .
-  
-  op emptyResponseTootList : -> ResponseTootList [ctor] .
-  op _:_ : ResponseTootList ResponseTootList -> ResponseTootList [ctor assoc id: emptyResponseTootList] .
-
-
   op nilOp : -> Op .
-  op nilMasId : -> MasId .
 
   --- Op strings ---
   op GET-STATUS-OP : -> Op .
@@ -240,15 +215,6 @@ mod MASTODON_NODE is
 
   --- Eqs ---
   ----- For Messages -----
-  op getUrlList : ResponseToot -> UrlList .
-  eq getUrlList(makeResponseToot(POST_ID, POST_TEXT, URL_LIST, MAS_ID_LIST)) = URL_LIST .
-
-  op getUrlList : ResponseTootList -> UrlList .
-  eq getUrlList(RESPONSE_TOOT : RESPONSE_TOOT_LIST) =
-    (getUrlList(RESPONSE_TOOT) ; getUrlList(RESPONSE_TOOT_LIST))
-    .
-  eq getUrlList(emptyResponseTootList) = emptyUrlList .
-
   op getSrcAddr : HttpMsg -> Address .
   eq getSrcAddr(makeHttpMsg(HTTP_REQUEST, TO-ADDR, FROM-ADDR)) = FROM-ADDR .
   eq getSrcAddr(makeHttpMsg(HTTP_RESPONSE, TO-ADDR, FROM-ADDR)) = FROM-ADDR .
@@ -263,13 +229,6 @@ mod MASTODON_NODE is
   eq getHttpRequest(makeHttpMsg(HTTP_REQUEST, TO-ADDR, FROM-ADDR)) = HTTP_REQUEST .
   eq getHttpRequest((to TO-ADDR from FROM-ADDR : HTTP_REQUEST)) = HTTP_REQUEST .
 
-  op getPostId : ResponseToot -> MasId .
-  eq getPostId(makeResponseToot(POST_ID)) = POST_ID .
-  eq getPostId(makeResponseToot(POST_ID, POST_TEXT)) = POST_ID .
-  eq getPostId(makeResponseToot(POST_ID, POST_TEXT, URL_LIST, MAS_ID_LIST)) = POST_ID .
-
-  op getPostId : ResponseTootList -> MasId .
-  eq getPostId(RESPONSE_TOOT : RESPONSE_TOOT_LIST) = getPostId(RESPONSE_TOOT) .
 
   ----- For Client attributes -----
   op getThisAddr : AttributeSet -> Address .
@@ -613,34 +572,6 @@ mod MASTODON_NODE is
   ------------
   --- Toot Map
   ------------
-
-  --- TootMap specific sorts.
-  sorts Toot .
-  sorts IdToot IdTootMap .
-
-  subsorts IdToot < IdTootMap .
-
-  --- TootMap specific ops.
-  op nilToot : -> Toot .
-
-  op makeToot : -> Toot .
-  op makeToot : String -> Toot .
-  --- Make a toot with a text String, list of URLs attached, and the Ids of these attachments (in the same order).
-  --- NOTE: I decided not to blend URL and Ids in the same sort as any change 
-  --- to that sort ends up carrying through many eqs below.
-  --- It should probably be done, but Toots would need to go out into their own mod.
-  op makeToot : String UrlList MasIdList -> Toot .
-
-  op _~>_ : Nat Toot -> IdToot [ctor] .
-  op emptyIdTootMap : -> IdTootMap .
-  op _:_ : IdTootMap IdTootMap -> IdTootMap [ctor assoc comm id: emptyIdTootMap] .
-  
-  op insertToot : IdTootMap Nat Toot -> IdTootMap .
-  --- IDs should be unique; do not replace existing entries.
-  eq insertToot(idTootMap, CURRENT_MAP_ID, TOOT) =
-   idTootMap : (CURRENT_MAP_ID ~> TOOT)
-   .
-
   op insertToot : AttributeSet Toot -> AttributeSet .
   ceq insertToot((masServerAttrs, currentMapId: mapId, tootMap: idTootMap, tagMap: tagPostIdsMap), TOOT) =
     (masServerAttrs, currentMapId: s mapId, tootMap: insertToot(idTootMap, s mapId, TOOT), tagMap: insertTag(tagPostIdsMap, tag, s mapId))
@@ -650,22 +581,6 @@ mod MASTODON_NODE is
   eq insertToot((masServerAttrs, currentMapId: mapId, tootMap: idTootMap), TOOT) =
     (masServerAttrs, currentMapId: s mapId, tootMap: insertToot(idTootMap, s mapId, TOOT))
     [owise] .
-
-  op getStatusFromToot : Toot -> String .
-  eq getStatusFromToot(makeToot(POST_TEXT)) = POST_TEXT .
-  eq getStatusFromToot(makeToot(POST_TEXT, URL_LIST, MAS_ID_LIST)) = POST_TEXT .
-
-  --- Get a toot by post id.
-  op getTootAtPostId : IdTootMap MasId -> Toot .
-  eq getTootAtPostId(idTootMap : (postId ~> TOOT), postId) = TOOT .
-  eq getTootAtPostId(idTootMap, postId) = nilToot .
-
-  --- Get all toots in a list of post ids.
-  op getTootsAtPostIds : IdTootMap MasIdList -> ResponseTootList .
-  eq getTootsAtPostIds(ID_TOOT_MAP, MAS_ID_LIST : postId) =
-    getTootsAtPostIds(ID_TOOT_MAP, MAS_ID_LIST) : makeResponseToot(postId, getTootAtPostId(ID_TOOT_MAP, postId))
-    .
-  eq getTootsAtPostIds(ID_TOOT_MAP, emptyMasIdList) = emptyResponseTootList .
 
   op getTootsAtPostIds : AttributeSet MasIdList -> ResponseTootList .
   eq getTootsAtPostIds((masServerAttrs, tootMap: ID_TOOT_MAP), masIdList) =
@@ -904,8 +819,6 @@ red getMediaAtUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> 
 red getMediaAtUrlList(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), ("url1.com" ; "url0.com"))
   == (makeMediaFilename("img1.jpg") :: makeMediaFilename("img0.jpg"))
   .
-red getUrlList(makeResponseToot(88, "Post text", ("url0.com" ; "url1.com"), (86 : 87))) == ("url0.com" ; "url1.com") .
-red getUrlList((makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com"), (86 : 87))) : (makeResponseToot(109, "Post 109 text", ("url2.com"), 108))) == ("url0.com" ; "url1.com" ; "url2.com") .
 
 red getUrlList(((88 ~> (makeMediaFilename("img0.jpg"), "url0.com")) : (66 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (46 ~> (makeMediaFilename("img2.jpg"), "url2.com"))), (88 : 46))
   == ("url0.com" ; "url2.com")

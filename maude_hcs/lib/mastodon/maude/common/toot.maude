@@ -1,0 +1,133 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- PWNDD Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- Contract No: HR00112590083
+--- Contractor Name: RTX BBN Technologies Inc.
+--- Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
+---
+--- The U.S. Government's rights to use, modify, reproduce, release, perform,
+--- display, or disclose these technical data and software are defined in the
+--- Article VII: Data Rights clause of the OTA.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein.
+---
+--- MAUDE_HCS: end
+
+load ./mas_id
+load ./url
+
+*** A module for Toots and Toot map.
+mod TOOTS is
+  pr STRING .
+  pr MAS_IDS .
+  pr URLS .
+
+  --- TootMap specific sorts.
+  sorts Toot .
+  sorts IdToot IdTootMap .
+
+  subsorts IdToot < IdTootMap .
+
+  --- TootMap specific ops.
+  op nilToot : -> Toot .
+
+  op makeToot : -> Toot .
+  op makeToot : String -> Toot .
+  --- Make a toot with a text String, list of URLs attached, and the Ids of these attachments (in the same order).
+  --- NOTE: I decided not to blend URL and Ids in the same sort as any change 
+  --- to that sort ends up carrying through many eqs below.
+  --- It should probably be done, but Toots would need to go out into their own mod.
+  op makeToot : String UrlList MasIdList -> Toot .
+
+  op _~>_ : Nat Toot -> IdToot [ctor] .
+  op emptyIdTootMap : -> IdTootMap .
+  op _:_ : IdTootMap IdTootMap -> IdTootMap [ctor assoc comm id: emptyIdTootMap] .
+  
+  ------------
+  --- Vars ---
+  ------------
+  vars idTootMap ID_TOOT_MAP : IdTootMap .
+  vars MAS_ID_LIST : MasIdList .
+  vars TOOT : Toot .
+
+  op insertToot : IdTootMap Nat Toot -> IdTootMap .
+  --- IDs should be unique; do not replace existing entries.
+  eq insertToot(idTootMap, CURRENT_MAP_ID:Nat, TOOT) =
+   idTootMap : (CURRENT_MAP_ID:Nat ~> TOOT)
+   .
+
+  op getStatusFromToot : Toot -> String .
+  eq getStatusFromToot(makeToot(POST_TEXT:String)) = POST_TEXT:String .
+  eq getStatusFromToot(makeToot(POST_TEXT:String, URL_LIST:UrlList, MAS_ID_LIST:MasIdList)) = POST_TEXT:String .
+
+  --- Get a toot by post id.
+  op getTootAtPostId : IdTootMap MasId -> Toot .
+  eq getTootAtPostId(idTootMap : (postId:MasId ~> TOOT), postId:MasId) = TOOT .
+  eq getTootAtPostId(idTootMap, postId:MasId) = nilToot .
+
+  --- Get all toots in a list of post ids.
+  op getTootsAtPostIds : IdTootMap MasIdList -> ResponseTootList .
+  eq getTootsAtPostIds(ID_TOOT_MAP, MAS_ID_LIST : postId:MasId) =
+    getTootsAtPostIds(ID_TOOT_MAP, MAS_ID_LIST) : makeResponseToot(postId:MasId, getTootAtPostId(ID_TOOT_MAP, postId:MasId))
+    .
+  eq getTootsAtPostIds(ID_TOOT_MAP, emptyMasIdList) = emptyResponseTootList .
+
+
+  --- A Toot is a post in Mastodon lexicon.  To differenciate between the object, rendered on a client,
+  --- we created ResponseToot, which is the Toot as it appears in an HTTP Response---maybe it is the same
+  --- under the cover.
+  sorts ResponseToot ResponseTootList .
+  subsort ResponseToot < ResponseTootList .
+
+  op makeResponseToot : MasId -> ResponseToot .
+  --- Response contains Post Id and Post text.
+  op makeResponseToot : MasId String -> ResponseToot .
+  --- Response contains Post Id, Post Text and List of Attachment urls (and corresponding list of Ids).
+  op makeResponseToot : MasId String UrlList MasIdList -> ResponseToot .
+  --- Create response from Toot.
+  op makeResponseToot : MasId Toot -> ResponseToot .
+  eq makeResponseToot(postId:MasId, makeToot(POST_TEXT:String, URL_LIST:UrlList, MAS_ID_LIST:MasIdList)) = makeResponseToot(postId:MasId, POST_TEXT:String, URL_LIST:UrlList, MAS_ID_LIST:MasIdList) .
+
+  op emptyResponseTootList : -> ResponseTootList [ctor] .
+  op _:_ : ResponseTootList ResponseTootList -> ResponseTootList [ctor assoc id: emptyResponseTootList] .
+
+  vars RESPONSE_TOOT : ResponseToot .
+  vars RESPONSE_TOOT_LIST : ResponseTootList .
+
+  op getUrlList : ResponseToot -> UrlList .
+  eq getUrlList(makeResponseToot(POST_ID:MasId, POST_TEXT:String, URL_LIST:UrlList, MAS_ID_LIST:MasIdList)) = URL_LIST:UrlList .
+
+  op getUrlList : ResponseTootList -> UrlList .
+  eq getUrlList(RESPONSE_TOOT : RESPONSE_TOOT_LIST) =
+    (getUrlList(RESPONSE_TOOT) ; getUrlList(RESPONSE_TOOT_LIST))
+    .
+  eq getUrlList(emptyResponseTootList) = emptyUrlList .
+
+  op getPostId : ResponseToot -> MasId .
+  eq getPostId(makeResponseToot(POST_ID:MasId)) = POST_ID:MasId .
+  eq getPostId(makeResponseToot(POST_ID:MasId, POST_TEXT:String)) = POST_ID:MasId .
+  eq getPostId(makeResponseToot(POST_ID:MasId, POST_TEXT:String, URL_LIST:UrlList, MAS_ID_LIST:MasIdList)) = POST_ID:MasId .
+
+  op getPostId : ResponseTootList -> MasId .
+  eq getPostId(RESPONSE_TOOT : RESPONSE_TOOT_LIST) = getPostId(RESPONSE_TOOT) .
+
+endm
+
+--- Tests ---
+red getUrlList(makeResponseToot(88, "Post text", ("url0.com" ; "url1.com"), (86 : 87))) == ("url0.com" ; "url1.com") .
+red getUrlList((makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com"), (86 : 87))) : (makeResponseToot(109, "Post 109 text", ("url2.com"), 108))) == ("url0.com" ; "url1.com" ; "url2.com") .
+
+
