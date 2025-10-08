@@ -86,25 +86,6 @@ mod MASTODON_NODE is
   subsorts HttpRequest HttpResponse < Content .
   subsort HttpMsg < Msg .
 
-  --- Infinity for Mastodon Id List length.
-  op listInf : -> Nat .
-  eq LIMIT < listInf = true .
-  eq listInf < LIMIT = false .
-  eq listInf == listInf = true .
-  eq LIMIT + listInf = listInf .
-  eq listInf + LIMIT = listInf .
-  eq listInf - LIMIT = listInf .
-  --- Limit a Mastodon Id List to #LIMIT number of Ids.
-  op $limitMasIdList : MasIdList Nat -> MasIdList .
-  ceq $limitMasIdList((postId : MAS_ID_LIST), LIMIT) =
-    postId : $limitMasIdList(MAS_ID_LIST, LIMIT - 1)
-    if LIMIT > 0
-    .
-  eq $limitMasIdList(MAS_ID_LIST, 0) = emptyMasIdList .
-  eq $limitMasIdList(MAS_ID_LIST, listInf) = MAS_ID_LIST .
-  eq $limitMasIdList(emptyMasIdList, LIMIT)  = emptyMasIdList .
-  eq $limitMasIdList(MAS_ID_LIST, LIMIT) = MAS_ID_LIST [owise] .
-
   op postRequest  : -> PostRequest .
   op getRequest : -> GetRequest .
 
@@ -807,12 +788,6 @@ red peekOp(masClTestAttrs, opStack: emptyOpStack) == nilOp .
 red popMediaList(emptyMediaFilenameList) == emptyMediaFilenameList .
 
 *** Check the behavior of tables and utils.
-red $limitMasIdList((78 : 88 : 1 : 2 : 45 : 98 : 4), 7) == (78 : 88 : 1 : 2 : 45 : 98 : 4) .
-red $limitMasIdList((78 : 88 : 1 : 2 : 45 : 98 : 4), listInf) == (78 : 88 : 1 : 2 : 45 : 98 : 4) .
-red $limitMasIdList((78 : 88 : 1 : 2 : 45 : 98 : 4), 5) == (78 : 88 : 1 : 2 : 45) .
-red $limitMasIdList((78 : 88 : 1 : 2 : 45 : 98 : 4), 0) == emptyMasIdList .
-red $limitMasIdList(emptyMasIdList, 5) == emptyMasIdList .
-
 red getMediaUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), 88) == "url0.com" .
 red getMediaAtUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), "url0.com") == makeMediaFilename("img0.jpg") .
 red getMediaAtUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), "url1.com") == makeMediaFilename("img1.jpg") .
