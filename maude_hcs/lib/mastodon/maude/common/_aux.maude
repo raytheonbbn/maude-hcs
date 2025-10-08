@@ -94,6 +94,25 @@ mod MASTODON_NODE is
   subsort HttpMsg < Msg .
   subsort ResponseToot < ResponseTootList .
 
+  --- Infinity for Mastodon Id List length.
+  op listInf : -> Nat .
+  eq LIMIT < listInf = true .
+  eq listInf < LIMIT = false .
+  eq listInf == listInf = true .
+  eq LIMIT + listInf = listInf .
+  eq listInf + LIMIT = listInf .
+  eq listInf - LIMIT = listInf .
+  --- Limit a Mastodon Id List to #LIMIT number of Ids.
+  op $limitMasIdList : MasIdList Nat -> MasIdList .
+  ceq $limitMasIdList((postId : MAS_ID_LIST), LIMIT) =
+    postId : $limitMasIdList(MAS_ID_LIST, LIMIT - 1)
+    if LIMIT > 0
+    .
+  eq $limitMasIdList(MAS_ID_LIST, 0) = emptyMasIdList .
+  eq $limitMasIdList(MAS_ID_LIST, listInf) = MAS_ID_LIST .
+  eq $limitMasIdList(emptyMasIdList, LIMIT)  = emptyMasIdList .
+  eq $limitMasIdList(MAS_ID_LIST, LIMIT) = MAS_ID_LIST [owise] .
+
   op postRequest  : -> PostRequest .
   op getRequest : -> GetRequest .
 
@@ -393,6 +412,13 @@ mod MASTODON_NODE is
       get(hashtag, getMastodonServerAddr(masClAttrs), getThisAddr(masClAttrs)) }
     .
 
+  ---Download all media from posts resulting in hashtag search but limit the number of posts returned.
+  op downloadMediaAtHashtag : AttributeSet Tag Nat -> AttributeSetMsgs .
+  eq downloadMediaAtHashtag((masClAttrs, gettingMediaUrls: URL_LIST), hashtag, LIMIT) =
+    { pushOp((masClAttrs, gettingMediaUrls: emptyUrlList), (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP)) ,
+      get(hashtag, LIMIT, getMastodonServerAddr(masClAttrs), getThisAddr(masClAttrs)) }
+    .
+
   ---Download toot.
   op downloadPost : AttributeSet MasId -> AttributeSetMsgs .
   eq downloadPost(masClAttrs, postId) =
@@ -636,7 +662,7 @@ mod MASTODON_NODE is
     getTootsAtPostIds(ID_TOOT_MAP, MAS_ID_LIST) : makeResponseToot(postId, getTootAtPostId(ID_TOOT_MAP, postId))
     .
   eq getTootsAtPostIds(ID_TOOT_MAP, emptyMasIdList) = emptyResponseTootList .
-     
+
   op getTootsAtPostIds : AttributeSet MasIdList -> ResponseTootList .
   eq getTootsAtPostIds((masServerAttrs, tootMap: ID_TOOT_MAP), masIdList) =
     getTootsAtPostIds(ID_TOOT_MAP, masIdList)
@@ -718,6 +744,11 @@ mod MASTODON_NODE is
   eq getPostsAtHashtag(tagPostIdsMap : (tag ~> MAS_ID_LIST), tag) = MAS_ID_LIST .
   eq getPostsAtHashtag(tagPostIdsMap, tag) = emptyMasIdList [owise] .
 
+  op getPostsAtHashtag : TagPostIdsMap Tag Nat -> MasIdList .
+  eq getPostsAtHashtag(tagPostIdsMap : (tag ~> MAS_ID_LIST), tag, LIMIT) = 
+    $limitMasIdList(MAS_ID_LIST, LIMIT)
+    .
+
   op getPostsAtHashtag : AttributeSet Tag -> MasIdList .
   eq getPostsAtHashtag((masServerAttrs, tagMap: TAG_POSTID_MAP), tag) =
     getPostsAtHashtag(TAG_POSTID_MAP, tag)
@@ -765,7 +796,12 @@ mod MASTODON_NODE is
 
   --- Handle an HTTP Msg to search posts for a hashtag.
   eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, TAG), masServerAttrs) =
-    handleStatusSearchRequest(MAS_CLIENT_ADDR, TAG, masServerAttrs)
+    handleStatusSearchRequest(MAS_CLIENT_ADDR, TAG, listInf, masServerAttrs)
+    .
+
+  --- Handle an HTTP Msg to search posts for a hashtag, limiting the number of responses.
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, TAG, LIMIT), masServerAttrs) =
+    handleStatusSearchRequest(MAS_CLIENT_ADDR, TAG, LIMIT, masServerAttrs)
     .
 
   --- Handle a request to post a media.
@@ -820,11 +856,11 @@ mod MASTODON_NODE is
           fi)
     .
 
-  --- Handle request to search posts with a hashtag (immutable).
-  op handleStatusSearchRequest : Address Tag AttributeSet -> AttributeSetMsgs .
-  ceq handleStatusSearchRequest(MAS_CLIENT_ADDR, tag, masServerAttrs) =
+  --- Handle request to search at most #LIMIT:Nat posts with a hashtag (immutable).
+  op handleStatusSearchRequest : Address Tag Nat AttributeSet -> AttributeSetMsgs .
+  ceq handleStatusSearchRequest(MAS_CLIENT_ADDR, tag, LIMIT, masServerAttrs) =
     { masServerAttrs, outMsg }
-    if masIdList := getPostsAtHashtag(masServerAttrs, tag)
+    if masIdList := $limitMasIdList(getPostsAtHashtag(masServerAttrs, tag), LIMIT)
       /\ RESPONSE_TOOT_LIST := getTootsAtPostIds(masServerAttrs, masIdList)
       /\ outMsg := makeHttpMsg(makeHttpResponse("OK", RESPONSE_TOOT_LIST),
                                MAS_CLIENT_ADDR,
@@ -852,6 +888,12 @@ red peekOp(masClTestAttrs, opStack: emptyOpStack) == nilOp .
 red popMediaList(emptyMediaFilenameList) == emptyMediaFilenameList .
 
 *** Check the behavior of tables and utils.
+red $limitMasIdList((78 : 88 : 1 : 2 : 45 : 98 : 4), 7) == (78 : 88 : 1 : 2 : 45 : 98 : 4) .
+red $limitMasIdList((78 : 88 : 1 : 2 : 45 : 98 : 4), listInf) == (78 : 88 : 1 : 2 : 45 : 98 : 4) .
+red $limitMasIdList((78 : 88 : 1 : 2 : 45 : 98 : 4), 5) == (78 : 88 : 1 : 2 : 45) .
+red $limitMasIdList((78 : 88 : 1 : 2 : 45 : 98 : 4), 0) == emptyMasIdList .
+red $limitMasIdList(emptyMasIdList, 5) == emptyMasIdList .
+
 red getMediaUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), 88) == "url0.com" .
 red getMediaAtUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), "url0.com") == makeMediaFilename("img0.jpg") .
 red getMediaAtUrl(((46 ~> (makeMediaFilename("img1.jpg"), "url1.com")) : (88 ~> (makeMediaFilename("img0.jpg"), "url0.com"))), "url1.com") == makeMediaFilename("img1.jpg") .
