@@ -34,7 +34,6 @@ mod MEDIA_FILENAMES is
 
   --- A media / image file name.
   sorts MediaFilename .
----  subsort String < MediaFilename .
   --- A list of media file names.
   sorts MediaFilenameList .
   subsort MediaFilename < MediaFilenameList .
@@ -50,3 +49,34 @@ mod MEDIA_FILENAMES is
   eq mediaFilenameAsString(makeMediaFilename(S:String)) = S:String .
 
 endm
+
+--- A module for media files that takes an embedded payload.
+mod MEDIA_FILES is
+  pr STRING .
+
+  pr MEDIA_FILENAMES .
+
+  --- TODO: Remove, import after import from Carolyn.
+  sorts ByteSeq .
+  op noBytes : -> ByteSeq [ctor] .
+  --- END TODO
+
+  --- A media / image file.
+  sorts MediaFile .
+  --- A list of media files.
+  sorts MediaFileList .
+  subsort MediaFile < MediaFileList .
+
+  --- Make a media file from name size payload.
+  op makeMediaFile : MediaFilename Nat -> MediaFile .
+  op makeMediaFile : MediaFilename Nat ByteSeq -> MediaFile .
+
+  --- Get the payload in an image.
+  op getPayload : MediaFile -> ByteSeq .
+  eq getPayload(makeMediaFile(NAME:MediaFilename, SIZE:Nat, PAYLOAD:ByteSeq)) = PAYLOAD:ByteSeq .
+  eq getPayload(mediaFile:MediaFile) = noBytes [owise] .
+
+endm
+
+red getPayload(makeMediaFile(makeMediaFilename("img0.jpg"), 100)) == noBytes .
+
