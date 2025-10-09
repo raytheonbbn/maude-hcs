@@ -282,7 +282,6 @@ mod MASTODON_NODE is
     makeHttpMsg(makeHttpRequest(postRequest, STATUS, MAS_ID_LIST), toAddr, fromAddr) .
 
   --- The get method.
-  --- TODO: Upgrade to send an actual HTTP request.
   op get : Url Address Address -> HttpMsg .
   eq get(URL, toAddr, fromAddr) = makeHttpMsg(makeHttpRequest(getRequest, URL), toAddr, fromAddr) .
 
@@ -446,13 +445,14 @@ mod MASTODON_NODE is
   ceq handleStatusGetReply(RESPONSE_TOOT_LIST, (masClAttrs, opStack: OP_STACK, gettingMediaUrls: URL_LIST)) =
     masClAttrsMsg
       if currentOp := peekOp(OP_STACK)
-        /\ (url ; urlList) := getUrlList(RESPONSE_TOOT_LIST)
+        /\ urlList := getUrlList(RESPONSE_TOOT_LIST)
+        /\ url := peekUrlList(urlList)
         /\ masClAttrsMsg := 
           (if currentOp == GET-MEDIA-HASHTAG-OP
           *** If currently downloading all media related to hashtag
             then (if url == nilUrl
                   then {(masClAttrs, opStack: popOp(OP_STACK), gettingMediaUrls: emptyUrlList), nullMsg} *** TODO: Replace this with a call to reassemble the media together into a message from Alice.
-                  else downloadMediaAtUrl((masClAttrs, opStack: OP_STACK, gettingMediaUrls: urlList), url)
+                  else downloadMediaAtUrl((masClAttrs, opStack: OP_STACK, gettingMediaUrls: popUrlList(urlList)), url)
                  fi)
             *** Then download the media at next url.
             else {(masClAttrs, opStack: popOp(OP_STACK), gettingMediaUrls: URL_LIST), nullMsg}
