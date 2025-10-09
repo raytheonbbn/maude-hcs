@@ -27,34 +27,32 @@
 --- MAUDE_HCS: end
 
 
-*** A module for media filenames.  Useful for deconflicting between this, Tags
-*** and Strings.
-mod MEDIA_FILENAMES is
-  pr STRING .
-
-  --- A media / image file name.
-  sorts MediaFilename .
-  --- A list of media file names.
-  sorts MediaFilenameList .
-  subsort MediaFilename < MediaFilenameList .
-
-  op makeMediaFilename : String -> MediaFilename .
-
-  op emptyMediaFilenameList : -> MediaFilenameList [ctor] .
-  op _::_ : MediaFilenameList MediaFilenameList -> MediaFilenameList [ctor assoc id: emptyMediaFilenameList] .
-
-  op nilMediaName : -> MediaFilename .
-
-  op mediaFilenameAsString : MediaFilename -> String .
-  eq mediaFilenameAsString(makeMediaFilename(S:String)) = S:String .
-
-endm
+---*** A module for media filenames.  Useful for deconflicting between this, Tags
+---*** and Strings.
+---mod MEDIA_FILENAMES is
+---  pr STRING .
+---
+---  --- A media / image file name.
+---  sorts MediaFilename .
+---  --- A list of media file names.
+---  sorts MediaFilenameList .
+---  subsort MediaFilename < MediaFilenameList .
+---
+---  op makeMediaFilename : String -> MediaFilename .
+---
+---  op emptyMediaFilenameList : -> MediaFilenameList [ctor] .
+---  op _::_ : MediaFilenameList MediaFilenameList -> MediaFilenameList [ctor assoc id: emptyMediaFilenameList] .
+---
+---  op nilMediaName : -> MediaFilename .
+---
+---  op mediaFilenameAsString : MediaFilename -> String .
+---  eq mediaFilenameAsString(makeMediaFilename(S:String)) = S:String .
+---
+---endm
 
 --- A module for media files that takes an embedded payload.
 mod MEDIA_FILES is
   pr STRING .
-
-  pr MEDIA_FILENAMES .
 
   --- TODO: Remove, import after import from Carolyn.
   sorts ByteSeq .
@@ -66,17 +64,38 @@ mod MEDIA_FILES is
   --- A list of media files.
   sorts MediaFileList .
   subsort MediaFile < MediaFileList .
+  
+  op emptyMediaFileList : -> MediaFileList [ctor] .
+  op _::_ : MediaFileList MediaFileList -> MediaFileList [ctor assoc id: emptyMediaFileList] .
+  op nilMediaFile : -> MediaFile .
 
   --- Make a media file from name size payload.
-  op makeMediaFile : MediaFilename Nat -> MediaFile .
-  op makeMediaFile : MediaFilename Nat ByteSeq -> MediaFile .
+  op makeMediaFile : String Nat -> MediaFile .
+  op makeMediaFile : String Nat ByteSeq -> MediaFile .
+
+  vars MEDIA_FILE : MediaFile .
+  vars MEDIA_FILE_LIST : MediaFileList .
+
+  --- Get the name of an image file.
+  op getName : MediaFile -> String .
+  eq getName(makeMediaFile(NAME:String, SIZE:Nat)) = NAME:String .
+  eq getName(makeMediaFile(NAME:String, SIZE:Nat, PAYLOAD:ByteSeq)) = NAME:String .
 
   --- Get the payload in an image.
   op getPayload : MediaFile -> ByteSeq .
-  eq getPayload(makeMediaFile(NAME:MediaFilename, SIZE:Nat, PAYLOAD:ByteSeq)) = PAYLOAD:ByteSeq .
+  eq getPayload(makeMediaFile(NAME:String, SIZE:Nat, PAYLOAD:ByteSeq)) = PAYLOAD:ByteSeq .
   eq getPayload(mediaFile:MediaFile) = noBytes [owise] .
+
+  op popMediaList : MediaFileList -> MediaFileList .
+  eq popMediaList(MEDIA_FILE :: MEDIA_FILE_LIST) = MEDIA_FILE_LIST .
+  eq popMediaList(emptyMediaFileList) = emptyMediaFileList .
+
+  op peekMediaList : MediaFileList -> MediaFile .
+  eq peekMediaList((MEDIA_FILE :: MEDIA_FILE_LIST)) = MEDIA_FILE .
+  eq peekMediaList(emptyMediaFileList) = nilMediaFile .
 
 endm
 
-red getPayload(makeMediaFile(makeMediaFilename("img0.jpg"), 100)) == noBytes .
+red getPayload(makeMediaFile("img0.jpg", 100)) == noBytes .
 
+red popMediaList(emptyMediaFileList) == emptyMediaFileList .
