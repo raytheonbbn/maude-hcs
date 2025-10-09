@@ -28,7 +28,7 @@
 
 
 *** A module for creating and handling media filename and files (eventually).
-load ./media_filename
+load ./media_file
 
 mod URLS is
   pr CONVERSION .
@@ -36,7 +36,7 @@ mod URLS is
   pr RANDOM .
   pr STRING .
 
-  pr MEDIA_FILENAMES .
+  pr MEDIA_FILES .
 
   sorts Url UrlList .
   subsort String < Url < UrlList .
@@ -44,22 +44,24 @@ mod URLS is
   op generateRandUrlString : -> String .
   eq generateRandUrlString = "rand" . ---string(rand, 10) .
 
-  op makeUrl : String -> Url .
+  op url : String -> Url .
   op makeUrl : -> Url .
   eq makeUrl =
-    makeUrl(generateRandUrlString + ".com") .
+    url(generateRandUrlString + ".com") .
 
-  op makeUrl : MediaFilename -> Url .
+  op makeUrl : MediaFile -> Url .
+  eq makeUrl(mediaFile:MediaFile) =
+    makeUrl(getName(mediaFile:MediaFile))
+  .
+  op makeUrl : String -> Url .
   --- Make URL from filename, but remove extension.
-  ceq makeUrl(mediaFilename:MediaFilename) =
-    makeUrl(generateRandUrlString + subName:String + ".com")
-    if mediaFilenameStr:String := mediaFilenameAsString(mediaFilename:MediaFilename)
-      /\ I:Nat := find(mediaFilenameStr:String, ".", 0)
-      /\ subName:String := substr(mediaFilenameStr:String, 0, I:Nat)
+  ceq makeUrl(mediaFilename:String) =
+    url(generateRandUrlString + subName:String + ".com")
+    if I:Nat := find(mediaFilename:String, ".", 0)
+      /\ subName:String := substr(mediaFilename:String, 0, I:Nat)
     .
-
-  eq makeUrl(mediaFilename:MediaFilename) =
-    makeUrl(generateRandUrlString + mediaFilenameAsString(mediaFilename:MediaFilename) + ".com") [owise] .
+  eq makeUrl(mediaFilename:String) =
+    url(generateRandUrlString + mediaFilename:String + ".com") [owise] .
 
   op emptyUrlList : -> UrlList [ctor] .
   op _;_ : UrlList UrlList -> UrlList [ctor assoc id: emptyUrlList] .
@@ -74,7 +76,7 @@ endm
 red rand .
 red generateRandUrlString .
 red makeUrl .
-red makeUrl(makeMediaFilename("img0.jpg")) .
-red makeUrl(makeMediaFilename("img0")) .
+red makeUrl("img0.jpg") == url("randimg0.com") .
+red makeUrl("img0") == url("randimg0.com") .
 
 
