@@ -85,6 +85,13 @@ mod TOOTS is
     .
   eq getTootsAtPostIds(ID_TOOT_MAP, emptyMasIdList) = emptyResponseTootList .
 
+  --- Create a list of #limit:Nat arbitrary Response Toots.
+  op createArbitraryToots : Nat -> ResponseTootList .
+  ceq createArbitraryToots(limit:Nat) =
+    createArbitraryToot : createArbitraryToots(limit:Nat - 1)
+    if limit:Nat > 0
+    .
+  eq createArbitraryToots(0) = emptyResponseTootList .
 
   --- A Toot is a post in Mastodon lexicon.  To differenciate between the object, rendered on a client,
   --- we created ResponseToot, which is the Toot as it appears in an HTTP Response---maybe it is the same
@@ -100,6 +107,9 @@ mod TOOTS is
   --- Create response from Toot.
   op makeResponseToot : MasId Toot -> ResponseToot .
   eq makeResponseToot(postId:MasId, makeToot(POST_TEXT:String, URL_LIST:UrlList, MAS_ID_LIST:MasIdList)) = makeResponseToot(postId:MasId, POST_TEXT:String, URL_LIST:UrlList, MAS_ID_LIST:MasIdList) .
+  --- Create an arbitrary response toot.
+  op createArbitraryToot : -> ResponseToot .
+  eq createArbitraryToot = makeResponseToot(0, "Arbitrary Toot") .
 
   op emptyResponseTootList : -> ResponseTootList [ctor] .
   op _:_ : ResponseTootList ResponseTootList -> ResponseTootList [ctor assoc id: emptyResponseTootList] .
@@ -133,5 +143,7 @@ endm
 --- Tests ---
 red getUrlList(makeResponseToot(88, "Post text", ("url0.com" ; "url1.com"), (86 : 87))) == ("url0.com" ; "url1.com") .
 red getUrlList((makeResponseToot(88, "Post 88 text", ("url0.com" ; "url1.com"), (86 : 87))) : (makeResponseToot(109, "Post 109 text", ("url2.com"), 108))) == ("url0.com" ; "url1.com" ; "url2.com") .
-
-
+red createArbitraryToots(3) == (createArbitraryToot : createArbitraryToot : createArbitraryToot) .
+red getUrlList(makeResponseToot(88, "text")) == emptyUrlList .
+red getUrlList(createArbitraryToot)  == emptyUrlList .
+red getUrlList(createArbitraryToots(5)) == emptyUrlList .
