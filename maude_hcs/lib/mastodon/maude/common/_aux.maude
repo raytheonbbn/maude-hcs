@@ -96,15 +96,21 @@ mod MASTODON_NODE is
   op makeHttpMsg : HttpResponse Address Address -> HttpMsg .
   eq makeHttpMsg(httpResponse, toAddr, fromAddr) =
     (to toAddr from fromAddr : httpResponse) .
+  --- Create an HTTP Request to download a file by Url.
   op makeHttpRequest : GetRequest Url -> HttpRequest .
+  --- Create an HTTP Request to download a file by Mastodon Id.
   op makeHttpRequest : GetRequest MasId -> HttpRequest .
   --- Create an HTTP Request for a Hashtag search (GET).
   op makeHttpRequest : GetRequest Tag -> HttpRequest .
+  --- Create an HTTP Request for a Hashtag search with limit (GET).
   op makeHttpRequest : GetRequest Tag Nat -> HttpRequest .
+  --- Create an HTTP Request for all posts in a timeline (GET).
+  --- This is a simulated timeline, not real toots stored in the Toot map.
+  op makeHttpRequest : GetRequest -> HttpRequest .
   --- Create an HTTP Request for posting a status or a status with attachment ids (POST).
   op makeHttpRequest : PostRequest String -> HttpRequest .
   eq makeHttpRequest(postRequest, POST_TEXT) = makeHttpRequest(postRequest, POST_TEXT, emptyMasIdList) .
-  --- Create an HTTP Request for posting a status with attachment ids.
+  --- Create an HTTP Request for posting a status with attachment ids (POST).
   op makeHttpRequest : PostRequest String MasIdList -> HttpRequest .
   --- Create an HTTP Request for posting a media (POST).
   op makeHttpRequest : PostRequest MediaFile -> HttpRequest .
@@ -288,6 +294,10 @@ mod MASTODON_NODE is
   op get : Tag Nat Address Address -> HttpMsg .
   eq get(hashtag, LIMIT, toAddr, fromAddr) = makeHttpMsg(makeHttpRequest(getRequest, hashtag, LIMIT), toAddr, fromAddr) .
 
+  --- Get all posts in timeline.
+  op get : Address Address -> HttpMsg .
+  eq get(toAddr, fromAddr) = makeHttpMsg(makeHttpRequest(getRequest), toAddr, fromAddr) .
+
   ---Upload an attachment---
   op uploadNewMedia : AttributeSet MediaFile -> AttributeSetMsgs .
   eq uploadNewMedia((masClAttrs, opStack: OP_STACK), MEDIA_FILE) =
@@ -347,6 +357,13 @@ mod MASTODON_NODE is
   eq downloadPost(masClAttrs, postId) =
     { pushOp(masClAttrs, GET-STATUS-OP),
       get(postId, getMastodonServerAddr(masClAttrs), getThisAddr(masClAttrs)) }
+    .
+
+  ---Download timeline.
+  op downloadTimeline : AttributeSet -> AttributeSetMsgs .
+  eq downloadTimeline(masClAttrs) =
+    { pushOp(masClAttrs, GET-STATUS-OP),
+      get(getMastodonServerAddr(masClAttrs), getThisAddr(masClAttrs)) }
     .
 
   --- Handle a reply from the server, for a media posting request.
@@ -689,6 +706,11 @@ mod MASTODON_NODE is
     handleStatusSearchRequest(MAS_CLIENT_ADDR, TAG, LIMIT, masServerAttrs)
     .
 
+  --- Handle an HTTP Msg to download timeline.
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest), masServerAttrs) =
+    handleGetRequest(MAS_CLIENT_ADDR, masServerAttrs)
+    .
+
   --- Handle a request to post a media.
   op handleMediaPostRequest : Address MediaFile AttributeSet -> AttributeSetMsgs .
   ceq handleMediaPostRequest(MAS_CLIENT_ADDR, MEDIA_FILE, masServerAttrs) =
@@ -752,6 +774,16 @@ mod MASTODON_NODE is
                                getThisAddr(masServerAttrs))
     .
   --- TODO: Handle fail.
+
+  --- Handle request to get a timeline (immutable).
+  --- NOTE: This generates arbitrary response toots.
+  op handleGetRequest : Address AttributeSet -> AttributeSetMsgs .
+  eq handleGetRequest(MAS_CLIENT_ADDR, masServerAttrs) =
+    { masServerAttrs,
+      makeHttpMsg(makeHttpResponse("OK", createArbitraryToots(20)),
+                  MAS_CLIENT_ADDR,
+                  getThisAddr(masServerAttrs)) }
+    .
 
 endm
 
