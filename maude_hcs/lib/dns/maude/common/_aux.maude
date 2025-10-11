@@ -101,7 +101,7 @@ mod IODINE_SORTS is
   
   vars ALICE BOB ADDR ADDR' : Address . 
   vars NAME NAME1 : Name .
-  vars N N1 N2 N3 P_LEN : Nat .
+  vars N N1 N2 N3 N4 N5 P_LEN : Nat .
   vars B B1 LAST_PACKET : Bool .  
   var ID : Id .
   var QTYPE : RType .
@@ -113,8 +113,8 @@ mod IODINE_SORTS is
   subsorts Packet Fragment < Content . 
   ----        AliceAddr Packet# DataLenBytes lastPacket? 
   op packet : Address Address Nat Nat Bool -> Packet .
-  ----          AliceAddr BobAddr Packet# Frag# DataLenBytes lastPacketlastFrag 
-  op fragment : Address Address Nat Nat Nat Bool Bool -> Fragment .  
+  ----          AliceAddr BobAddr MyPacket# MyFrag# AckPacket# AckFrag# DataLenBytes lastPacketlastFrag 
+  op fragment : Address Address Nat Nat Nat Nat Nat Bool Bool -> Fragment .  
   --- convert a fragment into a Name to be embedded
   op nm : Fragment -> Name .  
   --- convert back to fragment
@@ -126,11 +126,11 @@ mod IODINE_SORTS is
   --- eq toQId(fragment(QID1, N, N1, N2)) = toQId(QID1, N, N1, N2) .
   --- eq toQId(QID1, N, N1, N2) = qid(string(QID1) + "#" + string(N,10) + "#" + string(N1, 10) + "#" + string(N2, 10)) .
   
-  eq fragment(nm(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B))) = fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B) .
+  eq fragment(nm(fragment(ALICE, BOB, N, N1, N2, N3, N4, LAST_PACKET, B))) = fragment(ALICE, BOB, N, N1, N2, N3, N4, LAST_PACKET, B) .
   eq fragment(NAME) = nilFragment [owise] .
 
   op getFromAddr : Fragment -> Address .
-  eq getFromAddr(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = ALICE .
+  eq getFromAddr(fragment(ALICE, BOB, N, N1, N2, N3, N4, LAST_PACKET, B)) = ALICE .
 
   op getFromAddr : Response -> Address .
   ceq getFromAddr(response(ID, NAME, ANS, AUTH, ADD, RCODE)) = ADDR
@@ -142,16 +142,16 @@ mod IODINE_SORTS is
   eq getResponse((to ADDR from ADDR' : RESPONSE)) = RESPONSE .
 
   op getSeqNo : Fragment -> Nat .
-  eq getSeqNo(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = N .
+  eq getSeqNo(fragment(ALICE, BOB, N, N1, N2, N3, N4, LAST_PACKET, B)) = N .
 
   op getFragmentNumber : Fragment -> Nat .
-  eq getFragmentNumber(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = N1 .
+  eq getFragmentNumber(fragment(ALICE, BOB, N, N1, N2, N3, N4, LAST_PACKET, B)) = N1 .
 
   op getToAddr : Fragment -> Address .
-  eq getToAddr(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = BOB .
+  eq getToAddr(fragment(ALICE, BOB, N, N1, N2, N3, N4, LAST_PACKET, B)) = BOB .
 
   op isLastFragment : Fragment -> Bool .
-  eq isLastFragment(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = B .
+  eq isLastFragment(fragment(ALICE, BOB, N, N1, N2, N3, N4, LAST_PACKET, B)) = B .
 
   op isLastFragment : Name -> Bool .
   eq isLastFragment(nm(F) . NAME1) = isLastFragment(F) .
@@ -177,7 +177,7 @@ mod IODINE_AUX is
   sorts MapIdAddr  IdAddr .
   subsort IdAddr < MapIdAddr .
   
-  vars N N1 N2 N3 P_LEN : Nat .
+  vars N N1 N2 N3 N4 N5 P_LEN : Nat .
   var B B1 LAST_FRAG LAST_PACKET : Bool .
   ---var curFragments : List{Fragment} .
   var curFragments : FragmentList .
@@ -230,16 +230,17 @@ mod IODINE_AUX is
   eq $makeFragments(packet(ALICE, BOB, N, N1, B), N2,  N3, curFragments) =
     if N1 > N2 
     then
-      $makeFragments(packet(ALICE, BOB, N, (N1 + (- N2)), B), N2, s N3, curFragments : fragment(ALICE, BOB, N, s N3, N2, B, false)) 
+      $makeFragments(packet(ALICE, BOB, N, (N1 + (- N2)), B), N2, s N3, curFragments : fragment(ALICE, BOB, N, s N3, 0, 0, N2, B, false)) 
     else 
-      curFragments : fragment(ALICE, BOB, N, s N3, N1, B, true)
+      curFragments : fragment(ALICE, BOB, N, s N3, 0, 0, N1, B, true)
     fi  
     .
 
-  eq makePacket(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B) : curFragments) = 
-    $makePacket(curFragments, packet(ALICE, BOB, N, N2, LAST_PACKET))  .
-  eq $makePacket((fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B) : curFragments), packet(ALICE, BOB, N, N3, LAST_PACKET)) =
-    $makePacket(curFragments, packet(ALICE, BOB, N, (N3 + N2), LAST_PACKET)) .
+  --- TODO more generic names for source and destination addresses to avoid confusion in bidirectional comms?
+  eq makePacket(fragment(ALICE, BOB, N, N1, N2, N3, N4, LAST_PACKET, B) : curFragments) = 
+    $makePacket(curFragments, packet(ALICE, BOB, N, N4, LAST_PACKET))  .
+  eq $makePacket((fragment(ALICE, BOB, N, N1, N2, N3, N4, LAST_PACKET, B) : curFragments), packet(ALICE, BOB, N, N5, LAST_PACKET)) =
+    $makePacket(curFragments, packet(ALICE, BOB, N, (N5 + N4), LAST_PACKET)) .
   eq $makePacket(mtfl, Pkt) = Pkt .
 
 endm
@@ -250,7 +251,7 @@ mod IODINE_NODE is
   var wattrs wattrsNext wattrsTrans wattrsTrans' Attrs AttrsTrans Attrs1 Attrs2 Attrs3 : AttributeSet .
   vars CONF CONF1 : Config .
   var msg msgIn msgOut : Msg .
-  var NAME NAME1 : Name .
+  var NAME NAME1 NAME' : Name .
   var F : Fragment .
   var F' : Fragment .
   var ADDR ADDR1 AliceAddr BobAddr RESOLVER : Address .
@@ -258,8 +259,8 @@ mod IODINE_NODE is
   var QTYPE : RType .
   vars NUM_ATTEMPTS NUM_FRAGS : Nat .
   var B LAST LAST_PACKET : Bool .
-  vars SEQ_CTR QUERY_CTR CUR_FRAG : Nat .
-  vars N P_LEN HOSTNAME_LEN : Nat .
+  vars SEQ_CTR QUERY_CTR CUR_FRAG ACK_SEQ ACK_FRAG : Nat .
+  vars N N1 N2 P_LEN HOSTNAME_LEN : Nat .
   vars FRAGMENT_LIST FRAGMENT_LIST' : FragmentList .
   var PACKET : Packet .
   vars PACKET_LIST PACKET_LIST' : PacketList .
@@ -273,6 +274,7 @@ mod IODINE_NODE is
   vars ALICEREADY WCLIENTREADY : Bool .
   vars BOBREADY WNAMESERVERREADY : Bool .
   vars FILE_SIZE PKT_SIZE PKT_COUNTER PktSize : Nat .
+  --- TODO: refactor as RDATA (response data?) since it's more concise
   var downstreamdata : RData .
   var sTTL : Float .
 
@@ -487,12 +489,12 @@ mod IODINE_NODE is
 
   --- Check fragment match.
   op isFragmentMatch : AttributeSet Fragment -> Bool .
-  ----          AliceAddr  Packet# Frag# DataLenBytes lastFrag
-  ceq isFragmentMatch(wattrs, fragment(ADDR, ADDR1, SEQ_CTR, CUR_FRAG, N, LAST_PACKET, LAST)) = true
-    if (getSeqCtr(wattrs) == SEQ_CTR)
-      /\ (getCurrFragment(wattrs) == CUR_FRAG)
+  ----          AliceAddr  Packet# Frag# AckPacket# AckFrag# DataLenBytes lastFrag
+  ceq isFragmentMatch(wattrs, fragment(ADDR, ADDR1, SEQ_CTR, CUR_FRAG, ACK_SEQ, ACK_FRAG, N, LAST_PACKET, LAST)) = true
+    if (getSeqCtr(wattrs) == ACK_SEQ)
+      /\ (getCurrFragment(wattrs) == ACK_FRAG)
     .
-  eq isFragmentMatch(wattrs, fragment(ADDR, ADDR1, SEQ_CTR, CUR_FRAG, N, LAST_PACKET, LAST)) = false [owise] .
+  eq isFragmentMatch(wattrs, fragment(ADDR, ADDR1, SEQ_CTR, CUR_FRAG, ACK_SEQ, ACK_FRAG, N, LAST_PACKET, LAST)) = false [owise] .
 
   --- Handle a packet (msg) and send the first fragment.
   op handleAndSend : AttributeSet Address Packet -> AttributeSetMsgs .
@@ -501,6 +503,10 @@ mod IODINE_NODE is
     if wattrsTrans := handleNewPacket(wattrs, PACKET, maxFragmentLen)
       /\ {wattrsNext, msgOut} := sendFragment(wattrsTrans, ADDR)
     .
+
+  op ackFragment : Fragment Nat Nat -> Fragment .
+  eq ackFragment(fragment(ADDR, ADDR1, SEQ_CTR, CUR_FRAG, N1, N2, N, LAST_PACKET, LAST), ACK_SEQ, ACK_FRAG) = 
+    fragment(ADDR, ADDR1, SEQ_CTR, CUR_FRAG, ACK_SEQ, ACK_FRAG, N, LAST_PACKET, LAST) .
 
   --- Send current fragment as a query.
   ---                   Attributes from
@@ -517,12 +523,25 @@ mod IODINE_NODE is
       /\ MIdAddr1 := updateMap(MIdAddr, ID, getFromAddr(F))
     .
 
+--- TODO: Is severWResponseTTL the right thing to record for client?
   --- Extract a response and move to next fragment if is current fragment ACK.
   op extract : AttributeSet Response -> AttributeSet .
-  ceq extract(wattrs, response(ID, NAME, ANS, AUTH, ADD, RCODE)) = wattrsNext
-    if nm(F) . NAME1 := NAME
-      /\ isFragmentMatch(wattrs, F)
-      /\ wattrsNext := moveFragmentUp(wattrs)
+  ceq extract(wattrs, response(ID, NAME, < NAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)) = wattrsTrans
+    if nm(F) := downstreamdata
+    --- Check if the incoming fragment can be accepted into the pending fragment list, then process the upstream ACK that might be contained in the fragment
+    --- This order was confirmed in client.c.
+      /\ (pendingFragments: FRAGMENT_LIST, lastFragment: B, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG, severWResponseTTL: sTTL, fragments: FRAGMENT_LIST', Attrs) := wattrs
+      /\ wattrsNext := 
+        (if (getSeqNo(F) =/= SEQ_CTR) or (getFragmentNumber(F) <= CUR_FRAG)
+          then (if getSeqNo(F) > SEQ_CTR
+                  then flushPendingFragments(wattrs, F)
+                  else wattrs
+                fi)
+          else ((pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), currentSeqNo: getSeqNo(F), currentFragment: getFragmentNumber(F), severWResponseTTL: sTTL, fragments: FRAGMENT_LIST'), Attrs)
+          fi)
+      /\ isFragmentMatch(wattrsNext, F)
+      /\ wattrsTrans := moveFragmentUp(wattrsNext)
+      --- /\ wattrsTrans := (pendingFragments: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), currentSeqNo: getSeqNo(F), currentFragment: getFragmentNumber(F), severWResponseTTL: sTTL, fragments: FRAGMENT_LIST', Attrs) 
     .
 
   --------------------------------
@@ -598,7 +617,7 @@ mod IODINE_NODE is
     --- TODO: Implement checking if client has acked our last fragment before moving it up
     /\ F' := grabCurrentFragment(wattrsTrans) 
     /\ wattrsTrans' := moveFragmentUp(wattrsTrans)
-    /\ downstreamdata := (if F' == nilFragment then nullAddr else nm(F') fi)
+    /\ downstreamdata := (if F' == nilFragment then nullAddr else nm(ackFragment(F', getSeqNo(F), getFragmentNumber(F))) fi)
     /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, sTTL, downstreamdata >, nil, nil, 0))
 
     .

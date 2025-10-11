@@ -136,7 +136,11 @@ class IodineClient:
         res += f'    appAddrMap: mtIdAddr,\n'        
         res += f'    numAttempts: 0,\n'
         res += f'    pendingFragments: mtfl,\n'
-        res += f'    currentSeqNo: 0 >'
+        res += f'    currentSeqNo: 0,\n'
+        res += f'    currentSeqNo: 0,\n'
+        res += f'    currentFragment: 0,\n'
+        res += f'    lastFragment: false,\n'
+        res += f'    severWResponseTTL: 0.0 >'
         return res
     
 '''
