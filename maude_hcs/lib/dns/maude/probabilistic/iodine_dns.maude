@@ -42,7 +42,8 @@ mod IODINE_DNS is
   vars conf : Config .
   vars appAlice appBob wrappedNS : Actor .
   vars ID ID' : Id .      ---- Nat < Id
-  vars NAME NAME' WNAME SNAME QNAME : Name .
+  vars NAME NAME' WNAME SNAME SNAME' QNAME : Name .
+  vars downstreamdata : RData .
   vars Q1 Q : Query .
   var QTYPE : RType .
   var  MIA MIA1 : MapIdAddr . 
@@ -374,23 +375,24 @@ crl [wnameserver-receive-query-weird]:
   crl [iClientExtractFromServer]:
     < ADDR : WClient | resv: RESOLVER, pendingFragments: FRAGMENT_LIST, wattrs >
     < MON : WMonitor | querySent: QTL, monAttrs >
-      {T, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME, QTYPE, sTTL, NAME >, AUTH, ADD, RCODE))}
+      {T, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))}
     =>
     < ADDR : WClient | wattrsNext >       
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
     (if msgOutExt == nullMsg 
-     then [0.0, (to getFromAddr(response(ID, SNAME, < SNAME, QTYPE, sTTL, NAME >, AUTH, ADD, RCODE)) : start), 0]
+     then [0.0, (to getFromAddr(response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)) : start), 0]
      else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
     (if msgOutExt == nullMsg then 
      null 
      else [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
-    if wattrsTrans := extract((resv: RESOLVER, wattrs), response(ID, SNAME, < SNAME, QTYPE, sTTL, NAME >, AUTH, ADD, RCODE))
+     
+    if wattrsTrans := extract((resv: RESOLVER, pendingFragments: FRAGMENT_LIST, wattrs), response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
-      /\ nm(F) := NAME
+      /\ nm(F) := downstreamdata
       /\ {wattrsNext, msgOutExt} :=
         if txComplete
-          then {(pendingFragments: (if F == nilFragment then FRAGMENT_LIST else (FRAGMENT_LIST : F) fi), wattrsTrans), nullMsg}
-          else sendFragment((pendingFragments: (FRAGMENT_LIST : F), wattrsTrans), ADDR)
+          then {wattrsTrans, nullMsg}
+          else sendFragment(wattrsTrans, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
       --- TODO remove printout when done debugging
@@ -404,10 +406,10 @@ crl [wnameserver-receive-query-weird]:
   --- TODO: This would be better handle with an owise, but not sure how to do that.
   crl [wClientExtractOldResponseFromServer-ignore]:
     < ADDR : WClient | resv: RESOLVER, wattrs >
-      {T, (to ADDR from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))}
+      {T, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))}
     =>
     < ADDR : WClient | (resv: RESOLVER, wattrs) > 
-    if nm(FRAGMENT) . NAME := SNAME
+    if nm(FRAGMENT) := downstreamdata
       /\ not isFragmentMatch((wattrs, resv: RESOLVER), FRAGMENT)
       [print "(" T ") WClient got outdated response to query " ID ", dropping it"]
     .
