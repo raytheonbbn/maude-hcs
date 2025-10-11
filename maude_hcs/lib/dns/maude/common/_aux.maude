@@ -516,7 +516,8 @@ mod IODINE_NODE is
     if RESOLVER := getResolver(wattrs)
       /\ wattrsNext := incrQueryCtr(wattrs)
       /\ ID := getQueryCtr(wattrsNext)
-      /\ F := grabCurrentFragment(wattrsNext)
+      /\ (currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG, Attrs) := wattrs
+      /\ F := ackFragment(grabCurrentFragment(wattrsNext), SEQ_CTR, CUR_FRAG)
       /\ NAME := nm(F) . getWDom(wattrsNext)
       /\ QUERY := query(ID, NAME, QTYPE)
       --- keep track of app address that resulted in this query Id 
@@ -614,9 +615,8 @@ mod IODINE_NODE is
     ---- simply ACK fragment (NAME contains fragment; RCODE 0 is success)
     --- If there's a fragment, grab it and embed in the reply. Otherwise, default to null
     --- TODO: Increment attempts
-    --- TODO: Implement checking if client has acked our last fragment before moving it up
-    /\ F' := grabCurrentFragment(wattrsTrans) 
-    /\ wattrsTrans' := moveFragmentUp(wattrsTrans)
+    /\ wattrsTrans' := (if isFragmentMatch(wattrsTrans, F) then moveFragmentUp(wattrsTrans) else wattrsTrans fi)
+    /\ F' := grabCurrentFragment(wattrsTrans') 
     /\ downstreamdata := (if F' == nilFragment then nullAddr else nm(ackFragment(F', getSeqNo(F), getFragmentNumber(F))) fi)
     /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, sTTL, downstreamdata >, nil, nil, 0))
 
