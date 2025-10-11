@@ -672,6 +672,28 @@ mod IODINE_NODE is
       fi)
       .
 
+  op updateRcvAppAlice : AttributeSet Config -> AttributeSetMsgs .
+  ceq updateRcvAppAlice(wattrs, (to ADDR from ADDR1 : response(ID, NAME, < NAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))) = {wattrsTrans, msg}
+    ---- server attrs
+    if (pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs1) := wattrs
+    --- ---- app attrs
+    --- /\ (rcvd: PACKET_LIST, Attrs2) := Attrs
+    ---- if ready to defragment clean up state else no change
+    /\ wattrsTrans := 
+      (if B 
+      then (pendingFragments: mtfl, lastFragment: false, Attrs1)
+      else wattrs 
+      fi)
+    --- get the fragment
+    /\ nm(F) := downstreamdata
+    ---- defragment and send packet to Bob
+    /\ msg := 
+      (if B
+      then (to getToAddr(F) from getFromAddr(F) : makePacket(FRAGMENT_LIST))
+      else nullMsg
+      fi)
+      .
+      
 endm
 
 

@@ -307,6 +307,15 @@ crl [wnameserver-receive-query-weird]:
         [print "(" T ") SendApp start or nudge from wclient, send possible pkt " msgOut ", setting timeout if not null.  Has packets to send " appAttrsNext]
   .
 
+  rl [send-app-rcv-packet]:
+    < ADDR : SendApp | rcvd: PACKETS, appAttrs >
+    < MON : WMonitor | pktRcvd: PTL, monAttrs >
+    {T, (to ADDR from ADDR1 : Pkt)}
+  => 
+    < ADDR : SendApp | rcvd: (Pkt ; PACKETS), appAttrs >
+    < MON : WMonitor | pktRcvd: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
+  .
+
   ---- ************
   ---- Timeout rule for Alice (receive timeout and send next packet)
   ---- ************
@@ -377,7 +386,7 @@ crl [wnameserver-receive-query-weird]:
     < MON : WMonitor | querySent: QTL, monAttrs >
       {T, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))}
     =>
-    < ADDR : WClient | wattrsNext >       
+    < ADDR : WClient | wattrs2 >       
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
     (if msgOutExt == nullMsg 
      then [0.0, (to getFromAddr(response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)) : start), 0]
@@ -385,7 +394,7 @@ crl [wnameserver-receive-query-weird]:
     (if msgOutExt == nullMsg then 
      null 
      else [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
-     
+    (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
     if wattrsTrans := extract((resv: RESOLVER, pendingFragments: FRAGMENT_LIST, wattrs), response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ nm(F) := downstreamdata
@@ -395,6 +404,7 @@ crl [wnameserver-receive-query-weird]:
           else sendFragment(wattrsTrans, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
+      /\ {wattrs2, appMsgOut} := updateRcvAppAlice(wattrsNext, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)))
       --- TODO remove printout when done debugging
       [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt " got something weird " F]
     .

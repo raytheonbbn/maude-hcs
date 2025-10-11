@@ -109,7 +109,8 @@ class SendApp:
         res += f'    queue: ({packetlist_to_maude(self.packets)}),\n'
         res += '    numAdmittedPkts: 1,\n'
         res += '    wclientReady: true,\n'
-        res += f'    sent: mtpl > '        
+        res += f'    sent: mtpl,\n'
+        res += f'    rcvd: mtpl > '        
         return res
 
 class IodineClient:
