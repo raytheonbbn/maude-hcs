@@ -61,8 +61,8 @@ def compare_theoretical_distributions(params1, params2, title="Comparison of Two
         params2 (tuple): A tuple containing the (mean, std_dev, name) for the second distribution.
         name above is the name of the distribution in the plot
     """
-    mean1, std1, name1 = params1
-    mean2, std2, name2 = params2
+    mean1, std1, name1, n1 = params1
+    mean2, std2, name2, n2 = params2
     filename = title.replace(" ", "").replace(")", "") + ".pdf"
     # --- 1. Quantification ---
     print("--- Quantitative Comparison ---")
@@ -72,8 +72,8 @@ def compare_theoretical_distributions(params1, params2, title="Comparison of Two
 
     # Calculate KL Divergence in both directions
     try:
-        kl_1_to_2 = kl_divergence_normal(params1, params2)
-        kl_2_to_1 = kl_divergence_normal(params2, params1)
+        kl_1_to_2 = kl_divergence_normal(params1[0:3], params2[0:3])
+        kl_2_to_1 = kl_divergence_normal(params2[0:3], params1[0:3])
 
         print(f"\n2. Kullback-Leibler (KL) Divergence:")
         print("   (Measures the information lost when one distribution is used to approximate the other)")
@@ -101,9 +101,9 @@ def compare_theoretical_distributions(params1, params2, title="Comparison of Two
     pdf2 = stats.norm.pdf(x, mean2, std2)
 
     # Plot the PDFs
-    ax.plot(x, pdf1, lw=2, label=f'{name1}: N(μ={mean1}, σ={std1})', color='skyblue')
+    ax.plot(x, pdf1, lw=2, label=f'{name1}: N(μ={mean1}, σ={std1}, n={n1})', color='skyblue')
     ax.fill_between(x, pdf1, alpha=0.2, color='skyblue')
-    ax.plot(x, pdf2, lw=2, label=f'{name2}: N(μ={mean2}, σ={std2})', color='salmon')
+    ax.plot(x, pdf2, lw=2, label=f'{name2}: N(μ={mean2}, σ={std2}, n={n2})', color='salmon')
     ax.fill_between(x, pdf2, alpha=0.2, color='salmon')
 
     ax.set_title(title)    
@@ -351,8 +351,8 @@ def compare_deviation_baseline():
 
 
     for scenario in scenarios:
-        dist1_params = scenarios[scenario]['Exp'] + (f'Exp',)
-        dist2_params = scenarios[scenario]['SMC'] + (f'SMC',)
+        dist1_params = scenarios[scenario]['Exp'] + (f'Exp', 'U') # TODO replace U with number of samples
+        dist2_params = scenarios[scenario]['SMC'] + (f'SMC', 'U')
 
         title = f"Comparing {scenario} distributions {dist1_params[2]} with {dist2_params[2]})"
         print(title)
@@ -392,39 +392,6 @@ def compare_deviation_hcs_base():
         print("="*80)
         compare_theoretical_distributions(dist1_params, dist2_params, title)
 
-
-def compare_deviation_hcs_base_fixedN():
-    scenarios = {}
-    scenarios["case1"] = {}
-    scenarios["case2"] = {}
-    scenarios["case3"] = {}
-    scenarios["case4"] = {}
-    scenarios["case5"] = {}
-    
-    scenarios["case1"]["Exp"] = (0.0427, 0.00044)
-    scenarios["case1"]["SMC"] = (0.040, 0.000)
-
-    scenarios["case2"]["Exp"] = (0.560, 0.540)
-    scenarios["case2"]["SMC"] = (0.594, 0.624)
-
-    scenarios["case3"]["Exp"] = (0.280, 0.346)
-    scenarios["case3"]["SMC"] = (0.312,0.421)
-
-    scenarios["case4"]["Exp"] = (0.235, 0.336)
-    scenarios["case4"]["SMC"] = (0.245,0.379)
-
-    scenarios["case5"]["Exp"] = (0.255, 0.309)
-    scenarios["case5"]["SMC"] = (0.246,0.298)
-
-
-    for scenario in scenarios:
-        dist1_params = scenarios[scenario]['Exp'] + (f'Exp',)
-        dist2_params = scenarios[scenario]['SMC'] + (f'SMC',)
-
-        title = f"Comparing {scenario} distributions {dist1_params[2]} with {dist2_params[2]})"
-        print(title)
-        print("="*80)
-        compare_theoretical_distributions(dist1_params, dist2_params, title)
 
 if __name__ == '__main__':
     # main()
