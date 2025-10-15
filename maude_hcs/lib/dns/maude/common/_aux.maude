@@ -181,7 +181,7 @@ mod IODINE_SORTS is
     if nm(F) . NAME1 := NAME
       /\ ADDR := getFromAddr(F)
   .
-
+  
   op getResponse : Msg -> Response .
   eq getResponse((to ADDR from ADDR' : RESPONSE)) = RESPONSE .
 
@@ -193,6 +193,12 @@ mod IODINE_SORTS is
 
   op getToAddr : Fragment -> Address .
   eq getToAddr(fragment(ALICE, BOB, FILE, N, N1, N2, N3, N4, LAST_PACKET, B)) = BOB .
+
+  op getToAddr : Query -> Address .
+  ceq getToAddr(query(ID, NAME, QTYPE)) = ADDR
+    if nm(F) . NAME1 := NAME
+      /\ ADDR := getToAddr(F)
+  .
 
   op isLastFragment : Fragment -> Bool .
   eq isLastFragment(fragment(ALICE, BOB, FILE, N, N1, N2, N3, N4, LAST_PACKET, B)) = B .
@@ -636,9 +642,11 @@ mod IODINE_NODE is
     --- TODO: Increment attempts
     /\ wattrsTrans' := (if isFragmentMatch(wattrsTrans, F) then moveFragmentUp(wattrsTrans) else wattrsTrans fi)
     /\ F' := grabCurrentFragment(wattrsTrans') 
-    /\ downstreamdata := (if F' == nilFragment then nullAddr else nm(ackFragment(F', getSeqNo(F), getFragmentNumber(F))) fi)
+    --- TODO: Check what iodined.c does for a dataless fragment
+    --- If F' is nilFragment ie no more fragments left to send, ACK the client's fragment with a dataless fragment
+    /\ downstreamdata := nm(ackFragment((if F' == nilFragment then fragment(getFromAddr(F), getToAddr(F), 0, 0, 0, 0, 0, false, false) else F' fi), getSeqNo(F), getFragmentNumber(F)))
     /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, sTTL, downstreamdata >, nil, nil, 0))
-
+    [print "extractS:" downstreamdata]
     .
 
   *** Clear the previous fragments, keep only this newly received one, and start
@@ -686,7 +694,7 @@ mod IODINE_NODE is
       fi)
     --- get the fragment
     /\ nm(F) := downstreamdata
-    ---- defragment and send packet to Bob
+    ---- defragment and send packet to Alice
     /\ msg := 
       (if B
       then (to getToAddr(F) from getFromAddr(F) : makePacket(FRAGMENT_LIST))

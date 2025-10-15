@@ -152,7 +152,9 @@ crl [wnameserver-receive-query-weird]:
   --- Message back to Alice
   (if isLastFrag then [lastFragDelay + delayParamd(msgOut), msgOut, dropParamd(msgOut)] else [delayParamd(msgOut), msgOut, dropParamd(msgOut)] fi)
   --- The message to send to Bob if packet is fully assembled
+  --- TODO: Does appMsgOut need delays?
   (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
+  (if msgOutExt == nullMsg then null else [0.0, msgOutExt, 0] fi)
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 1 and step 2
   /\ {wattrsTrans, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
@@ -160,6 +162,13 @@ crl [wnameserver-receive-query-weird]:
   /\ isLastFrag := isLastFragment(QNAME)
   --- step 3
   /\ {wattrs2, appMsgOut} := updateRcvApp(wattrsTrans, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  --- If transmission is complete, nudge Bob to send another packet
+  /\ txComplete := isTxComplete(wattrs2)
+  /\ msgOutExt := 
+    if txComplete
+      then (to getToAddr(query(ID, QNAME, QTYPE)) : start)
+      else nullMsg
+    fi
   [print "(" T ") WServer receving query " ID ]
   .
 
@@ -397,16 +406,16 @@ crl [wnameserver-receive-query-weird]:
     (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
     if wattrsTrans := extract((resv: RESOLVER, pendingFragments: FRAGMENT_LIST, wattrs), response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
-      /\ nm(F) := downstreamdata
       /\ {wattrsNext, msgOutExt} :=
         if txComplete
+          --- TODO: Investigate how iodine.c client handles ACKing server data when it's done sending upstream, likely a ping? (client.c:1070)
           then {wattrsTrans, nullMsg}
           else sendFragment(wattrsTrans, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
       /\ {wattrs2, appMsgOut} := updateRcvAppAlice(wattrsNext, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)))
       --- TODO remove printout when done debugging
-      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt " got something weird " F]
+      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt " got something weird " downstreamdata]
     .
 
   --- Handle a response from the resolver to WClient that is for a past Fragment.
