@@ -1,0 +1,263 @@
+set show advisories off .
+load ../../../../deps/dns_formalization/Maude/src/common/actor.maude
+
+load net-aux.maude
+
+
+***(
+Observation Points (from T&E slides)
+ Router -- Corporate side 
+   collect (to X(addr) from iaddr : request)
+     at receive time by router
+     not at send time by local-dns
+   rcv time of router ~ send time of iaddr
+
+  (to corpRsv from iaddr : request) turns into (
+  to xRSV from corpRSV : request)--- no need to capture
+     (to corpRsv from iaddr : query)
+      >> by corpRsv rule
+     (to X(xRsv) from corpRsv : query)
+      >> by router rules
+     (to xRsv from Z(j,iaddr) : query) send on xternal
+
+ Router -- external net side
+   collect (to addr from Z(j,iaddr) : request) 
+         at send time
+
+ Mastodon server 
+  (to msAddr from addr : request) -- at receive time
+
+T&E notes suggest only observing incoming traffic
+[CLT this seems right for Mastodon server, but 
+ might want to observe what router is sending on extrnal net
+ side which is an NAT of what enters corporate side.]
+)
+
+mod ADVERSARY is
+  ex ACTOR-MODEL .
+  inc CONVERSION .
+  inc NET-AUX .    ---- X,Z, constructors
+
+  vars GT : Float .
+  vars M1 : Msg .
+  vars content : Content .
+  vars attrs attrs1 : AttributeSet .
+  vars SL : TimeMsgList .
+  vars SM : TimeMsg .
+  vars obs obsS obsR : Observable .
+  vars pat : OPat .
+  vars rcvAddr sndAddr aaddr addr addr0 addr1   : Address .
+  vars AC : ActorConfig .
+  vars j n : Nat .
+
+
+  sorts TimeMsg TimeMsgList .
+  subsort TimeMsg < TimeMsgList .
+  op nilTML : -> TimeMsgList [ctor] .
+  op _;_ : TimeMsgList TimeMsgList -> TimeMsgList
+           [ctor assoc id: nilTML] .
+
+  op tm : Float Msg -> TimeMsg [ctor] .
+
+  sort Observable .
+  sort OPat .
+  subsort OPat < Observable .
+  op mtObs : -> Observable [ctor] .
+  op __ : Observable Observable -> Observable 
+              [ctor assoc comm id: mtObs] .
+
+  op pat : String String -> OPat [ctor]  .
+  op pat : Address String -> OPat [ctor]  .
+  op pat : String Address -> OPat [ctor]  .
+
+***(
+**** corp to ext and mast incoming
+--- loc = router corporate side
+cpat  pat("X","addr")   --- at rcvtime by router, log as sent   
+--- loc = router external
+xpat  pat("addr","Z")  --- outgoing traffic at send time
+
+ --- loc = MS
+mpat  pat(msAddr,"addr") --- incoming traffic at rcv time
+
+NB benign traffic sending from inside corp captured, but
+for TGEN actors in external location only traffic received by
+Mastodon server is captured
+)
+
+----- local actor sends to external actor, corp side
+  op obsC :  -> Observable . 
+  eq obsC =  pat("X","addr") .  
+---- local actor sends to external actor, ext side
+  op obsX : -> Observable .
+  eq obsX = pat("addr","Z") .
+---- addr receives msg  
+  op obsM : Address -> Observable .
+  eq obsM(addr) = pat(addr,"addr") .    ---- MasServer addr
+
+  op omatch : Observable  Msg -> Bool .
+  op omatch : Observable  Address Address -> Bool .
+    
+
+  eq omatch(obs,(to rcvAddr from sndAddr : content)) =
+     omatch(obs,rcvAddr,sndAddr) .
+  eq omatch(obs,(to rcvAddr : content)) = false .
+
+  eq omatch(pat obs, rcvAddr,sndAddr)   =
+     (if pmatch(pat,rcvAddr,sndAddr)
+      then true
+      else omatch(obs,rcvAddr,sndAddr)
+      fi) .
+  eq omatch(mtObs, rcvAddr,sndAddr) = false .
+
+  op pmatch : OPat Address Address -> Bool .
+  eq pmatch(pat("X","addr"),X(addr0),addr) = true .
+  eq pmatch(pat("X","addr"),addr0,addr) = false [owise] .
+
+  eq pmatch(pat("addr","Z"),addr0,Z(j,addr)) = true .
+  eq pmatch(pat("addr","Z"),addr0,addr) = false [owise] .
+
+
+**** not collecting external to corpRsv
+  eq pmatch(pat(addr,"addr"),addr0,addr1) 
+      = addr0 == addr  and notX(addr1) .
+      
+  
+**** for more complex observation may need location attribute
+  op sent:_ : TimeMsgList -> Attribute [ctor] .
+  op rcvd:_ : TimeMsgList -> Attribute [ctor] .
+  op canSeeS:_ : Observable -> Attribute [ctor] .
+  op canSeeR:_ : Observable -> Attribute [ctor] .
+  
+  op addSent : AttributeSet TimeMsg -> AttributeSet .
+  eq addSent((attrs,sent: SL),SM) = (attrs,sent: (SL ; SM)) .
+  eq addSent(attrs,SM) = attrs [owise] .
+
+  op addRcvd : AttributeSet TimeMsg -> AttributeSet .
+  eq addRcvd((attrs,rcvd: SL),SM) = (attrs,rcvd: (SL ; SM)) .
+  eq addRcvd(attrs,SM) = attrs [owise] .
+  
+**** collected at send time
+  op logSent : AttributeSet Float Msg -> AttributeSet .
+ ceq logSent(attrs,GT,M1) =
+      (if omatch(obs,M1)
+      then addSent(attrs,tm(GT,M1))
+      else attrs 
+      fi)
+   if attrs1, canSeeS: obs := attrs 
+   .
+
+**** collected at receive time
+**** router receives should be stored as send
+  op logRcvd : AttributeSet Float Msg -> AttributeSet .
+ ceq logRcvd(attrs,GT,M1) =
+      (if omatch(obs,M1)
+      then (if toRouter(M1)
+            then addSent(attrs,tm(GT,M1)) 
+            else addRcvd(attrs, tm(GT,M1))
+            fi)
+      else attrs 
+      fi)
+   if attrs1,  canSeeR: obs := attrs 
+   .
+
+  op Adversary : -> ActorType .
+
+***(
+  op logRcvdC : ActorConfig Float Msg -> ActorConfig .
+  eq logRcvdC(< aaddr : Adversary | attrs > AC,GT,M1)
+   =
+  < aaddr : Adversary | logRcvd(attrs,GT,M1) > AC .
+  eq logRcvdC(AC,GT,M1) = AC [owise] .
+)
+
+  op mkAdversary : Address Observable Observable 
+                   -> Actor .
+  eq mkAdversary(aaddr,obsS, obsR) =
+    < aaddr : Adversary | canSeeS: obsS, canSeeR: obsR,
+                          sent: nilTML, rcvd: nilTML > .
+endm
+
+mod TEST-ADVERSARY is
+  inc ADVERSARY .
+  ops advAddr corpRsv masAddr iAddr xAddr : -> Address .
+  op noC : -> Content .
+
+  
+  ops advC advX advM : -> Actor .
+  eq advC = mkAdversary(advAddr,mtObs,obsC)  .
+  eq advX = mkAdversary(advAddr,obsX,mtObs)  .
+  eq advM = mkAdversary(advAddr,mtObs,obsM(masAddr))  .
+  
+  op getAttrs : Actor -> AttributeSet .
+  eq getAttrs(< addr:Address : atype:ActorType |
+                            attrs:AttributeSet >) 
+      = attrs:AttributeSet .
+ endm
+eof
+
+
+red omatch(obsC,X(xAddr),iAddr) .
+red omatch(obsX,X(xAddr),iAddr) .
+red omatch(obsM(masAddr),X(xAddr),iAddr) .
+**** t f f
+
+red omatch(obsC,xAddr,Z(2,iAddr)) .
+red omatch(obsX,xAddr,Z(2,iAddr)) .
+red omatch(obsM(masAddr),xAddr,Z(2,iAddr)) .
+**** f t f
+
+red omatch(obsC,masAddr,Z(3,iAddr)) .
+red omatch(obsX,masAddr,Z(3,iAddr)) .
+red omatch(obsM(masAddr),masAddr,Z(3,iAddr)) .
+**** f t t 
+
+red omatch(obsC,masAddr,xAddr) .
+red omatch(obsX,masAddr,xAddr) .
+red omatch(obsM(masAddr),masAddr,xAddr) .
+**** f f t
+
+red omatch(obsC,iAddr,xAddr) .
+red omatch(obsX,iAddr,xAddr) .
+red omatch(obsM(masAddr),iAddr,xAddr) .
+**** f f f
+
+
+red logRcvdC(advM,5.0,(to masAddr from  Z(6,iAddr) : noC)) . 
+< advAddr : Adversary | sent: nil, rcvd: [5.0, to masAddr from Z(6, iAddr) : noC, 0], canSee: pat(masAddr, "addr") >
+
+red logRcvdC(advM,5.0,(to masAddr from  xAddr : noC)) . 
+similar
+
+red logRcvdC(advM,5.0,(to X(xAddr) from  iAddr : noC)) . 
+no op
+
+red logRcvdC(advC,5.0,(to X(xAddr) from  iAddr : noC)) . 
+< advAddr : Adversary | sent: [5.0, to X(xAddr) from iAddr : noC, 0], rcvd: nil, canSee: pat("X", "addr") >
+
+red logRcvdC(advC,5.0,(to masAddr from  Z(4,iAddr) : noC)) . 
+no op
+red logRcvdC(advX,5.0,(to corpRsv from  iAddr : noC)) . 
+no op
+red logRcvdC(advX,5.0,(to Z(6,iAddr)  from xAddr : noC)) . 
+no op
+
+red logSent(getAttrs(advC),5.0,(to xAddr from  iAddr : noC)) . 
+mo op ~ sent: nil, rcvd: nil, canSee: pat("X", "addr")
+red logSent(getAttrs(advC),5.0,(to xAddr from  Z(3,iAddr) :  
+noC)) . 
+no op 
+red logSent(getAttrs(advC),5.0,(to Z(4,iAddr)  from  xAddr : noC)) . 
+no op 
+
+red logSent(getAttrs(advX),5.0,(to xAddr from  iAddr : noC)) . 
+no op
+red logSent(getAttrs(advX),5.0,(to xAddr from  Z(2,iAddr) : noC)) . 
+sent: [5.0, to xAddr from Z(2, iAddr) : noC, 0], rcvd: nil, canSee: pat("addr", "Z")
+red logSent(getAttrs(advX),5.0,(to Z(8,iAddr)  from  xAddr : noC)) . 
+
+red logSent(getAttrs(advM),5.0,(to xAddr from  masAddr : noC)) . 
+no op
+
+red logSent(getAttrs(advM),5.0,(to Z(2,iAddr)  from  masAddr : noC)) . 
+no op

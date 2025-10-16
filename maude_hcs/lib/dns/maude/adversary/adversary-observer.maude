@@ -1,0 +1,106 @@
+set show advisories off .
+
+**** sload ../../../../deps/dns_formalization/Maude/src/common/actor.maude
+**** sload ../../../../deps/dns_formalization/Maude/src/probabilistic-model/apmaude.maude
+load apmaude-default.maude
+load adversary.maude
+
+mod ADVERSARY-OBSERVER is
+  inc SCHEDULER .
+  inc ADVERSARY .
+
+  vars GT LIMIT : Float .
+  vars t1 t2 : Float .
+  vars SL SL' : ScheduleList .
+  vars M1 M2 : Msg .
+  var S : Scheduler .
+  var C : Config .
+  vars A A' A1 A2 aaddr : Address .
+  var T : ActorType .
+  var AS attrs : AttributeSet .
+  var CO : Content .
+  var AC : ActorConfig .
+  var SM : ScheduleMsg .
+  var AM : ActiveMsg .
+  var P : NzNat .
+
+
+  --- insert a schedule msg to the scheduler
+  --- send time
+  eq [ t1, M1, 0 ] {GT | SL}
+     < aaddr : Adversary | attrs >
+  = insert({GT | SL}, [ t1, M1, 0 ]) 
+     < aaddr : Adversary | logSent(attrs,GT,M1) >  .
+ 
+***(
+**** base scheduling equations
+ eq [ t1, M1, 0 ] {GT | SL}
+  = insert({GT | SL}, [ t1, M1, 0 ])  [owise] .
+
+  eq [ t1, M1, P ] { GT | SL } = { GT | SL }
+ [owise print "(" GT ") Drop message " "[" t1 ", " M1  "]" ] .
+  eq [ t1, M1, P ] S = S [owise] .
+)
+
+***** Receive Time
+  eq step(AC < aaddr : Adversary | attrs > 
+          {GT | [ t1 , M1, 0 ] ; SL}) 
+   = { t1 , M1 } AC 
+  < aaddr : Adversary | logRcvd(attrs,t1,M1) > 
+  {t1 | SL} 
+    .
+
+endm
+
+mod TEST-OBSERVATION is
+  inc TEST-ADVERSARY .
+  inc ADVERSARY-OBSERVER .
+endm
+eof
+
+**** sent
+
+red [1.0, (to masAddr from Z(4,iAddr) : noC),0] {5.0 | nil} advC .
+
+{5.0 |
+[6.0, to masAddr from Z(4, iAddr) : noC, 0]}
+< advAddr : Adversary | sent: nil, rcvd: nil, canSee: pat("X", "addr") >
+
+
+red [1.0, (to masAddr from Z(4,iAddr) : noC),0] {5.0 | nil} advX .
+{5.0 |
+[6.0, to masAddr from Z(4, iAddr) : noC, 0]}
+< advAddr : Adversary | sent: [5.0, to masAddr from Z(4, iAddr) : noC, 0], rcvd: nil, canSee: pat("addr", "Z") >
+
+red [1.0, (to masAddr from iAddr : noC),0] {5.0 | nil} advX .
+{5.0 |
+[6.0, to masAddr from iAddr : noC, 0]}
+< advAddr : Adversary | sent: nil, rcvd: nil, canSee: pat("addr", "Z") >
+
+red [1.0, (to masAddr from Z(4,iAddr) : noC),0] {5.0 | nil} advM .
+
+
+**** rcvd
+
+red step(advC {5.0 | [6.0, (to X(xAddr) from iAddr : noC), 0]}) .
+{6.0, to X(xAddr) from iAddr : noC}
+{6.0 |
+nil}
+< advAddr : Adversary | sent: [6.0, to X(xAddr) from iAddr : noC, 0], rcvd: nil, canSee:
+    pat("X", "addr") >
+
+red step(advC {5.0 | [6.0, (to masAddr from  Z(4,iAddr) : noC), 0]}) .
+no collection
+
+red step(advX {5.0 | [6.0, (to corpRsv from  iAddr : noC), 0]}) .
+no collection
+
+red step(advM {5.0 | [6.0, (to masAddr from  Z(6,iAddr) : noC), 0]}) .
+ {6.0, to masAddr from Z(6, iAddr) : noC}
+{6.0 |
+nil}
+< advAddr : Adversary | sent: nil, rcvd: [6.0, to masAddr from Z(6, iAddr) : noC, 0],
+    canSee: pat(masAddr, "addr") >
+    
+red step(advM {5.0 | [6.0, (to X(xAddr) from  iAddr : noC), 0]}) .
+no collection
