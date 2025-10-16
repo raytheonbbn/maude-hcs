@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
+import re
 
 TOPLEVELDIR = Path(os.path.dirname(__file__))
 
@@ -63,14 +64,18 @@ def compare_theoretical_distributions(params1, params2, title="Comparison of Two
     """
     mean1, std1, name1, n1 = params1
     mean2, std2, name2, n2 = params2
-    filename = title.replace(" ", "").replace(")", "") + ".pdf"
+    filename = title.replace(" ", "").replace(")", "")
+    means_diff = mean1 - mean2
+    stds_diff = std1 - std2
     # --- 1. Quantification ---
     print("--- Quantitative Comparison ---")
     print(f"\n1. Direct Parameter Comparison:")
-    print(f"   - Difference in Means (μ1 - μ2): {mean1 - mean2:.4f}")
-    print(f"   - Difference in Standard Deviations (σ1 - σ2): {std1 - std2:.4f}")
+    print(f"   - Difference in Means (μ1 - μ2): {means_diff:.4f}")
+    print(f"   - Difference in Standard Deviations (σ1 - σ2): {stds_diff:.4f}")
 
     # Calculate KL Divergence in both directions
+    kl_1_to_2 = -1
+    kl_2_to_1 = -1
     try:
         kl_1_to_2 = kl_divergence_normal(params1[0:3], params2[0:3])
         kl_2_to_1 = kl_divergence_normal(params2[0:3], params1[0:3])
@@ -112,8 +117,26 @@ def compare_theoretical_distributions(params1, params2, title="Comparison of Two
     ax.legend()
     plt.grid(True)
     #plt.show()
-    plt.savefig(Path(f"{filename}"))
+    plt.savefig(Path(f"{filename}.pdf"))
 
+    # create and write result dictionary
+    results = {}
+    results[filename] = {
+        "means_diff": means_diff,
+        "stds_diff": stds_diff,
+        "kl_1_to_2": kl_1_to_2,
+        "kl_2_to_1": kl_2_to_1
+    }
+    # --- Write the dictionary to a file ---
+    try:
+        with open(f"{filename}.json", 'w') as f:
+            # Use json.dump() to write the dictionary to the file
+            # indent=4 makes the JSON file human-readable
+            json.dump(results, f, indent=4)
+        print(f"Successfully wrote results dictionary to '{filename}'")
+    except IOError as e:
+        print(f"Error writing to file: {e}")
+    return results
     
 
 def compare_normal_distributions(sample1, sample2):

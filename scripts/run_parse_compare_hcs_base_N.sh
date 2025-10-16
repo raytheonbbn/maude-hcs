@@ -10,6 +10,7 @@ for (( s=200; s<=1600; s*=2 )); do
     echo "========================================"		
 	echo "python parse_compare_hcs_base_N.py ../results/tests/${CASE}/iodine_hcs_base_${SIZE}yte.log-out.dat ../results/smc/hcs_base_${CASE}_${SIZE}.log"
 	python parse_compare_hcs_base_N.py ../results/tests/${CASE}/iodine_hcs_base_${SIZE}yte.log-out.dat ../results/smc/hcs_base_${CASE}_${SIZE}.log
+    python parse_compare_hcs_base_relative_N.py ${CASE}
 done 
 
 
