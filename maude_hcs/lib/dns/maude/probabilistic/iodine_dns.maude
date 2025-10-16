@@ -86,6 +86,7 @@ crl [iServerEmbedding]:
   --- TODO: Also copied these conditions from WClient, check if this makes sense for Iodine Server
   if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
       --- Server doesn't send, just fragment the current packet and queue it
+      --- TODO: Need to be able to config Bob with a downstream fragment length different from upstream
       /\ wattrsNext := handleNewPacket(wattrs, Pkt, maxFragmentLen)
     [print "(" T ") iServerEmbedding get pkt " Pkt ", making list of fragments"]
     .
@@ -179,26 +180,6 @@ crl [wnameserver-receive-query-weird]:
   --- TODO: Bob needs to know if it's currently sending a packet. If not then fragment the next packet
   --- TODO: Bob queues up files like Alice does at the start
 
-  --- TODO: This could be done cleaner if you combine this with packetizeProb 
-  op packetizeBob : AttributeSet Address Address Nat Nat Nat -> AttributeSet .
-  ceq packetizeBob((appAttrs, queue: PACKET_LIST), BOB, ALICE, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE) = appAttrs1
-    if PACKETS' := $packetizeBob(mtpl, BOB, ALICE, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, 0) 
-    /\ appAttrs1 := (appAttrs, queue: PACKETS')
-  .
-
-  ---             CurrentPktList Src   Dest   FileSize Min Max Counter
-  op $packetizeBob : PacketList Address Address Nat Nat Nat Nat -> PacketList .
-  ceq $packetizeBob(PACKET_LIST, BOB, ALICE, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, PKT_COUNTER) = PACKETS
-    if PktSize := floor(MIN_PKT_SIZE + (MAX_PKT_SIZE + (- MIN_PKT_SIZE)) * (random(PKT_COUNTER) / 4294967296))
-      /\ PACKETS :=
-        (if FILE_SIZE > PktSize
-         then
-           $packetizeBob(PACKET_LIST ; packet(BOB, ALICE, PKT_COUNTER, PktSize + packetOverhead, false), BOB, ALICE, FILE_SIZE + (- PktSize), MIN_PKT_SIZE, MAX_PKT_SIZE, s PKT_COUNTER)
-         else
-           (PACKET_LIST ; packet(BOB, ALICE, PKT_COUNTER, FILE_SIZE + packetOverhead, true))
-         fi)
-    .
-
   --- If Bob has been told to start (by the W name server), packetize its outgoing file 
   crl [receive-app-send-packet]:
     < BOB : RcvApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet, wnameserverReady: WNAMESERVERREADY >
@@ -211,7 +192,7 @@ crl [wnameserver-receive-query-weird]:
     (if msgOut == nullMsg then null else [sampleUniform(pacingTimeoutDelay, pacingTimeoutDelayMax), (to BOB : pktTimeout(getPkt(msgOut))), 0] fi)
     if appAttrsTrans := (if queueSet == true
                      then (appAttrs, fileDestAddr: ADDR)
-                     else (packetizeBob(appAttrs, BOB, ADDR, fileSize, packetSize, maxPacketSize), fileDestAddr: ADDR)
+                     else (packetizeProb(appAttrs, BOB, ADDR, fileSize, packetSize, maxPacketSize), fileDestAddr: ADDR)
                      fi)
      *** The queue is populated and wnameserver is presumed ready since it sent a start
     /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, wnameserverReady: true)
