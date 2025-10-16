@@ -23,9 +23,9 @@ conda create --name pwnd2 python=3.12.4
 conda activate pwnd2
 ```
 
-Then, manually install the dev version of umaudemc (will fix toml file once this becomes a release)
+Then, install
 ``` bash
-pip install https://github.com/fadoss/umaudemc/releases/download/latest/umaudemc-0.16.0a2-py3-none-any.whl
+pip install -e .
 ```
 
 ## VIRTUALENV

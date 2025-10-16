@@ -8,12 +8,13 @@ load ../probabilistic/iodine_dns
 **** load ../probabilistic/paced-client
 load ../probabilistic/paced-client-checkdone
 ***!!!
-load router
-load adversary-observer
+load ../../../common/maude/router
+load ../../../common/maude/adversary-observer
 
 
 mod IODINE_TEST is
-inc IODINE_DNS + PACED-CLIENT .
+
+inc IODINE_DNS + PACED-CLIENT  .
 ***!!!
 inc ROUTER .
 inc ADVERSARY-OBSERVER .
@@ -21,14 +22,14 @@ inc ADVERSARY-OBSERVER .
 eq monitorQueryLog? = true .
 
 eq fileSize = 10000 .
-eq packetSize = 67 .
+eq packetSize = 767 .
 eq packetOverhead = 33 .
 eq maxMinimiseCount = 0 .
-eq maxFragmentLen = 136 .
+eq maxFragmentLen = 200 .
 eq maxFragmentTx = 20 .
 eq maxPacketSize = 967 .
 eq pacingTimeoutDelay = 0.01 .
-eq pacingTimeoutDelayMax = 1.0 .
+eq pacingTimeoutDelayMax = 0.05 .
 eq ackTimeoutDelay = 1.0 .
 
 --- Actor addresses
@@ -64,19 +65,12 @@ eq ObsR = obsC .
 ---  collects msgs received by this server at receive time
 **** eq ObsR = obsM(serverAddr) .
 
+
 --- "SBELT": fallback if there are no known name servers
 op sb : -> ZoneState .
 eq sb = < root ('a . 'root-servers . 'net . root |-> root-dns) > .
 
 --- Zone files
-op zoneInternetCom : -> List{Record} .
-eq zoneInternetCom =
-  < 'internet . 'com . root, soa, 3600.0, soaData(3600.0) >
-  < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
-  < 'ns . 'internet . 'com . root, a, 3600.0, internet-dns >
-  < 'tmp0 . 'internet . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >
-  < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1 . 1 . 2 > .
-
 op zone : -> List{Record} .
 eq zone =
   < root, soa, 3600.0, soaData(3600.0) >
@@ -85,14 +79,6 @@ eq zone =
   < 'com . root, ns, 3600.0, 'ns . 'com . root >
   < 'ns . 'com . root, a, 3600.0, tld-dns > .
 
-op zonePwndCom : -> List{Record} .
-eq zonePwndCom =
-  < 'pwnd . 'com . root, soa, 3600.0, soaData(3600.0) >
-  < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
-  < 'ns . 'pwnd . 'com . root, a, 3600.0, application-server >
-  < 'tmp0 . 'pwnd . 'com . root, a, 0.0, 2 . 0 . 1 . 2 >
-  < wildcard . 'pwnd . 'com . root, a, 0.0, 2 . 1 . 1 . 2 > .
-
 op zoneCorporateCom : -> List{Record} .
 eq zoneCorporateCom =
   < 'corporate . 'com . root, soa, 3600.0, soaData(3600.0) >
@@ -100,6 +86,14 @@ eq zoneCorporateCom =
   < 'ns . 'corporate . 'com . root, a, 3600.0, local-dns >
   < 'tmp0 . 'corporate . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
   < wildcard . 'corporate . 'com . root, a, 0.0, 3 . 1 . 1 . 2 > .
+
+op zoneInternetCom : -> List{Record} .
+eq zoneInternetCom =
+  < 'internet . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
+  < 'ns . 'internet . 'com . root, a, 3600.0, internet-dns >
+  < 'tmp0 . 'internet . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >
+  < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1 . 1 . 2 > .
 
 op zoneCom : -> List{Record} .
 eq zoneCom =
@@ -112,6 +106,14 @@ eq zoneCom =
   < 'ns . 'pwnd . 'com . root, a, 3600.0, application-server >
   < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
   < 'ns . 'corporate . 'com . root, a, 3600.0, local-dns > .
+
+op zonePwndCom : -> List{Record} .
+eq zonePwndCom =
+  < 'pwnd . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
+  < 'ns . 'pwnd . 'com . root, a, 3600.0, application-server >
+  < 'tmp0 . 'pwnd . 'com . root, a, 0.0, 2 . 0 . 1 . 2 >
+  < wildcard . 'pwnd . 'com . root, a, 0.0, 2 . 1 . 1 . 2 > .
 
 --- Caches
 op resolverCache : -> Cache .
@@ -205,7 +207,7 @@ eq initState =
 ***!!!
   mkRouter(router)    
   mkAdversary(adversary,ObsS,ObsR)
-  mkPacedClient(dnsperf,local-dns, 'internet . 'com . root, 960,0.03333333333333333,0.1)
+  mkPacedClient(dnsperf,local-dns, 'internet . 'com . root, 75,0.06666666666666667,0.1)
   [genRandom(0.0, 0.0001), to dnsperf : start, 0]
   --- App start messages
   [1.0, (to Alice : start), 0] 
@@ -229,11 +231,11 @@ eq LinkType-1 =
   (delayStd: 0.),
   (delayType: "Constant"),
   (delayMean: 0.),
-  (delayConst: 0.027),
+  (delayConst: 0.005),
   (noiseMin: 0.),
   (noiseMax: 0.00001),
-  (dropP: 0.05),
-  (canDrop: true)
+  (dropP: 0.),
+  (canDrop: false)
   .
 
 op LinkType-2 : -> AttributeSet .
@@ -263,8 +265,8 @@ eq LinkType-3 =
 eq LinkData =
   aaa(local-dns,application-client,LinkType-0)
   aaa(local-dns,dnsperf,LinkType-0)
+  ****!!!  
   aaa(public-dns,local-dns,LinkType-1)
-***!!!
   aaa(X(public-dns),local-dns,LinkType-0) --- to router
   aaa(local-dns,X(public-dns),LinkType-0) --- from router
   aaa(public-dns,application-server,LinkType-1)
@@ -272,12 +274,16 @@ eq LinkData =
   aaa(public-dns,tld-dns,LinkType-2)
   aaa(public-dns,internet-dns,LinkType-3)
 .
+**** adversary does not send or receive
 
 op initConfig : -> Config .
 eq initConfig = run({0.0 | nil} initState,limit) .
 endm
 eof
 
+
 red initConfig .
+
 rew initConfig .
+
 
