@@ -77,12 +77,11 @@ mod IODINE_DNS is
 
 crl [iServerEmbedding]:
   < ADDR : WNameserver | wattrs >
-  ---- TODO: Embed monitor behavior
+  < MON : WMonitor | pktSent: PTL, monAttrs >
   {T, (to ADDR from BOB : Pkt)}
   =>
   < ADDR : WNameserver | wattrsNext >
-  --- TODO: Delays were copied from WClient, check if still applicable here
-  ---[delayParamd(msgOut), msgOut, dropParamd(msgOut)]
+  < MON : WMonitor | pktSent: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
 
   --- TODO: Also copied these conditions from WClient, check if this makes sense for Iodine Server
   if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
@@ -395,8 +394,7 @@ crl [wnameserver-receive-query-weird]:
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
       /\ {wattrs2, appMsgOut} := updateRcvAppAlice(wattrsNext, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)))
-      --- TODO remove printout when done debugging
-      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt " got something weird " downstreamdata]
+      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt]
     .
 
   --- Handle a response from the resolver to WClient that is for a past Fragment.
