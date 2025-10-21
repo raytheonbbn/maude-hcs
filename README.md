@@ -59,7 +59,7 @@ mkdir -p maude_hcs/deps
 git submodule add -b pwnd -f git@github.com:jkhourybbn/dns-formalization-maude.git maude_hcs/deps/dns_formalization
 cd maude_hcs/deps/dns_formalization
 git sparse-checkout init --cone
-git sparse-checkout set "Maude/src" "Maude/test" "Maude/attack_exploration"
+git sparse-checkout set "Maude/dns" "Maude/common" "Maude/test" "Maude/attack_exploration"
 cd ../../../
 git reset .gitmodules
 git reset maude_hcs/deps/dns_formalization
