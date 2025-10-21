@@ -26,7 +26,7 @@
 ---
 --- MAUDE_HCS: end
 
-load ../../../../deps/dns_formalization/Maude/src/common/_aux
+load ../../../../deps/dns_formalization/Maude/dns/common/_aux
 
 mod MYLISTS is
   pr AUX-COMMON .
@@ -58,10 +58,19 @@ mod MYLISTS is
   subsort Fragment < FragmentList .
   subsort Packet < PacketList .
 
-  var FL : FragmentList .
+  subsorts Packet Fragment < Content . 
+  ----        AliceAddr Packet# DataLenBytes lastPacket? 
+  op packet : Address Address Nat Nat Bool -> Packet .
+  ----          AliceAddr BobAddr Packet# Frag# DataLenBytes lastPacketlastFrag 
+  op fragment : Address Address Nat Nat Nat Bool Bool -> Fragment .  
+
+  vars curFragments FL : FragmentList .
   var F : Fragment .
   var PL : PacketList .
   var P : Packet .
+  vars ALICE BOB : Address .
+  vars N N1 N2 N3 : Nat .
+  vars LAST_PACKET B : Bool .
 
   op nilFragment : -> Fragment .
   op nilPacket : -> Packet .
@@ -70,6 +79,38 @@ mod MYLISTS is
   op mtpl    : -> PacketList [ctor] .
   op _:_    : FragmentList FragmentList -> FragmentList [ctor assoc id: mtfl] .
   op _;_    : PacketList PacketList -> PacketList [ctor assoc id: mtpl] .
+
+  op getFromAddr : Fragment -> Address .
+  eq getFromAddr(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = ALICE .
+
+  ----        return list of fragments that form a packet
+  ----          Packet HOSTNAME_LEN
+  op makeFragments : Packet Nat -> FragmentList .
+  ----          Packet HOSTNAME_LEN cur_frag_num cur_fragments
+  op $makeFragments : Packet Nat Nat FragmentList -> FragmentList .
+
+  ----        return packet from list of fragments 
+  op makePacket : FragmentList ->  Packet .
+  op $makePacket : FragmentList Packet ->  Packet .
+
+  
+  eq makeFragments(packet(ALICE, BOB, N, N1, B), N2) = 
+    $makeFragments(packet(ALICE, BOB, N, N1, B), N2, 0, mtfl) .
+  
+  eq $makeFragments(packet(ALICE, BOB, N, N1, B), N2,  N3, curFragments) =
+    if N1 > N2 
+    then
+      $makeFragments(packet(ALICE, BOB, N, (N1 + (- N2)), B), N2, s N3, curFragments : fragment(ALICE, BOB, N, s N3, N2, B, false)) 
+    else 
+      curFragments : fragment(ALICE, BOB, N, s N3, N1, B, true)
+    fi  
+    .
+
+  eq makePacket(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B) : curFragments) = 
+    $makePacket(curFragments, packet(ALICE, BOB, N, N2, LAST_PACKET))  .
+  eq $makePacket((fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B) : curFragments), packet(ALICE, BOB, N, N3, LAST_PACKET)) =
+    $makePacket(curFragments, packet(ALICE, BOB, N, (N3 + N2), LAST_PACKET)) .
+  eq $makePacket(mtfl, P) = P .
 
   op length : FragmentList -> Nat .     
   
@@ -110,11 +151,6 @@ mod IODINE_SORTS is
   var F : Fragment .
   var RESPONSE : Response .
 
-  subsorts Packet Fragment < Content . 
-  ----        AliceAddr Packet# DataLenBytes lastPacket? 
-  op packet : Address Address Nat Nat Bool -> Packet .
-  ----          AliceAddr BobAddr Packet# Frag# DataLenBytes lastPacketlastFrag 
-  op fragment : Address Address Nat Nat Nat Bool Bool -> Fragment .  
   --- convert a fragment into a Name to be embedded
   op nm : Fragment -> Name .  
   --- convert back to fragment
@@ -128,9 +164,6 @@ mod IODINE_SORTS is
   
   eq fragment(nm(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B))) = fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B) .
   eq fragment(NAME) = nilFragment [owise] .
-
-  op getFromAddr : Fragment -> Address .
-  eq getFromAddr(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B)) = ALICE .
 
   op getFromAddr : Response -> Address .
   ceq getFromAddr(response(ID, NAME, ANS, AUTH, ADD, RCODE)) = ADDR
@@ -212,35 +245,6 @@ mod IODINE_AUX is
   eq updateMap(wdb !! (ID <~ ADDR), ID, ADDR1) 
           = wdb !! (ID <~ ADDR1) .
   eq updateMap(wdb,ID,ADDR) = wdb !! (ID <~ ADDR) [owise] .
-
-  ----        return list of fragments that form a packet
-  ----          Packet HOSTNAME_LEN
-  op makeFragments : Packet Nat -> FragmentList .
-  ----          Packet HOSTNAME_LEN cur_frag_num cur_fragments
-  op $makeFragments : Packet Nat Nat FragmentList -> FragmentList .
-
-  ----        return packet from list of fragments 
-  op makePacket : FragmentList ->  Packet .
-  op $makePacket : FragmentList Packet ->  Packet .
-
-  
-  eq makeFragments(packet(ALICE, BOB, N, N1, B), N2) = 
-    $makeFragments(packet(ALICE, BOB, N, N1, B), N2, 0, mtfl) .
-  
-  eq $makeFragments(packet(ALICE, BOB, N, N1, B), N2,  N3, curFragments) =
-    if N1 > N2 
-    then
-      $makeFragments(packet(ALICE, BOB, N, (N1 + (- N2)), B), N2, s N3, curFragments : fragment(ALICE, BOB, N, s N3, N2, B, false)) 
-    else 
-      curFragments : fragment(ALICE, BOB, N, s N3, N1, B, true)
-    fi  
-    .
-
-  eq makePacket(fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B) : curFragments) = 
-    $makePacket(curFragments, packet(ALICE, BOB, N, N2, LAST_PACKET))  .
-  eq $makePacket((fragment(ALICE, BOB, N, N1, N2, LAST_PACKET, B) : curFragments), packet(ALICE, BOB, N, N3, LAST_PACKET)) =
-    $makePacket(curFragments, packet(ALICE, BOB, N, (N3 + N2), LAST_PACKET)) .
-  eq $makePacket(mtfl, Pkt) = Pkt .
 
 endm
 
@@ -549,6 +553,7 @@ mod IODINE_NODE is
                   *** then keep only the new fragment, move packet forward.
                   then flushPendingFragments(wattrs, F)
                   *** else this fragment is a duplicate (ignore).
+                  *** TODO: Do not ignore and send ACK
                   else wattrs
                 fi)
           *** Else, this is the new fragment of the current packet, accept (move fragment number forward).

@@ -1,0 +1,83 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- PWNDD Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- Contract No: HR00112590083
+--- Contractor Name: RTX BBN Technologies Inc.
+--- Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
+---
+--- The U.S. Government's rights to use, modify, reproduce, release, perform,
+--- display, or disclose these technical data and software are defined in the
+--- Article VII: Data Rights clause of the OTA.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein.
+---
+--- MAUDE_HCS: end
+
+
+*** The full Tag module, including a string tokenizer module, to help with 
+*** hashtags.
+mod TAGS is
+  pr STRING . 
+
+  --- A Mastodon hashtag / tag.
+  sorts Tag TagList .
+  subsort Tag < TagList .
+  
+  sorts StringList .
+  subsorts String < StringList .
+
+  op makeTag : String -> Tag .
+  op nilTag : -> Tag .
+
+  op emptyTagList : -> TagList [ctor] .
+  op _;;_ : TagList TagList -> TagList [ctor assoc id: emptyTagList] .
+
+  vars afterStr remStr S : String .
+  vars wordEnd I J : Nat .
+  vars tag TAG : Tag .
+  vars TAG_LIST : TagList .
+
+  --- Get the head of the tag list.
+  op getFirst : TagList -> Tag .
+  eq getFirst(tag ;; TAG_LIST) = tag .
+  eq getFirst(emptyTagList) = nilTag .
+
+  --- Extract the tags from a string.
+  op $extractTag : String -> TagList .
+  ceq $extractTag(S) =
+    makeTag(substr(S, I + 1, J)) ;; $extractTag(remStr)
+    if I := find(S, "#", 0)
+      --- Likely redundant.  If I is notFound, the if above is false and this extractTag does not match.
+      /\ I =/= notFound
+      /\ afterStr := substr(S, I + 1, length(S))
+      /\ J := (if find(afterStr, " ", 0) =/= notFound
+                  then find(afterStr, " ", 0)
+                  else length(afterStr)
+              fi)
+      /\ remStr := substr(afterStr, J + 1, length(afterStr))
+    .
+  eq $extractTag(S) = emptyTagList [owise] .
+
+endm
+
+---set trace on .
+red $extractTag("#hashtag string") == makeTag("hashtag") .
+red $extractTag("This string has a #hashtag tag and #another one.") == makeTag("hashtag") ;; makeTag("another") .
+red $extractTag("This string last #hashtag") == makeTag("hashtag") .
+red $extractTag("This string has no hashtag.") == emptyTagList .
+
+
+

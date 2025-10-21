@@ -1,0 +1,139 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- PWNDD Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- Contract No: HR00112590083
+--- Contractor Name: RTX BBN Technologies Inc.
+--- Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
+---
+--- The U.S. Government's rights to use, modify, reproduce, release, perform,
+--- display, or disclose these technical data and software are defined in the
+--- Article VII: Data Rights clause of the OTA.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein.
+---
+--- MAUDE_HCS: end
+
+load ./_aux
+
+mod MASTODON is
+  inc MASAUX .
+
+  vars raceboatCl ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
+  vars attrs attrsNext : AttributeSet .
+  vars raceboatReq : Content .
+  vars httpRequest : HttpRequest .
+  vars httpResponse : HttpResponse .
+  vars MEDIA : MediaFile .
+  vars MEDIA_LIST : MediaFileList .
+  vars POST_ID : MasId .
+  vars msgIn msgOut : Msg .
+  vars N : Nat .
+  vars TEXT : String .
+  vars HASHTAG TAG : Tag .
+  vars URL : Url .
+
+  -------------------------------
+  --- [Mastodon Client] --- Rules
+  -------------------------------
+  
+  --- Dispatch the proper request depending on the Raceboat client command.
+  op dispatchRaceboatCommand : AttributeSet Content -> AttributeSetMsgs .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    uploadNewStatus(attrs, TEXT, emptyMasIdList)
+    if PostStatus(TEXT) := raceboatReq
+    .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    uploadNewMedia(attrs, MEDIA)
+    if PostMedia(MEDIA) := raceboatReq
+    .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    uploadNewStatusWImages(attrs, TEXT, MEDIA_LIST)
+    if PostStatus(TEXT, MEDIA_LIST) := raceboatReq
+    .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    downloadPost(attrs, POST_ID)
+    if GetPost(POST_ID) := raceboatReq
+    .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    downloadMediaAtHashtag(attrs, TAG)
+    if GetMediaHashtag(TAG) := raceboatReq
+    .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    downloadMediaAtHashtag(attrs, TAG, N)
+    if GetMediaHashtag(TAG, N) := raceboatReq
+    .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    downloadMediaAtUrl(attrs, URL)
+    if GetMedia(URL) := raceboatReq
+    .
+  ceq dispatchRaceboatCommand(attrs, raceboatReq) =
+    downloadTimeline(attrs)
+    if GetTimeline := raceboatReq
+    .
+
+  --- Receive HTTP Response from server.
+  crl [mascl-receive-http-resp]:
+  < MAS_CLIENT_ADDR : MasClient | attrs >
+    (to MAS_CLIENT_ADDR from MAS_SERVER_ADDR : httpResponse)
+  => 
+  < MAS_CLIENT_ADDR : MasClient | attrsNext >
+    (if msgOut == nullMsg then null else msgOut fi)
+  if {attrsNext, msgOut} := handleReply(httpResponse, attrs)
+  [print "Mastodon Client handling HTTP Response from Server, sending " msgOut]
+  .
+
+
+  --- Receive Command from Alice.
+  crl [mascl-receive-alice-req]:
+  < MAS_CLIENT_ADDR : MasClient | attrs >
+    (to MAS_CLIENT_ADDR from raceboatCl : raceboatReq)
+  => 
+  < MAS_CLIENT_ADDR : MasClient | attrsNext >
+    msgOut
+  if { attrsNext, msgOut } := dispatchRaceboatCommand(attrs, raceboatReq)
+  [print "Mastodon Client handling command " raceboatReq " from Raceboat, sending " msgOut]
+  .  
+
+  -------------------------------
+  --- [Mastodon Server] --- Rules
+  -------------------------------
+
+  --- Receive HTTP request from the client.
+  crl [massrv-receive-http-req]:
+  < MAS_SERVER_ADDR : MasServer | attrs >
+    msgIn
+  =>
+  < MAS_SERVER_ADDR : MasServer | attrsNext >
+    (if msgOut == nullMsg then null else msgOut fi)
+
+  if { attrsNext, msgOut } := handleRequest(msgIn, attrs)
+  [print "Mastodon Server handling HTTP Request, sending " msgOut]
+  .
+
+  --- Receive command from Bob Raceboat to search hashtag and get all media.
+  crl [mascl-get-media-hashtag]:
+  < MAS_CLIENT_ADDR : MasClient | attrs >
+    (to MAS_CLIENT_ADDR : GetMediaHashtag(HASHTAG))
+  =>
+  < MAS_CLIENT_ADDR : MasClient | attrsNext >
+    msgOut
+
+  if {attrsNext, msgOut} := downloadMediaAtHashtag(attrs, HASHTAG)
+  [print "Mastodon Client start collecting all media associated with " HASHTAG " - send " msgOut]
+  .
+
+endm
+

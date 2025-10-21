@@ -10,9 +10,20 @@ mod SMC is
   var C : Config .
   var id : Nat .
   vars len, len' : Nat .
+  var A : Actor .
+  var N : Nat .
   var last? : Bool .
-  vars T T' : Float .
+  vars T T' T'' T''' : Float .
   var ADDR AppAddrFrom AppAddrTo : Address .
+
+  var QTL QTL' : QueryTimestampList .
+  var QUERY : Query .
+
+  var TML : TimeMsgList .
+  var M : Msg .
+  var TH : Float .
+  var GT : Float .
+  var I : Int .
 
   op getMonitor : Config -> Actor .
   eq getMonitor (C < ADDR : WMonitor | attrs >) = < ADDR : WMonitor | attrs > .
@@ -47,5 +58,113 @@ mod SMC is
     = true   
     .
   eq isDone (C) = false [owise] .
+
+  op isDone : Config -> Bool .
+  eq isDone (A { F:Float | nil } AC < ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len, true), T) ; PTL'), attrs >) 
+    = true   
+    .
+  eq isDone (C) = false [owise] .
+
+  op getQuerySent : Actor -> QueryTimestampList . 
+  eq getQuerySent (< ADDR : WMonitor | querySent: QTL, attrs >) = QTL . 
+
+  op length : QueryTimestampList -> Nat .
+  eq length (nilQueryTimestamp) = 0 .
+  eq length (QTL ; queryTimestamp(QUERY, T)) = 1 + length(QTL) .
+
+  op length : TimeMsgList -> Nat .
+  eq length (nilTML) = 0 .
+  eq length (TML ; tm(T, M)) = 1 + length(TML) .
+
+  op lengthTimeWindow : QueryTimestampList Float Float -> Nat .
+  eq lengthTimeWindow (nilQueryTimestamp, T', T'') = 0 .
+  eq lengthTimeWindow (QTL ; queryTimestamp(QUERY, T), T', T'') = if T > T' and T < T'' then 1 + lengthTimeWindow(QTL, T', T'') else lengthTimeWindow(QTL, T', T'') fi .
+
+  op lengthTimeWindow : TimeMsgList Float Float -> Nat .
+  eq lengthTimeWindow (nilTML, T', T'') = 0 .
+  eq lengthTimeWindow (TML ; tm(T, M), T', T'') = if T > T' and T < T'' then 1 + lengthTimeWindow(TML, T', T'') else lengthTimeWindow(TML, T', T'') fi .
+
+  op getNQuerySent : Actor -> Nat .
+  eq getNQuerySent (< ADDR : WMonitor | querySent: QTL, attrs >) = length(QTL) .
+
+  op getNQueryRcvd : Actor -> Nat .
+  eq getNQueryRcvd (< ADDR : WMonitor | queryRcvd: QTL, attrs >) = length(QTL) .
+
+  op getAdversary : Config -> Actor .
+  eq getAdversary (C < ADDR : Adversary | attrs >) = < ADDR : Adversary | attrs > . 
+
+  op getNQuerySent : Actor -> Nat .
+  eq getNQuerySent (< ADDR : Adversary | sent: TML, attrs >) = length(TML) .
+
+                       --- start window 
+  op avgQPS : TimeMsgList Float Float -> Float .
+  eq avgQPS (TML, T, T') = float(lengthTimeWindow(TML, T, T + T')) / T' .
+
+  op lastT : TimeMsgList -> Float .
+  eq lastT (TML ; tm(T, M)) = if T > lastT(TML) then T else lastT(TML) fi .
+  eq lastT (nilTML) = 0.0 .
+
+                        --- start window th
+  op highQPS : TimeMsgList Float Float Float -> Bool .
+  eq highQPS (TML, T, T', TH) = if avgQPS (TML, T,  T') > avgQPS (TML, 0.0, T') * TH then true else false fi .
+  eq highQPS (nilTML, T, T', TH) = false . 
+
+                    --- start window bin th consecutive 
+  op alarm : TimeMsgList Float Float Float Float Int -> Bool .
+  ceq alarm (TML, T, T', T'', TH, I) = if highQPS(TML, T + (float(I) * T''), T', TH) then alarm(TML, T, T', T'', TH, I - 1) else false fi if I > 0 .
+  eq alarm (TML, T, T', T'', TH, I) = true [owise].
+
+                    --- start window bin th consecutive 
+  op tod : TimeMsgList Float Float Float Float Int -> Float .
+  ceq tod (TML, T, T', T'', TH, I) = (if alarm(TML, T, T', T'', TH, I) then T + T' + (float(I) * T'') else tod(TML, T + T'', T', T'', TH, I) fi) if lastT(TML) > T + T' + (float(I - 1) * T'') . 
+
+  op getInitialQPS : Config Float -> Float .
+  eq getInitialQPS (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQPS (TML, 0.0, T) .  
+
+  op getAvgQPS : Config Float Float -> Float .
+  eq getAvgQPS (C < ADDR : Adversary | sent: TML, attrs >, T, T') = avgQPS (TML, T, T') .  
+
+  op getHcsQPS : Config Float -> Float .
+  eq getHcsQPS (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQPS(TML, T, lastT(TML) - T) .  
+
+                        --- init start window bin th consecutive
+  op getToD : Config Float Float Float Float Int -> Float .
+  eq getToD (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = tod(TML, T'' - T, T, T', TH, I) . 
+
+                        --- init start window bin th consecutive
+  op isDetected : Config Float Float Float Float Int -> Bool .
+  eq isDetected (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = if tod(TML, T'' - T, T, T', TH, I) > 0.0 then true else false fi . 
+
+  var ID : Id .
+  var NAME : Name .
+  var RTYPE : RType .
+  vars B1 B2 : Bool .
+  vars ALICE BOB : Address .
+  vars N1 N2 N3 : Nat .
+
+  op size : Name -> Nat .
+  eq size (nm(fragment(ALICE, BOB, N1, N2, N3, B1, B2)) . NAME) = N3 + nameLength(NAME) .
+  eq size (NAME) = nameLength(NAME) [owise] .
+
+  op size : Query -> Nat .
+  eq size (query(ID, NAME, RTYPE)) = size(NAME) .
+
+  op size : TimeMsgList -> Nat .
+  eq size (nilTML) = 0 .
+  eq size (TML ; tm(T, M)) = size(getQuery(M)) + size(TML) .
+
+  op sizeTimeWindow : TimeMsgList Float Float -> Nat .
+  eq sizeTimeWindow (nilTML, T', T'') = 0 .
+  eq sizeTimeWindow (TML ; tm(T, M), T', T'') = if T > T' and T < T'' then size(getQuery(M)) + sizeTimeWindow(TML, T', T'') else sizeTimeWindow(TML, T', T'') fi .
+
+                            --- start window 
+  op avgQuerySize : TimeMsgList Float Float -> Float .
+  eq avgQuerySize (TML, T, T') = float(sizeTimeWindow(TML, T, T + T')) / float(lengthTimeWindow(TML, T, T + T')) .
+
+  op getAvgQuerySize : Config -> Float .
+  eq getAvgQuerySize (C < ADDR : Adversary | sent: TML, attrs >) = float(size(TML)) / float(length(TML)) .
+
+  op getHcsQuerySize : Config Float -> Float .
+  eq getHcsQuerySize (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQuerySize(TML, T, lastT(TML) - T) .  
 
 endm

@@ -1,0 +1,72 @@
+set show advisories off .
+
+load ../../../deps/dns_formalization/Maude/common/parameters.maude
+load net-aux.maude
+
+***(
+only need ScheduleMsg and ActiveMsg
+)
+
+
+mod ROUTER is
+  ex ACTOR-MODEL .
+  inc PARAMETERS-BASE-COMMON .
+  inc SCHEDULER-AUX .
+  inc CONVERSION .
+  inc NET-AUX .    ---- X,Z, constructors
+
+  vars  i j n : Nat .
+  vars router iaddr addr addr'  : Address .
+  vars c : Content .
+  vars attrs : AttributeSet .
+  vars msg : Msg .
+  vars T : Float .
+  
+  
+  eq getLinkData(to Z(j,addr) from addr' : c:Content) 
+     = getLinkData(to addr from addr' : c:Content) .
+  
+  eq getLinkData(to addr' from Z(j,addr) : c:Content) 
+     = getLinkData(to addr' from addr : c:Content) .
+  
+  op rctr:_ : Nat -> Attribute [ctor] .
+  
+  op Router : -> ActorType  [ctor] .
+
+  op mkRouter :  Address  -> Actor .
+  eq mkRouter(router) =  < router : Router | rctr: 0 > .
+
+crl[c2x]:  
+   < router : Router | rctr: j, attrs > {T, (to X(addr) from iaddr : c)}
+  =>
+  < router : Router | rctr: s j, attrs > 
+   [delayParamd(msg), msg, dropParamd(msg)]
+if msg := (to addr from Z(j,iaddr) : c)
+[print "Router c2x msg " msg " at " T]
+.
+
+crl[x2c]:  
+   < router : Router | attrs > {T, (to Z(i,iaddr) from addr : c)}
+  =>
+  < router : Router | attrs > 
+   [delayParamd(msg), msg, dropParamd(msg)]
+if msg := (to iaddr from X(addr) : c)
+[print "Router x2c msg " msg " at " T]
+.
+
+endm  
+
+mod TEST-ROUTER is
+  inc ROUTER .
+
+ops  addrR  addrI addrE : -> Address .
+op fakeC : -> Content .
+
+op iC : -> Config . 
+eq iC = mkRouter(addrR) .
+
+endm
+eof
+
+rew iC {5.0, (to X(addrE) from addrI : fakeC)} .
+rew iC {5.0, (to Z(2,addrI) from addrE : fakeC)} .
