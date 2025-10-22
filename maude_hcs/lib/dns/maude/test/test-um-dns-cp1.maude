@@ -1,0 +1,540 @@
+load ../probabilistic/iodine_dns
+load ../../../../deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
+load ../../../common/maude/adversary-observer 
+
+***** Testing DNSTask in underlying DNS network
+***(
+load ../probabilistic/iodine_dns
+load ../probabilistic/paced-client
+iodine_dns loads
+)
+
+load ../../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
+*****  < wildcard . 'example . 'com . root, txt, 3600.0, nullAddr > .
+
+load ../um-dns/user-action-actor.maude
+load ../um-dns/dnsTgen-actor.maude
+
+
+--- mod DNS-TGEN-TEST is
+mod IODINE_TEST is
+  inc DNS .
+  inc USER-ACTION-ACTOR .
+  inc DNS-TGEN .
+  inc DNS-MAMODEL .
+  inc IODINE_DNS + TEST-HELPERS .
+  inc ADVERSARY-OBSERVER .
+
+
+****** DNSTask / UserModel params
+ 
+  op dnameDb : -> NameList .
+  eq dnameDb =
+      (('www . 'example . 'com . root) 
+       ('www0 . 'example . 'com . root) 
+       ('www1 . 'example . 'com . root) 
+       ('www2 . 'example . 'com . root) )
+ .
+
+
+
+***(
+eq monitorQueryLog? = true .
+
+eq maxMinimiseCount = 0 .
+eq maxFragmentLen = 100 .
+eq maxFragmentTx = 10 .
+---- iodine  client parameters
+eq ackTimeoutDelay = 1.0 .
+)
+--- DNS Actor addresses
+ops  addrNScom addrNScorporate addrNSexample addrNSpwnd2 addrNSroot  rAddr : -> Address .
+
+
+************ DNS parameters
+--- "SBELT": fallback if there are no known name servers
+op sb1 : -> ZoneState .
+eq sb1 = < root ('a . 'root-servers . 'net . root |-> addrNSroot) > .
+
+op sb2 : -> ZoneState .
+eq sb2 = < root (
+              ('a . 'root-servers . 'net . root |-> addrNSroot),
+              ('a . 'root-servers . 'net . root |-> addrNSroot)
+             ) > .
+
+--- Zone files
+op zoneCom : -> List{Record} .
+eq zoneCom =
+  < 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'com . root, ns, 3600.0, 'ns . 'com . root >
+  < 'ns . 'com . root, a, 3600.0, addrNScom >
+  < 'example . 'com . root, ns, 3600.0, 'ns . 'example . 'com . root >
+  < 'ns . 'example . 'com . root, a, 3600.0, addrNSexample >
+  < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+  < 'ns . 'pwnd2 . 'com . root, a, 3600.0, addrNSpwnd2 >
+  < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
+  < 'ns . 'corporate . 'com . root, a, 3600.0, addrNScorporate > .
+
+op zone : -> List{Record} .
+eq zone =
+  < root, soa, 3600.0, soaData(3600.0) >
+  < root, ns, 3600.0, 'a . 'root-servers . 'net . root >
+  < 'a . 'root-servers . 'net . root, a, 3600.0, addrNSroot >
+  < 'com . root, ns, 3600.0, 'ns . 'com . root >
+  < 'ns . 'com . root, a, 3600.0, addrNScom > .
+
+op zonePwnd2Com : -> List{Record} .
+eq zonePwnd2Com =
+  < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+  < 'ns . 'pwnd2 . 'com . root, a, 3600.0, addrNSpwnd2 >
+  < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+  < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+  < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
+
+op zoneCorporateCom : -> List{Record} .
+eq zoneCorporateCom =
+  < 'corporate . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
+  < 'ns . 'corporate . 'com . root, a, 3600.0, addrNScorporate >
+  < 'www0 . 'corporate . 'com . root, a, 3600.0, 3 . 0 . 1 . 2 >
+  < 'www1 . 'corporate . 'com . root, a, 3600.0, 3 . 1 . 1 . 2 >
+  < wildcard . 'corporate . 'com . root, txt, 3600.0, nullAddr > .
+
+op zoneExampleCom : -> List{Record} .
+eq zoneExampleCom =
+  < 'example . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'example . 'com . root, ns, 3600.0, 'ns . 'example . 'com . root >
+  < 'ns . 'example . 'com . root, a, 3600.0, addrNSexample >
+  < 'www0 . 'example . 'com . root, a, 3600.0, 1 . 0 . 1 . 2 >
+  < 'www1 . 'example . 'com . root, a, 3600.0, 1 . 1 . 1 . 2 >
+  < wildcard . 'example . 'com . root, txt, 3600.0, nullAddr > .
+
+--- Caches
+
+op rsvCache1 : -> Cache .
+eq rsvCache1 =
+  cacheEntry(< root, ns, 3600.0, 'a . 'root-servers . 'net . root >, 1)
+  cacheEntry(< 'a . 'root-servers . 'net . root, a, 3600.0, addrNSroot >, 1)
+  cacheEntry(< 'com . root, ns, 3600.0, 'ns . 'com . root >, 1)
+  cacheEntry(< 'ns . 'com . root, a, 3600.0, addrNScom >, 1)
+  cacheEntry(< 'example . 'com . root, ns, 3600.0, 'ns . 'example . 'com . root >, 1)
+  cacheEntry(< 'ns . 'example . 'com . root, a, 3600.0, addrNSexample >, 1)
+  cacheEntry(< 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >, 1)
+  cacheEntry(< 'ns . 'pwnd2 . 'com . root, a, 3600.0, addrNSpwnd2 >, 1)
+  cacheEntry(< 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >, 1)
+  cacheEntry(< 'ns . 'corporate . 'com . root, a, 3600.0, addrNScorporate >, 1)
+ .
+ op rsvCache2 : -> Cache .
+ eq rsvCache2 =  rsvCache1 rsvCache1 .
+ op rsvCache4 : -> Cache .
+ eq rsvCache4 =  rsvCache2 rsvCache2 .
+
+
+var cache : Cache .
+var zs : ZoneState .
+var freq : Nat .
+var dur : Float .
+vars dnsMA : MAModel .
+vars umADDR rADDR  dnsTADDR : Address .
+
+
+**** DNSTgen addresses
+  ops umDAddr dnsTAddr  : -> Address .
+
+
+--- Initial configuration
+*****                          
+op initState : Cache ZoneState 
+****            umAd   dnsTAdd  rsvAddr  dns-ma
+               Address Address  Address  MAModel
+                -> Config .
+               
+eq initState (cache, zs, umADDR,dnsTADDR,rADDR,dnsMA) =
+   --- DNS actors
+  < rAddr : Resolver |
+    cache: cache,
+    nxdomainCache: nilNxdomainCache,
+    nodataCache: nilNodataCache,
+    sbelt: zs,
+    workBudget: emptyIN,
+    blockedQueries: eptQSS,
+    sentQueries: eptQSS >
+  --- Nameservers
+  < addrNSroot : Nameserver |
+    db: (zone),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >
+  < addrNScom : Nameserver |
+    db: (zoneCom),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >
+  < addrNSexample : Nameserver |
+    db: (zoneExampleCom),
+    queue: nilQueue,
+    forwardonly: nullAddr,
+    queriesFwd: nilTAQL >
+**** umActor
+  mkUMactor(umADDR,dnsMA,dnsTADDR)
+**** dnsTActor
+  mkDnsTgenA(dnsTADDR,rADDR,dnameDb, 5.0, 2)
+  [1.0, (to umADDR from umADDR : actionR("")), 0] 
+.
+
+
+ --- Link Characteristic definitions
+ **** constant nonzero delay w noise, no loss
+op LinkType-0 : -> AttributeSet .
+eq LinkType-0 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.01),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+ **** constant zero delay w noise, no loss
+op LinkType-1 : -> AttributeSet .
+eq LinkType-1 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+ **** constant nonzero delay w noise, .1 loss
+op LinkType-0d : -> AttributeSet .
+eq LinkType-0d = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.01),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.1),
+  (canDrop: true)
+  .
+
+ **** constant nonzero delay w noise, .05 loss
+op LinkType-0d5 : -> AttributeSet .
+eq LinkType-0d5 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.01),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.05),
+  (canDrop: true)
+  .
+
+ops LinkDataNoDrop LinkDataDropCR LinkDataDropRP LinkDataDropRP5 LinkDataDropCR-RP : -> AdrAdrAttrsSet .
+
+eq LinkDataNoDrop =
+****  aaa(rAddr,addrNScorporate,LinkType-0)
+****  aaa(addrNScorporate,rAddr,LinkType-0)
+  aaa(addrNSroot,rAddr,LinkType-0)
+  aaa(rAddr,addrNSroot,LinkType-0)
+  aaa(addrNScom,rAddr,LinkType-0)
+  aaa(rAddr,addrNScom,LinkType-0)
+  aaa(addrNSexample,rAddr,LinkType-0)
+  aaa(rAddr,addrNSexample,LinkType-0)
+*****  aaa(addrNSpwnd2,rAddr,LinkType-0)
+*****  aaa(rAddr,addrNSpwnd2,LinkType-0)
+****  aaa(addrNScorporate,iodineC,LinkType-1)
+****  aaa(iodineC,addrNScorporate,LinkType-1)
+  aaa(rAddr,dnsTAddr,LinkType-0)
+  aaa(dnsTAddr,rAddr,LinkType-0)
+  aaa(umDAddr,dnsTAddr,LinkType-1)
+  aaa(dnsTAddr,umDAddr,LinkType-1)
+  .
+
+
+  vars GT  : Float .
+  vars t1 t2 : Float .
+  vars  SM : ScheduleMsg .
+  vars SL SL' : ScheduleList .
+  vars M1 M2 : Msg .
+  vars  ADDR : Address .
+  var AS : AttributeSet .
+  var P : NzNat .
+  vars St : Actor .
+
+***(
+From apmaude SCHEDULER
+  --- insert a schedule msg to the scheduler 
+  eq [ t1, M1, 0 ] S = insert(S, [ t1, M1, 0 ]) .
+  eq [ t1, M1, P ] { GT | SL } = { GT | SL }
+     [owise print "Drop " "[" t1 ", " M1  "]"  " at " GT ]
+     .
+)
+
+
+**** replace above owise in apmaude by
+op dropped:_ : ScheduleList -> Attribute [ctor]   .
+op logDrop : AttributeSet ScheduleMsg -> AttributeSet .
+eq logDrop((AS, dropped: SL), SM) = AS, (dropped: (SL ; SM)) .
+eq logDrop(AS, SM) = AS, (dropped: SM) [owise] .
+
+***( 
+  eq [ t1, M1, P ] { GT | SL } < ADDR : WMonitor | AS >
+      = { GT | SL } < ADDR : WMonitor | logDrop(AS, [GT,M1,0]) >
+     [owise print "Drop " "{" GT ", " M1  "}" ]
+     .
+)
+  var S : Scheduler .
+   eq [ t1, M1, P ] S = S [owise] .
+   
+------------------------------------------------------------
+
+op iC : -> Config .
+eq iC = rCtr(1) 
+      initState(rsvCache1, sb1, 
+                umDAddr,dnsTAddr, rAddr, dns-ma) .
+
+eq LinkData = LinkDataNoDrop .
+eq defaultDelay = 0.0015 .
+
+op initConfig : -> Config .
+eq initConfig = run({0.0 | nil} iC,limit) .
+
+endm
+
+set clear rules off .
+set print attribute off .
+
+
+eof
+
+
+red iC .
+
+**** need to make P NzNat in drop owise clause
+rew run({0.0 | nil} rCtr(1) mkUMactor(umDAddr,dns-ma,dnsTAddr) [1.0, (to umDAddr from umDAddr : actionR("")), 0] , 100.) .
+
+result Config: 
+run(rCtr(3) {1.0000071518936497, to dnsTAddr from umDAddr : actionQ("type" |-> js("resolve_a"))}
+{1.0000071518936497 | nil}
+< umDAddr : UM | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(( "num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js( "uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo("type" |-> js( "resolve_a")), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait"))), "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf( 2.0))), "type" |-> js("wait")))), curState: "wait_single", nsteps: 99, actAddress: dnsTAddr, w4: (to dnsTAddr from umDAddr : actionQ("type" |-> js("resolve_a"))) >, 1.0e+2)
+    
+****************************************************    
+set print attribute on .
+rew run({0.0 | nil} iC,100.0) .
+
+umRcvStatus  from umDAddr to  umDAddr dmsg [7.1518936497159311e-6, to dnsTAddr from
+    umDAddr : actionQ("type" |-> js("resolve_a")), 0]
+DNSTgen rcvDNSAction sends to rAddr from dnsTAddr : query(0, 'www1 . 'example . 'com .
+    root, a)to dnsTAddr : dnsTO(query(0, 'www1 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to umDAddr from dnsTAddr : actionR("ok") msg0 null
+umRcvStatus  from dnsTAddr to  umDAddr dmsg [1.7883093562316326e+1, to umDAddr from
+    umDAddr : actionR("ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(0, 'www1 . 'example . 'com . root, a)
+    at 6.0000090087859776
+
+umRcvStatus  from umDAddr to  umDAddr dmsg [6.2356369639746846e-6, to dnsTAddr from
+    umDAddr : actionQ("type" |-> js("resolve_a")), 0]
+DNSTgen rcvDNSAction sends to rAddr from dnsTAddr : query(1, 'www0 . 'example . 'com .
+    root, a)to dnsTAddr : dnsTO(query(1, 'www0 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to umDAddr from dnsTAddr : actionR("ok") msg0 null
+umRcvStatus  from dnsTAddr to  umDAddr dmsg [1.9083673412770064e+1, to umDAddr from
+    umDAddr : actionR("ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(1, 'www0 . 'example . 'com . root, a)
+    at 2.3943150829301981e+1
+
+umRcvStatus  from umDAddr to  umDAddr dmsg [2.7265629451721908e-6, to dnsTAddr from
+    umDAddr : actionQ(("num_to_resolve" |-> jn(9), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to rAddr from dnsTAddr : query(2, 'www0 . 'example . 'com .
+    root, a)to dnsTAddr : dnsTO(query(2, 'www0 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(3, 'www2 . 'example . 'com .
+    root, a) msg0 to dnsTAddr : dnsTO(query(3, 'www2 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(4, 'www2 . 'example . 'com .
+    root, a) msg0 to dnsTAddr : dnsTO(query(4, 'www2 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(5, 'www1 . 'example . 'com .
+    root, a) msg0 to dnsTAddr : dnsTO(query(5, 'www1 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(6, 'www0 . 'example . 'com .
+    root, a) msg0 to dnsTAddr : dnsTO(query(6, 'www0 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(7, 'www1 . 'example . 'com .
+    root, a) msg0 to dnsTAddr : dnsTO(query(7, 'www1 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(8, 'www0 . 'example . 'com .
+    root, a) msg0 to dnsTAddr : dnsTO(query(8, 'www0 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(9, 'www2 . 'example . 'com .
+    root, a) msg0 to dnsTAddr : dnsTO(query(9, 'www2 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(10, 'www2 . 'example . 'com
+    . root, a) msg0 to dnsTAddr : dnsTO(query(10, 'www2 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to umDAddr from dnsTAddr : actionR("ok") msg0 null
+
+umRcvStatus  from dnsTAddr to  umDAddr dmsg [1.8461201567353932e+1, to umDAddr from
+    umDAddr : actionR("ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(2, 'www0 . 'example . 'com . root, a)
+    at 4.3086867181677661e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(3, 'www2 . 'example . 'com . root, a)
+    at 4.3106875505393958e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(4, 'www2 . 'example . 'com . root, a)
+    at 4.3166896661113086e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(5, 'www1 . 'example . 'com . root, a)
+    at 4.3186913387799898e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(6, 'www0 . 'example . 'com . root, a)
+    at 4.3206926201469095e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(7, 'www1 . 'example . 'com . root, a)
+    at 4.3226943269200234e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(8, 'www0 . 'example . 'com . root, a)
+    at 4.3246950440766483e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(9, 'www2 . 'example . 'com . root, a)
+    at 4.3266954816790737e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(10, 'www2 . 'example . 'com . root, a)
+    at 4.3286978086819936e+1
+
+umRcvStatus  from umDAddr to  umDAddr dmsg [3.6824153736233716e-6, to dnsTAddr from
+    umDAddr : actionQ(("num_to_resolve" |-> jn(2), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to rAddr from dnsTAddr : query(11, 'www2 . 'example . 'com .
+    root, a)to dnsTAddr : dnsTO(query(11, 'www2 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(12, 'www2 . 'example . 'com
+    . root, a) msg0 to dnsTAddr : dnsTO(query(12, 'www2 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to umDAddr from dnsTAddr : actionR("ok") msg0 null
+umRcvStatus  from dnsTAddr to  umDAddr dmsg [2.072256724758963e+1, to umDAddr from
+    umDAddr : actionR("ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(11, 'www2 . 'example . 'com . root, a)
+    at 6.1768200074981138e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(12, 'www2 . 'example . 'com . root, a)
+    at 6.1788207861080025e+1
+umRcvStatus  from umDAddr to  umDAddr dmsg [7.9915856383740909e-6, to dnsTAddr from
+    umDAddr : actionQ(("num_to_resolve" |-> jn(5), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to rAddr from dnsTAddr : query(13, 'www0 . 'example . 'com .
+    root, a)to dnsTAddr : dnsTO(query(13, 'www0 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(14, 'www1 . 'example . 'com
+    . root, a) msg0 to dnsTAddr : dnsTO(query(14, 'www1 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(15, 'www2 . 'example . 'com
+    . root, a) msg0 to dnsTAddr : dnsTO(query(15, 'www2 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(16, 'www1 . 'example . 'com
+    . root, a) msg0 to dnsTAddr : dnsTO(query(16, 'www1 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to rAddr from dnsTAddr : query(17, 'www . 'example . 'com .
+    root, a) msg0 to dnsTAddr : dnsTO(query(17, 'www . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to umDAddr from dnsTAddr : actionR("ok") msg0 null
+umRcvStatus  from dnsTAddr to  umDAddr dmsg [1.8794683776499475e+1, to umDAddr from
+    umDAddr : actionR("ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(13, 'www0 . 'example . 'com . root, a)
+    at 8.2530798732326616e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(14, 'www1 . 'example . 'com . root, a)
+    at 8.2550796811165227e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(15, 'www2 . 'example . 'com . root, a)
+    at 8.2570803101796912e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(16, 'www1 . 'example . 'com . root, a)
+    at 8.2590810313090003e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(17, 'www . 'example . 'com . root, a)
+    at 8.2610831955584942e+1
+umRcvStatus  from umDAddr to  umDAddr dmsg [5.3737322823144499e-6, to dnsTAddr from
+    umDAddr : actionQ("type" |-> js("resolve_a")), 0]
+DNSTgen rcvDNSAction sends to rAddr from dnsTAddr : query(18, 'www2 . 'example . 'com .
+    root, a)to dnsTAddr : dnsTO(query(18, 'www2 . 'example . 'com . root, a))
+DNSTgen dnsResponse sends msg to umDAddr from dnsTAddr : actionR("ok") msg0 null
+umRcvStatus  from dnsTAddr to  umDAddr dmsg [2.333388987950201e+1, to umDAddr from
+    umDAddr : actionR("ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(18, 'www2 . 'example . 'com . root, a)
+    at 1.0146555874808514e+2
+
+rewrites: 35307 in 23ms cpu (25ms real) (1504923 rewrites/second)
+result Config: rCtr(59)
+{1.0146555874808514e+2 |
+[1.1981945529350719e+2, to umDAddr from umDAddr : actionR("ok"), 0]}
+
+< addrNScom : Nameserver | db: (< 'com . root, soa,
+3.6e+3, soaData(3.6e+3) > < 'com . root, ns, 3.6e+3, 'ns
+. 'com . root > < 'ns . 'com . root, a, 3.6e+3,
+addrNScom > < 'example . 'com . root, ns, 3.6e+3, 'ns .
+'example . 'com . root > < 'ns . 'example . 'com . root,
+a, 3.6e+3, addrNSexample > < 'pwnd2 . 'com . root, ns,
+3.6e+3, 'ns . 'pwnd2 . 'com . root > < 'ns . 'pwnd2 .
+'com . root, a, 3.6e+3, addrNSpwnd2 > < 'corporate .
+'com . root, ns, 3.6e+3, 'ns . 'corporate . 'com . root
+> < 'ns . 'corporate . 'com . root, a, 3.6e+3,
+addrNScorporate >), forwardonly: nullAddr, queriesFwd:
+nilTAQL, queue: nilQueue > < addrNSexample : Nameserver
+| db: (< 'example . 'com . root, soa, 3.6e+3,
+soaData(3.6e+3) > < 'example . 'com . root, ns, 3.6e+3,
+'ns . 'example . 'com . root > < 'ns . 'example . 'com .
+root, a, 3.6e+3, addrNSexample > < 'www0 . 'example .
+'com . root, a, 3.6e+3, 1 . 0 . 1 . 2 > < 'www1 .
+'example . 'com . root, a, 3.6e+3, 1 . 1 . 1 . 2 > <
+wildcard . 'example . 'com . root, txt, 3.6e+3, nullAddr
+>), forwardonly: nullAddr, queriesFwd: nilTAQL, queue:
+nilQueue >
+
+< addrNSroot : Nameserver | db: (< root, soa, 3.6e+3,
+soaData(3.6e+3) > < root, ns, 3.6e+3, 'a . 'root-servers
+. 'net . root > < 'a . 'root-servers . 'net . root, a,
+3.6e+3, addrNSroot > < 'com . root, ns, 3.6e+3, 'ns .
+'com . root > < 'ns . 'com . root, a, 3.6e+3, addrNScom
+>), forwardonly: nullAddr, queriesFwd: nilTAQL, queue:
+nilQueue >
+
+< rAddr : Resolver | cache: (cacheEntry(< root, ns,
+3.6e+3, 'a . 'root-servers . 'net . root >, 1)
+cacheEntry(< 'a . 'root-servers . 'net . root, a,
+3.6e+3, addrNSroot >, 1) cacheEntry(< 'com . root, ns,
+3.6e+3, 'ns . 'com . root >, 1) cacheEntry(< 'ns . 'com
+. root, a, 3.6e+3, addrNScom >, 1) cacheEntry(< 'example
+. 'com . root, ns, 3.6e+3, 'ns . 'example . 'com . root
+>, 1) cacheEntry(< 'ns . 'example . 'com . root, a,
+3.6e+3, addrNSexample >, 1) cacheEntry(< 'pwnd2 . 'com .
+root, ns, 3.6e+3, 'ns . 'pwnd2 . 'com . root >, 1)
+cacheEntry(< 'ns . 'pwnd2 . 'com . root, a, 3.6e+3,
+addrNSpwnd2 >, 1) cacheEntry(< 'corporate . 'com . root,
+ns, 3.6e+3, 'ns . 'corporate . 'com . root >, 1)
+cacheEntry(< 'ns . 'corporate . 'com . root, a, 3.6e+3,
+addrNScorporate >, 1) cacheEntry(< 'www1 . 'example .
+'com . root, a, 3.6010500428715295e+3, 1 . 1 . 1 . 2 >,
+5) cacheEntry(< 'www0 . 'example . 'com . root, a,
+3.6189931761879038e+3, 1 . 0 . 1 . 2 >, 5) cacheEntry(<
+'example . 'com . root, soa, 3.6776608551442755e+3,
+soaData(3.6e+3) >, 1)), nxdomainCache: nilNxdomainCache,
+nodataCache: (nodataEntry('www . 'example . 'com . root,
+a, < 'example . 'com . root, soa, 3.6776608551442755e+3,
+soaData(3.6e+3) >, 5) nodataEntry('www . 'example . 'com
+. root, mx, < 'example . 'com . root, soa,
+3.6776408447309932e+3, soaData(3.6e+3) >, 5)
+nodataEntry('www2 . 'example . 'com . root, a, <
+'example . 'com . root, soa, 3.6381568928145634e+3,
+soaData(3.6e+3) >, 5) nodataEntry('www2 . 'example .
+'com . root, mx, < 'example . 'com . root, soa,
+3.6381368912329099e+3, soaData(3.6e+3) >, 5)
+nodataEntry('www0 . 'example . 'com . root, mx, <
+'example . 'com . root, soa, 3.6189731728942111e+3,
+soaData(3.6e+3) >, 5) nodataEntry('www1 . 'example .
+'com . root, mx, < 'example . 'com . root, soa,
+3.6010300258195562e+3, soaData(3.6e+3) >, 5)), sbelt: <
+root ('a . 'root-servers . 'net . root |-> addrNSroot)
+>, workBudget: emptyIN, blockedQueries: eptQSS,
+sentQueries: eptQSS >
+  
+< umDAddr : UM | markov: ("batch" |-> "wait_batch" |->
+1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch"
+|-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1),
+"wait_single" |-> ("batch" |-> 5.0e-1, "single" |->
+5.0e-1)), actions: ("batch" |-> jo(( "num_to_resolve"
+|-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |->
+js( "uniform"))), "type" |-> js("resolve_a_batch"))),
+"single" |-> jo("type" |-> js( "resolve_a")),
+"wait_batch" |-> jo(("sleep" |-> jo(("mean" |->
+jf(2.0e+1), "random" |-> js("gaussian"), "std" |->
+jf(2.0))), "type" |-> js("wait"))), "wait_single" |->
+jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |->
+js("gaussian"), "std" |-> jf( 2.0))), "type" |->
+js("wait")))), curState: "single", nsteps: 88,
+actAddress: dnsTAddr, w4: (to umDAddr from umDAddr :
+actionR("ok")) >
+    
+< dnsTAddr : DNSTgen | nameDb: ('www . 'example . 'com .
+root 'www0 . 'example . 'com . root 'www1 . 'example .
+'com . root 'www2 . 'example . 'com . root), lenNameDB:
+4, retryTO: 5.0, retryMax: 2, dnsRsv: rAddr, nRetry: 2,
+numQ: 0, ctr: 19, w4: noQuery, replyTo: null >
+

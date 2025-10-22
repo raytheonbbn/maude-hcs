@@ -1,0 +1,455 @@
+set show advisories off .
+load user-action-actor.maude
+load dnsTgen-actor.maude
+load fake-rsv.maude
+
+mod DNS-TGEN-SCENARIO is
+  inc USER-ACTION-ACTOR .
+  inc DNS-TGEN .
+  inc DNS-MAMODEL .
+  inc FAKE-RSV .
+
+
+  op dnameDb : -> NameList .
+  eq dnameDb = ('foo . 'com . root) ('baz . 'org . root) 
+               ('bar . 'edu . root) .
+  eq defaultDelay = 1.5 .
+  
+  ops umA dnsTGA frsvA : -> Address .
+
+  op dnsTGenA : -> Actor .
+  eq dnsTGenA =  mkDnsTgenA(dnsTGA,frsvA,dnameDb, 5.0, 2) .
+****  mkDnsTgenA(addr,rsvAddr,namel,retryTo,retryMx ) 
+
+  op umAct : -> Actor .
+  eq umAct = mkUMactor(umA,dns-ma,dnsTGA) .
+
+  op frsvAct : -> Actor .
+  eq frsvAct = mkFakeRSV(frsvA) .
+
+  op iC : -> Config .
+  eq iC = rCtr(0) umAct dnsTGenA frsvAct .
+
+  op startMsg : -> ActiveMsg .
+  eq startMsg  = {0.0, to umA from umA : actionR("")} .
+  
+  
+****  {0.0 | nil} iC startMsg
+
+
+endm  
+
+eof
+
+red iC. 
+red startMsg .
+
+rew iC startMsg .
+set print attribute on .
+rew  run({0.0 | nil} iC startMsg, 400) .   
+--- 45 of 100 steps done
+
+Maude> rew  run({0.0 | nil} iC startMsg, 400.) .
+rewrite in DNS-TGEN-SCENARIO : run((iC startMsg)
+{0.0 |
+nil}, 4.0e+2) .
+
+umRcvStatus  from umA to  umA dmsg [5.9284461638890209e-6, to dnsTGA from umA : actionQ(
+    "type" |-> js("resolve_a")), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(0, 'bar . 'edu . root, a)to
+    dnsTGA : dnsTO(query(0, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 0 at 5.9284461638890209e-6
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+
+umRcvStatus  from dnsTGA to  umA dmsg [1.7883093562316326e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(0, 'bar . 'edu . root, a) at
+    5.0000077853384921
+umRcvStatus  from umA to  umA dmsg [6.2356369639746846e-6, to dnsTGA from umA : actionQ(
+    "type" |-> js("resolve_a")), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(1, 'baz . 'org . root, a)to
+    dnsTGA : dnsTO(query(1, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 1 at 1.9383166002736491e+1
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [2.0744334118268714e+1, to umA from umA : actionR(
+    "ok"), 0]
+
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(1, 'baz . 'org . root, a) at
+    2.43831680580039e+1
+
+umRcvStatus  from umA to  umA dmsg [3.8344152132049202e-6, to dnsTGA from umA : actionQ((
+    "num_to_resolve" |-> jn(4), "type" |-> js("resolve_a_batch"))), 0]
+
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(2, 'bar . 'edu . root, a)to
+    dnsTGA : dnsTO(query(2, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 2 at 4.1627547714141414e+1
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(3, 'baz . 'org . root, a) msg0
+    to dnsTGA : dnsTO(query(3, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 3 at 4.3127628931014058e+1
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(4, 'baz . 'org . root, a) msg0
+    to dnsTGA : dnsTO(query(4, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 4 at 4.4627676928731198e+1
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(5, 'bar . 'edu . root, a) msg0
+    to dnsTGA : dnsTO(query(5, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 5 at 4.6127716207210511e+1
+DNSTgen dnsTOretryIgnore w4: query(5, 'bar . 'edu . root, a) TOQuery query(2, 'bar . 'edu
+    . root, a) at 4.6627554659176162e+1
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.8461201567353932e+1, to umA from umA : actionR(
+    "ok"), 0]
+
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(3, 'baz . 'org . root, a) at
+    4.8127631402287989e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(4, 'baz . 'org . root, a) at
+    4.9627674616365361e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(5, 'bar . 'edu . root, a) at
+    5.1127712157902614e+1
+umRcvStatus  from umA to  umA dmsg [3.6824153736233716e-6, to dnsTGA from umA : actionQ((
+    "num_to_resolve" |-> jn(2), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(6, 'bar . 'edu . root, a)to
+    dnsTGA : dnsTO(query(6, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 6 at 6.6089005064856693e+1
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(7, 'foo . 'com . root, a) msg0
+    to dnsTGA : dnsTO(query(7, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 7 at 6.7589082880532388e+1
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [2.041207576043384e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(6, 'bar . 'edu . root, a) at
+    7.108901433811198e+1
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(7, 'foo . 'com . root, a) at
+    7.2589080549362819e+1
+umRcvStatus  from umA to  umA dmsg [8.0091075249947613e-6, to dnsTGA from umA : actionQ(
+    "type" |-> js("resolve_a")), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(8, 'baz . 'org . root, a)to
+    dnsTGA : dnsTO(query(8, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 8 at 8.950125365128828e+1
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [2.3042994271559287e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(8, 'baz . 'org . root, a) at
+    9.4501259894662809e+1
+umRcvStatus  from umA to  umA dmsg [5.8201979123987262e-6, to dnsTGA from umA : actionQ(
+    "type" |-> js("resolve_a")), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(9, 'baz . 'org . root, a)to
+    dnsTGA : dnsTO(query(9, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 9 at 1.1404433179596305e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.7740444804321044e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(9, 'baz . 'org . root, a) at
+    1.1904433315685432e+2
+umRcvStatus  from umA to  umA dmsg [4.7360042273066939e-6, to dnsTGA from umA : actionQ(
+    "type" |-> js("resolve_a")), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(10, 'foo . 'com . root, a)to
+    dnsTGA : dnsTO(query(10, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 10 at 1.332848758031802e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.7588623685991639e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(10, 'foo . 'com . root, a) at
+    1.3828488252475557e+2
+umRcvStatus  from umA to  umA dmsg [1.3521817326545716e-6, to dnsTGA from umA : actionQ(
+    "type" |-> js("resolve_a")), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(11, 'foo . 'com . root, a)to
+    dnsTGA : dnsTO(query(11, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 11 at 1.5237357826472223e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.8489878018357089e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(11, 'foo . 'com . root, a) at
+    1.5737357000730816e+2
+umRcvStatus  from umA to  umA dmsg [9.4374807528220119e-6, to dnsTGA from umA : actionQ((
+    "num_to_resolve" |-> jn(5), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(12, 'bar . 'edu . root, a)to
+    dnsTGA : dnsTO(query(12, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 12 at 1.7236352748411014e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(13, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(13, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 13 at 1.7386357247910908e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(14, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(14, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 14 at 1.7536363378545528e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(15, 'bar . 'edu . root, a)
+    msg0 to dnsTGA : dnsTO(query(15, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 15 at 1.768637240203131e+2
+DNSTgen dnsTOretryIgnore w4: query(15, 'bar . 'edu . root, a) TOQuery query(12, 'bar .
+    'edu . root, a) at 1.7736352484894087e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(16, 'foo . 'com . root, a)
+    msg0 to dnsTGA : dnsTO(query(16, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 16 at 1.7836373394834825e+2
+DNSTgen dnsTOretryIgnore w4: query(16, 'foo . 'com . root, a) TOQuery query(13, 'baz .
+    'org . root, a) at 1.7886358162221217e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.8944623427112145e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(14, 'baz . 'org . root, a) at
+    1.8036362659247084e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(15, 'bar . 'edu . root, a) at
+    1.8186373142205812e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(16, 'foo . 'com . root, a) at
+    1.8336373342050905e+2
+umRcvStatus  from umA to  umA dmsg [2.1038256166502835e-6, to dnsTGA from umA : actionQ(
+    "type" |-> js("resolve_a")), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(17, 'foo . 'com . root, a)to
+    dnsTGA : dnsTO(query(17, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 17 at 1.9880845646019284e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.8445080509875773e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(17, 'foo . 'com . root, a) at
+    2.0380845568978009e+2
+umRcvStatus  from umA to  umA dmsg [3.8425425533205274e-7, to dnsTGA from umA : actionQ((
+    "num_to_resolve" |-> jn(6), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(18, 'baz . 'org . root, a)to
+    dnsTGA : dnsTO(query(18, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 18 at 2.1875361242293675e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(19, 'bar . 'edu . root, a)
+    msg0 to dnsTGA : dnsTO(query(19, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 19 at 2.2025371126031993e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(20, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(20, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 20 at 2.2175372146480061e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(21, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(21, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 21 at 2.2325374235247645e+2
+DNSTgen dnsTOretryIgnore w4: query(21, 'baz . 'org . root, a) TOQuery query(18, 'baz .
+    'org . root, a) at 2.2375361600052742e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(22, 'bar . 'edu . root, a)
+    msg0 to dnsTGA : dnsTO(query(22, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 22 at 2.2475375848342756e+2
+DNSTgen dnsTOretryIgnore w4: query(22, 'bar . 'edu . root, a) TOQuery query(19, 'bar .
+    'edu . root, a) at 2.2525371567297296e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(23, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(23, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 23 at 2.2625382379425977e+2
+DNSTgen dnsTOretryIgnore w4: query(23, 'baz . 'org . root, a) TOQuery query(20, 'baz .
+    'org . root, a) at 2.2675372310519643e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.7584669962779756e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(21, 'baz . 'org . root, a) at
+    2.28253743099941e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(22, 'bar . 'edu . root, a) at
+    2.2975376365573996e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(23, 'baz . 'org . root, a) at
+    2.3125381591241191e+2
+umRcvStatus  from umA to  umA dmsg [1.5896958648227157e-6, to dnsTGA from umA : actionQ((
+    "num_to_resolve" |-> jn(6), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(24, 'foo . 'com . root, a)to
+    dnsTGA : dnsTO(query(24, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 24 at 2.4533852067589552e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(25, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(25, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 25 at 2.4683858815112774e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(26, 'foo . 'com . root, a)
+    msg0 to dnsTGA : dnsTO(query(26, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 26 at 2.4833861987130223e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(27, 'foo . 'com . root, a)
+    msg0 to dnsTGA : dnsTO(query(27, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 27 at 2.4983869770585039e+2
+DNSTgen dnsTOretryIgnore w4: query(27, 'foo . 'com . root, a) TOQuery query(24, 'foo .
+    'com . root, a) at 2.5033851596700777e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(28, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(28, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 28 at 2.5133879266295554e+2
+DNSTgen dnsTOretryIgnore w4: query(28, 'baz . 'org . root, a) TOQuery query(25, 'baz .
+    'org . root, a) at 2.5183859363580146e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(29, 'bar . 'edu . root, a)
+    msg0 to dnsTGA : dnsTO(query(29, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 29 at 2.5283885891564233e+2
+DNSTgen dnsTOretryIgnore w4: query(29, 'bar . 'edu . root, a) TOQuery query(26, 'foo .
+    'com . root, a) at 2.5333861899430894e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.8605339902197009e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(27, 'foo . 'com . root, a) at
+    2.5483869907452936e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(28, 'baz . 'org . root, a) at
+    2.563387830387515e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(29, 'bar . 'edu . root, a) at
+    2.5783886126835233e+2
+umRcvStatus  from umA to  umA dmsg [9.7194499894976628e-6, to dnsTGA from umA : actionQ((
+    "num_to_resolve" |-> jn(2), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(30, 'bar . 'edu . root, a)to
+    dnsTGA : dnsTO(query(30, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 30 at 2.7294420989445348e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(31, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(31, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 31 at 2.7444425675957331e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.841410696089461e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(30, 'bar . 'edu . root, a) at
+    2.7794420434088119e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(31, 'baz . 'org . root, a) at
+    2.7944425448935289e+2
+umRcvStatus  from umA to  umA dmsg [3.9187788963317873e-7, to dnsTGA from umA : actionQ((
+    "num_to_resolve" |-> jn(2), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(32, 'foo . 'com . root, a)to
+    dnsTGA : dnsTO(query(32, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 32 at 2.9435846178845492e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(33, 'foo . 'com . root, a)
+    msg0 to dnsTGA : dnsTO(query(33, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 33 at 2.9585855974712797e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.759732000384653e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(32, 'foo . 'com . root, a) at
+    2.9935846542486087e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(33, 'foo . 'com . root, a) at
+    3.0085855693728604e+2
+umRcvStatus  from umA to  umA dmsg [8.8047589315101512e-6, to dnsTGA from umA : actionQ((
+    "num_to_resolve" |-> jn(4), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(34, 'bar . 'edu . root, a)to
+    dnsTGA : dnsTO(query(34, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 34 at 3.1495592450018029e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(35, 'foo . 'com . root, a)
+    msg0 to dnsTGA : dnsTO(query(35, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 35 at 3.1645593091493038e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(36, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(36, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 36 at 3.1795600016214229e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(37, 'bar . 'edu . root, a)
+    msg0 to dnsTGA : dnsTO(query(37, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 37 at 3.1945605682228711e+2
+DNSTgen dnsTOretryIgnore w4: query(37, 'bar . 'edu . root, a) TOQuery query(34, 'bar .
+    'edu . root, a) at 3.1995593254715186e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.7747929488331327e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(35, 'foo . 'com . root, a) at
+    3.2145592290053742e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(36, 'baz . 'org . root, a) at
+    3.2295600955832367e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(37, 'bar . 'edu . root, a) at
+    3.2445605988508777e+2
+umRcvStatus  from umA to  umA dmsg [9.2115761199966074e-6, to dnsTGA from umA : actionQ(
+    "type" |-> js("resolve_a")), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(38, 'foo . 'com . root, a)to
+    dnsTGA : dnsTO(query(38, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 38 at 3.3870402206114369e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.8736631377576199e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(38, 'foo . 'com . root, a) at
+    3.4370401626879493e+2
+umRcvStatus  from umA to  umA dmsg [1.3179786200635136e-6, to dnsTGA from umA : actionQ((
+    "num_to_resolve" |-> jn(8), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(39, 'bar . 'edu . root, a)to
+    dnsTGA : dnsTO(query(39, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 39 at 3.5894074768631828e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(40, 'foo . 'com . root, a)
+    msg0 to dnsTGA : dnsTO(query(40, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 40 at 3.6044083182493051e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(41, 'foo . 'com . root, a)
+    msg0 to dnsTGA : dnsTO(query(41, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 41 at 3.6194085829794693e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(42, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(42, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 42 at 3.6344089808002212e+2
+DNSTgen dnsTOretryIgnore w4: query(42, 'baz . 'org . root, a) TOQuery query(39, 'bar .
+    'edu . root, a) at 3.6394075270004106e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(43, 'foo . 'com . root, a)
+    msg0 to dnsTGA : dnsTO(query(43, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 43 at 3.6494095336217055e+2
+DNSTgen dnsTOretryIgnore w4: query(43, 'foo . 'com . root, a) TOQuery query(40, 'foo .
+    'com . root, a) at 3.6544083398154385e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(44, 'bar . 'edu . root, a)
+    msg0 to dnsTGA : dnsTO(query(44, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 44 at 3.6644096985621661e+2
+DNSTgen dnsTOretryIgnore w4: query(44, 'bar . 'edu . root, a) TOQuery query(41, 'foo .
+    'com . root, a) at 3.6694085479889151e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(45, 'foo . 'com . root, a)
+    msg0 to dnsTGA : dnsTO(query(45, 'foo . 'com . root, a))
+FakeRsv responsee ot Id 45 at 3.6794100683702618e+2
+DNSTgen dnsTOretryIgnore w4: query(45, 'foo . 'com . root, a) TOQuery query(42, 'baz .
+    'org . root, a) at 3.6844088884853062e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(46, 'bar . 'edu . root, a)
+    msg0 to dnsTGA : dnsTO(query(46, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 46 at 3.6944102148120248e+2
+DNSTgen dnsTOretryIgnore w4: query(46, 'bar . 'edu . root, a) TOQuery query(43, 'foo .
+    'com . root, a) at 3.6994095604765158e+2
+DNSTgen dnsResponse sends msg to umA from dnsTGA : actionR("ok") msg0 null
+umRcvStatus  from dnsTGA to  umA dmsg [1.9519500477968947e+1, to umA from umA : actionR(
+    "ok"), 0]
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(44, 'bar . 'edu . root, a) at
+    3.7144097903520202e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(45, 'foo . 'com . root, a) at
+    3.7294100989283254e+2
+DNSTgen dnsTOretryIgnore w4: noQuery TOQuery query(46, 'bar . 'edu . root, a) at
+    3.7444102418238003e+2
+umRcvStatus  from umA to  umA dmsg [4.3328806385397911e-6, to dnsTGA from umA : actionQ((
+    "num_to_resolve" |-> jn(9), "type" |-> js("resolve_a_batch"))), 0]
+DNSTgen rcvDNSAction sends to frsvA from dnsTGA : query(47, 'bar . 'edu . root, a)to
+    dnsTGA : dnsTO(query(47, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 47 at 3.9046058325389248e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(48, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(48, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 48 at 3.9196064086962605e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(49, 'bar . 'edu . root, a)
+    msg0 to dnsTGA : dnsTO(query(49, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 49 at 3.9346070007381871e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(50, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(50, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 50 at 3.9496075729900889e+2
+DNSTgen dnsTOretryIgnore w4: query(50, 'baz . 'org . root, a) TOQuery query(47, 'bar .
+    'edu . root, a) at 3.9546058631605894e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(51, 'bar . 'edu . root, a)
+    msg0 to dnsTGA : dnsTO(query(51, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 51 at 3.9646077960717196e+2
+DNSTgen dnsTOretryIgnore w4: query(51, 'bar . 'edu . root, a) TOQuery query(48, 'baz .
+    'org . root, a) at 3.9696063593545807e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(52, 'bar . 'edu . root, a)
+    msg0 to dnsTGA : dnsTO(query(52, 'bar . 'edu . root, a))
+FakeRsv responsee ot Id 52 at 3.9796087488207286e+2
+DNSTgen dnsTOretryIgnore w4: query(52, 'bar . 'edu . root, a) TOQuery query(49, 'bar .
+    'edu . root, a) at 3.9846069940003417e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(53, 'baz . 'org . root, a)
+    msg0 to dnsTGA : dnsTO(query(53, 'baz . 'org . root, a))
+FakeRsv responsee ot Id 53 at 3.9946091959461069e+2
+DNSTgen dnsTOretryIgnore w4: query(53, 'baz . 'org . root, a) TOQuery query(50, 'baz .
+    'org . root, a) at 3.9996075218752065e+2
+DNSTgen dnsResponse sends msg to frsvA from dnsTGA : query(54, 'bar . 'edu . root, a)
+    msg0 to dnsTGA : dnsTO(query(54, 'bar . 'edu . root, a))
+rewrites: 9899 in 17ms cpu (18ms real) (563051 rewrites/second)
+
+result Config: rCtr(224)
+{4.0096100423547728e+2 |
+[4.0096100423547728e+2, to frsvA from dnsTGA : query(54, 'bar . 'edu . root, a), 0] ;
+[4.0146077278656367e+2, to dnsTGA : dnsTO(query(51, 'bar . 'edu . root, a)), 0] ;
+[4.0296086708957563e+2, to dnsTGA : dnsTO(query(52, 'bar . 'edu . root, a)), 0] ;
+[4.0446092272120251e+2, to dnsTGA : dnsTO(query(53, 'baz . 'org . root, a)), 0] ;
+[4.0596099699913628e+2, to dnsTGA : dnsTO(query(54, 'bar . 'edu . root, a)), 0]}
+
+< umA : UM | markov: 
+  ("batch" |-> "wait_batch" |-> 1.0, 
+   "single" |-> "wait_single" |-> 1.0, 
+   "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), 
+   "wait_single" |-> ( "batch" |-> 5.0e-1, "single" |-> 5.0e-1)),
+ actions:
+   ("batch" |-> jo((
+       "num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2),
+             "random" |-> js("uniform"))), 
+      "type" |-> js("resolve_a_batch"))), 
+   "single" |-> jo("type" |-> js("resolve_a")),
+   "wait_batch" |-> jo((
+      "sleep" |-> jo(("mean" |-> jf(2.0e+1), 
+                "random" |-> js("gaussian"), "std" |-> jf(2.0))), 
+      "type" |-> js("wait"))),
+   "wait_single" |-> jo((
+      "sleep" |-> jo(("mean" |-> jf(2.0e+1), 
+                "random" |-> js("gaussian"), "std" |-> jf(2.0))), 
+      "type" |-> js( "wait")))), 
+ 
+curState: "wait_batch", 
+nsteps: 65, 
+actAddress: dnsTGA, 
+w4: (to dnsTGA from umA : actionQ(("num_to_resolve" |-> jn(9), "type" |-> js("resolve_a_batch")))) >
+
+< dnsTGA : DNSTgen | nameDb: ('foo . 'com . root 'baz . 'org . root 'bar . 'edu . root), lenNameDB: 3, retryTO: 5.0, retryMax: 2, dnsRsv: frsvA, nRetry: 2, numQ: 1, ctr: 55, w4: query(54, 'bar . 'edu . root, a), replyTo: (to dnsTGA from umA : actionQ(("num_to_resolve" |-> jn(9), "type" |-> js("resolve_a_batch")))) >
+    
+< frsvA : fakeRSV | noneAS >
+
+
+

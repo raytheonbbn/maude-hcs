@@ -1,0 +1,49 @@
+fmod MY-SAMPLER is
+  pr RANDOM .
+  pr CONVERSION .
+  inc MAP{String,Float} .
+  
+
+  vars MEAN SD RAND  Min Max : Float .  
+  var j : Nat .
+  var weights : Map{String,Float} .
+  vars wt wtsum rnd : Float .
+  vars sid : String .
+  
+  op sampleNormalX : Nat -> [Float] .
+  op $sampleNormalX : Float -> [Float] .
+  eq sampleNormalX(j) = 
+      $sampleNormalX(float(random(j) / 4294967296) ) .
+  eq $sampleNormalX(RAND) = 
+       sqrt(- 2.0 * log(RAND)) * cos(2.0 * pi * RAND) .
+ 
+  op sampleNormalWithMeanSdX : Float Float Nat -> [Float] .
+  eq sampleNormalWithMeanSdX(MEAN, SD, j) 
+    = MEAN + (SD * sampleNormalX(j)) .
+
+  op genRandomX : Nat Float Float -> [Float] .
+  eq genRandomX(j,Min, Max) = 
+       float(random(j) / 4294967296) * (Max - Min) + Min .
+ 
+ 
+ **** probabalistic version
+ op chooseWt : Map{String,Float}  Nat -> String .
+ op chooseWtX : Map{String,Float} Float Float
+               -> String .
+
+ eq chooseWt(weights,j) =
+  chooseWtX(weights, float(random(j) / 4294967296), 0.0) .
+ 
+ eq chooseWtX((weights, sid |-> wt), rnd, wtsum)
+     =
+  (if (wtsum < rnd) and (rnd <= wtsum + wt)
+   then sid
+   else chooseWtX(weights,rnd,wtsum + wt)
+   fi)
+  .
+
+ **** shouldn't happen
+ eq chooseWtX(weights, rnd,wtsum) = "idle" [owise] .
+ 
+ **** move weighted choice function here
+endfm

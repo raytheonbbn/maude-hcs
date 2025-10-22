@@ -1,0 +1,81 @@
+byteseq.maude   
+  loads prelude
+  fmod BYTESEQ is inc CONVERSION
+            
+json.maude    
+  loads prelude
+  fmod JV is inc CONVERSION .
+  view JV from TRIV to JV 
+  fmod JSON is inc JV . inc MAP{String,JV} .
+
+my-sampler.maude
+  load prelude
+  fmod MY-SAMPLER is pr RANDOM . pr CONVERSION .
+                     inc MAP{String,Float} .
+
+cp2-interfaces.maude      
+   sload byteseq.maude
+   sload <dnssrcpath>/common/actor.maude
+   sload json.maude
+   mod CP2-COMMON incs SCHEDULER+ACTOR-MODEL+PARAMETERS 
+   mod TGEN-INTERFACE 
+       incs ACTOR-MODEL+JSON+MAP{String,JV} 
+      --- um <-> tgen actor
+   mod RB-INTERFACE incs ACTOR-MODEL+BYTESEQ 
+      --- alice to rb, rb to bob
+   mod IODINE-BI-INTERFACE incs ACTOR-MODEL+BYTESEQ 
+       --- alice to IC, IS to bob
+   mod MC-INTERFACE incs ACTOR-MODEL+BYTESEQ 
+       --- mastodon client req/resp
+   mod ED-INTERFACE incs ACTOR-MODEL+BYTESEQ 
+       --- destini req/resp
+   < more to come > mastodon server, traffic generators
+
+markov-action-model.maude 
+  loads my-sampler json
+  view Map`{String`,Float`} 
+       from TRIV to MAP{String,Float}
+  fmod MARKOV-ACTION-MODEL is inc JSON . 
+       inc MAP{String,Map`{String`,Float`}} .
+       inc MY-SAMPLER  .
+
+dns-mamodel.maude   
+   loads markov-action-model.maude
+   fmod DNS-MAMODEL incs  MARKOV-ACTION-MODEL 
+
+user-action-actor.maude
+   loads markov-action-model,cp2-interfaces,dns-mamodel
+         <dnssrcpath>/common/actor.maude
+          ../cp2-v1/apmaude-default.maude
+   mod USER-ACTION-ACTOR 
+     incs MARKOV-ACTION-MODEL+CP2-COMMON+TGEN-INTERFACE 
+
+dnsTgen-actor.maude 
+   loads <dnssrcpath>/common/prelim, 
+         my-sampler, cp2-interfaces .
+   mod DNS-TGEN 
+       incs CP2-COMMON+MY-SAMPLER+MSG+TGEN-INTERFACE 
+             --- SCHEDULER+ACTOR-MODEL+PARAMETERS 
+   mod TEST-DNS-TGEN incs DNS-TGEN+DNS-MAMODEL
+   maude commands testing each receive case
+
+fake-rsv.maude --- replies with empty response
+   loads <dnspathsrc>/common/prelim.maude
+         <dnspathsrc>/common/actor.maude
+          cp-interfaces, my-sampler
+    mod FAKE-RSV incs MSG + CP2-COMMON + MY-SAMPLER 
+
+test-um-dns.maude
+   loads user-action-actor, dnsTgen-actor, fake-rsv
+   mod DNS-TGEN-SCENARIO 
+    incs USER-ACTION-ACTOR+DNS-TGEN+DNS-MAMODEL+FAKE-RSV 
+   test run at the end
+
+test-um-dns-cp1.maude
+loads <dnssrcpath>/probabilistic-model/dns
+       user-action-actor.maude
+       dnsTgen-actor.maude
+   mod DNS-TGEN-TEST 
+     incs  DNS+USER-ACTION-ACTOR+DNS-TGEN+DNS-MAMODEL .
+   test run at the end
+

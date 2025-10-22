@@ -1,0 +1,197 @@
+set show advisories off .
+
+load byteseq.maude
+load json.maude
+
+load ../../../../deps/dns_formalization/Maude/common/actor.maude
+load ../../../../deps/dns_formalization/Maude/common/apmaude.maude
+
+load ../../../../deps/dns_formalization/Maude/dns/probabilistic-model/parameters.maude
+
+***(
+There are two flavors of interface: 
+   service
+      single actor identified by address
+      receives 'requests', sends `responses'
+      The interface is given by content constructors
+        for these messages
+   channel  -- a pair of actors, 
+     uni directional
+        -- input actor  (known to sender)
+        -- output actor (knows receiver)
+        one content constructor 
+        -- received by input actor sent by output actor
+    bi directional -- two endpoint actors
+       endpoint1  -- content constructors 1->2
+       endpoint2  -- content constructors 2->1
+         each endpoint knows its owner/customer
+
+Note that the Mastodon Client provides a service 
+as does the Mastodon Server, the DNS Resolver ...
+
+A Raceboat client-server pair is a channel
+An Iodine client-server pair is a channel
+
+A service or channel may use other services
+(or channels), but the user of the interface 
+doesn't (can not) need to know what these are.
+
+)
+
+mod CP2-COMMON is
+  inc SCHEDULER .
+  inc ACTOR-MODEL .
+  inc PARAMETERS .
+
+vars config msgs msgs0 : Config .
+vars msg : Msg .
+vars addr : Address .
+vars attrs  attrs0 : AttributeSet .
+vars atype : ActorType .
+ 
+op defaultDelay : -> Float .
+ 
+op delayMsgs : Config Config -> Config .
+eq delayMsgs(null,config) = config .
+eq delayMsgs(msg msgs0, config) =
+   delayMsgs(msgs0, config [delayParamd(msg),msg,0] )
+  .
+
+op rCtr : Nat -> Actor [ctor] .
+
+op getAttrs : Actor -> AttributeSet .
+eq getAttrs(< addr : atype | attrs >) = attrs .
+eq getAttrs(a:Actor) = noneAS [owise] .
+
+
+op setAttrs : Actor AttributeSet -> Actor .
+op setAttrs : AttributeSet AttributeSet -> AttributeSet .
+eq setAttrs(< addr : atype | attrs > , attrs0 )
+   = < addr : atype |  setAttrs(attrs, attrs0) >  
+  .
+
+eq setAttrs(attrs,attrs0)  = attrs, attrs0 [owise] .
+
+     
+
+endm
+
+---- UM TGEN 
+mod TGEN-INTERFACE is
+ inc ACTOR-MODEL .
+ inc JSON .
+ inc MAP{String,JV} .
+ 
+ op actionQ : Map{String,JV} -> Content .
+ op actionR : String -> Content .
+endm 
+
+
+--- raceboat channel
+mod RB-INTERFACE is
+ inc ACTOR-MODEL .
+ inc BYTESEQ .
+
+--- sent by Alice, received by Bob
+op pkg : ByteSeq -> Content .
+op pkg : ByteSeq ByteSeq -> Content .
+
+endm
+
+***(
+part of CP1 
+
+mod IODINE-UNI-INTERFACE is
+ inc ACTOR-MODEL .
+ inc IODINE-AUX .
+ 
+subsort Packet < Content .
+endm
+
+mod DNS-RESOLVER-INTERFACE is
+ inc ACTOR-MODEL .
+ inc ...
+  
+subsort Query < Content .  
+subsort Response < Content .  
+endm
+) 
+
+mod IODINE-BI-INTERFACE is
+  inc ACTOR-MODEL .
+  inc BYTESEQ .
+
+--- alice -> bob
+  op hash-key : ByteSeq ByteSeq -> Content [ctor] .
+---- bob -> alice
+  op status : String -> Content [ctor] .
+endm  
+
+--- mastodon client interface
+mod MC-INTERFACE is
+ inc ACTOR-MODEL .
+ inc BYTESEQ .
+
+  op fetchQ : ByteSeq -> Content .
+  op fetchR : ByteSeqL -> Content .
+
+  op tootQ : ByteSeq ByteSeq -> Content .
+  op tootR : String -> Content .
+  
+endm
+
+mod ED-INTERFACE is
+ inc ACTOR-MODEL .
+ inc BYTESEQ .
+
+  op encQ : ByteSeq -> Content .
+  op encR : ByteSeq -> Content .
+
+  op capQ : Nat -> Content .
+  op capR : Nat -> Content .
+
+  op decQ : ByteSeqL -> Content .
+  op decR : ByteSeqL -> Content .
+  
+endm
+
+eof
+
+application/src/common.py
+
+def parse_ctrl_message(msg):
+    """
+    msg: bytes
+    return all fields in a dict
+    """
+    hashtag_len = len(msg) - 67
+    data = struct.unpack(f">BH32s32s{hashtag_len}s", msg)
+    return {
+        "message_type": data[0],
+        "file_id": data[1],
+        "md5": data[2],
+        "key": data[3],
+        "hashtag": data[4],
+    }
+
+def build_ack_message(file_id, status_code):
+    """
+    Status codes:
+    1: checksums match
+    2: checksums dont match
+    3. timeout?
+    """
+    return struct.pack(">BH", status_code, file_id)
+
+
+***(
+
+TODO
+DNSTGen, MastodonTGen interfaces
+Action < Content 
+  PostA(type)
+  FetchA
+  QueryA 
+T&E examples show that DNS server address is
+a parameter as well as batch size  
+)

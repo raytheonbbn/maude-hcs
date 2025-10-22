@@ -1,0 +1,182 @@
+load my-sampler.maude
+load json.maude
+
+view Map`{String`,Float`} from TRIV to MAP{String,Float} is
+   sort Elt to Map{String,Float} .
+endv   
+
+fmod MARKOV-ACTION-MODEL is
+  inc JSON .
+  inc MAP{String,Map`{String`,Float`}} .
+  inc  MY-SAMPLER .
+
+  vars ma : MAModel .
+  vars sid mname str str1 : String .
+  vars markov :  Map{String,Map{String,Float}} .
+  vars weights : Map{String,Float} .
+  vars actions params mj mj0 mj1 : Map{String,JV} .
+  vars n j j1 j2 min max : Nat .
+  vars fl mean std minf maxf : Float .
+  vars jv : JV .
+
+  sort JObjNat .
+  op `{_`,_`} : Map{String,JV} Nat -> JObjNat .
+  
+  sort MAModel .
+  ----     name    markov
+  op ma : String  Map{String,Map{String,Float}}
+  ----      actions      params  
+          Map{String,JV} Map{String,JV} -> MAModel .
+
+***(
+Can we assume that there will not be stoptime parameters
+only maxSteps?
+
+dom markov ~ statelist
+dom(rng markov) = dom markov
+weights add to 1
+sum rng(rng markov) = 1  (or needs to be normalized)
+
+dom actions = dom markov
+rng actions  Map{String,JV}
+   dom action ~ 
+      "type" [required], 
+      "sleep"   only if type = wait
+     <other>  -- a parameter for the action actor
+
+typical sleep value
+ "sleep": {"random": "gaussian","mean": 17.0,"std": 9.0}
+          {"random": <randdist>, randdistparams}
+
+if actions[<other>] is jo with key "random" then
+um does the sampling before forming action request
+to be sent to Action actor
+
+dom params is model specific
+  put "start" |-> js(sid) in params
+  "model_steps" in params
+  
+other params are passed to the action actor.  
+)
+
+op getMarkov : MAModel -> 
+               Map{String,Map{String,Float}} .
+op getActions : MAModel -> Map{String,JV} .
+op getParams : MAModel ->  Map{String,JV}  .
+
+eq getMarkov(ma(mname,markov,actions,params)) 
+       = markov .
+eq getActions(ma(mname,markov,actions,params)) 
+       = actions .
+eq getParams(ma(mname,markov,actions,params)) 
+       = params .
+
+op defaultStart : -> String .
+
+op getStart : MAModel -> String .
+op getStart : Map{String,JV} -> String .
+eq getStart(ma) = getStart(getParams(ma)) .
+eq getStart((("start" |-> js(sid)),mj)) = sid .
+eq getStart(mj) = defaultStart [owise] .
+
+op defaultMaxSteps : -> Nat .
+
+op getMaxSteps : MAModel -> Nat .
+op getMaxSteps : Map{String,JV}  -> Nat .
+eq getMaxSteps(ma) = getMaxSteps(getParams(ma)) .
+eq getMaxSteps((("model_steps" |-> jn(n)), mj)) = n .
+eq getMaxSteps(mj) = defaultMaxSteps .
+
+op chooseState : Map{String,Map{String,Float}} String Nat 
+                 -> String .
+ceq chooseState(markov,sid,j) =
+     chooseWt(weights,j)
+if weights := markov[sid]
+.
+
+op isWaitType : Map{String,JV} -> Bool .
+eq isWaitType((mj,("type" |-> js("wait")) )) = true . 
+eq isWaitType(mj) = false [owise] . 
+
+op getSleep : Map{String,JV} -> Float .
+eq getSleep((mj,("sleep" |-> jf(fl)) ) ) = fl .
+eq getSleep(mj) = 0.0 [owise] .
+
+op realizeParams : JV Nat -> JObjNat .
+eq realizeParams(jo(mj),j)  = realizeParams(mj,j) .
+
+op realizeParams : Map{String,JV} Nat -> JObjNat .
+op realizeParam : String JV  Nat -> JObjNat .
+----         pname   randType  randParams randCtr
+op realizeRand : String String Map{String,JV} Nat 
+                 -> JObjNat .
+ceq realizeParams(((str |-> jv),mj),j) = {(mj0,mj1),j2}
+if {mj0,j1} := realizeParam(str,jv,j)
+/\ {mj1,j2} := realizeParams(mj,j1)
+.     
+
+eq realizeParams(empty,j) = {empty,j} .
+
+eq realizeParam(str,jo((("random" |-> js(str1)) , mj)),j) =
+      realizeRand(str,str1,mj,j) .
+eq realizeParam(str,jv,j) = {str |-> jv,j} [owise] .
+
+***
+ceq realizeRand(str,"gaussian",
+      (("mean" |-> jf(mean) ), ("std" |-> jf(std) ), mj), 
+       j )
+ = {(str |-> jf(fl)), s j}
+if fl :=  sampleNormalWithMeanSdX(mean, std, j) 
+      .
+
+ceq realizeRand(str,"uniform",
+      (("min" |-> jn(min) ), ("max" |-> jn(max) ), mj),
+      j )
+ = {(str |-> jn(rat(floor(fl)))), s j}
+if fl :=  genRandomX(j, float(min), float(max))   .
+
+ceq realizeRand(str,"uniform",
+      (("min" |-> jf(minf) ), ("max" |-> jf(maxf) ), mj),
+      j )
+ = {(str |-> jf(fl)), s j}
+if fl :=  genRandomX(j, minf, maxf)   .
+
+eq realizeRand(str,str1,mj,j) 
+       = {(str |-> nullJV),j} [owise] .
+        
+endfm  
+
+eof 
+
+red realizeParams( ("num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js("uniform"))) , "type" |-> js("resolve_a_batch") ), 0) .
+
+{"num_to_resolve" |-> jn(6), 
+ "type" |-> js("resolve_a_batch"), 1}
+ 
+ 
+eq mastodon-actions = (
+        "media" |->  jo(
+            "type" |->  js("media"),
+            "sleep" |-> jo(("random" |->  js("gaussian")),
+                           ("mean" |->  jf(17.0)),
+                           ("std" |->  jf(9.0) )
+                           )
+        ),
+        "download" |->  jo(
+            "type" |->  "download",
+            "sleep" |->  jo(("random" |->  js("gaussian")),
+                           ("mean" |->  jf(17.0)),
+                           ("std" |->  jf(9.0) )
+                           )
+        ),
+        "wait" |->  jo(
+            "type" |->  js("wait"),
+            "start" |->  js("true"),
+            "sleep" |->  jo(("random" |->  js("gaussian")),
+                           ("mean" |->  jf(17.0)),
+                           ("std" |->  jf(9.0) )
+                           )
+        )
+    )
+ .    
+ 

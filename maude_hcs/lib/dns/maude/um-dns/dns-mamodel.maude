@@ -1,0 +1,61 @@
+load markov-action-model.maude
+
+fmod DNS-MAMODEL is
+  inc  MARKOV-ACTION-MODEL .
+
+
+op dns-markov : ->  Map{String,Map{String,Float}} .
+op dns-actions : -> Map{String,JV} .
+op dns-params : -> Map{String,JV} .
+
+op dns-ma : -> MAModel .  --- markov-action
+eq dns-ma =
+   ma("dns",dns-markov,dns-actions,dns-params) .
+
+eq dns-markov =  
+    ( "single" |-> ("wait_single" |-> 1.0) ), 
+
+    ( "batch" |-> ("wait_batch" |-> 1.0) ) ,
+
+    ( "wait_single" |-> (("single" |-> 0.5) ,
+                         ("batch" |-> 0.5) ) ) ,
+    ( "wait_batch" |-> (("single" |-> 0.5) ,
+                         ("batch" |-> 0.5) ) ) 
+  .                   
+
+eq dns-actions = (
+    ("single" |->  jo("type" |->  js("resolve_a")) ) ,
+    ("batch" |-> jo(( 
+           ("type" |-> js("resolve_a_batch")),
+           ("num_to_resolve" |-> jo((
+               ("random" |-> js("uniform")),
+               ("min" |-> jn(2)), ("max" |-> jn(10))))
+                ) 
+          )) ),
+   ("wait_single" |->  jo((
+            ("type" |->  js("wait")),
+            "sleep" |-> jo((
+                          "random" |->  js("gaussian"),
+                           "mean" |->  jf(20.0),
+                           "std" |-> jf(2.0) ))
+             )) ),
+   ("wait_batch" |->  jo((
+            "type" |->  js("wait"),
+            "sleep" |-> jo(("random" |->  js("gaussian"),
+                          "mean" |->  jf(20.0),
+                          "std" |-> jf(2.0) ))
+             )))
+    ) 
+ .
+
+eq dns-params = (
+        ("model_steps" |->  jn(100)),
+        ("start" |-> js("single")),
+        ("request_timeout" |->  jn(5)),
+        ("request_lifetime" |->  jn(10))
+        ) .
+
+
+endfm 
+  
+eof  

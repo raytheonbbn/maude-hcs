@@ -1,0 +1,184 @@
+set show advisories off .
+
+load markov-action-model.maude
+load cp2-interfaces
+load dns-mamodel
+load ../../../../deps/dns_formalization/Maude/common/actor.maude
+load ../../../../deps/dns_formalization/Maude/common/apmaude.maude
+
+
+***(
+From 25oct10 T&E  src/tgen/dns/dnsclient.py
+    current_state = starting_state
+    execute_state(starting_state)
+    for i in range(1, model_steps):
+        current_state = get_next_state(current_state)
+        execute_state(current_state)
+execute state sleeps after doing the action if there
+is a sleep attribute for the action        
+
+Question  does executing a wait action count as a 
+model_step?  
+
+)
+
+mod USER-ACTION-ACTOR is
+  inc MARKOV-ACTION-MODEL .
+  inc CP2-COMMON .
+       **** ACTOR-MODEL SCHEDULER PARAMETERS
+  inc TGEN-INTERFACE .
+
+
+vars umAddr aAddr addr : Address .
+vars mm : Map{String,Map{String,Float}} .
+vars ma : MAModel .
+vars init str  sid sid1 : String .
+vars acts ract : Map{String,JV} .
+vars maxSteps j j1 j2 n : Nat .
+vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+vars msgs : Config .
+vars msg msg0 : Msg .
+vars dmsg : ScheduleMsg .
+vars T sleepT noiseD : Float .
+vars ac : Content . --- action content
+vars b : Bool .
+
+
+---- A UM actor executes an MM. 
+op UM : -> ActorType .
+
+---- Its attribures are
+op markov:_ : Map{String,Map{String,Float}}
+               -> Attribute [ctor] .
+op actions:_ : Map{String,JV} -> Attribute [ctor] .
+op curState:_ : String -> Attribute [ctor] .
+op nsteps:_ : Nat -> Attribute [ctor] . --- remaining
+op actAddress:_ : Address -> Attribute [ctor] .
+op w4:_ : Config -> Attribute [ctor] .
+
+op getMarkovA : AttributeSet ->  
+                Map{String,Map{String,Float}} .
+eq getMarkovA((attrs, markov: mm)) = mm .
+
+op getActionsA : AttributeSet -> Map{String,JV} .
+eq getActionsA((attrs, actions: acts)) = acts .
+
+op getW4A : AttributeSet -> Config .
+eq getW4A((attrs,w4: msgs)) = msgs .
+
+
+
+op mkUMactor : Address MAModel Address -> Actor .
+ceq mkUMactor (umAddr,ma,aAddr) =
+  < umAddr : UM | markov: mm, 
+                  actions: acts,
+                  curState: init, 
+                  actAddress: aAddr,
+                  nsteps: maxSteps ,
+                  w4: (to umAddr from umAddr :
+                        actionQ(empty)) >
+                  
+if mm := getMarkov(ma)     
+/\ acts := getActions(ma)             
+/\ init := getStart(ma)
+/\ maxSteps := getMaxSteps(ma)
+.
+
+sort AttrSetMsgsNat .
+op `{_,_,_`} : AttributeSet Config Nat -> AttrSetMsgsNat .
+
+rl [rcvStatusEnd] :
+{T, (to umAddr from addr : actionR(str))}
+< umAddr : UM | attrs, nsteps: 0 >
+=>
+< umAddr : UM | attrs, nsteps: 0 >
+.
+
+crl [umRcvStatusNext] :
+rCtr(j)
+{T, (to umAddr from addr : actionR(str))}
+< umAddr : UM | attrs, nsteps: s n >
+=>
+rCtr(j1)
+< umAddr : UM | attrs1 >
+msgs
+if {attrs1 , msgs, j1} := 
+    umRcvStatus((attrs, nsteps: s n),j,
+                 (to umAddr from addr : actionR(str)))
+.
+
+op umRcvStatus : AttributeSet Nat Msg -> AttrSetMsgsNat .
+eq umRcvStatus(attrs, j, msg) = {attrs,null,j} [owise] .
+
+ceq umRcvStatus(attrs, j, msg0) =
+    {attrs2,dmsg,(s j1)}
+   
+if (to umAddr from addr : actionR(str)) := msg0 
+/\ attrs1, w4: (to addr from umAddr : ac),
+           curState: sid, nsteps: (s n)  := attrs 
+
+/\ attrs0, markov: mm, actions: acts, actAddress: aAddr
+         := attrs        
+/\ sid1 := chooseState(mm,sid,j) 
+*** inc j
+/\ {ract,j1} := realizeParams(acts[sid],s j) 
+/\ b := isWaitType(ract)
+/\ msg := 
+    (if b
+    then (to umAddr from umAddr : actionR("ok"))
+    else (to aAddr from umAddr : actionQ(ract))
+    fi)
+/\ sleepT := (if b then getSleep(ract) else 0.0 fi)
+/\ noiseD := genRandomX(j1,0.0, 0.00001) 
+/\ dmsg := (if b and sleepT > 0.0 
+            then [sleepT, msg, 0] 
+            else [noiseD, msg, 0] fi)
+/\ attrs2 := attrs1, w4: msg, curState: sid1, nsteps:  n
+
+[print "umRcvStatus  from " addr  " to  " umAddr " dmsg "   dmsg]    
+.                       
+
+endm  
+
+
+mod TEST-UAA is
+  inc USER-ACTION-ACTOR .
+  inc DNS-MAMODEL .
+
+ops umA aA : -> Address .
+op umAct : -> Actor .
+eq umAct = mkUMactor(umA,dns-ma,aA) .
+
+op umAttrs : -> AttributeSet .
+eq umAttrs = getAttrs(umAct) .
+
+op xmsg0 : -> Config .
+eq xmsg0 = getW4A(umAttrs) .
+
+op xmm : -> Map{String,Map{String,Float}} .
+eq xmm = getMarkovA(umAttrs) .
+
+op xacts : -> Map{String,JV} .
+eq xacts = getActionsA(umAttrs) .
+
+**** sid = "single"
+**** sid1 : "wait_single"
+
+op umAct1 : -> Actor .
+eq umAct1 =
+< umA : UM | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ( "batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(("num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js("uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo("type" |-> js("resolve_a")),
+"wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait"))), 
+"wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js( "wait")))), 
+curState: "wait_single", nsteps: 99, actAddress: aA, 
+w4: (to aA from umA : actionQ("type" |-> js("resolve_a")))
+ >
+.   
+endm
+
+eof
+
+red umAct .
+rew {0.0, (to umA from umA : actionR(""))} umAct  rCtr(0) .
+**** [5.9284461638890209e-6, to aA from umA : actionQ("type" |-> js("resolve_a")), 0]
+rew {1.0, (to umA from aA : actionR("ok"))} umAct1  rCtr(2) .
+**** [2.0649674586612935e+1, to umA from umA : actionR("ok"), 0]

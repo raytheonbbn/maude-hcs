@@ -1,0 +1,59 @@
+sload ../../../../deps/dns_formalization/Maude/src/common/prelim.maude
+*** sload ../../../../deps/dns_formalization/Maude/src/common/actor.maude
+
+sload cp2-interfaces
+sload my-sampler
+
+mod FAKE-RSV is
+**** inc ACTOR-MODEL .
+ inc MSG .
+ inc CP2-COMMON .
+ inc MY-SAMPLER .
+ 
+
+op fakeRSV : -> ActorType .
+vars i rj j : Nat .
+vars T : Float .
+vars rAddr addr : Address .
+vars name : Name .
+vars qtype : RType .
+
+
+rl[fakeRsp]:
+rCtr(rj)
+{T, to rAddr from addr : query(i,name,qtype)}
+< rAddr : fakeRSV | noneAS > 
+=>
+< rAddr : fakeRSV | noneAS > 
+rCtr(s rj)
+[defaultDelay + genRandomX(rj, 0.0, 0.0001), 
+ (to addr from rAddr : response(i,name,nil,nil,nil,0)),
+ 0]
+[print "FakeRsv responsee ot Id " i " at " T]
+.
+
+op mkFakeRSV : Address -> Actor .
+eq mkFakeRSV(rAddr) = < rAddr : fakeRSV | noneAS > .
+
+op fakeRSV : Address -> Actor .
+eq fakeRSV(rAddr) = mkFakeRSV(rAddr) .
+
+endm
+
+
+mod TEST-FAKE-RSV is
+  inc FAKE-RSV  .
+
+op fakeA : -> Address .
+op frAct : -> Actor .
+eq frAct = mkFakeRSV(fakeA)  .
+
+endm  
+eof
+
+rew rCtr(0) frAct {1.0, (to fakeA from fakeA : query(0,root,a))} .
+>>
+Config: rCtr(1)
+< fakeA : fakeRSV | noneAS > [defaultDelay + 5.4881350230425599e-5, to fakeA from fakeA :
+    response(0, root, nil, nil, nil, 0), 0]
+    
