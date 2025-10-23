@@ -101,22 +101,22 @@ mod MYLISTS is
   op makePacket : FragmentList ->  Packet .
   op $makePacket : FragmentList Packet ->  Packet .
 
-  eq makeFragments(packet(ALICE, BOB, FILE, N, N1, B), N2) = 
-    $makeFragments(packet(ALICE, BOB, FILE, N, N1, B), N2, 0, mtfl) .
+  eq makeFragments(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_PACKET), FRAG_LEN) = 
+    $makeFragments(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_PACKET), FRAG_LEN, 0, mtfl) .
   
-  eq $makeFragments(packet(ALICE, BOB, FILE, N, N1, B), N2,  N3, curFragments) =
-    if N1 > N2 
+  eq $makeFragments(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_PACKET), FRAG_LEN,  OUT_FRAGNO, curFragments) =
+    if P_LEN > FRAG_LEN 
     then
-      $makeFragments(packet(ALICE, BOB, FILE, N, (N1 + (- N2)), B), N2, s N3, curFragments : fragment(ALICE, BOB, FILE, N, s N3, 0, 0, N2, B, false)) 
+      $makeFragments(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, (P_LEN + (- FRAG_LEN)), LAST_PACKET), FRAG_LEN, s OUT_FRAGNO, curFragments : fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, s OUT_FRAGNO, 0, 0, FRAG_LEN, LAST_PACKET, false)) 
     else 
-      curFragments : fragment(ALICE, BOB, FILE, N, s N3, 0, 0, N1, B, true)
+      curFragments : fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, s OUT_FRAGNO, 0, 0, P_LEN, LAST_PACKET, true)
     fi  
     .
 
-  eq makePacket(fragment(ALICE, BOB, FILE, N, N1, N2, N3, N4, LAST_PACKET, B) : curFragments) = 
-    $makePacket(curFragments, packet(ALICE, BOB, FILE, N, N4, LAST_PACKET))  .
-  eq $makePacket((fragment(ALICE, BOB, FILE, N, N1, N2, N3, N4 LAST_PACKET, B) : curFragments), packet(ALICE, BOB, FILE, N, N5, LAST_PACKET)) =
-    $makePacket(curFragments, packet(ALICE, BOB, FILE, N, (N5 + N4), LAST_PACKET)) .
+  eq makePacket(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG) : curFragments) = 
+    $makePacket(curFragments, packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, FRAG_LEN, LAST_PACKET))  .
+  eq $makePacket((fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG) : curFragments), packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_PACKET)) =
+    $makePacket(curFragments, packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, (P_LEN + FRAG_LEN), LAST_PACKET)) .
   eq $makePacket(mtfl, P) = P .
 
   op length : FragmentList -> Nat .     
@@ -147,10 +147,10 @@ mod IODINE_SORTS is
 ---  inc META-LEVEL .
 ---  pr CONVERSION .
   
-  vars ALICE BOB ADDR ADDR' : Address . 
+  vars FROM_ADDR TO_ADDR ADDR ADDR' : Address . 
   vars NAME NAME1 : Name .
-  vars N N1 N2 N3 N4 N5 P_LEN : Nat .
-  vars B B1 LAST_PACKET : Bool .  
+  vars OUT_SEQNO OUT_FRAGNO IN_SEQNO IN_FRAGNO FRAG_LEN P_LEN : Nat .
+  vars LAST_FRAG LAST_PACKET : Bool .  
   var ID : Id .
   var QTYPE : RType .
   var ANS AUTH ADD : List{Record} .
@@ -170,11 +170,11 @@ mod IODINE_SORTS is
   --- eq toQId(fragment(QID1, N, N1, N2)) = toQId(QID1, N, N1, N2) .
   --- eq toQId(QID1, N, N1, N2) = qid(string(QID1) + "#" + string(N,10) + "#" + string(N1, 10) + "#" + string(N2, 10)) .
   
-  eq fragment(nm(fragment(ALICE, BOB, FILE, N, N1, N2, N3, N4, LAST_PACKET, B))) = fragment(ALICE, BOB, FILE, N, N1, N2, N3, N4, LAST_PACKET, B) .
+  eq fragment(nm(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG))) = fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG) .
   eq fragment(NAME) = nilFragment [owise] .
 
   op getFromAddr : Fragment -> Address .
-  eq getFromAddr(fragment(ALICE, BOB, FILE, N, N1, N2, N3, N4, LAST_PACKET, B)) = ALICE .
+  eq getFromAddr(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = FROM_ADDR .
 
   op getFromAddr : Response -> Address .
   ceq getFromAddr(response(ID, NAME, ANS, AUTH, ADD, RCODE)) = ADDR
@@ -186,13 +186,13 @@ mod IODINE_SORTS is
   eq getResponse((to ADDR from ADDR' : RESPONSE)) = RESPONSE .
 
   op getSeqNo : Fragment -> Nat .
-  eq getSeqNo(fragment(ALICE, BOB, FILE, N, N1, N2, N3, N4, LAST_PACKET, B)) = N .
+  eq getSeqNo(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = OUT_SEQNO .
 
   op getFragmentNumber : Fragment -> Nat .
-  eq getFragmentNumber(fragment(ALICE, BOB, FILE, N, N1, N2, N3, N4, LAST_PACKET, B)) = N1 .
+  eq getFragmentNumber(fragment(FROM_ADDR, FILE, TO_ADDR, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = OUT_FRAGNO .
 
   op getToAddr : Fragment -> Address .
-  eq getToAddr(fragment(ALICE, BOB, FILE, N, N1, N2, N3, N4, LAST_PACKET, B)) = BOB .
+  eq getToAddr(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = TO_ADDR .
 
   op getToAddr : Query -> Address .
   ceq getToAddr(query(ID, NAME, QTYPE)) = ADDR
@@ -201,16 +201,16 @@ mod IODINE_SORTS is
   .
 
   op isLastFragment : Fragment -> Bool .
-  eq isLastFragment(fragment(ALICE, BOB, FILE, N, N1, N2, N3, N4, LAST_PACKET, B)) = B .
+  eq isLastFragment(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = LAST_FRAG .
 
   op isLastFragment : Name -> Bool .
   eq isLastFragment(nm(F) . NAME1) = isLastFragment(F) .
 
   op getPacketLength : Packet -> Nat .
-  eq getPacketLength(packet(ALICE, BOB, FILE, N, P_LEN, B)) = P_LEN .
+  eq getPacketLength(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_FRAG)) = P_LEN .
 
   op isLastPacket : Packet -> Bool .
-  eq isLastPacket(packet(ALICE, BOB, FILE, N, P_LEN, B)) = B .
+  eq isLastPacket(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_FRAG)) = LAST_FRAG .
 
 endm  
 --- these views allow us to create lists LIST{X} where X is sort Packet or Fragment
@@ -228,13 +228,13 @@ mod IODINE_AUX is
   sorts MapIdAddr  IdAddr .
   subsort IdAddr < MapIdAddr .
   
-  vars N N1 N2 N3 N4 N5 P_LEN : Nat .
+  vars OUT_SEQNO OUT_FRAGNO IN_SEQNO IN_FRAGNO FRAG_LEN P_LEN : Nat .
   var B B1 LAST_FRAG LAST_PACKET : Bool .
   ---var curFragments : List{Fragment} .
   var curFragments : FragmentList .
   var Pkt Pkt1 : Packet .
   var Frag Frag1 : Fragment .
-  var ALICE BOB : Address .
+  var FROM_ADDR TO_ADDR : Address .
 
   var wdb : MapIdAddr .
   var ID : Id .
