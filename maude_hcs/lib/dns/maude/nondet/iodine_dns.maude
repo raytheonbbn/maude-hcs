@@ -28,9 +28,11 @@
 
 load _aux
 load ../../../../deps/dns_formalization/Maude/dns/nondet-model/dns
+load ../../../common/maude/files
 
 mod IODINE_DNS is
   inc IAUX + DNS .
+  inc FILE .
 
 
   vars ADDR ADDR1 ADDR2 NS RESOLVER ALICE BOB : Address .
@@ -50,6 +52,7 @@ mod IODINE_DNS is
   vars PACKET_LIST' PACKET_LIST PACKETS PACKETS' : PacketList .
   var FRAGMENT_LIST : FragmentList .
   var Pkt : Packet .
+  vars file FILE : File .
 
   op fileSize : -> Nat .
   op packetSize : -> Nat .
@@ -117,27 +120,57 @@ crl [wnameserver-receive-query-weird]:
   ---------------------------------------
   --- [Receive App] --- Bob
   ---------------------------------------
-  rl [receive-app-rcv-packet]:
-    < ADDR : RcvApp | rcvd: PACKETS, appAttrs >
+  crl [receive-app-rcv-packet]:
+    < ADDR : RcvApp | appAttrs >
     (to ADDR from ADDR1 : Pkt)
   => 
-    < ADDR : RcvApp | rcvd: (Pkt ; PACKETS), appAttrs > .
+    < ADDR : RcvApp | appAttrsNext >
+    (if msgOut == nullMsg then null else msgOut fi)
+    if (appAttrsTrans, fileDestAddr: ADDR2, rcvd: PACKETS) := appAttrs
+      /\ txComplete := isLastPacket(Pkt)
+      /\ appAttrsNext := (appAttrsTrans, fileDestAddr: ADDR, rcvd: (PACKETS ; Pkt))
+      /\ msgOut := 
+        (if txComplete == true
+            then (to ADDR2 : getFile(Pkt))
+            else nullMsg
+        fi)
+    [print "Bob rcv app received pkt " Pkt]
+    .
+
 
   ---------------------------------------
   --- [Send App] --- Alice
   ---------------------------------------
   crl [send-app-send-packet]:
-    < ALICE : SendApp | toAddr: ADDR, queuePopulated: queueSet, queue: PACKET_LIST, sent: PACKETS', appAttrs >
+    < ALICE : SendApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet, wclientReady: WCLIENTREADY:Bool >
     (to ALICE : start)
   => 
-    < ALICE : SendApp | toAddr: ADDR, queuePopulated: true, queue: PACKETS, sent: (Pkt ; PACKETS'), appAttrs >
-    (to ADDR from ALICE : Pkt)
+    < ALICE : SendApp | appAttrsNext >
+    (if msgOut == nullMsg then null else msgOut fi)
     *** Check if the packet queue needs to be filled.
     *** If so, packetize the file.
-    if (Pkt ; PACKETS) := (if queueSet == true
-                     then PACKET_LIST
-                     else getFilePackets(packetize((appAttrs, queue: mtpl), ALICE, ADDR, fileSize, packetSize))
+    if appAttrsTrans := (if queueSet == true
+                     then (appAttrs, fileDestAddr: ADDR) 
+                     else (packetize(appAttrs, ALICE, ADDR, makeFile(fileSize), packetSize), fileDestAddr: ADDR)
                      fi)
+      /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, wclientReady: true)
+      /\ {appAttrsNext, msgOut} :=
+        if getNumAdmittedPkts(appAttrs1) > 0
+          then sendPkt(appAttrs1, ALICE)
+          else {appAttrs1, nullMsg}
+        fi
+    [print "Iodine SendApp start or nudge from wclient, send possible pkt " msgOut " with remaining " appAttrsNext ]
+    .
+
+  --- Handle receiving a file to send over Iodine.
+  rl [send-app-handle-file]:
+    < ALICE : SendApp | appAttrs, fileDestAddr: ADDR, queuePopulated: false >
+    (to ALICE from ADDR1 : FILE)
+    =>
+    < ALICE : SendApp | packetize((appAttrs, fileDestAddr: ADDR, queuePopulated: true),
+                                  ALICE, ADDR, FILE, packetSize) >
+    (to ALICE : start)
+    [print "Iodine SendApp has file " FILE ]
     .
 
   ---------------------------------------
