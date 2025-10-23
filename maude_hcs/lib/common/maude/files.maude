@@ -1,0 +1,113 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- PWNDD Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- Contract No: HR00112590083
+--- Contractor Name: RTX BBN Technologies Inc.
+--- Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
+---
+--- The U.S. Government's rights to use, modify, reproduce, release, perform,
+--- display, or disclose these technical data and software are defined in the
+--- Article VII: Data Rights clause of the OTA.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein.
+---
+--- MAUDE_HCS: end
+
+
+load ../../../deps/dns_formalization/Maude/common/actor
+
+mod FILE is
+  inc STRING .
+  inc ACTOR-MODEL .
+
+
+  sorts File CcFile .
+  sorts FileList .
+  subsorts File CcFile < Content .
+  subsorts CcFile < File < FileList .
+
+  op emptyFileList : -> FileList [ctor] .
+  op _::_ : FileList FileList -> FileList [ctor assoc id: emptyFileList] .
+  op nilFile : -> File .
+
+---  op size:_ : Nat -> Attribute [ctor] .
+
+  --- A file should at least have a size.
+  op makeFile : Nat -> File .
+
+  --- Make a file from a size and filename.
+  op makeFile : Nat String -> File .
+  
+  --- A Control Channel file.
+  ---               Key Hash Tag
+  op makeCcFile : Nat Nat String -> CcFile .
+
+  --- Make a file from a CC file.
+  op makeFile : CcFile -> File .
+
+  --- Get a packet size.
+  op getSize : File -> Nat .
+  eq getSize(makeFile(size:Nat)) = size:Nat .
+  eq getSize(makeFile(size:Nat, filename:String)) = size:Nat .
+  eq getSize(makeFile(makeCcFile(key:Nat, hash:Nat, hashtag:String))) =
+    length(hashtag:String) + 4 + 4
+    .
+
+  --- Get a filename.
+  op getFilename : File -> String .
+  eq getFilename(makeFile(size:Nat, name:String)) = name:String .
+  eq getFilename(makeFile(makeCcFile(key:Nat, hash:Nat, hashtag:String))) =
+    hashtag:String + ".txt"
+    .
+
+  --- Get a cc file from a file.
+  op getCcFile : File -> CcFile .
+  eq getCcFile(makeFile(makeCcFile(key:Nat, hash:Nat, hashtag:String))) =
+    makeCcFile(key:Nat, hash:Nat, hashtag:String)
+    .
+
+  --- Get a hashtag from a CcFile.
+  op getHashtag : File -> String .
+  eq getHashtag(makeFile(makeCcFile(key:Nat, hash:Nat, hashtag:String))) = hashtag:String .
+
+  op getHashtag : CcFile -> String .
+  eq getHashtag(makeCcFile(key:Nat, hash:Nat, hashtag:String)) = hashtag:String .
+
+  --- Get a hash from a CcFile.
+  op getHash : File -> Nat .
+  eq getHash(makeFile(makeCcFile(key:Nat, hash:Nat, hashtag:String))) = hash:Nat .
+
+  op getHash : CcFile -> Nat .
+  eq getHash(makeCcFile(key:Nat, hash:Nat, hashtag:String)) = hash:Nat .
+
+  --- Get a key from a CcFile.
+  op getKey : File -> Nat .
+  eq getKey(makeFile(makeCcFile(key:Nat, hash:Nat, hashtag:String))) = key:Nat .
+
+  op getKey : CcFile -> Nat .
+  eq getKey(makeCcFile(key:Nat, hash:Nat, hashtag:String)) = key:Nat .
+
+
+endm
+
+red getSize(makeFile(100)) == 100 .
+red getSize(makeFile(makeCcFile(10, 40, "TEST_STRING"))) == 19 .
+red getFilename(makeFile(makeCcFile(10, 40, "TEST_STRING"))) == "TEST_STRING.txt" .
+red getHashtag(makeCcFile(10, 40, "TEST_STRING")) == "TEST_STRING" .
+red getHashtag(makeFile(makeCcFile(10, 40, "TEST_STRING")))  == "TEST_STRING" .
+red getHash(makeFile(makeCcFile(10, 40, "TEST_STRING")))  == 40 .
+red getKey(makeFile(makeCcFile(10, 40, "TEST_STRING")))  == 10 .
+
