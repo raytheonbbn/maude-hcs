@@ -1,0 +1,133 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- PWNDD Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- Contract No: HR00112590083
+--- Contractor Name: RTX BBN Technologies Inc.
+--- Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
+---
+--- The U.S. Government's rights to use, modify, reproduce, release, perform,
+--- display, or disclose these technical data and software are defined in the
+--- Article VII: Data Rights clause of the OTA.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein.
+---
+--- MAUDE_HCS: end
+
+load ../../dns/maude/nondet/iodine_dns
+load ../../mastodon/maude/nondet/mastodon
+load ../../../deps/dns_formalization/Maude/test/nondet-model/test_helpers
+load ./_aux
+load ./nondet
+
+mod CP2_TEST is
+inc IODINE_DNS + TEST-HELPERS .
+inc MASTODON .
+inc CP2_APP .
+
+ops alice bob aliceRbClient iodineSendApp iodineRecvApp iodineClient iodineServer aliceMasClient bobMasClient masServer : -> Address .
+
+op zonePwnd2Com : -> List{Record} .
+eq zonePwnd2Com =
+  < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+  < 'ns . 'pwnd2 . 'com . root, a, 3600.0, iodineServer >
+  < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+  < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+  < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
+
+
+eq MAX-NUM-MEDIA-PER-TOOT = 4 .
+eq packetSize = 1000 .
+eq packetOverhead = 33 .
+eq maxFragmentLen = 200 .
+eq maxFragmentTx = 20 .
+
+  --- Initial configuration
+op initConfig : -> Config .
+eq initConfig =
+  < alice : TxApp |
+      destAddr: bob,
+      rbClientAddr: aliceRbClient,
+      iodineClientAddr: iodineSendApp,
+      queue: makeFile(makeCcFile(400, 2, "test")),
+      ccFile: nilFile >
+  < bob : RxApp | rcvd: emptyFileList >
+  < iodineSendApp : SendApp | 
+      fileDestAddr: iodineRecvApp,
+      toAddr: iodineClient,
+      queuePopulated: false,
+      queue: mtpl,
+      numAdmittedPkts: 1,
+      wclientReady: true,
+      sent: mtpl >
+  < iodineRecvApp : RcvApp | rcvd: mtpl,
+      fileDestAddr: bob > 
+  < iodineClient : WClient |
+      resv: iodineServer, ---addrNScorporate,
+      wDom: 'pwnd2 . 'com . root,
+      weirdQType: a,
+      queryCtr: 0,
+      seqCtr: 0,
+      fragments: mtfl,
+      fragmentsSize: 0,
+      currFragment: 0,
+      appAddrMap: mtIdAddr,
+      numAttempts: 0 >
+  < iodineServer : WNameserver |
+      pendingFragments: mtfl,
+      currentSeqNo: 0,
+      currentFragment: 0,
+      lastFragment: false,
+      severWResponseTTL: 0.0,
+      conf: (< iodineServer : Nameserver |  db: (zonePwnd2Com),
+                                            queue: nilQueue,
+                                            forwardonly: nullAddr,
+                                            queriesFwd: nilTAQL >) >
+  < aliceMasClient : MasClient |
+      thisAddr: aliceMasClient,
+      masServerAddr: masServer,
+      opStack: emptyOpStack,
+      postingMedia: emptyMediaFileList,
+      postingMediaIds: emptyMasIdList,
+      postingText: "",
+      gettingMediaUrls: emptyUrlList,
+      gettingMedias: emptyMediaFileList,
+      gettingPosts: emptyMasIdList
+  >
+  < bobMasClient : MasClient |
+      thisAddr: bobMasClient,
+      masServerAddr: masServer,
+      opStack: emptyOpStack,
+      postingMedia: emptyMediaFileList,
+      postingMediaIds: emptyMasIdList,
+      postingText: "",
+      gettingMediaUrls: emptyUrlList,
+      gettingMedias: emptyMediaFileList,
+      gettingPosts: emptyMasIdList
+  >
+  < masServer : MasServer |
+      thisAddr: masServer,
+      currentMapId: 0,
+      tootMap: emptyIdTootMap,
+      mediaMap: emptyIdMediaMap, 
+      tagMap: emptyTagPostIdsMap
+  >
+  --- App start message:
+  (to alice : start)
+  .
+endm
+
+set print attribute on .
