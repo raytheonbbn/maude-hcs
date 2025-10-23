@@ -36,7 +36,7 @@ mod IODINE_DNS is
   vars ADDR ADDR1 ADDR2 NS RESOLVER ALICE BOB : Address .
   var RCODE : Nat .
   vars ANS AUTH ADD : List{Record} .
-  vars wattrs wattrs1 wattrs2 wattrsNext wattrsTrans wattrsTrans' appAttrs appAttrs1 : AttributeSet .
+  vars wattrs wattrs1 wattrs2 wattrsNext wattrsTrans wattrsTrans' appAttrs appAttrs1 appAttrsNext appAttrsTrans : AttributeSet .
   vars conf : Config .
   vars appAlice appBob wrappedNS : Actor .
   vars ID ID' : Id .      ---- Nat < Id
@@ -104,13 +104,14 @@ crl [wnameserver-receive-query-weird]:
   < ADDR : WNameserver | wattrs2,
           conf: (wrappedNS) 
   >
-  msgOut 
+  msgOut
   (if appMsgOut == nullMsg then null else appMsgOut fi)
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 1 and step 2
   /\ {wattrs1, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 3
   /\ {wattrs2, appMsgOut} := updateRcvApp(wattrs1, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  [print "WServer receving query " ID " responding with " msgOut " // " appMsgOut]
   .
 
   ---------------------------------------
@@ -155,8 +156,7 @@ crl [wnameserver-receive-query-weird]:
     msgOut
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
----    [print "iClientEmbedding msg in"  msg]
----    [print "iClientEmbedding fragment out "  msgOut]
+    [print "iClientEmbedding get pkt " Pkt ", sending fragment out " msgOut]
     .
 
   --- Handle a response from the resolver to WClient.
@@ -170,8 +170,10 @@ crl [wnameserver-receive-query-weird]:
       (to ADDR from RESOLVER : response(ID, SNAME, ANS, AUTH, ADD, RCODE))
     =>
     < ADDR : WClient | wattrsNext >
-    (if msgOut == nullMsg then null else msgOut fi) 
-    (if msgOutExt == nullMsg then null else msgOutExt fi)
+      (if msgOutExt == nullMsg
+        then (to getFromAddr(response(ID, SNAME, ANS, AUTH, ADD, RCODE)) : start)
+        else msgOutExt
+      fi)
     if wattrsTrans := extract((resv: RESOLVER, wattrs), response(ID, SNAME, ANS, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
@@ -179,15 +181,7 @@ crl [wnameserver-receive-query-weird]:
           then {wattrsTrans, nullMsg}
           else sendFragment(wattrsTrans, ADDR)
         fi
-      /\ (wattrs1, appAddrMap: MIA) := wattrsNext
-      --- frag corresponding to this response/query id came originally from ALICE
-      /\ ((ID <~ ALICE) !! MIA1) := MIA 
-      /\ msgOut := 
-        if txComplete
-        --- TODO: extract ALICE address from response also to know to send to Alice
-          then (to ALICE : start)
-          else nullMsg
-        fi
+    [print "WClient got response " ID ": sending possible fragment " msgOutExt]
     .
 
 endm
