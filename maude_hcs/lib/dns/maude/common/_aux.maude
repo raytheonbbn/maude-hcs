@@ -229,7 +229,7 @@ mod IODINE_AUX is
   subsort IdAddr < MapIdAddr .
   
   vars OUT_SEQNO OUT_FRAGNO IN_SEQNO IN_FRAGNO FRAG_LEN P_LEN : Nat .
-  var B B1 LAST_FRAG LAST_PACKET : Bool .
+  var LAST_FRAG LAST_PACKET : Bool .
   ---var curFragments : List{Fragment} .
   var curFragments : FragmentList .
   var Pkt Pkt1 : Packet .
@@ -278,11 +278,11 @@ mod IODINE_NODE is
   var NAME NAME1 NAME' : Name .
   var F : Fragment .
   var F' : Fragment .
-  var ADDR ADDR1 AliceAddr BobAddr RESOLVER : Address .
+  var ADDR ADDR1 AliceAddr BobAddr RESOLVER FROM_ADDR : Address .
   var ID : Id .
   var QTYPE : RType .
   vars NUM_ATTEMPTS NUM_FRAGS : Nat .
-  var B LAST LAST_PACKET : Bool .
+  var LAST_FRAG LAST_PACKET : Bool .
   vars SEQ_CTR QUERY_CTR CUR_FRAG ACK_SEQ ACK_FRAG : Nat .
   vars N N1 N2 P_LEN HOSTNAME_LEN : Nat .
   vars FRAGMENT_LIST FRAGMENT_LIST' : FragmentList .
@@ -348,21 +348,18 @@ mod IODINE_NODE is
   eq isWClientReady(Attrs, wclientReady: WCLIENTREADY) = WCLIENTREADY .
 
   op sendPkt : AttributeSet Address -> AttributeSetMsgs .
-  ceq sendPkt((Attrs, toAddr: ADDR, queue: (PACKET ; PACKET_LIST), sent: PACKET_LIST', numAdmittedPkts: N, wclientReady: WCLIENTREADY), AliceAddr)  =
+  ceq sendPkt((Attrs, toAddr: ADDR, queue: (PACKET ; PACKET_LIST), sent: PACKET_LIST', numAdmittedPkts: N, wclientReady: WCLIENTREADY), FROM_ADDR)  =
     {Attrs3, msgOut}
     if Attrs3 := (Attrs, toAddr: ADDR, queue: PACKET_LIST, sent: (PACKET ; PACKET_LIST'), numAdmittedPkts: if N > 0 then sd(N,1) else 0 fi, wclientReady: false)
-      /\ msgOut := (to ADDR from AliceAddr : PACKET)
+      /\ msgOut := (to ADDR from FROM_ADDR : PACKET)
   .
-  eq sendPkt(Attrs, AliceAddr) = {Attrs, nullMsg} [owise] .
-
-  --- TODO: Consolidate this with the above op, duplicated for test only
-  op sendPktBob : AttributeSet Address -> AttributeSetMsgs .
-  ceq sendPktBob((Attrs, toAddr: ADDR, queue: (PACKET ; PACKET_LIST), sent: PACKET_LIST', numAdmittedPkts: N, wnameserverReady: WNAMESERVERREADY), BobAddr)  =
+  --- Equivalent for Bob's side which uses wnameserverReady to indicate whether iodine server can accept packets
+  ceq sendPkt((Attrs, toAddr: ADDR, queue: (PACKET ; PACKET_LIST), sent: PACKET_LIST', numAdmittedPkts: N, wnameserverReady: WNAMESERVERREADY), FROM_ADDR)  =
     {Attrs3, msgOut}
     if Attrs3 := (Attrs, toAddr: ADDR, queue: PACKET_LIST, sent: (PACKET ; PACKET_LIST'), numAdmittedPkts: if N > 0 then sd(N,1) else 0 fi, wnameserverReady: false)
-      /\ msgOut := (to ADDR from BobAddr : PACKET)
+      /\ msgOut := (to ADDR from FROM_ADDR : PACKET)
   .
-  eq sendPktBob(Attrs, AliceAddr) = {Attrs, nullMsg} [owise] .
+  eq sendPkt(Attrs, FROM_ADDR) = {Attrs, nullMsg} [owise] .
 
   ---            Attributes   Src     Dest    File PacketSize
   op packetize : AttributeSet Address Address ByteSeq Nat -> AttributeSet .
@@ -530,11 +527,11 @@ mod IODINE_NODE is
   --- Check fragment match.
   op isFragmentMatch : AttributeSet Fragment -> Bool .
   ----          AliceAddr  Packet# Frag# AckPacket# AckFrag# DataLenBytes lastFrag
-  ceq isFragmentMatch(wattrs, fragment(ADDR, ADDR1, FILE, SEQ_CTR, CUR_FRAG, ACK_SEQ, ACK_FRAG, N, LAST_PACKET, LAST)) = true
+  ceq isFragmentMatch(wattrs, fragment(ADDR, ADDR1, FILE, SEQ_CTR, CUR_FRAG, ACK_SEQ, ACK_FRAG, N, LAST_PACKET, LAST_FRAG)) = true
     if (getSeqCtr(wattrs) == ACK_SEQ)
       /\ (getCurrFragment(wattrs) == ACK_FRAG)
     .
-  eq isFragmentMatch(wattrs, fragment(ADDR, ADDR1, FILE, SEQ_CTR, CUR_FRAG, ACK_SEQ, ACK_FRAG, N, LAST_PACKET, LAST)) = false [owise] .
+  eq isFragmentMatch(wattrs, fragment(ADDR, ADDR1, FILE, SEQ_CTR, CUR_FRAG, ACK_SEQ, ACK_FRAG, N, LAST_PACKET, LAST_FRAG)) = false [owise] .
 
   --- Handle a packet (msg) and send the first fragment.
   op handleAndSend : AttributeSet Address Packet -> AttributeSetMsgs .
@@ -545,8 +542,8 @@ mod IODINE_NODE is
     .
 
   op ackFragment : Fragment Nat Nat -> Fragment .
-  eq ackFragment(fragment(ADDR, ADDR1, SEQ_CTR, CUR_FRAG, N1, N2, N, LAST_PACKET, LAST), ACK_SEQ, ACK_FRAG) = 
-    fragment(ADDR, ADDR1, SEQ_CTR, CUR_FRAG, ACK_SEQ, ACK_FRAG, N, LAST_PACKET, LAST) .
+  eq ackFragment(fragment(ADDR, ADDR1, SEQ_CTR, CUR_FRAG, N1, N2, N, LAST_PACKET, LAST_FRAG), ACK_SEQ, ACK_FRAG) = 
+    fragment(ADDR, ADDR1, SEQ_CTR, CUR_FRAG, ACK_SEQ, ACK_FRAG, N, LAST_PACKET, LAST_FRAG) .
 
   --- Send current fragment as a query.
   ---                   Attributes from
@@ -571,7 +568,7 @@ mod IODINE_NODE is
     if nm(F) := downstreamdata
     --- Check if the incoming fragment can be accepted into the pending fragment list, then process the upstream ACK that might be contained in the fragment
     --- This order was confirmed in client.c.
-      /\ (pendingFragments: FRAGMENT_LIST, lastFragment: B, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG, severWResponseTTL: sTTL, fragments: FRAGMENT_LIST', Attrs) := wattrs
+      /\ (pendingFragments: FRAGMENT_LIST, lastFragment: LAST_FRAG, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG, severWResponseTTL: sTTL, fragments: FRAGMENT_LIST', Attrs) := wattrs
       /\ wattrsNext := 
         (if (getSeqNo(F) =/= SEQ_CTR) or (getFragmentNumber(F) <= CUR_FRAG)
           then (if getSeqNo(F) > SEQ_CTR
@@ -635,7 +632,7 @@ mod IODINE_NODE is
   op extractS : AttributeSet Config -> AttributeSetMsgs .
   ceq extractS(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsNext, msg}
     if  nm(F) . NAME1 := NAME
-    /\ (pendingFragments: FRAGMENT_LIST, lastFragment: B, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG, severWResponseTTL: sTTL, fragments: FRAGMENT_LIST', numAttempts: NUM_ATTEMPTS, Attrs) := wattrs
+    /\ (pendingFragments: FRAGMENT_LIST, lastFragment: LAST_FRAG, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG, severWResponseTTL: sTTL, fragments: FRAGMENT_LIST', numAttempts: NUM_ATTEMPTS, Attrs) := wattrs
     /\ wattrsTrans :=
         *** If this is a different seqNo, or a previous Fragment,
         (if (getSeqNo(F) =/= SEQ_CTR) or (getFragmentNumber(F) <= CUR_FRAG)
@@ -668,7 +665,7 @@ mod IODINE_NODE is
   *** receiving the packet from there.
   op flushPendingFragments : AttributeSet Fragment -> AttributeSet .
   ceq flushPendingFragments(wattrs, F) = wattrsNext
-    if (Attrs1, pendingFragments: FRAGMENT_LIST, lastFragment: B, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG) := wattrs
+    if (Attrs1, pendingFragments: FRAGMENT_LIST, lastFragment: LAST_FRAG, currentSeqNo: SEQ_CTR, currentFragment: CUR_FRAG) := wattrs
       /\ wattrsNext := (Attrs1, pendingFragments: (mtfl : F), lastFragment: isLastFragment(F),
                         currentSeqNo: getSeqNo(F), currentFragment: getFragmentNumber(F))
     .
@@ -676,12 +673,12 @@ mod IODINE_NODE is
   op updateRcvApp : AttributeSet Config -> AttributeSetMsgs .
   ceq updateRcvApp(wattrs, (to ADDR from ADDR1 : query(ID, NAME, QTYPE))) = {wattrsTrans, msg}
     ---- server attrs
-    if (pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs1) := wattrs
+    if (pendingFragments: FRAGMENT_LIST, lastFragment: LAST_FRAG, Attrs1) := wattrs
     --- ---- app attrs
     --- /\ (rcvd: PACKET_LIST, Attrs2) := Attrs
     ---- if ready to defragment clean up state else no change
     /\ wattrsTrans := 
-      (if B 
+      (if LAST_FRAG 
       then (pendingFragments: mtfl, lastFragment: false, Attrs1)
       else wattrs 
       fi)
@@ -689,7 +686,7 @@ mod IODINE_NODE is
     /\ nm(F) . NAME1 := NAME
     ---- defragment and send packet to Bob
     /\ msg := 
-      (if B
+      (if LAST_FRAG
       then (to getToAddr(F) from getFromAddr(F) : makePacket(FRAGMENT_LIST))
       else nullMsg
       fi)
@@ -698,12 +695,12 @@ mod IODINE_NODE is
   op updateRcvAppAlice : AttributeSet Config -> AttributeSetMsgs .
   ceq updateRcvAppAlice(wattrs, (to ADDR from ADDR1 : response(ID, NAME, < NAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))) = {wattrsTrans, msg}
     ---- server attrs
-    if (pendingFragments: FRAGMENT_LIST, lastFragment: B, Attrs1) := wattrs
+    if (pendingFragments: FRAGMENT_LIST, lastFragment: LAST_FRAG, Attrs1) := wattrs
     --- ---- app attrs
     --- /\ (rcvd: PACKET_LIST, Attrs2) := Attrs
     ---- if ready to defragment clean up state else no change
     /\ wattrsTrans := 
-      (if B 
+      (if LAST_FRAG 
       then (pendingFragments: mtfl, lastFragment: false, Attrs1)
       else wattrs 
       fi)
@@ -711,7 +708,7 @@ mod IODINE_NODE is
     /\ nm(F) := downstreamdata
     ---- defragment and send packet to Alice
     /\ msg := 
-      (if B
+      (if LAST_FRAG
       then (to getToAddr(F) from getFromAddr(F) : makePacket(FRAGMENT_LIST))
       else nullMsg
       fi)
