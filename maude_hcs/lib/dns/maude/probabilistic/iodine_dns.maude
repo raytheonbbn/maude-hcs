@@ -74,7 +74,10 @@ mod IODINE_DNS is
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
   --------------------------------
-
+---- Weird nameserver receiving packets from Bob to send to Alice
+---- Accepts Bob's packet if not currently sending, or if the last fragment has been retried more than 5 times
+---- Same fragmenting behavior as the client embedding but doesn't send the first fragment when done 
+---- (because server needs to wait for a query before responding)
 crl [iServerEmbedding]:
   < ADDR : WNameserver | wattrs >
   < MON : WMonitor | pktSent: PTL, monAttrs >
@@ -200,6 +203,7 @@ crl [wnameserver-receive-query-weird]:
         [print "(" T ") RcvApp start or nudge from wserver, send possible pkt " msgOut ", setting timeout if not null.  Has packets to send " appAttrsNext]
 .
 
+  ---- Timeout rule for Bob, symmetric to send-app-pkt-timeout, puts Bob's outgoing packets on timeouts so they send at particular intervals
   crl [receive-app-pkt-timeout]:
     < BOB : RcvApp | appAttrs, numAdmittedPkts: N >
     {T, (to BOB : pktTimeout(Pkt'))}
@@ -290,6 +294,7 @@ crl [wnameserver-receive-query-weird]:
         [print "(" T ") SendApp start or nudge from wclient, send possible pkt " msgOut ", setting timeout if not null.  Has packets to send " appAttrsNext]
   .
 
+  ---- Alice handling fully assembled packets from the client, sent by Bob
   rl [send-app-rcv-packet]:
     < ADDR : SendApp | rcvd: PACKETS, appAttrs >
     < MON : WMonitor | pktRcvd: PTL, monAttrs >
@@ -297,6 +302,7 @@ crl [wnameserver-receive-query-weird]:
   => 
     < ADDR : SendApp | rcvd: (Pkt ; PACKETS), appAttrs >
     < MON : WMonitor | pktRcvd: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
+    [print "(" T ") Alice received complete packet from Bob: " Pkt]
   .
 
   ---- ************
