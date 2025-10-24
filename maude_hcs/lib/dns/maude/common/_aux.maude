@@ -297,8 +297,7 @@ mod IODINE_NODE is
   var RCODE : Nat .
   var MIdAddr MIdAddr1 : MapIdAddr .
   var IdA IdA1 : IdAddr .
-  vars ALICEREADY WCLIENTREADY : Bool .
-  vars BOBREADY WNAMESERVERREADY : Bool .
+  vars IODINEREADY : Bool .
   vars FILE_SIZE PKT_SIZE PKT_COUNTER PktSize : Nat .
   --- TODO: refactor as RDATA (response data?) since it's more concise
   var downstreamdata : RData .
@@ -332,7 +331,7 @@ mod IODINE_NODE is
   --- bool indicating pacing interval passed
   op numAdmittedPkts:_ : Nat -> Attribute [ctor] .
   --- bool indicating wclient ready
-  op wclientReady:_ : Bool -> Attribute [ctor] .
+  op iodineReady:_ : Bool -> Attribute [ctor] .
   --- The per-packet overhead in bytes.
   op packetOverhead : -> Nat .
 
@@ -346,19 +345,13 @@ mod IODINE_NODE is
   op getNumAdmittedPkts : AttributeSet -> Nat .
   eq getNumAdmittedPkts(Attrs, numAdmittedPkts: N) = N .
 
-  op isWClientReady : AttributeSet -> Bool .
-  eq isWClientReady(Attrs, wclientReady: WCLIENTREADY) = WCLIENTREADY .
+  op isIodineReady : AttributeSet -> Bool .
+  eq isIodineReady(Attrs, iodineReady: IODINEREADY) = IODINEREADY .
 
   op sendPkt : AttributeSet Address -> AttributeSetMsgs .
-  ceq sendPkt((Attrs, toAddr: ADDR, queue: (PACKET ; PACKET_LIST), sent: PACKET_LIST', numAdmittedPkts: N, wclientReady: WCLIENTREADY), FROM_ADDR)  =
+  ceq sendPkt((Attrs, toAddr: ADDR, queue: (PACKET ; PACKET_LIST), sent: PACKET_LIST', numAdmittedPkts: N, iodineReady: IODINEREADY), FROM_ADDR)  =
     {Attrs3, msgOut}
-    if Attrs3 := (Attrs, toAddr: ADDR, queue: PACKET_LIST, sent: (PACKET ; PACKET_LIST'), numAdmittedPkts: if N > 0 then sd(N,1) else 0 fi, wclientReady: false)
-      /\ msgOut := (to ADDR from FROM_ADDR : PACKET)
-  .
-  --- Equivalent for Bob's side which uses wnameserverReady to indicate whether iodine server can accept packets
-  ceq sendPkt((Attrs, toAddr: ADDR, queue: (PACKET ; PACKET_LIST), sent: PACKET_LIST', numAdmittedPkts: N, wnameserverReady: WNAMESERVERREADY), FROM_ADDR)  =
-    {Attrs3, msgOut}
-    if Attrs3 := (Attrs, toAddr: ADDR, queue: PACKET_LIST, sent: (PACKET ; PACKET_LIST'), numAdmittedPkts: if N > 0 then sd(N,1) else 0 fi, wnameserverReady: false)
+    if Attrs3 := (Attrs, toAddr: ADDR, queue: PACKET_LIST, sent: (PACKET ; PACKET_LIST'), numAdmittedPkts: if N > 0 then sd(N,1) else 0 fi, iodineReady: false)
       /\ msgOut := (to ADDR from FROM_ADDR : PACKET)
   .
   eq sendPkt(Attrs, FROM_ADDR) = {Attrs, nullMsg} [owise] .
@@ -397,7 +390,7 @@ mod IODINE_NODE is
   --- bool indicating pacing interval passed
   op numAdmittedPkts:_ : Nat -> Attribute [ctor] .
   --- bool indicating wclient ready
-  op wnameserverReady:_ : Bool -> Attribute [ctor] .
+  op iodineReady:_ : Bool -> Attribute [ctor] .
 
   **** constructor for making receiver app actor
   op mkRcvApp : Address  -> Actor [ctor] .  
@@ -627,8 +620,6 @@ mod IODINE_NODE is
   eq isWeird(wattrs, msg) = false [owise] .
  
 
-  op isWNameServerReady : AttributeSet -> Bool .
-  eq isWNameServerReady(Attrs, wnameserverReady: WNAMESERVERREADY) = WNAMESERVERREADY .
 
   ---- Server extract fragment
   op extractS : AttributeSet Config -> AttributeSetMsgs .
