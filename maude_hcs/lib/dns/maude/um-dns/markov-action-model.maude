@@ -103,18 +103,23 @@ op isWaitType : Map{String,JV} -> Bool .
 eq isWaitType((mj,("type" |-> js("wait")) )) = true . 
 eq isWaitType(mj) = false [owise] . 
 
-op getSleep : Map{String,JV} -> Float .
-eq getSleep((mj,("sleep" |-> jf(fl)) ) ) = fl .
-eq getSleep(mj) = 0.0 [owise] .
-
 op realizeParams : JV Nat -> JObjNat .
 eq realizeParams(jo(mj),j)  = realizeParams(mj,j) .
 
 op realizeParams : Map{String,JV} Nat -> JObjNat .
 op realizeParam : String JV  Nat -> JObjNat .
+--- Given a parameter name (eg sleep) and its random type (uniform)
+---  and its parameters (mean std) and the counter, return the 
+---   JobjNat comprising sampled value and the incremented counter 
 ----         pname   randType  randParams randCtr
 op realizeRand : String String Map{String,JV} Nat 
                  -> JObjNat .
+
+--- getSleep works on the output of realizeRand
+op getSleep : Map{String,JV} -> Float .
+eq getSleep((mj,("sleep" |-> jf(fl)) ) ) = fl .
+eq getSleep(mj) = 0.0 [owise] .
+
 ceq realizeParams(((str |-> jv),mj),j) = {(mj0,mj1),j2}
 if {mj0,j1} := realizeParam(str,jv,j)
 /\ {mj1,j2} := realizeParams(mj,j1)
@@ -153,35 +158,30 @@ endfm
 
 eof 
 
-red realizeParams( ("num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js("uniform"))) , "type" |-> js("resolve_a_batch") ), 0) .
-
-{"num_to_resolve" |-> jn(6), 
- "type" |-> js("resolve_a_batch"), 1}
  
- 
-eq mastodon-actions = (
-        "media" |->  jo(
-            "type" |->  js("media"),
-            "sleep" |-> jo(("random" |->  js("gaussian")),
-                           ("mean" |->  jf(17.0)),
-                           ("std" |->  jf(9.0) )
-                           )
-        ),
-        "download" |->  jo(
-            "type" |->  "download",
-            "sleep" |->  jo(("random" |->  js("gaussian")),
-                           ("mean" |->  jf(17.0)),
-                           ("std" |->  jf(9.0) )
-                           )
-        ),
-        "wait" |->  jo(
-            "type" |->  js("wait"),
-            "start" |->  js("true"),
-            "sleep" |->  jo(("random" |->  js("gaussian")),
-                           ("mean" |->  jf(17.0)),
-                           ("std" |->  jf(9.0) )
-                           )
-        )
-    )
- .    
+--- eq mastodon-actions = (
+---         "media" |->  jo(
+---             "type" |->  js("media"),
+---             "sleep" |-> jo(("random" |->  js("gaussian")),
+---                            ("mean" |->  jf(17.0)),
+---                            ("std" |->  jf(9.0) )
+---                            )
+---         ),
+---         "download" |->  jo(
+---             "type" |->  "download",
+---             "sleep" |->  jo(("random" |->  js("gaussian")),
+---                            ("mean" |->  jf(17.0)),
+---                            ("std" |->  jf(9.0) )
+---                            )
+---         ),
+---         "wait" |->  jo(
+---             "type" |->  js("wait"),
+---             "start" |->  js("true"),
+---             "sleep" |->  jo(("random" |->  js("gaussian")),
+---                            ("mean" |->  jf(17.0)),
+---                            ("std" |->  jf(9.0) )
+---                            )
+---         )
+---     )
+---  .    
  
