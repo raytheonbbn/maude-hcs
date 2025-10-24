@@ -527,13 +527,13 @@ mod IODINE_NODE is
   eq grabCurrentFragment(wattrs) = nilFragment [owise] .
 
   --- Check fragment match.
-  op isFragmentMatch : AttributeSet Fragment -> Bool .
+  op isAckMatch : AttributeSet Fragment -> Bool .
   ----          AliceAddr  Packet# Frag# AckPacket# AckFrag# DataLenBytes lastFrag
-  ceq isFragmentMatch(wattrs, fragment(ADDR, ADDR1, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, N, LAST_PACKET, LAST_FRAG)) = true
+  ceq isAckMatch(wattrs, fragment(ADDR, ADDR1, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, N, LAST_PACKET, LAST_FRAG)) = true
     if (getOutSeqNo(wattrs) == IN_SEQNO)
       /\ (getOutFragNo(wattrs) == IN_FRAGNO)
     .
-  eq isFragmentMatch(wattrs, fragment(ADDR, ADDR1, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, N, LAST_PACKET, LAST_FRAG)) = false [owise] .
+  eq isAckMatch(wattrs, fragment(ADDR, ADDR1, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, N, LAST_PACKET, LAST_FRAG)) = false [owise] .
 
   --- Handle a packet (msg) and send the first fragment.
   op handleAndSend : AttributeSet Address Packet -> AttributeSetMsgs .
@@ -579,7 +579,7 @@ mod IODINE_NODE is
                 fi)
           else ((fragmentsReceived: (FRAGMENT_LIST : F), lastFragment: isLastFragment(F), inSeqNo: getFragOutSeqNo(F), inFragNo: getFragOutFragNo(F), severWResponseTTL: sTTL, fragmentsToSend: FRAGMENT_LIST'), Attrs)
           fi)
-      /\ wattrsTrans := (if isFragmentMatch(wattrsNext, F) then moveFragmentUp(wattrsNext) else wattrsNext fi)
+      /\ wattrsTrans := (if isAckMatch(wattrsNext, F) then moveFragmentUp(wattrsNext) else wattrsNext fi)
     .
 
   --------------------------------
@@ -653,7 +653,7 @@ mod IODINE_NODE is
     ---- simply ACK fragment (NAME contains fragment; RCODE 0 is success)
     --- If there's a fragment, grab it and embed in the reply. Otherwise, default to null
     --- TODO: Possible delay between receiving and ACKing?
-    /\ wattrsTrans' := (if isFragmentMatch(wattrsTrans, F) then moveFragmentUp(wattrsTrans) else wattrsTrans fi)
+    /\ wattrsTrans' := (if isAckMatch(wattrsTrans, F) then moveFragmentUp(wattrsTrans) else wattrsTrans fi)
     /\ F' := grabCurrentFragment(wattrsTrans') 
     --- TODO: Check what iodined.c does for a dataless fragment's sequence number/fragment
     --- If F' is nilFragment ie no more fragments left to send, ACK the client's fragment with a dataless fragment
@@ -790,8 +790,8 @@ red moveFragmentUp(wClientAttrs, fragmentsToSend: makeFragments(packet(AliceAddr
 
 red grabCurrentFragment(wClientAttrs, fragmentsToSend: makeFragments(packet(AliceAddr, BobAddr, TEST-FILE, 1, 100, false), 20)) == fragment(AliceAddr, BobAddr, TEST-FILE, 1, 1, 0, 0, 20, false, false) .
 
-red isFragmentMatch((wClientAttrs, outSeqNo: 44, outFragNo: 5), fragment(AliceAddr, BobAddr, TEST-FILE, 22, 3, 44, 5, 100, false, false)) == true .
-red isFragmentMatch((wClientAttrs, outSeqNo: 44), fragment(AliceAddr, BobAddr, TEST-FILE, 22, 3, 44, 5, 100, false, false)) == false .
+red isAckMatch((wClientAttrs, outSeqNo: 44, outFragNo: 5), fragment(AliceAddr, BobAddr, TEST-FILE, 22, 3, 44, 5, 100, false, false)) == true .
+red isAckMatch((wClientAttrs, outSeqNo: 44), fragment(AliceAddr, BobAddr, TEST-FILE, 22, 3, 44, 5, 100, false, false)) == false .
 
 red isWeird((fragmentsReceived: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, TEST-FILE, 1, 1, 0, 0, 100, false, true)) . 'pwnd2 . 'com . root, a))) == true .
 red extractS((fragmentsReceived: mtfl), (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, TEST-FILE, 1, 1, 0, 0, 100, false, true)) . 'pwnd2 . 'com . root, a))) .
@@ -922,4 +922,3 @@ red extract(
         lastFragment: false, inSeqNo: 2, inFragNo: 5, outSeqNo: 5, outFragNo: 4, severWResponseTTL: 0.0, fragmentsToSend: mtfl, numAttempts: 0) .
 
 
-eof

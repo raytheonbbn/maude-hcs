@@ -404,7 +404,7 @@ crl [wnameserver-receive-query-weird]:
     =>
     < ADDR : WClient | (resv: RESOLVER, wattrs) > 
     if nm(FRAGMENT) := downstreamdata
-      /\ not isFragmentMatch((wattrs, resv: RESOLVER), FRAGMENT)
+      /\ not isAckMatch((wattrs, resv: RESOLVER), FRAGMENT)
       [print "(" T ") WClient got outdated response to query " ID ", dropping it"]
     .
   
@@ -424,7 +424,7 @@ crl [wnameserver-receive-query-weird]:
     if isSending(wattrs)
       --- If the timed out fragment does not match the current fragment, 
       ---  then we have already received the ACK and this rule should not match.
-      /\ isFragmentMatch(wattrs, FRAGMENT)
+      /\ isAckMatch(wattrs, FRAGMENT)
       /\ maxAttemptsReached := isMaxAttemptsReached(wattrs)
       /\ {wattrsNext, msgOutExt} :=
         if maxAttemptsReached
@@ -441,7 +441,7 @@ crl [wnameserver-receive-query-weird]:
     {T, (to ADDR : ackTimeout(FRAGMENT))}
     =>
     < ADDR : WClient | wattrs >
-    if not (isSending(wattrs) and isFragmentMatch(wattrs, FRAGMENT))
+    if not (isSending(wattrs) and isAckMatch(wattrs, FRAGMENT))
     [print "(" T ") WClient ignoring timeout" ]
   .
 
