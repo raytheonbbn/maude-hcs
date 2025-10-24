@@ -64,16 +64,16 @@ class IodineServer:
     def to_maude(self) -> str:        
         strNS = "" if self.nameServer == None else self.nameServer.to_maude()
         res = f'< {address_to_maude(self.address)} : WNameserver |\n'        
-        res += f'    pendingFragments: mtfl,\n'
-        res += f"    currentSeqNo: 0,\n"
-        res += f"    currentFragment: 0,\n"
+        res += f'    fragmentsReceived: mtfl,\n'
+        res += f"    inSeqNo: 0,\n"
+        res += f"    inFragNo: 0,\n"
         res += f'    lastFragment: false,\n'
         res += f'    severWResponseTTL: {self.severWResponseTTL},\n' # {:.2f}'.format()
         res += f'    conf: ({strNS}),\n'
-        res += f'    seqCtr: 0,\n'
-        res += f'    fragments: mtfl,\n'
+        res += f'    outSeqNo: 0,\n'
+        res += f'    fragmentsToSend: mtfl,\n'
         res += f'    fragmentsSize: 0,\n'
-        res += f'    currFragment: 0,\n'
+        res += f'    outFragNo: 0,\n'
         res += f'    numAttempts: 0 >'
         return res
 
@@ -130,16 +130,15 @@ class IodineClient:
         res += f'    wDom: {name_to_maude(self.wDomName)},\n'
         res += f'    weirdQType: {rtype_to_maude(self.wQueryType)},\n'
         res += f'    queryCtr: 0,\n'
-        res += f'    seqCtr: 0,\n'
-        res += f'    fragments: mtfl,\n'
+        res += f'    outSeqNo: 0,\n'
+        res += f'    fragmentsToSend: mtfl,\n'
         res += f'    fragmentsSize: 0,\n'
-        res += f'    currFragment: 0,\n'
+        res += f'    outFragNo: 0,\n'
         res += f'    appAddrMap: mtIdAddr,\n'        
         res += f'    numAttempts: 0,\n'
-        res += f'    pendingFragments: mtfl,\n'
-        res += f'    currentSeqNo: 0,\n'
-        res += f'    currentSeqNo: 0,\n'
-        res += f'    currentFragment: 0,\n'
+        res += f'    fragmentsReceived: mtfl,\n'
+        res += f'    inSeqNo: 0,\n'
+        res += f'    inFragNo: 0,\n'
         res += f'    lastFragment: false,\n'
         res += f'    severWResponseTTL: 0.0 >'
         return res
