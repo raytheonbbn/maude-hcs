@@ -2,9 +2,9 @@ set show advisories off .
 
 load markov-action-model.maude
 load cp2-interfaces
-load dns-mamodel
-load ../../../../deps/dns_formalization/Maude/common/actor.maude
-load ../../../../deps/dns_formalization/Maude/common/apmaude.maude
+--- load dns-mamodel
+load ../../../deps/dns_formalization/Maude/common/actor.maude
+load ../../../deps/dns_formalization/Maude/common/apmaude.maude
 
 
 ***(
@@ -133,46 +133,3 @@ ceq umRcvStatus(attrs, j, msg0) =
   .                       
 
 endm  
-
-
-mod TEST-UAA is
-  inc USER-ACTION-ACTOR .
-  inc DNS-MAMODEL .
-
-ops umA aA : -> Address .
-op umAct : -> Actor .
-eq umAct = mkUMactor(umA,dns-ma,aA) .
-
-op umAttrs : -> AttributeSet .
-eq umAttrs = getAttrs(umAct) .
-
-op xmsg0 : -> Config .
-eq xmsg0 = getW4A(umAttrs) .
-
-op xmm : -> Map{String,Map{String,Float}} .
-eq xmm = getMarkovA(umAttrs) .
-
-op xacts : -> Map{String,JV} .
-eq xacts = getActionsA(umAttrs) .
-
-**** sid = "single"
-**** sid1 : "wait_single"
-
-op umAct1 : -> Actor .
-eq umAct1 =
-< umA : UM | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ( "batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(("num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js("uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo("type" |-> js("resolve_a")),
-"wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait"))), 
-"wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js( "wait")))), 
-curState: "wait_single", nsteps: 99, actAddress: aA, 
-w4: (to aA from umA : actionQ("type" |-> js("resolve_a")))
- >
-.   
-endm
-
-eof
-
-red umAct .
-rew {0.0, (to umA from umA : actionR(""))} umAct  rCtr(0) .
-**** [5.9284461638890209e-6, to aA from umA : actionQ("type" |-> js("resolve_a")), 0]
-rew {1.0, (to umA from aA : actionR("ok"))} umAct1  rCtr(2) .
-**** [2.0649674586612935e+1, to umA from umA : actionR("ok"), 0]
