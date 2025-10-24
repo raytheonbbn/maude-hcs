@@ -367,7 +367,7 @@ crl [wnameserver-receive-query-weird]:
   --- If the packet transmission is incomplete 
   --- send the next fragment to WNameServer.
   crl [iClientExtractFromServer]:
-    < ADDR : WClient | resv: RESOLVER, pendingFragments: FRAGMENT_LIST, wattrs >
+    < ADDR : WClient | resv: RESOLVER, fragmentsReceived: FRAGMENT_LIST, wattrs >
     < MON : WMonitor | querySent: QTL, monAttrs >
       {T, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))}
     =>
@@ -380,7 +380,7 @@ crl [wnameserver-receive-query-weird]:
      null 
      else [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
     (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
-    if wattrsTrans := extract((resv: RESOLVER, pendingFragments: FRAGMENT_LIST, wattrs), response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))
+    if wattrsTrans := extract((resv: RESOLVER, fragmentsReceived: FRAGMENT_LIST, wattrs), response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
         if txComplete
@@ -428,7 +428,7 @@ crl [wnameserver-receive-query-weird]:
       /\ maxAttemptsReached := isMaxAttemptsReached(wattrs)
       /\ {wattrsNext, msgOutExt} :=
         if maxAttemptsReached
-          then {dropFragments(wattrs), nullMsg}
+          then {dropFragmentsToSend(wattrs), nullMsg}
           else sendFragment(wattrs, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
