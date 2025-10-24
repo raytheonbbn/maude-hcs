@@ -59,8 +59,7 @@ mod IODINE_DNS is
   vars QTL : QueryTimestampList .
   vars MON : Address .
   vars FRAGMENT sentFragment : Fragment .
-  vars ALICEREADY WCLIENTREADY : Bool .
-  vars BOBREADY WNAMESERVERREADY : Bool .
+  vars IODINEREADY : Bool .
   var N : Nat .
   vars FILE_SIZE MIN_PKT_SIZE MAX_PKT_SIZE PKT_COUNTER PktSize : Nat .
   var sTTL : Float .
@@ -178,7 +177,7 @@ crl [wnameserver-receive-query-weird]:
 
   --- If Bob has been told to start (by the W name server), packetize its outgoing file 
   crl [receive-app-send-packet]:
-    < BOB : RcvApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet, wnameserverReady: WNAMESERVERREADY >
+    < BOB : RcvApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet, iodineReady: IODINEREADY >
     {T, (to BOB : start)}
   => 
     < BOB : RcvApp | appAttrsNext > 
@@ -191,7 +190,7 @@ crl [wnameserver-receive-query-weird]:
                      else (packetizeProb(appAttrs, BOB, ADDR, fileSize, packetSize, maxPacketSize), fileDestAddr: ADDR)
                      fi)
      *** The queue is populated and wnameserver is presumed ready since it sent a start
-    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, wnameserverReady: true)
+    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, iodineReady: true)
     /\ {appAttrsNext, msgOut} := 
         if getNumAdmittedPkts(appAttrs1) > 0
           --- If packets are ready to send to WNameServer, do it
@@ -212,7 +211,7 @@ crl [wnameserver-receive-query-weird]:
     (if msgOut == nullMsg then null else [sampleUniform(pacingTimeoutDelay, pacingTimeoutDelayMax), (to BOB : pktTimeout(getPkt(msgOut))), 0] fi)
     if appAttrs1 := (appAttrs, numAdmittedPkts: s N)
       /\ {appAttrsNext, msgOut} :=
-        if isWNameServerReady(appAttrs1)
+        if isIodineReady(appAttrs1)
           then sendPkt(appAttrs1, BOB)
           else {appAttrs1, nullMsg}
         fi
@@ -259,7 +258,7 @@ crl [wnameserver-receive-query-weird]:
   *** and sends a packet if so.  Otherwise, it marks WClient as ready and waits for its
   *** own timeout.
   crl [send-app-send-packet]:
-    < ALICE : SendApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet, wclientReady: WCLIENTREADY >
+    < ALICE : SendApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet, iodineReady: IODINEREADY >
     {T, (to ALICE : start)}
   =>
     < ALICE : SendApp | appAttrsNext >
@@ -273,7 +272,7 @@ crl [wnameserver-receive-query-weird]:
                      else (packetizeProb(appAttrs, ALICE, ADDR, fileSize, packetSize, maxPacketSize), fileDestAddr: ADDR)
                      fi)
     *** The queue is populated, and the wclient is ready.
-    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, wclientReady: true)
+    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, iodineReady: true)
     /\ {appAttrsNext, msgOut} :=
         if getNumAdmittedPkts(appAttrs1) > 0
           *** If Alice has already admitted packets, send the next one.
@@ -308,7 +307,7 @@ crl [wnameserver-receive-query-weird]:
     *** Timeout means it is OK to send a packet now.
     if appAttrs1 := (appAttrs, numAdmittedPkts: s N)
       /\ {appAttrsNext, msgOut} := 
-        if isWClientReady(appAttrs1)
+        if isIodineReady(appAttrs1)
           *** Conveniently, the client is ready, send now.
           then sendPkt(appAttrs1, ALICE)
           *** Client is busy, add pkt to OK to send, do nothing else.
