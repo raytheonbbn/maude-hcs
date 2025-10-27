@@ -1,0 +1,171 @@
+
+load ../common/maude/cp2-interfaces.maude  --- 
+
+load ../common/maude/_aux.maude  ---- AttributeSetMsgs
+
+***(
+  op fetchQ : ByteSeq -> Content .
+  op fetchR : ByteSeqL -> Content .
+  op fetchR : ByteSeqL ByteSeq -> Content .
+  
+  op tootQ : ByteSeq ByteSeq -> Content .
+  op tootR : String -> Content .
+
+FAKEM <- tootQ(ht,image)  adds to msgs;_ r
+          replies tootR("ok")
+        
+FAKEM <- fetchQ(ht)  
+         replies fetchR(ht,imagel)
+          where imagel is all the images in toots
+            with tag ht
+)
+
+mod FAKE-MASTODON is
+  inc CP2-COMMON . --- SCHEDULER+ACTOR-MODEL+PARAMETERS 
+  inc MC-INTERFACE .
+  pr CP2_SORTS .  --- for AttributeSetMsgs  
+
+vars attrs : AttributeSet .
+vars fmcAddr addr addr0 addr1 : Address .
+vars msgs : Config .
+vars msg : Msg .
+vars ht bytes byteseq : ByteSeq .
+vars byteseql : ByteSeqL .
+vars T : Float .
+
+op FakeMastodon : -> ActorType [ctor] .
+op toots:_ : Config  -> Attribute [ctor] .
+
+op fetchByHt : Config ByteSeq -> ByteSeqL .
+op fetchByHtX : Config ByteSeq ByteSeqL -> ByteSeqL .
+eq fetchByHt(msgs,ht) = fetchByHtX(msgs,ht,nilBS) .
+eq fetchByHtX(msgs,ht,byteseql) = byteseql [owise] .
+eq fetchByHtX(msgs (to addr0 from addr1 : tootQ(ht,bytes)),
+              ht,byteseql) 
+    =    fetchByHtX(msgs,ht, byteseql ; bytes) .
+
+
+op mkFakeActor : Address -> Actor .
+eq mkFakeActor(fmcAddr) =
+  < fmcAddr : FakeMastodon | toots: null >
+.
+
+op mkFakeActor : Address Config -> Actor .
+eq mkFakeActor(fmcAddr,msgs) =
+ < fmcAddr : FakeMastodon | toots: msgs >
+ .
+
+crl [fmc-rcv-fetch]:
+{T, (to fmcAddr from addr : fetchQ(ht))}
+< fmcAddr : FakeMastodon | toots: msgs, attrs >
+=>
+< fmcAddr : FakeMastodon | toots: msgs, attrs >
+delayMsgs(msg,null)
+if byteseql := fetchByHt(msgs,ht)
+/\ msg := (to addr from fmcAddr : fetchR(byteseql,ht))
+[print "fmc-rcv-fetch ht " ht ]
+.
+
+rl [fmc-rcv-toot]:
+{T, (to fmcAddr from addr : tootQ(ht,byteseq))}
+< fmcAddr : FakeMastodon | toots: msgs, attrs >
+=>
+< fmcAddr : FakeMastodon | toots: (msgs 
+           (to fmcAddr from addr : tootQ(ht,byteseq))),
+             attrs >
+delayMsgs((to addr from fmcAddr : tootR("ok")),null) 
+[print "fmc-rcv-toot ht " ht " image " byteseq]
+.
+  
+endm  
+
+
+mod TEST-FAKE-MASTASON is
+  inc FAKE-MASTODON .
+
+  ops fmA xA : -> Address .
+  op FMAct : -> Actor .
+  eq FMAct = mkFakeActor(fmA) .
+
+op wHT : -> ByteSeq .
+eq wHT = wHashTag(0) .
+
+op bHT : -> ByteSeq .
+eq bHT = bHashTag(0) .
+
+op F0 : -> ByteSeq .
+eq F0 = file(0,20) .
+op K0 : -> ByteSeq .
+eq K0 = key(0,20) .
+
+op EF0 : -> ByteSeq .
+eq EF0 = encrypt(F0,K0) .
+
+op FR0 : -> ByteSeq .
+eq FR0 =  efrag(EF0,20,0,20) .     
+ops IM0 IM00 : -> ByteSeq .
+eq IM0 = image(0,500,50)  .
+eq IM00 = encode(image(0,500,50),FR0,1,4,1/10) .
+
+
+ops Mtootb Mtootw Mfetchb Mfetchw : -> ActiveMsg .
+eq Mtootw = {1.0, (to fmA from xA : tootQ(wHT,IM00))} .
+eq Mtootb = {1.0, (to fmA from xA : tootQ(bHT,IM0))} .
+eq Mfetchw = {1.0, (to fmA from xA : fetchQ(wHT))} .
+eq Mfetchb = {1.0, (to fmA from xA : fetchQ(bHT))} .
+
+ops FMActw FMActb FMActwb : -> Actor .
+
+---- rew FMAct Mtootw .
+eq FMActw = 
+< fmA : FakeMastodon | toots: (to fmA from xA : tootQ(wHashTag(0), encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))) >
+**** [0.0, to xA from fmA : tootR("ok"), 0]
+    .
+
+---- rew FMAct Mtootb .
+eq FMActb = 
+< fmA : FakeMastodon | toots: (to fmA from xA : tootQ(bHashTag(0), image(0, 500, 50))) >
+**** [0.0, to xA from fmA : tootR("ok"), 0]
+.
+
+---- rew FMActw Mtootb .
+eq FMActwb = 
+< fmA : FakeMastodon | toots: ((to fmA from xA : tootQ(wHashTag(0), encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))) to fmA from xA : tootQ(bHashTag(0), image(0, 500, 50))) >
+**** [0.0, to xA from fmA : tootR("ok"), 0].
+.
+
+----  rew FMAct Mfetchw .
+---- < fmA : FakeMastodon | toots: null > 
+---- [0.0, to xA from fmA : fetchR(nilBS), 0]
+
+----  rew FMAct Mfetchb .
+---- < fmA : FakeMastodon | toots: null > 
+---- [0.0, to xA from fmA : fetchR(nilBS), 0]
+
+----  rew FMActw Mfetchw .
+---- < fmA : FakeMastodon | toots: (to fmA from xA : tootQ(wHashTag(0), encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))) >
+---- [0.0, to xA from fmA : fetchR(encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10)), 0]
+    
+----  rew FMActw Mfetchb .
+---- < fmA : FakeMastodon | toots: (to fmA from xA : tootQ(wHashTag(0), encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))) >
+---- [0.0, to xA from fmA : fetchR(nilBS), 0]
+
+----  rew FMActb Mfetchw .
+---- < fmA : FakeMastodon | toots: (to fmA from xA : tootQ(bHashTag(0), image(0, 500, 50))) > 
+---- [0.0, to xA from fmA : fetchR(nilBS), 0]
+
+----  rew FMActb Mfetchb .
+---- < fmA : FakeMastodon | toots: (to fmA from xA : tootQ(bHashTag(0), image(0, 500, 50))) > 
+---- [0.0, to xA from fmA : fetchR(image(0,500,50)), 0]
+
+----  rew FMActwb Mfetchw .
+---- < fmA : FakeMastodon | toots: ((to fmA from xA : tootQ(wHashTag(0), encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))) to fmA from xA : tootQ(bHashTag(0), image(0, 500, 50))) >
+---- [0.0, to xA from fmA : fetchR(encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10)), 0]
+
+----  rew FMActwb Mfetchb .
+---- < fmA : FakeMastodon | toots: ((to fmA from xA : tootQ(wHashTag(0), encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))) to fmA from xA : tootQ(bHashTag(0), image(0, 500, 50))) >
+---- [0.0, to xA from fmA : fetchR(image(0, 500, 50)), 0]
+
+endm  
+
+eof

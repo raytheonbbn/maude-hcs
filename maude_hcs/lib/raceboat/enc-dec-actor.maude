@@ -1,0 +1,185 @@
+*** sload ../../../../deps/dns_formalization/Maude/src/common/actor.maude
+
+*** sload ../cp2-v1/apmaude-default.maude  
+*** ../../../../deps/dns_formalization/Maude/src/probabilistic-model/parameters.maude  --- delayParamd
+
+load ../common/maude/cp2-interfaces.maude  
+
+load ../common/maude/_aux.maude  ---- AttributeSetMsgs
+
+***(
+  op encQ : BitSeq -> Content .
+  op encR : BitSeq -> Content .
+
+  op capQ : Nat -> Content .
+  op capR : Nat -> Content .
+
+  op decQ : BitSeqL -> Content .
+  op decR : BitSeqL -> Content .
+
+For first pass basically ignore encoding parameters
+and assume the client and server EDs agree.
+
+ED 
+  has image list  (cycles through it)
+  should have coding parameters, for now we ignore
+  and assume they are known
+
+ED <- capQ(n) 
+   -> capR(c)  the capacity of the first image in
+              the imageList
+ED <- encQ(efrag)  
+   -> encR(encode(image,frag,...))   
+      where image is first element of image list
+        assume size of frag <= cap of this image
+     cycle the image list
+ED <- decQ(imagel)     
+   -> decR(efragl) -- efrags extracted from imagel
+)
+
+mod ENC-DEC is
+  inc CP2-COMMON . --- SCHEDULER+ACTOR-MODEL+PARAMETERS 
+  inc ED-INTERFACE .
+  pr CP2_SORTS .  --- for AttributeSetMsgs  
+
+vars  bpf n cap id size nf : Nat .
+vars edAddr cmAddr : Address .
+vars images imagel imgl fragl : ByteSeqL .
+vars img img0 image frag bytes : ByteSeq .
+vars T : Float .
+vars d : Rat .
+vars edAttrs edAttrs0 : AttributeSet .
+vars msg : Msg .
+
+op ED : -> ActorType [ctor] .
+op density:_ : Rat -> Attribute [ctor] .
+op bpf:_ : Nat -> Attribute [ctor] .
+op nfreq:_ : Nat -> Attribute [ctor] .
+op ctr:_ : Nat -> Attribute [ctor] .
+op images:_ : ByteSeqL -> Attribute [ctor] .
+
+op mkEDAttributes : ByteSeqL Nat Nat Rat 
+      -> AttributeSet .
+eq mkEDAttributes(imagel,bpf,nf,d) =
+     **** ctr: 0,
+     density: d, bpf: bpf, nfreq: nf,
+    images: imagel 
+    .
+
+op mkEDActor : Address ByteSeqL Nat Nat Rat -> Actor .
+eq mkEDActor(edAddr,imagel,bpf,nf,d) =
+ < edAddr : ED | mkEDAttributes(imagel,bpf,nf,d) > .
+
+
+crl [ed-rcv-capQ]:
+{T, (to edAddr from cmAddr : capQ(n))}
+ < edAddr : ED | edAttrs, 
+                 images: (image(id,size,cap) ; imagel) >
+=>
+ < edAddr : ED | edAttrs, 
+                 images: (image(id,size,cap) ; imagel) >
+delayMsgs(msg, null)
+if msg := (to cmAddr from edAddr : capR(cap))
+[print "ed-rcv-capQ " n]
+.
+
+crl [ed-rcv-encQ]:
+{T, (to edAddr from cmAddr : encQ(frag))}
+ < edAddr : ED | edAttrs, 
+                 images: (image ; imagel) >
+=>
+ < edAddr : ED | edAttrs, 
+                 images:  (imagel ; image) >
+delayMsgs(msg, null)
+if edAttrs0, density: d, nfreq: nf, bpf: bpf := edAttrs
+/\ img := (if nbytes(frag) == 0
+           then image
+           else encode(image,frag,bpf,nf,d)
+           fi)
+/\ msg := (to cmAddr from edAddr : encR(img))
+[print "ed-rcv-encQ " frag]
+.
+
+crl [ed-rcv-decQ]:
+{T, (to edAddr from cmAddr : decQ(imgl))}
+ < edAddr : ED | edAttrs >
+=>
+ < edAddr : ED | edAttrs >
+delayMsgs(msg,null)
+if fragl := extractFragl(edAttrs,imgl,nilBS)
+/\ msg := (to cmAddr from edAddr : decR(fragl))
+[print "ed-rcv-decQ " imgl " sending " fragl] 
+.
+
+**** this is a placeholder while waiting for T&E to
+**** figure out how destini paramters are synchronized
+**** assumes ED in client and ED in server have same
+**** density and bpf attribute values and they
+**** don't change.  Ignoring random bit.
+
+op extractFragl : AttributeSet ByteSeqL ByteSeqL
+                   -> ByteSeqL .
+op extractFrag : AttributeSet ByteSeq -> ByteSeqL .         
+eq extractFragl(edAttrs, nilBS, fragl)  = fragl .
+eq extractFragl(edAttrs,img ; imgl, fragl)  =
+    extractFragl(edAttrs, imgl, 
+      fragl ; extractFrag(edAttrs,img))
+.
+
+eq extractFrag((edAttrs0,density: d,bpf: bpf, nfreq: nf),
+      encode(img0,frag,bpf,nf,d)) = frag .
+eq extractFrag(edAttrs,bytes) = nilBS [owise] .
+
+
+
+endm
+
+mod TEST-ED is
+  inc ENC-DEC .
+  
+  ops edA cmA : -> Address .
+  op EDA : -> Actor .
+  
+  op Iml : -> ByteSeqL .
+  eq Iml = image(0,500,50) ; image(1,400,50) .
+  
+  eq  EDA = mkEDActor(edA,Iml,1,4,1/10) .
+
+op F0 : -> ByteSeq .
+eq F0 = file(0,20) .
+op K0 : -> ByteSeq .
+eq K0 = key(0,20) .
+
+op EF0 : -> ByteSeq .
+eq EF0 = encrypt(F0,K0) .
+
+op FR0 : -> ByteSeq .
+eq FR0 =  efrag(EF0,20,0,20) .     
+
+ ops Mcapq Mencq Mdecq0 Mdecq : -> Msg .
+ eq Mcapq = {1.0 , (to edA from cmA : capQ(20))} .
+ eq Mencq = {1.0, (to edA from cmA : encQ(EF0))} .
+ eq Mdecq0 = {1.0, (to edA from cmA : decQ(nilBS))} .
+ eq Mdecq = {1.0, (to edA from cmA :
+     decQ(encode(image(0, 500, 50), 
+          efile(0, 20, 0, 20), 1, 4, 1/10)) )} .
+endm
+
+eof
+
+rew EDA Mcapq .
+*** < edA : ED | density: 1/10, bpf: 1, nfreq: 4, images: (image(0, 500, 50) ; image(1, 400, 50)) >
+*** [0.0, to cmA from edA : capR(50), 0]
+
+rew EDA Mencq .
+**** < edA : ED | density: 1/10, bpf: 1, nfreq: 4, images: (image(1, 400, 50) ; image(0, 500, 50)) > 
+**** [0.0, to cmA from edA : encR(encode(image(0, 500, 50), efile(0, 20, 0, 20), 1, 4, 1/10)), 0]
+
+rew EDA Mdecq0 . 
+**** < edA : ED | density: 1/10, bpf: 1, nfreq: 4, images: (image(0, 500, 50) ; image(1, 400, 50)) >
+**** [0.0, to cmA from edA : decR(nilBS), 0] 
+
+rew EDA Mdecq . 
+**** < edA : ED | density: 1/10, bpf: 1, nfreq: 4, images: (image(0, 500, 50) ; image(1, 400, 50)) > 
+**** [0.0, to cmA from edA : decR(efile(0,20,0,20)), 0]
+ 

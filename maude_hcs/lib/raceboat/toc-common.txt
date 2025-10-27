@@ -1,0 +1,61 @@
+Files used by TGEN and RaceBoat
+
+byteseq.maude   
+  loads prelude
+  fmod BYTESEQ is inc CONVERSION
+            
+json.maude    
+  loads prelude
+  fmod JV is inc CONVERSION .
+  view JV from TRIV to JV 
+  fmod JSON is inc JV . inc MAP{String,JV} .
+
+my-sampler.maude
+  load prelude
+  fmod MY-SAMPLER is pr RANDOM . pr CONVERSION .
+                     inc MAP{String,Float} .
+
+cp2-interfaces.maude      
+   sload byteseq.maude
+   sload json.maude
+   sload <dnssrcpath>/common/actor.maude
+   sload ../cp2-v1/apmaude-default.maude
+   mod CP2-COMMON incs SCHEDULER+ACTOR-MODEL+PARAMETERS 
+   mod TGEN-INTERFACE --- called by user-model 
+       incs ACTOR-MODEL+JSON+MAP{String,JV} 
+      --- um <-> tgen actor
+      --- um <-> CM Client/Server actors
+   mod RB-INTERFACE incs ACTOR-MODEL+BYTESEQ 
+      --- alice to rb, rb to bob
+   mod IODINE-BI-INTERFACE incs ACTOR-MODEL+BYTESEQ 
+       --- alice to IC, IS to bob
+   mod MC-INTERFACE incs ACTOR-MODEL+BYTESEQ 
+       --- mastodon client req/resp
+   mod ED-INTERFACE incs ACTOR-MODEL+BYTESEQ 
+       --- destini req/resp
+   < more to come > mastodon server, traffic generators
+
+markov-action-model.maude 
+  loads my-sampler json
+  view Map`{String`,Float`} 
+       from TRIV to MAP{String,Float}
+  fmod MARKOV-ACTION-MODEL incs MY-SAMPLER + JSON  
+                    + MAP{String,Map`{String`,Float`}}   
+
+user-action-actor.maude
+   loads markov-action-model,cp2-interfaces,
+         <dnssrcpath>/common/actor.maude,
+          ../cp2-v1/apmaude-default.maude,
+          dns-mamodel --- for testing
+   mod USER-ACTION-ACTOR 
+     incs MARKOV-ACTION-MODEL+CP2-COMMON+TGEN-INTERFACE 
+   mod TEST-UAA incs USER-ACTION-ACTOR+DNS-MAMODEL 
+
+dns-mamodel.maude
+   loads markov-action-model.maude
+   fmod DNS-MAMODEL incs  MARKOV-ACTION-MODEL 
+
+mas-mamodel.maude   
+   loads markov-action-model.maude
+   fmod MAS-MAMODEL incs  MARKOV-ACTION-MODEL 
+   

@@ -65,7 +65,9 @@ fmod BYTESEQ is
   inc CONVERSION .
   inc ACTOR-MODEL .
   
-vars id i j k l l0 n n0  n1 last last0 r d ix ix0 cap : Nat .
+vars id i j k k1 l l0 n n0 n1 last last0 r d ix ix0 cap : Nat .
+vars tot bpf nf : Nat .
+vars d1 : Rat .
 *** vars tot oh fragMx accum : Nat .
 vars bytes bytes0 : ByteSeq .
 vars file efrag efile image key ef ef0 : ByteSeq .
@@ -77,6 +79,7 @@ subsort ByteSeq < ByteSeqL .
 op nilBS : ->   ByteSeqL [ctor] .
 op emptyFileList : -> ByteSeqL [ctor] .
 op _::_ : ByteSeqL ByteSeqL -> ByteSeqL [ctor assoc id: nilBS] .
+op _;_ : ByteSeqL ByteSeqL -> ByteSeqL [ctor assoc id: nilBS] .
 
 op noBytes : -> ByteSeq [ctor] .
 op nilBytes : -> ByteSeq [ctor] .
@@ -197,12 +200,31 @@ eq nbytes(encode(image(j,k,n),
          efrag(efile(id,n1,j,k),n0,ix,l),r,d))
      =  n + bloat(k,n,l) .
 
+***(
+bpf  -bit per frequency
+nfreqs nf --- # frequencies per mcu
+mcudensity  d fraction of mcus  used (d : Rat in [0,1])
+mcu - 8x8 codeing unit
+#mcus * d * nfreqs * bpf  == number of bits encoded
+)
+*******     image  efrag   bpf nfreq density
+op encode : ByteSeq ByteSeq Nat Nat Rat -> ByteSeq .
+---- decoder will need to know what the params should be
+---- decoder can't see the constructor params
+op decode : ByteSeq Nat Nat Rat -> ByteSeq .
+eq decode(encode(image,efrag,bpf,nf,d1),bpf,nf,d1) = efrag .
+
+eq nbytes(image(j,n,k)) = n .
+eq nbytes(encode(image(j,n,k),
+         efrag(efile(id,n1,j,k1),n0,ix,l),bpf,nf,d))
+     =  n + bloat(n,k,l) .
+
 **** bloat(k,n,l) is the increase in size of an image of
     ----size n with capacity k when l bytes are embedded.
 
 **** TBDefined
 op bloat : Nat Nat Nat -> Nat .
- 
+eq bloat(n,k,l) = 0 [owise] . 
 
 endfm
 
