@@ -61,6 +61,7 @@ mod IODINE_DNS is
   vars ALICEREADY WCLIENTREADY : Bool .
   var N : Nat .
   vars FILE_SIZE MIN_PKT_SIZE MAX_PKT_SIZE PKT_COUNTER PktSize : Nat .
+  var FILE : ByteSeq .
 
   op fileSize : -> Nat .
   op packetSize : -> Nat .
@@ -156,23 +157,23 @@ crl [wnameserver-receive-query-weird]:
   --- [Send App] --- Alice
   ---------------------------------------
   
-  ---               Attributes   Src     Dest  FileSize Min Max
-  op packetizeProb : AttributeSet Address Address Nat Nat Nat -> AttributeSet .
-  ceq packetizeProb((appAttrs, queue: PACKET_LIST), ALICE, BOB, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE) = appAttrs1
-    if PACKETS' := $packetizeProb(mtpl, ALICE, BOB, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, 0) 
+  ---               Attributes   Src     Dest     File Min Max
+  op packetizeProb : AttributeSet Address Address ByteSeq Nat Nat -> AttributeSet .
+  ceq packetizeProb((appAttrs, queue: PACKET_LIST), ALICE, BOB, FILE, MIN_PKT_SIZE, MAX_PKT_SIZE) = appAttrs1
+    if PACKETS' := $packetizeProb(mtpl, ALICE, BOB, FILE, getSize(FILE), MIN_PKT_SIZE, MAX_PKT_SIZE, 0) 
     /\ appAttrs1 := (appAttrs, queue: PACKETS')
   .
 
-  ---             CurrentPktList Src   Dest   FileSize Min Max Counter
-  op $packetizeProb : PacketList Address Address Nat Nat Nat Nat -> PacketList .
-  ceq $packetizeProb(PACKET_LIST, ALICE, BOB, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, PKT_COUNTER) = PACKETS
+  ---             CurrentPktList Src   Dest      File FileSize Min Max Counter
+  op $packetizeProb : PacketList Address Address ByteSeq Nat Nat Nat Nat -> PacketList .
+  ceq $packetizeProb(PACKET_LIST, ALICE, BOB, FILE, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, PKT_COUNTER) = PACKETS
     if PktSize := floor(MIN_PKT_SIZE + (MAX_PKT_SIZE + (- MIN_PKT_SIZE)) * (random(PKT_COUNTER) / 4294967296))
       /\ PACKETS :=
         (if FILE_SIZE > PktSize
          then
-           $packetizeProb(PACKET_LIST ; packet(ALICE, BOB, PKT_COUNTER, PktSize + packetOverhead, false), ALICE, BOB, FILE_SIZE + (- PktSize), MIN_PKT_SIZE, MAX_PKT_SIZE, s PKT_COUNTER)
+           $packetizeProb(PACKET_LIST ; packet(ALICE, BOB, FILE, PKT_COUNTER, PktSize + packetOverhead, false), ALICE, BOB, FILE, FILE_SIZE + (- PktSize), MIN_PKT_SIZE, MAX_PKT_SIZE, s PKT_COUNTER)
          else
-           (PACKET_LIST ; packet(ALICE, BOB, PKT_COUNTER, FILE_SIZE + packetOverhead, true))
+           (PACKET_LIST ; packet(ALICE, BOB, FILE, PKT_COUNTER, FILE_SIZE + packetOverhead, true))
          fi)
     .
 
@@ -193,7 +194,7 @@ crl [wnameserver-receive-query-weird]:
     *** If so, packetize the file.
     if appAttrsTrans := (if queueSet == true
                      then (appAttrs, fileDestAddr: ADDR)
-                     else (packetizeProb(appAttrs, ALICE, ADDR, fileSize, packetSize, maxPacketSize), fileDestAddr: ADDR)
+                     else (packetizeProb(appAttrs, ALICE, ADDR, file(fileSize), packetSize, maxPacketSize), fileDestAddr: ADDR)
                      fi)
     *** The queue is populated, and the wclient is ready.
     /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, wclientReady: true)
