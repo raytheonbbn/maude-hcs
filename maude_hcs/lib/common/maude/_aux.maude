@@ -28,8 +28,10 @@
 
 
 load ../../../deps/dns_formalization/Maude/dns/common/_aux
-load files
+load byteseq
+
 ---- @CHRIS: does this belong under actor.maude?
+---- Possibly.  I think it fits here, but I am not opposed to move it to actor.maude.
 mod CP2_SORTS is
   pr AUX-COMMON .
   var msg : Config .
@@ -52,7 +54,7 @@ endm
 ---- @CHRIS: does this belong under app/?
 mod CP2_NODE is
   inc CP2_SORTS .
-  inc FILE .
+  inc BYTESEQ .
 
   -------------------
   --- [App Alice] ---
@@ -67,15 +69,15 @@ mod CP2_NODE is
 
 ---  op queue:_ : PacketList -> Attribute [ctor] .
   --- Queue of contracts.
-  op queue:_ : FileList -> Attribute [ctor] .
+  op queue:_ : ByteSeqL -> Attribute [ctor] .
   --- Contract cc file.
-  op ccFile:_ : File -> Attribute [ctor] .
+  op ccFile:_ : ByteSeq -> Attribute [ctor] .
   --- Encrypted contract.
   --- Key for encryption.
 
   vars toAddr destAddr TO_ADDR DEST_ADDR : Address .
   vars attrs attrsNext otherAttrs ATTRS : AttributeSet .
-  vars file ccInfo FILE : File .
+  vars file ccInfo FILE : ByteSeq .
   vars outMsg : Msg .
 
   op makeTxApp : Address Address -> Actor [ctor] .
@@ -89,14 +91,14 @@ mod CP2_NODE is
   eq getIodineClientAddr((attrs:AttributeSet, iodineClientAddr: addr:Address)) = addr:Address .
 
   --- Get cc file to send over CC (immutable).
-  op getCcFile : AttributeSet -> File .
+  op getCcFile : AttributeSet -> ByteSeq .
   eq getCcFile(attrs:AttributeSet, ccFile: FILE) = FILE .
 
   --- Create a CC file to send over CC.
   --- Very likely the call will require the contract file.
-  op createCcFile : AttributeSet File -> File .
+  op createCcFile : AttributeSet ByteSeq -> ByteSeq .
   eq createCcFile(attrs, FILE) =
-    makeFile(makeCcFile(444, 10, "#HASHTAG"))
+    ccFile(444, 10, "#HASHTAG")
     .
 
   -----------------
@@ -104,7 +106,7 @@ mod CP2_NODE is
   -----------------
   op RxApp : -> ActorType [ctor] .
 
-  op rcvd:_ : FileList -> Attribute [ctor] .
+  op rcvd:_ : ByteSeqL -> Attribute [ctor] .
 ---  op rcvd:_ : PacketList  -> Attribute [ctor] .
 
 endm
