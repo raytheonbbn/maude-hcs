@@ -1,3 +1,31 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- PWNDD Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- Contract No: HR00112590083
+--- Contractor Name: RTX BBN Technologies Inc.
+--- Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
+---
+--- The U.S. Government's rights to use, modify, reproduce, release, perform,
+--- display, or disclose these technical data and software are defined in the
+--- Article VII: Data Rights clause of the OTA.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein.
+---
+--- MAUDE_HCS: end
+
 
 ***(
 
@@ -31,8 +59,11 @@ TBD
 
 )
 
+load ../../../deps/dns_formalization/Maude/common/actor
+
 fmod BYTESEQ is    
   inc CONVERSION .
+  inc ACTOR-MODEL .
   
 vars id i j k l l0 n n0  n1 last last0 r d ix ix0 cap : Nat .
 *** vars tot oh fragMx accum : Nat .
@@ -41,11 +72,14 @@ vars file efrag efile image key ef ef0 : ByteSeq .
 vars efl efl1 efl0 : ByteSeqL .
 
 sorts ByteSeq ByteSeqL .
+subsorts ByteSeq < Content .
 subsort ByteSeq < ByteSeqL .
 op nilBS : ->   ByteSeqL [ctor] .
-op _;_ : ByteSeqL ByteSeqL -> ByteSeqL [ctor assoc id: nilBS] .
+op emptyFileList : -> ByteSeqL [ctor] .
+op _::_ : ByteSeqL ByteSeqL -> ByteSeqL [ctor assoc id: nilBS] .
 
 op noBytes : -> ByteSeq [ctor] .
+op nilBytes : -> ByteSeq [ctor] .
 
 ------- generating distinct benign and weird hash tags
 op wHashTag : Nat -> ByteSeq [ctor] .
@@ -56,8 +90,20 @@ op bHashTag : Nat -> ByteSeq [ctor] .
 op text : Nat Nat -> ByteSeq [ctor] .
 
 ***** files 
+--- A file should at least have a size (and only a size is necessary to be
+--- backward compatible with Iodine CP1).
+op file : Nat -> ByteSeq [ctor] .
+
 ****      id  size
 op file : Nat Nat -> ByteSeq [ctor] .
+
+--- Make a file from a size and filename.
+op file : Nat String -> ByteSeq [ctor] .
+
+--- A Control Channel file.
+---               Key Hash Tag
+op ccFile : Nat Nat String -> ByteSeq [ctor] .
+
 
 **** encrypted file 
    --- not strictly needed, but maybe compacts notation
@@ -86,7 +132,34 @@ op nbytes : ByteSeq -> Nat .
 eq nbytes(noBytes) = 0 .
 eq nbytes(key(j,k)) = k .
 eq nbytes(file(id,n)) = n .
+eq nbytes(ccFile(key:Nat, hash:Nat, hashtag:String)) = getSize(ccFile(key:Nat, hash:Nat, hashtag:String)) .
 eq nbytes(text(id,n)) = n .
+
+op getSize : ByteSeq -> Nat .
+eq getSize(file(size:Nat)) = size:Nat .
+eq getSize(file(size:Nat, filename:String)) = size:Nat .
+eq getSize(ccFile(key:Nat, hash:Nat, hashtag:String)) =
+  length(hashtag:String) + 4 + 4
+  .
+
+--- Get a filename.
+op getFilename : ByteSeq -> String .
+eq getFilename(file(size:Nat, name:String)) = name:String .
+eq getFilename(ccFile(key:Nat, hash:Nat, hashtag:String)) =
+  hashtag:String + ".txt"
+  .
+
+--- Get a hashtag from a CcFile.
+op getHashtag : ByteSeq -> String .
+eq getHashtag(ccFile(key:Nat, hash:Nat, hashtag:String)) = hashtag:String .
+
+--- Get a hash from a CcFile.
+op getHash : ByteSeq -> Nat .
+eq getHash(ccFile(key:Nat, hash:Nat, hashtag:String)) = hash:Nat .
+
+--- Get a key from a CcFile.
+op getKey : ByteSeq -> Nat .
+eq getKey(ccFile(key:Nat, hash:Nat, hashtag:String)) = key:Nat .
 
 *** we need to know the encryption algorithm overhead
 *** give input size and key length
@@ -134,3 +207,12 @@ op bloat : Nat Nat Nat -> Nat .
 endfm
 
 eof
+
+red getSize(file(100)) == 100 .
+red getSize(ccFile(10, 40, "TEST_STRING")) == 19 .
+red getFilename(ccFile(10, 40, "TEST_STRING")) == "TEST_STRING.txt" .
+red getHashtag(ccFile(10, 40, "TEST_STRING")) == "TEST_STRING" .
+red getHashtag(ccFile(10, 40, "TEST_STRING"))  == "TEST_STRING" .
+red getHash(ccFile(10, 40, "TEST_STRING"))  == 40 .
+red getKey(ccFile(10, 40, "TEST_STRING"))  == 10 .
+
