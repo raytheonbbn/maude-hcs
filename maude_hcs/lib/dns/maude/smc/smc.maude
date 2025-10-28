@@ -25,6 +25,8 @@ mod SMC is
   var GT : Float .
   var I : Int .
 
+  var bytes : ByteSeq .
+
   op getMonitor : Config -> Actor .
   eq getMonitor (C < ADDR : WMonitor | attrs >) = < ADDR : WMonitor | attrs > .
 
@@ -32,35 +34,35 @@ mod SMC is
   eq getPktSent (< ADDR : WMonitor | pktSent: PTL, attrs >) = PTL . 
 
   op getFirstPktSentTime : Actor -> Float .
-  eq getFirstPktSentTime (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, 0, len, last?), T) ; PTL'), attrs >) = T .
+  eq getFirstPktSentTime (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), attrs >) = T .
 
   op getPktRcvd : Actor ->  PacketTimestampList . 
   eq getPktRcvd (< ADDR : WMonitor | pktRcvd: PTL, attrs >) = PTL . 
 
   op getLastPktRcvdTime : Actor -> Float .
-  eq getLastPktRcvdTime (< ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len, true), T) ; PTL'), attrs >) = T .
+  eq getLastPktRcvdTime (< ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL'), attrs >) = T .
 
   op getLatency : Actor -> Float .
-  eq getLatency (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len', true), T') ; PTL'''), attrs >) = T' - T .
+  eq getLatency (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = T' - T .
 
   op getGoodput : Actor -> Float .
-  eq getGoodput (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len', true), T') ; PTL'''), attrs >) = float(8 * fileSize) / (T' - T) .
+  eq getGoodput (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = float(8 * fileSize) / (T' - T) .
 
   op getPTLLen : PacketTimestampList -> Nat .
   eq getPTLLen (nilPacketTimestamp) = 0 .
-  eq getPTLLen (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len, last?), T)) = len + getPTLLen (PTL) .
+  eq getPTLLen (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, last?), T)) = len + getPTLLen (PTL) .
 
   op getThroughput : Actor -> Float .
-  eq getThroughput (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len', true), T') ; PTL'''), attrs >) = float(getPTLLen((PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len', true), T') ; PTL''')) * 8) / (T' - T) .
+  eq getThroughput (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = float(getPTLLen((PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL''')) * 8) / (T' - T) .
 
   op isDone : Config -> Bool .
-  eq isDone ({ F:Float | nil } AC < ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len, true), T) ; PTL'), attrs >) 
+  eq isDone ({ F:Float | nil } AC < ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL'), attrs >)
     = true   
     .
   eq isDone (C) = false [owise] .
 
   op isDone : Config -> Bool .
-  eq isDone (A { F:Float | nil } AC < ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, id, len, true), T) ; PTL'), attrs >) 
+  eq isDone (A { F:Float | nil } AC < ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL'), attrs >)
     = true   
     .
   eq isDone (C) = false [owise] .
@@ -143,7 +145,7 @@ mod SMC is
   vars N1 N2 N3 : Nat .
 
   op size : Name -> Nat .
-  eq size (nm(fragment(ALICE, BOB, N1, N2, N3, B1, B2)) . NAME) = N3 + nameLength(NAME) .
+  eq size (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, B1, B2)) . NAME) = N3 + nameLength(NAME) .
   eq size (NAME) = nameLength(NAME) [owise] .
 
   op size : Query -> Nat .
