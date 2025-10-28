@@ -144,13 +144,23 @@ crl [wnameserver-receive-query-weird]:
   ---------------------------------------
   --- [Receive App] --- Bob
   ---------------------------------------
-  rl [receive-app-rcv-packet]:
-    < ADDR : RcvApp | rcvd: PACKETS, appAttrs >
+  crl [receive-app-rcv-packet]:
+    < ADDR : RcvApp | appAttrs >
     < MON : WMonitor | pktRcvd: PTL, monAttrs >
     {T, (to ADDR from ADDR1 : Pkt)}
   => 
-    < ADDR : RcvApp | rcvd: (Pkt ; PACKETS), appAttrs >
+    < ADDR : RcvApp | appAttrsNext >
     < MON : WMonitor | pktRcvd: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
+    (if msgOut == nullMsg then null else [0., msgOut, 0] fi)
+    if (appAttrsTrans, fileDestAddr: ADDR2, rcvd: PACKETS) := appAttrs
+      /\ txComplete := isLastPacket(Pkt)
+      /\ appAttrsNext := (appAttrsTrans, fileDestAddr: ADDR2, rcvd: (PACKETS ; Pkt))
+      /\ msgOut :=
+          (if txComplete == true
+              then (to ADDR2 : getFile(Pkt))
+              else nullMsg
+           fi)
+    [print "Bob rcv app received pkt " Pkt]
   .
 
   ---------------------------------------
@@ -229,6 +239,19 @@ crl [wnameserver-receive-query-weird]:
         fi
         [print "(" T ") SendApp timeout, send possible msg " msgOut ", setting timeout if not null"]
   .
+
+  --- ***
+  --- Handle receiving a file to send over Iodine.
+  --- ***
+  rl [send-app-handle-file]:
+    < ALICE : SendApp | appAttrs, fileDestAddr: ADDR, queuePopulated: false >
+    {T, (to ALICE from ADDR1 : FILE)}
+  =>
+    < ALICE : SendApp | packetizeProb((appAttrs, fileDestAddr: ADDR, queuePopulated: true),
+                                      ALICE, ADDR, FILE, packetSize, maxPacketSize) >
+    [0., (to ALICE : start), 0]
+    [print "(" T ") SendApp handling file " FILE ]
+    .
 
 
   ---------------------------------------
