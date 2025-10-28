@@ -201,29 +201,29 @@ mod TEST-ADVERSARY is
 
 
 
-red omatch(obsC,X(xAddr),iAddr) .
-red omatch(obsX,X(xAddr),iAddr) .
-red omatch(obsM(masAddr),X(xAddr),iAddr) .
+red omatch(obsC,X(xAddr),iAddr) == true .
+red omatch(obsX,X(xAddr),iAddr) == false .
+red omatch(obsM(masAddr),X(xAddr),iAddr) == false .
 **** t f f
 
-red omatch(obsC,xAddr,Z(2,iAddr)) .
-red omatch(obsX,xAddr,Z(2,iAddr)) .
-red omatch(obsM(masAddr),xAddr,Z(2,iAddr)) .
+red omatch(obsC,xAddr,Z(2,iAddr)) == false .
+red omatch(obsX,xAddr,Z(2,iAddr)) == true .
+red omatch(obsM(masAddr),xAddr,Z(2,iAddr)) == false .
 **** f t f
 
-red omatch(obsC,masAddr,Z(3,iAddr)) .
-red omatch(obsX,masAddr,Z(3,iAddr)) .
-red omatch(obsM(masAddr),masAddr,Z(3,iAddr)) .
+red omatch(obsC,masAddr,Z(3,iAddr)) == false .
+red omatch(obsX,masAddr,Z(3,iAddr)) == true .
+red omatch(obsM(masAddr),masAddr,Z(3,iAddr)) == false .
 **** f t t 
 
-red omatch(obsC,masAddr,xAddr) .
-red omatch(obsX,masAddr,xAddr) .
-red omatch(obsM(masAddr),masAddr,xAddr) .
+red omatch(obsC,masAddr,xAddr) == false .
+red omatch(obsX,masAddr,xAddr) == false .
+red omatch(obsM(masAddr),masAddr,xAddr) == true .
 **** f f t
 
-red omatch(obsC,iAddr,xAddr) .
-red omatch(obsX,iAddr,xAddr) .
-red omatch(obsM(masAddr),iAddr,xAddr) .
+red omatch(obsC,iAddr,xAddr) == false .
+red omatch(obsX,iAddr,xAddr) == false .
+red omatch(obsM(masAddr),iAddr,xAddr) == false .
 **** f f f
 
 
@@ -239,29 +239,41 @@ red logRcvd(getAttrs(advM),5.0,(to X(xAddr) from  iAddr : noC)) ==
 red logRcvd(getAttrs(advC),5.0,(to X(xAddr) from  iAddr : noC)) ==
  sent: tm(5.0, to X(xAddr) from iAddr : noC), rcvd: nilTML, canSeeS: mtObs, canSeeR: pat("X", "addr") .
 
-red logRcvd(getAttrs(advC),5.0,(to masAddr from  Z(4,iAddr) : noC)) . 
 --- no op
-red logRcvd(getAttrs(advX),5.0,(to corpRsv from  iAddr : noC)) . 
+red logRcvd(getAttrs(advC),5.0,(to masAddr from  Z(4,iAddr) : noC)) == 
+  sent: nilTML, rcvd: nilTML, canSeeS: mtObs, canSeeR: pat("X", "addr") . 
 --- no op
-red logRcvd(getAttrs(advX),5.0,(to Z(6,iAddr)  from xAddr : noC)) . 
+red logRcvd(getAttrs(advX),5.0,(to corpRsv from  iAddr : noC)) ==
+  sent: nilTML, rcvd: nilTML, canSeeS: pat("addr", "Z"), canSeeR: mtObs .
 --- no op
+red logRcvd(getAttrs(advX),5.0,(to Z(6,iAddr)  from xAddr : noC)) ==
+  sent: nilTML, rcvd: nilTML, canSeeS: pat("addr", "Z"), canSeeR: mtObs .
 
-red logSent(getAttrs(advC),5.0,(to xAddr from  iAddr : noC)) . 
 --- mo op ~ sent: nil, rcvd: nil, canSee: pat("X", "addr")
-red logSent(getAttrs(advC),5.0,(to xAddr from  Z(3,iAddr) :  
-noC)) . 
+red logSent(getAttrs(advC),5.0,(to xAddr from  iAddr : noC)) ==
+  sent: nilTML, rcvd: nilTML, canSeeS: mtObs, canSeeR: pat("X", "addr") .
 --- no op 
-red logSent(getAttrs(advC),5.0,(to Z(4,iAddr)  from  xAddr : noC)) . 
+red logSent(getAttrs(advC),5.0,(to xAddr from  Z(3,iAddr) :  noC)) ==
+  sent: nilTML, rcvd: nilTML, canSeeS: mtObs, canSeeR: pat("X", "addr") .
 --- no op 
+red logSent(getAttrs(advC),5.0,(to Z(4,iAddr)  from  xAddr : noC)) ==
+--- no op 
+  sent: nilTML, rcvd: nilTML, canSeeS: mtObs, canSeeR: pat("X", "addr") .
 
-red logSent(getAttrs(advX),5.0,(to xAddr from  iAddr : noC)) . 
+
+red logSent(getAttrs(advX),5.0,(to xAddr from  iAddr : noC))
 --- no op
-red logSent(getAttrs(advX),5.0,(to xAddr from  Z(2,iAddr) : noC)) . 
+ == sent: nilTML, rcvd: nilTML, canSeeS: pat("addr", "Z"), canSeeR: mtObs .
+red logSent(getAttrs(advX),5.0,(to xAddr from  Z(2,iAddr) : noC)) ==
+  sent: tm(5.0, to xAddr from Z(2, iAddr) : noC), rcvd: nilTML, canSeeS: pat("addr", "Z"), canSeeR: mtObs .
 --- sent: [5.0, to xAddr from Z(2, iAddr) : noC, 0], rcvd: nil, canSee: pat("addr", "Z")
-red logSent(getAttrs(advX),5.0,(to Z(8,iAddr)  from  xAddr : noC)) . 
+red logSent(getAttrs(advX),5.0,(to Z(8,iAddr)  from  xAddr : noC)) 
+  == sent: nilTML, rcvd: nilTML, canSeeS: pat("addr", "Z"), canSeeR: mtObs .
 
-red logSent(getAttrs(advM),5.0,(to xAddr from  masAddr : noC)) . 
---- no op
+red logSent(getAttrs(advM),5.0,(to xAddr from  masAddr : noC)) 
+--- no op\
+ == sent: nilTML, rcvd: nilTML, canSeeS: mtObs, canSeeR: pat(masAddr, "addr") .
 
-red logSent(getAttrs(advM),5.0,(to Z(2,iAddr)  from  masAddr : noC)) . 
+red logSent(getAttrs(advM),5.0,(to Z(2,iAddr)  from  masAddr : noC))
 --- no op
+ == sent: nilTML, rcvd: nilTML, canSeeS: mtObs, canSeeR: pat(masAddr, "addr") .
