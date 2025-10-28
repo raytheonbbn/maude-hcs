@@ -66,6 +66,9 @@ mod ADVERSARY is
   op pat : String String -> OPat [ctor]  .
   op pat : Address String -> OPat [ctor]  .
   op pat : String Address -> OPat [ctor]  .
+  ---- match on link (adversary resides on a link) 
+  ----      to.      from. 
+  op pat : Address Address -> OPat [ctor]  .
 
 ***(
 **** corp to ext and mast incoming
@@ -118,7 +121,11 @@ Mastodon server is captured
 **** not collecting external to corpRsv
   eq pmatch(pat(addr,"addr"),addr0,addr1) 
       = addr0 == addr  and notX(addr1) .
-      
+
+  ----- adversary residing on this directional link 
+  eq pmatch(pat(rcvAddr,sndAddr),rcvAddr,sndAddr) 
+      = true .
+
   
 **** for more complex observation may need location attribute
   op sent:_ : TimeMsgList -> Attribute [ctor] .
@@ -191,7 +198,7 @@ mod TEST-ADVERSARY is
                             attrs:AttributeSet >) 
       = attrs:AttributeSet .
  endm
-eof
+
 
 
 red omatch(obsC,X(xAddr),iAddr) .
@@ -220,41 +227,41 @@ red omatch(obsM(masAddr),iAddr,xAddr) .
 **** f f f
 
 
-red logRcvdC(advM,5.0,(to masAddr from  Z(6,iAddr) : noC)) . 
-< advAddr : Adversary | sent: nil, rcvd: [5.0, to masAddr from Z(6, iAddr) : noC, 0], canSee: pat(masAddr, "addr") >
+red logRcvd(getAttrs(advM),5.0,(to masAddr from  Z(6,iAddr) : noC)) ==
+  sent: nilTML, rcvd: tm(5.0, to masAddr from Z(6, iAddr) : noC), canSeeS: mtObs, canSeeR: pat(masAddr, "addr") .
 
-red logRcvdC(advM,5.0,(to masAddr from  xAddr : noC)) . 
-similar
+red logRcvd(getAttrs(advM),5.0,(to masAddr from  xAddr : noC)) ==
+  sent: nilTML, rcvd: tm(5.0, to masAddr from xAddr : noC), canSeeS: mtObs, canSeeR: pat(masAddr, "addr") .
 
-red logRcvdC(advM,5.0,(to X(xAddr) from  iAddr : noC)) . 
-no op
+red logRcvd(getAttrs(advM),5.0,(to X(xAddr) from  iAddr : noC)) ==
+  sent: nilTML, rcvd: nilTML, canSeeS: mtObs, canSeeR: pat(masAddr, "addr") .
 
-red logRcvdC(advC,5.0,(to X(xAddr) from  iAddr : noC)) . 
-< advAddr : Adversary | sent: [5.0, to X(xAddr) from iAddr : noC, 0], rcvd: nil, canSee: pat("X", "addr") >
+red logRcvd(getAttrs(advC),5.0,(to X(xAddr) from  iAddr : noC)) ==
+ sent: tm(5.0, to X(xAddr) from iAddr : noC), rcvd: nilTML, canSeeS: mtObs, canSeeR: pat("X", "addr") .
 
-red logRcvdC(advC,5.0,(to masAddr from  Z(4,iAddr) : noC)) . 
-no op
-red logRcvdC(advX,5.0,(to corpRsv from  iAddr : noC)) . 
-no op
-red logRcvdC(advX,5.0,(to Z(6,iAddr)  from xAddr : noC)) . 
-no op
+red logRcvd(getAttrs(advC),5.0,(to masAddr from  Z(4,iAddr) : noC)) . 
+--- no op
+red logRcvd(getAttrs(advX),5.0,(to corpRsv from  iAddr : noC)) . 
+--- no op
+red logRcvd(getAttrs(advX),5.0,(to Z(6,iAddr)  from xAddr : noC)) . 
+--- no op
 
 red logSent(getAttrs(advC),5.0,(to xAddr from  iAddr : noC)) . 
-mo op ~ sent: nil, rcvd: nil, canSee: pat("X", "addr")
+--- mo op ~ sent: nil, rcvd: nil, canSee: pat("X", "addr")
 red logSent(getAttrs(advC),5.0,(to xAddr from  Z(3,iAddr) :  
 noC)) . 
-no op 
+--- no op 
 red logSent(getAttrs(advC),5.0,(to Z(4,iAddr)  from  xAddr : noC)) . 
-no op 
+--- no op 
 
 red logSent(getAttrs(advX),5.0,(to xAddr from  iAddr : noC)) . 
-no op
+--- no op
 red logSent(getAttrs(advX),5.0,(to xAddr from  Z(2,iAddr) : noC)) . 
-sent: [5.0, to xAddr from Z(2, iAddr) : noC, 0], rcvd: nil, canSee: pat("addr", "Z")
+--- sent: [5.0, to xAddr from Z(2, iAddr) : noC, 0], rcvd: nil, canSee: pat("addr", "Z")
 red logSent(getAttrs(advX),5.0,(to Z(8,iAddr)  from  xAddr : noC)) . 
 
 red logSent(getAttrs(advM),5.0,(to xAddr from  masAddr : noC)) . 
-no op
+--- no op
 
 red logSent(getAttrs(advM),5.0,(to Z(2,iAddr)  from  masAddr : noC)) . 
-no op
+--- no op
