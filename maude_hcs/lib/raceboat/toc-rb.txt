@@ -1,0 +1,53 @@
+Raceboat actors 
+
+see rb-cm-msgs.txt for list of message receive rules
+
+cm-aux.maude    
+  sloads byteseq.maude, cp2-interfaces,
+     <dnssrcpath>/common/actor.maude,
+     <dnssrcpath>/probabilistic-mode/parameters.maude,
+       ../common/_aux.maude  ---- AttributeSetMsgs
+  fmod EFRAGMENTS incs BYTESEQ -- frag and  assemble
+  mod CONTENT-MANAGER incs BYTESEQ+EFRAGMENTS 
+         +RB-INTERFACE +ACTOR-MODEL+PARAMETERS 
+           (incs PARAMETERS-COMMON + SAMPLER + APMAUDE),
+       + IODINE_AUX   --- for AttributeSetMsgs  
+---- need to pull it out to shared file -- like actors
+
+rb-cm-client.maude       
+  sloads markov-action-model.maude, cm-aux.maude,
+         cp2-interfaces 
+  mod CONTENT-MANAGER-CLIENT incs CONTENT-MANAGER 
+        +MARKOV-ACTION-MODEL+CP2-COMMON+MC-INTERFACE
+        +ED-INTERFACE+TGEN-INTERFACE 
+  mod CM-CLIENT-TEST incs CONTENT-MANAGER-CLIENT 
+
+rb-cm-server.maude   
+  sloads markov-action-model.maude, cm-aux.maude, 
+         cp2-interfaces 
+  mod CONTENT-MANAGER-SERVER incs CONTENT-MANAGER
+         +MARKOV-ACTION-MODE+CP2-COMMON+MC-INTERFACE 
+         +ED-INTERFACE+TGEN-INTERFACE 
+  mod CM-SERVER-TEST incs CONTENT-MANAGER-SERVER
+  
+enc-dec-actor.maude  
+  sloads cp2-interfaces.maude,  ../common/_aux.maude 
+  mod ENC-DEC incs CP2-COMMON+ED-INTERFACE+IODINE_AUX
+  mod TEST-ED incs ENC-DEC 
+
+fake-mastodon.maude          
+  sloads cp2-interfaces.maude, ../common/_aux.maude  
+  mod FAKE-MASTODON incs
+        CP2-COMMON (SCHEDULER+ACTOR-MODEL+PARAMETERS)
+        +MC-INTERFACE+IODINE_AUX 
+  mod TEST-FAKE-MASTASON incs FAKE-MASTODON 
+
+rb-integration.maude   
+  sloads user-action-actor, rb-cm-client, rb-cm-server,
+         enc-dec-actor, fake-mastodon, mas-mamodel
+  mod RB-SHARED incs ACTOR-MODEL+ENC-DEC
+     +USER-ACTION-ACTOR+FAKE-MASTODON+MAS-MAMODEL 
+  mod RB-CLIENT incs RB-SHARED+CONTENT-MANAGER-CLIENT
+  mod RB-SERVER incs RB-SHARED+CONTENT-MANAGER-SERVER 
+  mod RB-SERVER-X incs RB-SERVER --- adds bob rule 
+  mod RB-CLIENT-SERVER incs RB-SHARED+RB-CLIENT+RB-SERVER

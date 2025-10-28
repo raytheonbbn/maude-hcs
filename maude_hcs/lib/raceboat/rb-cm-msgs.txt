@@ -1,0 +1,68 @@
+
+CM Client msgs
+
+crl [rbc-rcv-mc-response] :
+{T,(to cmcAddr from mcAddr :  mcResponse )}
+
+(w4c: (to mcAddr from cmcAddr : c0:Content)),
+ (replyTo: (to cmcAddr from umAddr : c1:Content))
+-------------------------
+
+rl [rbc-rcv-file] :
+{T, (to cmcAddr from aAddr :  pkg(efile,hashtag) )}
+
+
+crl [rbc-rcv-action] :
+{T,(to cmcAddr from umAddr :  actionQ(ract) )}
+(w4c: null), (replyTo: null), 
+  ("type" |->  js("media")) or  ("type" |->  js("download"))
+  pendingFiles: nilBS or pendingFiles: efile(1,50,1,75)
+  
+crl [rbc-rcv-capR] :
+{T,(to cmcAddr from edAddr :  capR(cap) )}
+if w4c: (to edAddr from cmcAddr : capQ(n0)), 
+   pendingFiles: (efile(id,n,j,k); efilel), 
+   currentFrags: efrag(efile,tot,ix,n0),  
+   attrs0  := attrs
+
+
+crl [rbc-rcv-encR] :
+{T,(to cmcAddr from edAddr :  encR(image) )}
+if  attrs0, w4c: (to edAddr from cmcAddr : encQ(efrag)),
+  
+pendingFiles: nilBS   or
+         currentFrags: efrag(efile,tot,ix,n0),  
+         pendingFiles: (efile ; efilel), 
+
+
+-----------------------------------------------------------------
+CM server msgs
+
+rl [rbc-rcv-hashtag] :
+{T, (to cmsAddr from bAddr :  pkg(hashtag) )}
+---- any state
+
+crl [rbs-rcv-actionQ] :
+{T,(to cmsAddr from umAddr :  actionQ(ract) )}
+---- w4c,replyTo null
+---- cases media, download (whash exists or not)
+
+---- rcv fetch response from mcAddr
+crl [rbs-rcv-fetchR] :
+{T,(to cmsAddr from mcAddr :  fetchR(imagel,ht))}
+
+
+---- rcv dec response from edAddr
+crl [rbs-rcv-decR] :
+{T,(to cmsAddr from edAddr :  decR(efragl))}
+--- need w4c and replyTo non null
+
+
+crl [rbs-rcv-encR] :
+{T,(to cmsAddr from edAddr :  encR(image) )}
+--- need w4c and replyTo non null
+
+crl [rbs-rcv-tootR] :
+{T,(to cmsAddr from mcAddr :  tootR(str) )}
+--- need w4c and replyTo non null
+ 

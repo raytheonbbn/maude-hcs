@@ -1,0 +1,287 @@
+load ../common/maude/user-action-actor
+load rb-cm-client
+load rb-cm-server
+load enc-dec-actor
+load fake-mastodon
+load mas-mamodel
+
+***(
+op mas-markov : ->  Map{String,Map{String,Float}} .
+op mas-actions : -> Map{String,JV} .
+op mas-params : -> Map{String,JV} .
+op mas-ma : -> MAModel .  --- markov-action
+)
+
+mod RB-SHARED is
+  inc ACTOR-MODEL .
+  inc ENC-DEC .
+  inc USER-ACTION-ACTOR .
+  inc FAKE-MASTODON .
+  inc MAS-MAMODEL .
+  
+
+ops fmA aliceA bobA : -> Address .
+op FMASAct : -> Actor .
+eq FMASAct = mkFakeActor(fmA) .
+
+op wHT0 : -> ByteSeq .
+eq wHT0 = wHashTag(0) .
+
+op F0 : -> ByteSeq .
+eq F0 = file(0,20) .
+op K0 : -> ByteSeq .
+eq K0 = key(0,20) .
+op EF0 : -> ByteSeq .
+eq EF0 = encrypt(F0,K0) .
+
+op FR0 : -> ByteSeq .
+eq FR0 =  efrag(EF0,20,0,20) .     
+ops IM0 IM00 : -> ByteSeq .
+eq IM0 = image(0,500,50)  .
+eq IM00 = encode(image(0,500,50),FR0,1,4,1/10) .
+
+op wHT1 : -> ByteSeq .
+eq wHT1 = wHashTag(1) .
+
+ops F1 : -> ByteSeq .
+eq F1 = file(1,100) .
+op K1 : -> ByteSeq .
+eq K1 = key(1,50) .
+op EF1 : -> ByteSeq .
+eq EF1 = encrypt(F1,K1) .
+
+ops FR10 FR11 : -> ByteSeq .
+eq FR10 = efrag(EF1,50,0,50) .   
+eq FR11 = efrag(EF1,100,1,50) .     
+ops IM1 IM10 IM11 : -> ByteSeq .
+eq IM1 = image(1,500,60)  .
+eq IM10 = encode(image(1,500,60),FR10,1,4,1/10) .
+eq IM11 = encode(image(1,500,60),FR11,1,4,1/10) .
+
+
+eq encOH(fsize:Nat,ksize:Nat)  = 
+    (if ksize:Nat <= fsize:Nat 
+     then 0 
+     else ksize:Nat + (- fsize:Nat) fi) .
+
+
+vars conf msgs : Config .
+vars d lim : Float .
+
+
+op mkRun : Config Float -> Config .
+eq mkRun(conf, lim) = 
+   run({0.0 | nil} rCtr(0) FMASAct conf, lim) .
+
+op mkRun : Config Config Float -> Config .
+eq mkRun(conf, msgs, lim) = 
+   run({0.0 | nil} rCtr(0) mkFakeActor(fmA,msgs) conf, lim) .
+
+endm  
+  
+
+mod RB-CLIENT is
+  inc RB-SHARED .
+  inc CONTENT-MANAGER-CLIENT  .
+
+
+ops umcA cmcA edcA : -> Address .
+ops UMCAct CMCAct EDCAct FMASAct : -> Actor .
+
+eq CMCAct = mkCMClient(cmcA,edcA,fmA,3) .
+
+op Imlc : -> ByteSeqL .
+eq Imlc = image(0,500,50) ; image(1,400,50) .
+eq EDCAct = mkEDActor(edcA,Imlc,1,4,1/10) .
+
+
+eq UMCAct = mkUMactor(umcA,mas-ma,cmcA) .
+
+
+vars d : Float .
+
+op Mpkga : Float -> Msg .
+eq Mpkga(d) =
+    [d, (to cmcA from aliceA : pkg(EF0,wHT0)), 0] .
+op Mpkga1 : Float -> Msg .
+eq Mpkga1(d) =
+    [d, (to cmcA from aliceA : pkg(EF1,wHT1)), 0] .
+
+op Mstartc : Float -> Msg .
+eq Mstartc(d) = [d, (to umcA from umcA : actionR("")),0]  .
+
+
+op rbcIC : -> Config .
+eq rbcIC =  UMCAct CMCAct EDCAct .
+
+***( 
+select  RB-CLIENT .
+set print attribute on .
+
+rew [100] mkRun(rbcIC Mstartc(.1) Mpkga(.2),100.0) .
+
+--- wtootR @ 20
+
+rew [100] mkRun(rbcIC Mstartc(.2) Mpkga(.1),100.0) .
+
+--- wtootR @ 20
+
+rew [100] mkRun(rbcIC Mstartc(.2) Mpkga(.1) Mpkga1(25.1), 130.0) .
+
+)
+endm
+
+mod RB-SERVER is
+  inc RB-SHARED .
+  inc CONTENT-MANAGER-SERVER .
+
+ops umsA cmsA edsA : -> Address .
+ops UMSAct CMSAct EDSAct  : -> Actor .
+
+eq CMSAct = mkCMServer(cmsA,edsA,fmA,bobA,3) .
+
+op Imls : -> ByteSeqL .
+eq Imls = image(2,500,50) ; image(3,400,50) .
+eq EDSAct = mkEDActor(edsA,Imls,1,4,1/10) .
+
+
+eq UMSAct = mkUMactor(umsA,mas-ma,cmsA) .
+
+
+vars d : Float .
+
+op Mpkgb : Float -> Msg .
+eq Mpkgb(d) = [d, (to cmsA from bobA : pkg(wHT0)), 0] .
+op Mpkgb1 : Float -> Msg .
+eq Mpkgb1(d) = [d, (to cmsA from bobA : pkg(wHT1)), 0] .
+op Mstarts : Float -> Msg .
+eq Mstarts(d) = [d, (to umsA from umsA : actionR("")),0]  .
+op rbsIC : -> Config .
+eq rbsIC = UMSAct CMSAct EDSAct .
+
+
+***( 
+select  RB-SERVER .
+set print attribute on .
+
+rew [100] mkRun(rbsIC Mstarts(.1) Mpkgb(.2), 100.0) .
+--- rb-server-run0
+
+rew [100] mkRun(rbsIC Mstarts(.2) Mpkgb(.1), 100.0) .
+--- rb-server-run1
+
+
+)
+
+endm
+
+mod RB-SERVER-X is
+   inc RB-SERVER .
+
+---- seeding Mastodon with client toots
+op cmcA : -> Address .
+op toots : -> Config .
+eq toots = 
+((to fmA from cmcA : tootQ(wHashTag(0), encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))) 
+( to fmA from cmcA : tootQ(wHashTag(1), encode(image(0, 500, 50), efrag( efile(1, 100, 1, 50), 50, 0, 50), 1, 4, 1/10))) 
+(to fmA from cmcA : tootQ( wHashTag(1), encode(image(1, 400, 50), efrag(efile(1, 100, 1, 50), 100, 1, 50), 1, 4, 1/10)))
+(to fmA from cmcA : tootQ(bHashTag(0), image(1, 400, 50))) 
+(to fmA from cmcA : tootQ(bHashTag(2), image(1, 400, 50))) 
+(to fmA from cmcA : tootQ(bHashTag(3), image(0, 500, 50))) to fmA from cmcA : tootQ(bHashTag(3), image(0, 500, 50))) 
+.
+
+***** removing msg to bob so exe can continure
+vars efile ht : ByteSeq  .
+vars T : Float .
+vars j : Nat .
+
+rl [bob-rcv-efile] :
+rCtr(j) {T, (to bobA from cmsA : pkg(efile,ht))}
+=>
+rCtr(j)
+[print "bob-rcv-efile " efile  " tag " ht " at " T]
+.
+
+***( 
+select  RB-SERVER-X .
+set print attribute on .
+
+--- fetching file with 1 fragment
+rew [100] mkRun(rbsIC Mstarts(.1) Mpkgb(.2), toots, 100.0) .
+--- rb-server-run0x
+
+--- fetching file with 2 fragments
+rew [200] mkRun(rbsIC Mstarts(.1) Mpkgb(.2) Mpkgb1(25.0), toots, 200.0) .
+
+--- rb-server-run0xx
+)     
+
+endm   
+
+
+mod RB-CLIENT-SERVER is
+  inc RB-SHARED .
+  inc RB-CLIENT  .
+  inc RB-SERVER .
+
+***** need UM parameterized by nsteps
+op rbcsIC : -> Config .
+eq rbcsIC = UMSAct CMSAct EDSAct UMCAct CMCAct EDCAct .
+
+
+***** removing msg to bob so exe can continure
+vars efile ht : ByteSeq  .
+vars T : Float .
+vars j : Nat .
+
+rl [bob-rcv-efile] :
+rCtr(j) {T, (to bobA from cmsA : pkg(efile,ht))}
+=>
+rCtr(j)
+[print "bob-rcv-efile " efile  " tag " ht " at " T]
+.
+
+
+
+***(
+select  RB-CLIENT-SERVER .
+set print attribute on .
+
+rew [200] mkRun(rbcsIC Mstartc(.11) Mpkga(.2) Mstarts(.1) Mpkgb(.5), 300.0) .
+
+--- rb-client-server-exfil0.txt
+
+rew [500] mkRun(rbcsIC Mstartc(.11) Mpkga(.2) Mpkga1(25.1) Mstarts(.1) Mpkgb(.5) Mpkgb1(26.1), 400.0) .
+
+****bob-rcv-efile efile(1, 100, 1, 50) tag wHashTag(1) at 1.551027966734967e+2
+
+--- rb-client-server-run1
+
+)
+
+ --- Link Characteristic definitions
+ **** constant nonzero delay w noise, no loss
+op LinkType-0 : -> AttributeSet .
+eq LinkType-0 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.01),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+***(
+Uncommenting this has essentially no effect
+The timing is controlled by the UM
+eq LinkData =
+  aaa(cmsA,fmA,LinkType-0)
+  aaa(fmA,cmsA,LinkType-0)
+  aaa(cmcA,fmA,LinkType-0)
+  aaa(fmA,cmcA,LinkType-0)
+  .
+)
+
+endm
