@@ -3,6 +3,7 @@ set show advisories off .
 load markov-action-model.maude
 load cp2-interfaces
 --- load dns-mamodel
+load ./_aux
 load ../../../deps/dns_formalization/Maude/common/actor.maude
 load ../../../deps/dns_formalization/Maude/common/apmaude.maude
 
@@ -27,6 +28,7 @@ mod USER-ACTION-ACTOR is
   inc CP2-COMMON .
        **** ACTOR-MODEL SCHEDULER PARAMETERS
   inc TGEN-INTERFACE .
+  inc CP2_SORTS .
 
 
 vars umAddr aAddr addr : Address .
@@ -99,15 +101,16 @@ rCtr(j)
 rCtr(j1)
 < umAddr : UM | attrs1 >
 msgs
-if {attrs1 , msgs, j1} := 
-    umRcvStatus((attrs, nsteps: s n),j,
-                 (to umAddr from addr : actionR(str)))
+if {attrs1, msgs, j1} := 
+    umRcvStatus((attrs, nsteps: s n),
+                 (to umAddr from addr : actionR(str)),
+                 j)
 .
 
-op umRcvStatus : AttributeSet Nat Msg -> AttrSetMsgsNat .
-eq umRcvStatus(attrs, j, msg) = {attrs,null,j} [owise] .
+op umRcvStatus : AttributeSet Msg Nat -> AttributeSetMsgsNat .
+eq umRcvStatus(attrs, msg, j) = {attrs,null,j} [owise] .
 
-ceq umRcvStatus(attrs, j, msg0) =
+ceq umRcvStatus(attrs, msg0, j) =
     {attrs2,dmsg,(s j1)}  
   if (to umAddr from addr : actionR(str)) := msg0 
   /\ attrs1, w4: (to addr from umAddr : ac),
