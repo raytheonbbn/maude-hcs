@@ -74,10 +74,10 @@ eq mkEDActor(edAddr,imagel,bpf,nf,d) =
 crl [ed-rcv-capQ]:
 {T, (to edAddr from cmAddr : capQ(n))}
  < edAddr : ED | edAttrs, 
-                 images: (image(id,size,cap) ; imagel) >
+                 images: (image(id,size,cap) :: imagel) >
 =>
  < edAddr : ED | edAttrs, 
-                 images: (image(id,size,cap) ; imagel) >
+                 images: (image(id,size,cap) :: imagel) >
 delayMsgs(msg, null)
 if msg := (to cmAddr from edAddr : capR(cap))
 [print "ed-rcv-capQ " n]
@@ -86,10 +86,10 @@ if msg := (to cmAddr from edAddr : capR(cap))
 crl [ed-rcv-encQ]:
 {T, (to edAddr from cmAddr : encQ(frag))}
  < edAddr : ED | edAttrs, 
-                 images: (image ; imagel) >
+                 images: (image :: imagel) >
 =>
  < edAddr : ED | edAttrs, 
-                 images:  (imagel ; image) >
+                 images:  (imagel :: image) >
 delayMsgs(msg, null)
 if edAttrs0, density: d, nfreq: nf, bpf: bpf := edAttrs
 /\ img := (if nbytes(frag) == 0
@@ -121,9 +121,9 @@ op extractFragl : AttributeSet ByteSeqL ByteSeqL
                    -> ByteSeqL .
 op extractFrag : AttributeSet ByteSeq -> ByteSeqL .         
 eq extractFragl(edAttrs, nilBS, fragl)  = fragl .
-eq extractFragl(edAttrs,img ; imgl, fragl)  =
+eq extractFragl(edAttrs,img :: imgl, fragl)  =
     extractFragl(edAttrs, imgl, 
-      fragl ; extractFrag(edAttrs,img))
+      fragl :: extractFrag(edAttrs,img))
 .
 
 eq extractFrag((edAttrs0,density: d,bpf: bpf, nfreq: nf),
@@ -141,7 +141,7 @@ mod TEST-ED is
   op EDA : -> Actor .
   
   op Iml : -> ByteSeqL .
-  eq Iml = image(0,500,50) ; image(1,400,50) .
+  eq Iml = image(0,500,50) :: image(1,400,50) .
   
   eq  EDA = mkEDActor(edA,Iml,1,4,1/10) .
 

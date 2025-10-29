@@ -75,7 +75,7 @@ rl [rbc-rcv-hashtag] :
                        pendingHashTags: hashtagl >
 =>
 < cmsAddr : CMServer | cmsAtts, 
-                      pendingHashTags: (hashtagl ; hashtag) >
+                      pendingHashTags: (hashtagl :: hashtag) >
 [print "rbs-rcv-hashtag "  hashtag]
 .
 
@@ -106,7 +106,7 @@ ceq srcvActionQ(attrs, "download", msg0) = {attrs2,msg}
 if (to cmsAddr from umAddr : actionQ(ract) ) := msg0
 /\ attrs0, replyTo: null, w4c: null := attrs
 /\ attrs1, mcAddress: mcAddr, 
-           pendingHashTags: (hashtag ; hashtagl)
+           pendingHashTags: (hashtag :: hashtagl)
            := attrs
 /\ msg := (to mcAddr from cmsAddr : fetchQ(hashtag))
 /\ attrs2 := attrs0, replyTo: msg0, w4c: msg
@@ -162,21 +162,21 @@ ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
 if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
     replyTo: (to cmsAddr from umAddr : actionQ(ract))
            := attrs
-/\ attrs1, pendingHashTags: (ht ; hashtagl) := attrs
+/\ attrs1, pendingHashTags: (ht :: hashtagl) := attrs
 /\ msg := (to umAddr from cmsAddr : actionR("ok"))
 /\ attrs2 := attrs0,  w4c: null, replyTo: null
 .   
  
 ---- wHashtag download non nil result
 ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
-                       fetchR(ht,image ; imagel)) )  
+                       fetchR(ht,image :: imagel)) )  
          = {attrs2,msg}
 if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)) 
            := attrs
-/\ attrs1, pendingHashTags: (ht ; hashtagl),
+/\ attrs1, pendingHashTags: (ht :: hashtagl),
            edAddress: edAddr := attrs
 /\ msg := 
-    (to edAddr from cmsAddr : decQ(image ; imagel))    
+    (to edAddr from cmsAddr : decQ(image :: imagel))    
 /\ attrs2 := attrs0,  w4c: msg
 .    
 
@@ -208,7 +208,7 @@ op srcvDecR : AttributeSet  Msg -> AttributeSetMsgs .
 if attrs0, w4c: (to edAddr from cmsAddr : decQ(imagel)),
    replyTo: (to cmsAddr from umAddr : actionQ(ract)),
    currentFrags: efragl0,
-   pendingHashTags: (ht ; hashtagl) := attrs    
+   pendingHashTags: (ht :: hashtagl) := attrs    
 /\ efragl1 := addEfrags(efragl,efragl0)
 /\ efile := efraglComplete?(efragl1)
 /\ efragl3 := (if efile == nilBS
@@ -221,14 +221,14 @@ if attrs0, w4c: (to edAddr from cmsAddr : decQ(imagel)),
             fi)
 /\ attrs1 := (if efile == nilBS 
               then  (currentFrags: efragl0,
-                    pendingHashTags: (ht ; hashtagl) )
+                    pendingHashTags: (ht :: hashtagl) )
               else (currentFrags: nilBS,
                     pendingHashTags: hashtagl )
                fi)
 /\ attrs2 := attrs0, w4c: null, replyTo: null,
              currentFrags: efragl3,
              (if efile == nilBS 
-              then pendingHashTags: (ht ; hashtagl) 
+              then pendingHashTags: (ht :: hashtagl) 
               else pendingHashTags: hashtagl 
               fi)
 

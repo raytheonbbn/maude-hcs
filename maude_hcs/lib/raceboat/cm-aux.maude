@@ -25,25 +25,25 @@ op addEfrags : ByteSeqL ByteSeqL -> ByteSeqL .
 op addEfrag : ByteSeq ByteSeqL ByteSeqL -> ByteSeqL .
 
 eq addEfrags(nilBS,efl) = efl . 
-eq addEfrags(ef ; efl0, efl) =
+eq addEfrags(ef :: efl0, efl) =
       addEfrags(efl0, addEfrag(ef,efl,nilBS)) .
 
-eq addEfrag(ef,nilBS,efl) =  efl ; ef .
+eq addEfrag(ef,nilBS,efl) =  efl :: ef .
 eq addEfrag(efrag(bytes,tot,ix,l),
-            efrag(bytes,tot0,ix0,l0) ; efl0,efl)  = 
+            efrag(bytes,tot0,ix0,l0) :: efl0,efl)  = 
  (if ix < ix0
- then  efl ; efrag(bytes,tot,ix,l) ;
-       efrag(bytes,tot0,ix0,l0) ; efl0
+ then  efl :: efrag(bytes,tot,ix,l) ::
+       efrag(bytes,tot0,ix0,l0) :: efl0
  else addEfrag(efrag(bytes,tot,ix,l), efl0, 
-               efl ; efrag(bytes,tot0,ix0,l0)) 
+               efl :: efrag(bytes,tot0,ix0,l0)) 
  fi)
 . 
 
 **** What if frags mixed from different files?
 eq addEfrag(efrag(bytes,tot,ix,l),
-          efrag(bytes0,tot0,ix0,l0) ; efl0,
+          efrag(bytes0,tot0,ix0,l0) :: efl0,
           efl)  = 
-         efl ; efrag(bytes0,tot0,ix0,l0) ; efl0 
+         efl :: efrag(bytes0,tot0,ix0,l0) :: efl0 
  [owise print "Bad frag dropped " bytes " expected " bytes0]
   .
 
@@ -59,12 +59,12 @@ eq efraglComplete?(efl) =
     else nilBS
     fi) .
    
-eq efraglComplete?X(efrag(efile,tot,ix,l) ; efl, ix)
+eq efraglComplete?X(efrag(efile,tot,ix,l) :: efl, ix)
      =  efraglComplete?X(efl, s ix) .
 eq  efraglComplete?X(nilBS, ix) = true .
 eq  efraglComplete?X(efl,ix) = false [owise] .
 
-eq hasLastFrag(efl ; efrag(efile,tot,ix,l)) 
+eq hasLastFrag(efl :: efrag(efile,tot,ix,l)) 
    =
    (if tot >= nbytes(efile) 
     then efile
