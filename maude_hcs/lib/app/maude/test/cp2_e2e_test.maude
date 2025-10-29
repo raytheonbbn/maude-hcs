@@ -42,6 +42,7 @@ inc ROUTER .
 inc ADVERSARY-OBSERVER .
 
 ops alice bob aliceRbClient iodineSendApp iodineRecvApp iodineClient iodineServer aliceMasClient bobMasClient masServer : -> Address .
+ops contentMgr destini userModel : -> Address .
 ops monAddr : -> Address .
 
 op zonePwnd2Com : -> List{Record} .
@@ -92,7 +93,10 @@ eq initState =
   < alice : TxApp |
       destAddr: bob,
       rbClientAddr: aliceRbClient,
+      rbUserModelAddr: userModel,
+      rbContentMgrAddr: contentMgr,
       iodineClientAddr: iodineSendApp,
+      contractCount: 0,
       queue: ccFile(400, 2, "test"),
       ccFile: nilBytes >
   < bob : RxApp | rcvd: emptyFileList >
@@ -133,6 +137,8 @@ eq initState =
       queryRcvd: nilQueryTimestamp,
       pktSent: nilPacketTimestamp,
       pktRcvd: nilPacketTimestamp >
+  --- Make a Raceboat client for Alice.
+  makeRbClient(userModel, contentMgr, destini, aliceMasClient)
   < aliceMasClient : MasClient |
       thisAddr: aliceMasClient,
       masServerAddr: masServer,
