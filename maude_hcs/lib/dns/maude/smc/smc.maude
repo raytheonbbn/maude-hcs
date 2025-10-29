@@ -78,12 +78,31 @@ mod SMC is
   eq length (nilTML) = 0 .
   eq length (TML ; tm(T, M)) = 1 + length(TML) .
 
+  ****(
+  --- General approach for triggering adversary alarms:
+  --- Time is divided into bins of width s seconds
+  --- At each interval tk (every s seconds), adversary computes moving average of selected network observable over the previous m bins
+  --- The initial set of m bins from t0 to tm contains TGEN-only traffic
+  --- Obtained either by running scenario long enough with TGEN-only to fill initial set of m bins, or by importing m previously collected TGEN-only bins
+  --- Threshold format:
+  --- “Combined TGEN + HCS network observable average exceeds k * initial TGEN-only network observable average for n consecutive time intervals”
+  --- “How quickly and by how much does the addition of the HCS move the TGEN-only average?”
+
+  --- k – threshold multiplier
+  --- n – number of consecutive bins
+  --- s – duration of each bin/interval
+  --- m – number of previous bins/intervals to compute moving average over
+  )
+
   op lengthTimeWindow : QueryTimestampList Float Float -> Nat .
   eq lengthTimeWindow (nilQueryTimestamp, T', T'') = 0 .
   eq lengthTimeWindow (QTL ; queryTimestamp(QUERY, T), T', T'') = if T > T' and T < T'' then 1 + lengthTimeWindow(QTL, T', T'') else lengthTimeWindow(QTL, T', T'') fi .
 
+  ---- the number of messages that occured between T' and T''
+  ----                              startT endT
   op lengthTimeWindow : TimeMsgList Float Float -> Nat .
   eq lengthTimeWindow (nilTML, T', T'') = 0 .
+  ***** @Minyoung: Should the below be >= instead to ensure we dont skip any messages that may have occcurred at t=T'
   eq lengthTimeWindow (TML ; tm(T, M), T', T'') = if T > T' and T < T'' then 1 + lengthTimeWindow(TML, T', T'') else lengthTimeWindow(TML, T', T'') fi .
 
   op getNQuerySent : Actor -> Nat .
@@ -98,27 +117,50 @@ mod SMC is
   op getNQuerySent : Actor -> Nat .
   eq getNQuerySent (< ADDR : Adversary | sent: TML, attrs >) = length(TML) .
 
-                       --- start window 
+  ----- the avg QPS in a time window of size T' starting at T
+  ---                     startT window 
   op avgQPS : TimeMsgList Float Float -> Float .
   eq avgQPS (TML, T, T') = float(lengthTimeWindow(TML, T, T + T')) / T' .
 
+  ---- the largest timestamp in the list
   op lastT : TimeMsgList -> Float .
   eq lastT (TML ; tm(T, M)) = if T > lastT(TML) then T else lastT(TML) fi .
   eq lastT (nilTML) = 0.0 .
 
-                        --- start window th
+  ----- the QPS in window [T, T+T'] > th*(QPS in window [0, T'])
+                        --- startT window threshold
   op highQPS : TimeMsgList Float Float Float -> Bool .
+  ***** @Minyoung: do we need to check that T > T'-bin?
   eq highQPS (TML, T, T', TH) = if avgQPS (TML, T,  T') > avgQPS (TML, 0.0, T') * TH then true else false fi .
+  ***** @Minyoung: does this need an owise?
   eq highQPS (nilTML, T, T', TH) = false . 
 
-                    --- start window bin th consecutive 
+  ---- Aggregate average query rate exceeds k × initial average query rate for n consecutive time bins of width s
+  ---- More clearly, we check avgQPS over n consecutive windows each of size T', shifted by bin size T'' 
+  ----                   startT window/m bin/s th/k consecutive/n
   op alarm : TimeMsgList Float Float Float Float Int -> Bool .
-  ceq alarm (TML, T, T', T'', TH, I) = if highQPS(TML, T + (float(I) * T''), T', TH) then alarm(TML, T, T', T'', TH, I - 1) else false fi if I > 0 .
+  ceq alarm (TML, T, T', T'', TH, I) = 
+      if highQPS(TML, T + (float(I) * T''), T', TH) 
+      then alarm(TML, T, T', T'', TH, I - 1) 
+      else false 
+      fi 
+    if I > 0 .
+  **** @Minyoung: should this owise be split into two equations instead
+  **** eq alarm (TML, T, T', T'', TH, 0) = true .
+  **** eq alarm (TML, T, T', T'', TH, I) = false [owise].
+  *****  would be really helpful to create some test cases for this !!
   eq alarm (TML, T, T', T'', TH, I) = true [owise].
 
-                    --- start window bin th consecutive 
+  ***** @Minyoung: tod below is not how I expected it; I was expecting tod to be time we first got an alarm?
+  *****             i.e. do we need the experiment to keep going or should isDone be true at that point?
+  ----                 startT window/m bin/s th/k consecutive/n
   op tod : TimeMsgList Float Float Float Float Int -> Float .
-  ceq tod (TML, T, T', T'', TH, I) = (if alarm(TML, T, T', T'', TH, I) then T + T' + (float(I) * T'') else tod(TML, T + T'', T', T'', TH, I) fi) if lastT(TML) > T + T' + (float(I - 1) * T'') . 
+  ceq tod (TML, T, T', T'', TH, I) = 
+            (if alarm(TML, T, T', T'', TH, I) 
+              then T + T' + (float(I) * T'') 
+              else tod(TML, T + T'', T', T'', TH, I) 
+            fi) 
+            if lastT(TML) > T + T' + (float(I - 1) * T'') . 
 
   op getInitialQPS : Config Float -> Float .
   eq getInitialQPS (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQPS (TML, 0.0, T) .  
