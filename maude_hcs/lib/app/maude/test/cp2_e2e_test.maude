@@ -26,18 +26,23 @@
 ---
 --- MAUDE_HCS: end
 
-load ../../dns/maude/nondet/iodine_dns
-load ../../mastodon/maude/nondet/mastodon
-load ../../../deps/dns_formalization/Maude/test/nondet-model/test_helpers
-load ../../common/maude/_aux
-load nondet
+load ../../../dns/maude/probabilistic/iodine_dns
+load ../../../mastodon/maude/nondet/mastodon
+load ../../../../deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
+load ../../../common/maude/_aux
+load ../../../common/maude/router
+load ../../../common/maude/adversary-observer
+load ../probabilistic
 
 mod CP2_TEST is
 inc IODINE_DNS + TEST-HELPERS .
 inc MASTODON .
 inc CP2_APP .
+inc ROUTER .
+inc ADVERSARY-OBSERVER .
 
 ops alice bob aliceRbClient iodineSendApp iodineRecvApp iodineClient iodineServer aliceMasClient bobMasClient masServer : -> Address .
+ops monAddr : -> Address .
 
 op zonePwnd2Com : -> List{Record} .
 eq zonePwnd2Com =
@@ -48,16 +53,42 @@ eq zonePwnd2Com =
   < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
   < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
 
+eq monitorQueryLog? = true .
 
+eq fileSize = 10000 .
 eq MAX-NUM-MEDIA-PER-TOOT = 4 .
 eq packetSize = 1000 .
+eq maxPacketSize = 967 .
 eq packetOverhead = 33 .
 eq maxFragmentLen = 200 .
 eq maxFragmentTx = 20 .
+eq pacingTimeoutDelay = 0.01 .
+eq pacingTimeoutDelayMax = 0.05 .
+eq ackTimeoutDelay = 1.0 .
+eq maxMinimiseCount = 0 .
+
+op router : -> Address .
+op adversary : -> Address .
+---- the sendtime / receive time collection patterns
+ops ObsS ObsR : -> Observable .
+eq ObsS = mtObs [owise] .
+eq ObsR = mtObs [owise] .
+
+--- uncomment to model aversary at router inside corporate
+--- collects msgs received by router from interal actors
+--- (stored as sent by local-dns)
+eq ObsR = obsC .  
+
+--- uncomment to model adversary at the router external interface
+--- collects messages sent by router after NAT
+--- the sending time is essentially the time the internal
+--- source sent the message
+**** eq ObsS = obsX .
+
 
   --- Initial configuration
-op initConfig : -> Config .
-eq initConfig =
+op initState : -> Config .
+eq initState =
   < alice : TxApp |
       destAddr: bob,
       rbClientAddr: aliceRbClient,
@@ -96,6 +127,12 @@ eq initConfig =
                                             queue: nilQueue,
                                             forwardonly: nullAddr,
                                             queriesFwd: nilTAQL >) >
+  --- WMonitor
+  < monAddr : WMonitor |
+      querySent: nilQueryTimestamp,
+      queryRcvd: nilQueryTimestamp,
+      pktSent: nilPacketTimestamp,
+      pktRcvd: nilPacketTimestamp >
   < aliceMasClient : MasClient |
       thisAddr: aliceMasClient,
       masServerAddr: masServer,
@@ -125,9 +162,14 @@ eq initConfig =
       mediaMap: emptyIdMediaMap, 
       tagMap: emptyTagPostIdsMap
   >
+  mkRouter(router)    
+  mkAdversary(adversary,ObsS,ObsR)
   --- App start message:
-  (to alice : start)
+  [1.0, (to alice : start), 0]
   .
+
+op initConfig : -> Config .
+eq initConfig = run({0.0 | nil} initState,limit) .
 endm
 
 set print attribute on .
