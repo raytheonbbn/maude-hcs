@@ -28,21 +28,22 @@
 
 load ../../../dns/maude/probabilistic/iodine_dns
 load ../../../mastodon/maude/nondet/mastodon
-load ../../../../deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
+load ../../../raceboat/rb-integration
 load ../../../common/maude/_aux
 load ../../../common/maude/router
 load ../../../common/maude/adversary-observer
 load ../probabilistic
 
 mod CP2_TEST is
-inc IODINE_DNS + TEST-HELPERS .
+inc IODINE_DNS .
 inc MASTODON .
+inc RB-CLIENT + RB-SERVER .
 inc CP2_APP .
 inc ROUTER .
 inc ADVERSARY-OBSERVER .
 
 ops alice bob aliceRbClient iodineSendApp iodineRecvApp iodineClient iodineServer aliceMasClient bobMasClient masServer : -> Address .
-ops contentMgr destini userModel : -> Address .
+ops clientContentMgr serverContentMgr clientDestini serverDestini clientUserModel serverUserModel : -> Address .
 ops monAddr : -> Address .
 
 op zonePwnd2Com : -> List{Record} .
@@ -94,13 +95,16 @@ eq initState =
   < alice : TxApp |
       destAddr: bob,
       rbClientAddr: aliceRbClient,
-      rbUserModelAddr: userModel,
-      rbContentMgrAddr: contentMgr,
+      rbUserModelAddr: clientUserModel,
+      rbContentMgrAddr: clientContentMgr,
       iodineClientAddr: iodineSendApp,
       contractCount: 0,
       queue: file(0, 400),
       currentCcFile: nilBytes >
-  < bob : RxApp | rcvd: emptyFileList >
+  < bob : RxApp |
+      rcvd: emptyFileList,
+      rbUserModelAddr: serverUserModel,
+      rbContentMgrAddr: serverContentMgr >
   < iodineSendApp : SendApp | 
       fileDestAddr: iodineRecvApp,
       toAddr: iodineClient,
@@ -139,7 +143,8 @@ eq initState =
       pktSent: nilPacketTimestamp,
       pktRcvd: nilPacketTimestamp >
   --- Make a Raceboat client for Alice.
-  makeRbClient(userModel, contentMgr, destini, aliceMasClient)
+  makeRbClient(clientUserModel, clientContentMgr, clientDestini, aliceMasClient)
+  makeRbServer(serverUserModel, serverContentMgr, serverDestini, bobMasClient, bob)
   < aliceMasClient : MasClient |
       thisAddr: aliceMasClient,
       masServerAddr: masServer,
@@ -174,6 +179,7 @@ eq initState =
   mkAdversary(adversary,ObsS,ObsR)
   --- App start message:
   [1.0, (to alice : start), 0]
+  [1.0, (to bob : start), 0]
   .
 
 op initConfig : -> Config .
