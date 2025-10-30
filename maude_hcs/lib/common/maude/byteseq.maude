@@ -102,9 +102,14 @@ op file : Nat Nat -> ByteSeq [ctor] .
 --- Make a file from a size and filename.
 op file : Nat String -> ByteSeq [ctor] .
 
+---       Id  Size Filename
+op file : Nat Nat String -> ByteSeq [ctor] .
+
 --- A Control Channel file.
----               Key Hash Tag
+---         Key Hash Tag
 op ccFile : Nat Nat String -> ByteSeq [ctor] .
+--- Same but with ByteSeqs.
+op ccFile : ByteSeq ByteSeq ByteSeq -> ByteSeq [ctor] .
 
 
 **** encrypted file 
@@ -125,7 +130,7 @@ eq decrypt(efile(id,n,j,k),key(j,k)) = file(id,n) .
 eq decrypt(encrypt(bytes,key(j,k)), key(j,k)) = 
        bytes [owise] .
  
-****       hash len 
+****       file len 
 op hash : ByteSeq Nat -> ByteSeq .
 
 **** computing len/size of ByteSeq terms
@@ -154,14 +159,17 @@ eq getFilename(ccFile(key:Nat, hash:Nat, hashtag:String)) =
 --- Get a hashtag from a CcFile.
 op getHashtag : ByteSeq -> String .
 eq getHashtag(ccFile(key:Nat, hash:Nat, hashtag:String)) = hashtag:String .
+eq getHashtag(ccFile(key:ByteSeq, hash:ByteSeq, wHashTag(index:Nat))) = string(index:Nat, 10) .
 
 --- Get a hash from a CcFile.
 op getHash : ByteSeq -> Nat .
 eq getHash(ccFile(key:Nat, hash:Nat, hashtag:String)) = hash:Nat .
+--- TODO: Create a hash match function.
 
 --- Get a key from a CcFile.
 op getKey : ByteSeq -> Nat .
 eq getKey(ccFile(key:Nat, hash:Nat, hashtag:String)) = key:Nat .
+eq getKey(ccFile(key(index:Nat, length:Nat), hash:ByteSeq, hashtag:ByteSeq)) = index:Nat .
 
 *** we need to know the encryption algorithm overhead
 *** give input size and key length
