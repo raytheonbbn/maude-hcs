@@ -1,0 +1,95 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- PWNDD Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- Contract No: HR00112590083
+--- Contractor Name: RTX BBN Technologies Inc.
+--- Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
+---
+--- The U.S. Government's rights to use, modify, reproduce, release, perform,
+--- display, or disclose these technical data and software are defined in the
+--- Article VII: Data Rights clause of the OTA.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein.
+---
+--- MAUDE_HCS: end
+
+
+load ./mastodon
+load ../../../common/maude/adversary-observer
+load ../../../common/maude/cp2-interfaces
+
+set print attribute on .
+set show advisories off .
+
+mod MASTODON_TEST is
+  inc ADVERSARY-OBSERVER .
+  inc MASTODON .
+  inc CP2-COMMON .
+
+  ops alice-raceboat bob-raceboat mastodon-client mastodon-server : -> Address .
+  op adversary : -> Address .
+  ---- the sendtime / receive time collection patterns
+  ops ObsS ObsR : -> Observable .
+  eq ObsS = mtObs [owise] .
+  eq ObsR = mtObs [owise] .
+
+  --- uncomment to model aversary at router inside corporate
+  --- collects msgs received by router from interal actors
+  --- (stored as sent by local-dns)
+  eq ObsR = obsC .  
+
+
+  --- Initial configuration.
+
+  op initState : -> Config .
+  eq initState = 
+    rCtr(0)
+    < mastodon-client : MasClient |
+      thisAddr: mastodon-client,
+      masServerAddr: mastodon-server,
+      requesterAddr: alice-raceboat,
+      opStack: emptyOpStack,
+      postingMedia: emptyMediaFileList,
+      postingMediaIds: emptyMasIdList,
+      postingText: "",
+      gettingMediaUrls: emptyUrlList,
+      gettingMedias: emptyMediaFileList,
+      gettingPosts: emptyMasIdList
+    >
+    < mastodon-server : MasServer |
+      thisAddr: mastodon-server,
+      currentMapId: 3, ---0,
+      tootMap: (3 ~> makeToot("This is the #media toot with media", makeUrl(makeMediaFile("img0.jpg", 1000)) ; makeUrl(makeMediaFile("img2.jpg", 1000)), (1 : 2))), --- emptyIdTootMap,
+      mediaMap: ((1 ~>(makeMediaFile("img0.jpg", 1000), makeUrl(makeMediaFile("img0.jpg", 1000)))) : 
+                 (2 ~>(makeMediaFile("img1.jpg", 1000), makeUrl(makeMediaFile("img1.jpg", 1000)))) :
+                 (3 ~>(makeMediaFile("img2.jpg", 1000), makeUrl(makeMediaFile("img2.jpg", 1000))))), --- emptyIdMediaMap, 
+      tagMap: (makeTag("media") ~> 3) --- emptyTagPostIdsMap
+    >
+---    (to mastodon-client from alice-raceboat : PostStatus("This is the toot"))
+---    (to mastodon-client from alice-raceboat : PostStatus("This is the #tag toot"))
+---    (to mastodon-client from alice-raceboat : PostMedia(makeMediaFile("cat.jpg", 1000)))
+---    (to mastodon-client from alice-raceboat : PostStatus("This is the #media toot with media", (makeMediaFile("img0.jpg", 1000) :: makeMediaFile("img1.jpg", 1000))))
+---    (to mastodon-client from alice-raceboat : GetPost(3))
+---    (to mastodon-client from alice-raceboat : GetMedia(makeUrl(makeMediaFile("img1.jpg", 1000))))
+---    (to mastodon-client from alice-raceboat : GetTimeline)
+    [1.0, (to mastodon-client from alice-raceboat : GetMediaHashtag(makeTag("media"))), 0]
+    .
+
+    op initConfig : -> Config .
+    eq initConfig = run({0.0 | nil} initState, limit) .
+endm
+
+
