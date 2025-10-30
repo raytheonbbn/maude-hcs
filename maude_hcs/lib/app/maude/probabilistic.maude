@@ -34,7 +34,7 @@ load ../../raceboat/rb-integration
 mod CP2_APP is
   inc DNS .
   inc CP2_NODE .
-  inc RB-CLIENT .
+  inc RB-CLIENT + RB-SERVER .
 
   vars aliceRbClient : Address .
   vars attrs attrsTemp attrsNext : AttributeSet .
@@ -60,13 +60,22 @@ mod CP2_APP is
   [ print "(" T "): Alice start, sending contract " contractId " with key " contractKey ]
   .
 
-  
   rl [bob-recv-cc-file]:
-  < BOB_ADDR : RxApp | attrs >
+    < BOB_ADDR : RxApp | attrs >
     {T, (to BOB_ADDR : CC_FILE)}
   =>
-  < BOB_ADDR : RxApp | attrs >
-  [ print "Bob received CC file " CC_FILE ]
+    < BOB_ADDR : RxApp | attrs >
+    [0.0, (to getRbContentMgrAddr(attrs) from BOB_ADDR : pkg(getHashtagAsByteSeq(CC_FILE))), 0]
+  [ print "(" T "): Bob received CC file " CC_FILE ]
+  .
+
+  rl [bob-start]:
+    < BOB_ADDR : RxApp | attrs >
+    {T, (to BOB_ADDR : start)}
+  =>
+    < BOB_ADDR : RxApp | attrs >
+    startRbServer(getRbUserModelAddr(attrs))
+  [ print "(" T "): Bob start." ]
   .
 
 endm
