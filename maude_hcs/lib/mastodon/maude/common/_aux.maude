@@ -179,6 +179,8 @@ mod MASTODON_NODE is
   op thisAddr:_ : Address -> Attribute [ctor] .
   --- The Mastodon Server's address.
   op masServerAddr:_ : Address -> Attribute [ctor] .
+  --- The requester's address.
+  op requesterAddr:_ : Address -> Attribute [ctor] .
   --- The program counter, a stack that tracks current composable operations.
   op opStack:_ : OpStack -> Attribute [ctor] .
   --- The attachment / images that should be posted.
@@ -218,11 +220,17 @@ mod MASTODON_NODE is
   op getMastodonServerAddr : AttributeSet -> Address .
   eq getMastodonServerAddr(masClAttrs, masServerAddr: MAS_SERVER_ADDR) = MAS_SERVER_ADDR . 
 
+  op getRequesterAddr : AttributeSet -> Address .
+  eq getRequesterAddr(masClAttrs, requesterAddr: FROM-ADDR) = FROM-ADDR .
+
   op getPostingMedia : AttributeSet -> MediaFileList .
   eq getPostingMedia(masClAttrs, postingMedia: MEDIA_FILE_LIST) = MEDIA_FILE_LIST .
 
   op getPostingMediaIds : AttributeSet -> MasIdList .
   eq getPostingMediaIds(masClAttrs, postingMediaIds: MAS_ID_LIST) = MAS_ID_LIST .
+
+  op getMedias : AttributeSet -> MediaFileList .
+  eq getMedias(masClAttrs, gettingMedias: MEDIA_FILE_LIST) = MEDIA_FILE_LIST .
 
   op getPostingText : AttributeSet -> String .
   eq getPostingText(masClAttrs, postingText: POST_TEXT) = POST_TEXT .
@@ -453,11 +461,12 @@ mod MASTODON_NODE is
         /\ masClAttrsMsg := 
           (if currentOp == GET-MEDIA-HASHTAG-OP
           *** If currently downloading all media related to hashtag
+            *** Then download the media at next url.
             then (if url == nilUrl
-                  then {(masClAttrs, opStack: popOp(OP_STACK), gettingMediaUrls: emptyUrlList), nullMsg} *** TODO: Replace this with a call to reassemble the media together into a message from Alice.
+                  then {(masClAttrs, opStack: popOp(OP_STACK), gettingMediaUrls: emptyUrlList), *** TODO: Replace this with a call to reassemble the media together into a message from Alice.
+                        (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : ResponseMediaList(emptyMediaFileList))} 
                   else downloadMediaAtUrl((masClAttrs, opStack: OP_STACK, gettingMediaUrls: popUrlList(urlList)), url)
                  fi)
-            *** Then download the media at next url.
             else {(masClAttrs, opStack: popOp(OP_STACK), gettingMediaUrls: URL_LIST), nullMsg}
             *** Else we are done.
           fi)
@@ -506,10 +515,12 @@ mod MASTODON_NODE is
       /\ masClAttrsMsg :=
          (if currentOp == GET-MEDIA-HASHTAG-OP
             then (if url == nilUrl
-                   then {(masClAttrs, opStack: OP_STACK, gettingMediaUrls: emptyUrlList), nullMsg}
+                   then {(masClAttrs, opStack: OP_STACK, gettingMediaUrls: emptyUrlList),
+                         (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : ResponseMediaList(getMedias(masClAttrs)))}
                    else downloadMediaAtUrl((masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: popUrlList(URL_LIST)), url)
                  fi)
-            else {(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: emptyUrlList), nullMsg}
+            else {(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: emptyUrlList),
+                  (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : ResponseMediaList(getMedias(masClAttrs)))}
          fi)
     .
   eq finishGetMediaFromPost(masClAttrs) = { masClAttrs, nullMsg } [owise] .
