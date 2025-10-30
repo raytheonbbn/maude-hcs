@@ -29,14 +29,10 @@
 from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
 from maude_hcs.lib import GLOBALS
-from maude_hcs.parsers.hcsconfig import HCSConfig
-from maude_hcs.parsers.shadowconf import ShadowConfig, HostConfig, ProcessConfig, parse_shadow_config
-from maude_hcs.parsers.configfactory import Protocol, buildHCSConfig
+from maude_hcs.parsers.configfactory import buildHCSConfig
 
 import logging
-import json
 from pathlib import Path
-import os
 
 from umaudemc.command.scheck import scheck
 import importlib.util
@@ -76,12 +72,9 @@ def handle_generate(args, parser):
 def handle_scheck(args, parser):
     logger.debug("Handle umaudemc scheck")
 
-    if not args.file:
-        if args.protocol:
-            args.file = str(GLOBALS.TOPLEVELDIR.joinpath(Path(f"maude_hcs/lib/{args.protocol}/maude/smc/smc.maude")))
-            logger.debug(f"Loading SMC file {args.file}")
-        else:
-            raise Exception("Must specify either args.file or args.protocol to load the correct smc file")
+    if not args.file:        
+        args.file = str(GLOBALS.TOPLEVELDIR.joinpath(Path(f"maude_hcs/lib/smc/smc.maude")))
+    logger.debug(f"Loaded SMC file {args.file}")
 
     has_umaudemc = importlib.util.find_spec('umaudemc')
     if not has_umaudemc:
