@@ -86,9 +86,6 @@ mod MYLISTS is
   op getFromAddr : Fragment -> Address .
   eq getFromAddr(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = FROM_ADDR .
 
-  op getFile : Fragment ->  ByteSeq .
-  eq getFile(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = FILE .
-
   op getFile : PacketList -> ByteSeq .
   --- TODO: This function should make sure that all packets are in.
   eq getFile(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_PACKET) ; PL) = FILE .
@@ -648,7 +645,7 @@ mod IODINE_NODE is
     /\ F' := grabCurrentFragment(wattrsTrans') 
     --- TODO: Check what iodined.c does for a dataless fragment's sequence number/fragment
     --- If F' is nilFragment ie no more fragments left to send, ACK the client's fragment with a dataless fragment
-    /\ downstreamdata := nm(ackFragment((if F' == nilFragment then fragment(getToAddr(F), getFromAddr(F), getFile(F), 0, 0, 0, 0, 0, false, false) else F' fi), getInSeqNo(wattrsTrans'), getInFragNo(wattrsTrans')))
+    /\ downstreamdata := nm(ackFragment((if F' == nilFragment then fragment(getToAddr(F), getFromAddr(F), file(0), 0, 0, 0, 0, 0, false, false) else F' fi), getInSeqNo(wattrsTrans'), getInFragNo(wattrsTrans')))
     --- iodined.c:588: Only increment attempt counter if this is not a dataless fragment
     /\ wattrsNext := (if F' == nilFragment then wattrsTrans' else incrNumAttempts(wattrsTrans') fi)
     /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, sTTL, downstreamdata >, nil, nil, 0))
@@ -872,67 +869,66 @@ red isTxComplete(wClientAttrs, fragmentsToSend: fragment(AliceAddr, BobAddr, TES
 *** Testing server response to fragments 
 
 *** ACK a new fragment (Alice has sent fragment (2,5) and Bob has a fragment (5,4) to send to Alice)
-red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
-red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
-  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
-(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, 5, 4, 2, 5, 10, false, false))>, nil, nil, 0)) .
+red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, file(1000), 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, file(1000), 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, file(500), 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
+  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, file(500), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
+(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, file(500), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, file(500), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, file(1000), 5, 4, 2, 5, 10, false, false))>, nil, nil, 0)) .
 
 *** ACK a new fragment (Alice has sent fragment (2,5) and Bob has no fragments left to send)
-red getMsg(extractS((fragmentsToSend: mtfl, fragmentsReceived: (fragment(AliceAddr, BobAddr, 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
-  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
-(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, 0, 0, 2, 5, 0, false, false))>, nil, nil, 0)) .
+red getMsg(extractS((fragmentsToSend: mtfl, fragmentsReceived: (fragment(AliceAddr, BobAddr, file(1000), 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, file(1000), 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
+  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, file(1000), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
+(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, file(1000), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, file(1000), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, file(0), 0, 0, 2, 5, 0, false, false))>, nil, nil, 0)) .
 
 *** incoming fragment has already been received (still send a downstream fragment but ACK the latest fragment from Alice)
-red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
-  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
-(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, 5, 4, 2, 4, 10, false, false))>, nil, nil, 0)) .
+red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, file(1000), 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, file(1000), 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, file(500), 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
+  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
+(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, file(1000), 5, 4, 2, 4, 10, false, false))>, nil, nil, 0)) .
 
 *** ACK a new fragment (Alice has sent fragment (2,5) and Bob has no fragments left to send)
-red getMsg(extractS((fragmentsToSend: mtfl, fragmentsReceived: (fragment(AliceAddr, BobAddr, 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
-  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
-(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, 0, 0, 2, 5, 0, false, false))>, nil, nil, 0)) .
+red getMsg(extractS((fragmentsToSend: mtfl, fragmentsReceived: (fragment(AliceAddr, BobAddr, file(1000), 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, file(1000), 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
+  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, file(1000), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
+(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, file(1000), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, file(1000), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, file(0), 0, 0, 2, 5, 0, false, false))>, nil, nil, 0)) .
 
 *** incoming fragment has already been received (still send a downstream fragment but ACK the latest fragment from Alice)
-red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
-  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
-(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, 5, 4, 2, 4, 10, false, false))>, nil, nil, 0)) .
+red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, file(1000), 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, file(1000), 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, file(500), 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
+  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
+(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, file(1000), 5, 4, 2, 4, 10, false, false))>, nil, nil, 0)) .
 
 *** ACK a new fragment (Alice has sent fragment (2,5) and Bob has no fragments left to send)
-red getMsg(extractS((fragmentsToSend: mtfl, fragmentsReceived: (fragment(AliceAddr, BobAddr, 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
-  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
-(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, 0, 0, 2, 5, 0, false, false))>, nil, nil, 0)) .
+red getMsg(extractS((fragmentsToSend: mtfl, fragmentsReceived: (fragment(AliceAddr, BobAddr, file(1000), 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, file(1000), 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
+  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, file(1000), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
+(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, file(1000), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, file(1000), 2, 5, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, file(0), 0, 0, 2, 5, 0, false, false))>, nil, nil, 0)) .
 
 *** incoming fragment has already been received (still send a downstream fragment but ACK the latest fragment from Alice)
-red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
-  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
-(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, 5, 4, 2, 4, 10, false, false))>, nil, nil, 0)) .
+red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, file(1000), 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, file(1000), 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, file(500), 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
+  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
+(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, file(1000), 5, 4, 2, 4, 10, false, false))>, nil, nil, 0)) .
 
 *** incoming fragment is from an older packet (still send a downstream fragment but ACK the latest fragment from Alice)
-red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
-  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, 1, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
-(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, 1, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, 1, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, 5, 4, 2, 4, 10, false, false))>, nil, nil, 0)) .
+red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, file(1000), 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, file(1000), 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, file(500), 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
+  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, file(750), 1, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
+(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, file(750), 1, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, file(750), 1, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, file(1000), 5, 4, 2, 4, 10, false, false))>, nil, nil, 0)) .
 
 *** incoming fragment is a new packet (sequence number bigger)
-red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
-  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, 3, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
-(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, 3, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, 3, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, 5, 4, 3, 3, 10, false, false))>, nil, nil, 0)) .
+red getMsg(extractS((fragmentsToSend: (fragment(BobAddr, AliceAddr, file(1000), 5, 4, 0, 0, 10, false, false): fragment(BobAddr, AliceAddr, file(1000), 5, 5, 0, 0, 10, false, true)), fragmentsReceived: (fragment(AliceAddr, BobAddr, file(500), 2, 3, 5, 1, 10, false, false) : fragment(AliceAddr, BobAddr, file(500), 2, 4, 5, 2, 10, false, false)), lastFragment: true, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, numAttempts: 0),
+  (to addrWNS from cAddr : query(1, nm(fragment(AliceAddr, BobAddr, file(750), 3, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a)))) ==
+(to cAddr from addrWNS : response(1, nm(fragment(AliceAddr, BobAddr, file(750), 3, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, file(750), 3, 3, 5, 3, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, file(1000), 5, 4, 3, 3, 10, false, false))>, nil, nil, 0)) .
 
 *** Testing client response to downstream fragments
 red extract(
-(fragmentsReceived: (fragment(BobAddr, AliceAddr, 2, 3, 5, 1, 10, false, false) : fragment(BobAddr, AliceAddr, 2, 4, 5, 2, 10, false, false)), 
+(fragmentsReceived: (fragment(BobAddr, AliceAddr, file(1000), 2, 3, 5, 1, 10, false, false) : fragment(BobAddr, AliceAddr, file(1000), 2, 4, 5, 2, 10, false, false)), 
         lastFragment: false, inSeqNo: 2, inFragNo: 4, severWResponseTTL: 0.0, fragmentsToSend: mtfl), 
-      response(1, nm(fragment(AliceAddr, BobAddr, 5, 3, 2, 4, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, 5, 3, 2, 4, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, 2, 5, 5, 3, 10, false, false)) >, nil, nil, 0))
+      response(1, nm(fragment(AliceAddr, BobAddr, file(500), 5, 3, 2, 4, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, file(500), 5, 3, 2, 4, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, file(1000), 2, 5, 5, 3, 10, false, false)) >, nil, nil, 0))
  ==
-  (fragmentsReceived: (fragment(BobAddr, AliceAddr, 2, 3, 5, 1, 10, false, false) : fragment(BobAddr, AliceAddr, 2, 4, 5, 2, 10, false, false) : fragment(BobAddr, AliceAddr, 2, 5, 5, 3, 10, false, false)), 
+  (fragmentsReceived: (fragment(BobAddr, AliceAddr, file(1000), 2, 3, 5, 1, 10, false, false) : fragment(BobAddr, AliceAddr, file(1000), 2, 4, 5, 2, 10, false, false) : fragment(BobAddr, AliceAddr, file(1000), 2, 5, 5, 3, 10, false, false)), 
         lastFragment: false, inSeqNo: 2, inFragNo: 5, severWResponseTTL: 0.0, fragmentsToSend: mtfl) .
 
 *** Testing client response when it is waiting for an ACK--if ACK from Bob matches expected ACK, Alice moves up fragment and updates fragment counter
 red extract(
-(fragmentsReceived: (fragment(BobAddr, AliceAddr, 2, 3, 5, 1, 10, false, false) : fragment(BobAddr, AliceAddr, 2, 4, 5, 2, 10, false, false)), 
-        lastFragment: false, inSeqNo: 2, inFragNo: 4, outSeqNo: 5, outFragNo: 3, severWResponseTTL: 0.0, fragmentsToSend: (fragment(AliceAddr, BobAddr, 5, 3, 0, 0, 10, false, false)), numAttempts: 2), 
-      response(1, nm(fragment(AliceAddr, BobAddr, 5, 3, 2, 4, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, 5, 3, 2, 4, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, 2, 5, 5, 3, 10, false, false)) >, nil, nil, 0))
+(fragmentsReceived: (fragment(BobAddr, AliceAddr, file(1000), 2, 3, 5, 1, 10, false, false) : fragment(BobAddr, AliceAddr, file(1000), 2, 4, 5, 2, 10, false, false)), 
+        lastFragment: false, inSeqNo: 2, inFragNo: 4, outSeqNo: 5, outFragNo: 3, severWResponseTTL: 0.0, fragmentsToSend: (fragment(AliceAddr, BobAddr, file(500), 5, 3, 0, 0, 10, false, false)), numAttempts: 2), 
+      response(1, nm(fragment(AliceAddr, BobAddr, file(500), 5, 3, 2, 4, 10, false, true)) . 'pwnd2 . 'com . root, < nm(fragment(AliceAddr, BobAddr, file(500), 5, 3, 2, 4, 10, false, true)) . 'pwnd2 . 'com . root, a, 0.0, nm(fragment(BobAddr, AliceAddr, file(1000), 2, 5, 5, 3, 10, false, false)) >, nil, nil, 0))
  ==
-  (fragmentsReceived: (fragment(BobAddr, AliceAddr, 2, 3, 5, 1, 10, false, false) : fragment(BobAddr, AliceAddr, 2, 4, 5, 2, 10, false, false) : fragment(BobAddr, AliceAddr, 2, 5, 5, 3, 10, false, false)), 
+  (fragmentsReceived: (fragment(BobAddr, AliceAddr, file(1000), 2, 3, 5, 1, 10, false, false) : fragment(BobAddr, AliceAddr, file(1000), 2, 4, 5, 2, 10, false, false) : fragment(BobAddr, AliceAddr, file(1000), 2, 5, 5, 3, 10, false, false)), 
         lastFragment: false, inSeqNo: 2, inFragNo: 5, outSeqNo: 5, outFragNo: 4, severWResponseTTL: 0.0, fragmentsToSend: mtfl, numAttempts: 0) .
 
 
