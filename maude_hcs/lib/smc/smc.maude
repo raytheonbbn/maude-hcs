@@ -1,6 +1,7 @@
 mod SMC is
 
   inc HCS_TEST .
+  pr LIST{Float} .
 
   var AC : ActorConfig .
   var attrs : AttributeSet .
@@ -13,7 +14,7 @@ mod SMC is
   var A : Actor .
   var N : Nat .
   var last? : Bool .
-  vars T T' T'' T''' : Float .
+  vars T T' T'' T''' Tmsg : Float .
   var ADDR AppAddrFrom AppAddrTo : Address .
 
   var QTL QTL' : QueryTimestampList .
@@ -24,6 +25,8 @@ mod SMC is
   var TH : Float .
   var GT : Float .
   var I : Int .
+
+  var LF LF1 : List{Float} .
 
   var bytes : ByteSeq .
 
@@ -131,7 +134,11 @@ mod SMC is
                         --- startT window threshold
   op highQPS : TimeMsgList Float Float Float -> Bool .
   ***** @Minyoung: do we need to check that T > T'-bin?
-  eq highQPS (TML, T, T', TH) = if avgQPS (TML, T,  T') > avgQPS (TML, 0.0, T') * TH then true else false fi .
+  eq highQPS (TML, T, T', TH) = 
+      if avgQPS (TML, T,  T') > avgQPS (TML, 0.0, T') * TH 
+      then true 
+      else false 
+      fi .
   ***** @Minyoung: does this need an owise?
   eq highQPS (nilTML, T, T', TH) = false . 
 
@@ -151,22 +158,32 @@ mod SMC is
   *****  would be really helpful to create some test cases for this !!
   eq alarm (TML, T, T', T'', TH, I) = true [owise].
 
+  ---- time at which the alarm occurred (I bins after start time)
+  op alarmTime : Float Float Float Int -> Float .
+  eq alarmTime(T, T', T'', I) = T + T' + (float(I) * T'') .
+
   ***** @Minyoung: tod below is not how I expected it; I was expecting tod to be time we first got an alarm?
   *****             i.e. do we need the experiment to keep going or should isDone be true at that point?
   ----                 startT window/m bin/s th/k consecutive/n
   op tod : TimeMsgList Float Float Float Float Int -> Float .
-  ceq tod (TML, T, T', T'', TH, I) = 
-            (if alarm(TML, T, T', T'', TH, I) 
-              then T + T' + (float(I) * T'') 
-              else tod(TML, T + T'', T', T'', TH, I) 
-            fi) 
-            if lastT(TML) > T + T' + (float(I - 1) * T'') . 
+  eq tod (TML ; tm(Tmsg, M), T, T', T'', TH, I) = 
+    if  T >= Tmsg --- passed the end
+      then 0.0
+      else
+        (if alarm(TML ; tm(Tmsg, M), T, T', T'', TH, I) 
+          then alarmTime(T, T', T'', I)
+          else tod(TML ; tm(Tmsg, M), T + T'', T', T'', TH, I) 
+        fi) 
+    fi
+            --- if lastT(TML ; tm(Tmsg, M)) > alarmTime(T, T', T'', I - 1) 
+            --- [print "ToD [" T "," T' "] bin " T'' ]
+            . 
 
   op getInitialQPS : Config Float -> Float .
-  eq getInitialQPS (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQPS (TML, 0.0, T) .  
+  eq getInitialQPS (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQPS(TML, 0.0, T) .  
 
   op getAvgQPS : Config Float Float -> Float .
-  eq getAvgQPS (C < ADDR : Adversary | sent: TML, attrs >, T, T') = avgQPS (TML, T, T') .  
+  eq getAvgQPS (C < ADDR : Adversary | sent: TML, attrs >, T, T') = avgQPS(TML, T, T') .  
 
   op getHcsQPS : Config Float -> Float .
   eq getHcsQPS (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQPS(TML, T, lastT(TML) - T) .  
@@ -178,6 +195,28 @@ mod SMC is
                         --- init start window bin th consecutive
   op isDetected : Config Float Float Float Float Int -> Bool .
   eq isDetected (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = if tod(TML, T'' - T, T, T', TH, I) > 0.0 then true else false fi . 
+
+  
+  ---- get the avg qps for each window
+  op perWindowQPS : TimeMsgList Float Float Float -> List{Float} .
+  op $perWindowQPS : TimeMsgList Float Float Float List{Float} -> List{Float} .
+  eq  perWindowQPS(TML, T, T', T'') = $perWindowQPS(TML, T, T', T'', nil) .
+  eq $perWindowQPS(nilTML, T, T', T'', LF) = nil .
+  eq $perWindowQPS(TML ; tm(Tmsg, M), T, T', T'', LF) = 
+    if T >= Tmsg --- passed the end
+      then LF
+      ---- append average of this window and go to next window
+      else $perWindowQPS(TML ; tm(Tmsg, M), T + T'', T', T'', (LF avgQPS(TML ; tm(Tmsg, M), T, T')))
+    fi
+    .
+  
+  
+  
+  ----                        startT window bin -> List of values one per window
+  op getPerWindowQPs : Config Float Float Float -> List{Float} .
+  eq getPerWindowQPs (C < ADDR : Adversary | sent: TML, attrs >, T, T', T'') = perWindowQPS(TML, T, T', T'') . 
+
+
 
   var ID : Id .
   var NAME : Name .
