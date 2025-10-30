@@ -61,19 +61,19 @@ mod MYLISTS is
   subsort Packet < PacketList .
 
   subsorts Packet Fragment < Content . 
-  ----        AliceAddr Packet# File DataLenBytes lastPacket? 
+  ----        AliceAddr BobAddr File Packet# DataLenBytes lastPacket? 
   op packet : Address Address ByteSeq Nat Nat Bool -> Packet .
   ----          AliceAddr BobAddr File Packet# Frag# DataLenBytes lastPacketlastFrag 
-  op fragment : Address Address ByteSeq Nat Nat Nat Bool Bool -> Fragment .  
+  op fragment : Address Address ByteSeq Nat Nat Nat Nat Nat Bool Bool -> Fragment .  
 
   vars curFragments FL : FragmentList .
   var F : Fragment .
   vars FILE : ByteSeq .
   var PL : PacketList .
   var P : Packet .
-  vars ALICE BOB : Address .
-  vars N N1 N2 N3 : Nat .
-  vars LAST_PACKET B : Bool .
+  vars FROM_ADDR TO_ADDR : Address .
+  vars OUT_SEQNO OUT_FRAGNO IN_SEQNO IN_FRAGNO FRAG_LEN P_LEN : Nat .
+  vars LAST_PACKET LAST_FRAG : Bool .
 
   op nilFragment : -> Fragment .
   op nilPacket : -> Packet .
@@ -84,11 +84,14 @@ mod MYLISTS is
   op _;_    : PacketList PacketList -> PacketList [ctor assoc id: mtpl] .
 
   op getFromAddr : Fragment -> Address .
-  eq getFromAddr(fragment(ALICE, BOB, FILE, N, N1, N2, LAST_PACKET, B)) = ALICE .
+  eq getFromAddr(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = FROM_ADDR .
+
+  op getFile : Fragment ->  ByteSeq .
+  eq getFile(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = FILE .
 
   op getFile : PacketList -> ByteSeq .
   --- TODO: This function should make sure that all packets are in.
-  eq getFile(packet(ALICE, BOB, FILE, N, N1, B) ; PL) = FILE .
+  eq getFile(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_PACKET) ; PL) = FILE .
   eq getFile(mtpl) = nilBytes .
 
   ----        return list of fragments that form a packet
@@ -173,9 +176,6 @@ mod IODINE_SORTS is
   eq fragment(nm(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG))) = fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG) .
   eq fragment(NAME) = nilFragment [owise] .
 
-  op getFromAddr : Fragment -> Address .
-  eq getFromAddr(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = FROM_ADDR .
-
   op getFromAddr : Response -> Address .
   ceq getFromAddr(response(ID, NAME, ANS, AUTH, ADD, RCODE)) = ADDR
     if nm(F) . NAME1 := NAME
@@ -191,7 +191,7 @@ mod IODINE_SORTS is
 
   ---- Get the outgoing fragment number of a fragment
   op getFragOutFragNo : Fragment -> Nat .
-  eq getFragOutFragNo(fragment(FROM_ADDR, FILE, TO_ADDR, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = OUT_FRAGNO .
+  eq getFragOutFragNo(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = OUT_FRAGNO .
 
   op getToAddr : Fragment -> Address .
   eq getToAddr(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = TO_ADDR .
@@ -537,8 +537,8 @@ mod IODINE_NODE is
     .
 
   op ackFragment : Fragment Nat Nat -> Fragment .
-  eq ackFragment(fragment(ADDR, ADDR1, OUT_SEQNO, OUT_FRAGNO, N1, N2, N, LAST_PACKET, LAST_FRAG), IN_SEQNO, IN_FRAGNO) = 
-    fragment(ADDR, ADDR1, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, N, LAST_PACKET, LAST_FRAG) .
+  eq ackFragment(fragment(ADDR, ADDR1, FILE, OUT_SEQNO, OUT_FRAGNO, N1, N2, N, LAST_PACKET, LAST_FRAG), IN_SEQNO, IN_FRAGNO) = 
+    fragment(ADDR, ADDR1, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, N, LAST_PACKET, LAST_FRAG) .
 
   --- Send current fragment as a query.
   ---                   Attributes from
@@ -648,7 +648,7 @@ mod IODINE_NODE is
     /\ F' := grabCurrentFragment(wattrsTrans') 
     --- TODO: Check what iodined.c does for a dataless fragment's sequence number/fragment
     --- If F' is nilFragment ie no more fragments left to send, ACK the client's fragment with a dataless fragment
-    /\ downstreamdata := nm(ackFragment((if F' == nilFragment then fragment(getToAddr(F), getFromAddr(F), 0, 0, 0, 0, 0, false, false) else F' fi), getInSeqNo(wattrsTrans'), getInFragNo(wattrsTrans')))
+    /\ downstreamdata := nm(ackFragment((if F' == nilFragment then fragment(getToAddr(F), getFromAddr(F), getFile(F), 0, 0, 0, 0, 0, false, false) else F' fi), getInSeqNo(wattrsTrans'), getInFragNo(wattrsTrans')))
     --- iodined.c:588: Only increment attempt counter if this is not a dataless fragment
     /\ wattrsNext := (if F' == nilFragment then wattrsTrans' else incrNumAttempts(wattrsTrans') fi)
     /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, sTTL, downstreamdata >, nil, nil, 0))

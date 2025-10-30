@@ -187,7 +187,7 @@ crl [wnameserver-receive-query-weird]:
     (if msgOut == nullMsg then null else [sampleUniform(pacingTimeoutDelay, pacingTimeoutDelayMax), (to BOB : pktTimeout(getPkt(msgOut))), 0] fi)
     if appAttrsTrans := (if queueSet == true
                      then (appAttrs, fileDestAddr: ADDR)
-                     else (packetizeProb(appAttrs, BOB, ADDR, fileSize, packetSize, maxPacketSize), fileDestAddr: ADDR)
+                     else (packetizeProb(appAttrs, BOB, ADDR, file(fileSize), packetSize, maxPacketSize), fileDestAddr: ADDR)
                      fi)
      *** The queue is populated and wnameserver is presumed ready since it sent a start
     /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, iodineReady: true)
@@ -218,8 +218,8 @@ crl [wnameserver-receive-query-weird]:
         [print "(" T ") RcvApp timeout, send possible msg " msgOut ", setting timeout if not null"]
   .
 
-  rl [receive-app-rcv-packet]:
-    < ADDR : RcvApp | rcvd: PACKETS, appAttrs >
+  crl [receive-app-rcv-packet]:
+    < ADDR : RcvApp | appAttrs >
     < MON : WMonitor | pktRcvd: PTL, monAttrs >
     {T, (to ADDR from ADDR1 : Pkt)}
   => 

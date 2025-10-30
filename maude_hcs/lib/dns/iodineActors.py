@@ -46,7 +46,7 @@ class ReceiveApp:
         res += f'    queuePopulated: false,\n'
         res += f'    queue: (mtpl),\n'
         res += f'    numAdmittedPkts: 1,\n'
-        res += f'    wnameserverReady: true,\n'
+        res += f'    iodineReady: true,\n'
         res += f'    sent: mtpl >'
         return res
 
@@ -108,7 +108,7 @@ class SendApp:
         res += f'    queuePopulated: false,\n'
         res += f'    queue: ({packetlist_to_maude(self.packets)}),\n'
         res += '    numAdmittedPkts: 1,\n'
-        res += '    wclientReady: true,\n'
+        res += '    iodineReady: true,\n'
         res += f'    sent: mtpl,\n'
         res += f'    rcvd: mtpl > '        
         return res
