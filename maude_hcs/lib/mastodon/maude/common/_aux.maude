@@ -193,6 +193,8 @@ mod MASTODON_NODE is
   op gettingMediaUrls:_ : UrlList -> Attribute [ctor] .
   --- The list of media / images being retreived.
   op gettingMedias:_ : MediaFileList -> Attribute [ctor] .
+  --- The hashtag currently being searched.
+  op gettingTag:_ : Tag -> Attribute [ctor] .
   --- The list of posts to get (usually from a hashtag search).
   op gettingPosts:_ : MasIdList -> Attribute [ctor] .
 
@@ -231,6 +233,9 @@ mod MASTODON_NODE is
 
   op getMedias : AttributeSet -> MediaFileList .
   eq getMedias(masClAttrs, gettingMedias: MEDIA_FILE_LIST) = MEDIA_FILE_LIST .
+
+  op getTag : AttributeSet -> Tag .
+  eq getTag(masClAttrs, gettingTag: TAG) = TAG .
 
   op getPostingText : AttributeSet -> String .
   eq getPostingText(masClAttrs, postingText: POST_TEXT) = POST_TEXT .
@@ -342,15 +347,15 @@ mod MASTODON_NODE is
 
   ---Download all media from posts resulting in hashtag search.
   op downloadMediaAtHashtag : AttributeSet Tag -> AttributeSetMsgs .
-  eq downloadMediaAtHashtag((masClAttrs, gettingMediaUrls: URL_LIST), hashtag) =
-    { pushOp((masClAttrs, gettingMediaUrls: emptyUrlList), (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP)) ,
+  eq downloadMediaAtHashtag((masClAttrs, gettingMediaUrls: URL_LIST, gettingTag: TAG), hashtag) =
+    { pushOp((masClAttrs, gettingMediaUrls: emptyUrlList, gettingTag: hashtag), (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP)) ,
       get(hashtag, getMastodonServerAddr(masClAttrs), getThisAddr(masClAttrs)) }
     .
 
   ---Download all media from posts resulting in hashtag search but limit the number of posts returned.
   op downloadMediaAtHashtag : AttributeSet Tag Nat -> AttributeSetMsgs .
-  eq downloadMediaAtHashtag((masClAttrs, gettingMediaUrls: URL_LIST), hashtag, LIMIT) =
-    { pushOp((masClAttrs, gettingMediaUrls: emptyUrlList), (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP)) ,
+  eq downloadMediaAtHashtag((masClAttrs, gettingMediaUrls: URL_LIST, gettingTag: TAG), hashtag, LIMIT) =
+    { pushOp((masClAttrs, gettingMediaUrls: emptyUrlList, gettingTag: hashtag), (GET-STATUS-OP : GET-MEDIA-HASHTAG-OP)) ,
       get(hashtag, LIMIT, getMastodonServerAddr(masClAttrs), getThisAddr(masClAttrs)) }
     .
 
@@ -516,11 +521,11 @@ mod MASTODON_NODE is
          (if currentOp == GET-MEDIA-HASHTAG-OP
             then (if url == nilUrl
                    then {(masClAttrs, opStack: OP_STACK, gettingMediaUrls: emptyUrlList),
-                         (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : ResponseMediaList(getMedias(masClAttrs)))}
+                         (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : ResponseMediaList(getTag(masClAttrs), getMedias(masClAttrs)))}
                    else downloadMediaAtUrl((masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: popUrlList(URL_LIST)), url)
                  fi)
             else {(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: emptyUrlList),
-                  (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : ResponseMediaList(getMedias(masClAttrs)))}
+                  (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : ResponseMediaList(getTag(masClAttrs), getMedias(masClAttrs)))}
          fi)
     .
   eq finishGetMediaFromPost(masClAttrs) = { masClAttrs, nullMsg } [owise] .
@@ -1009,6 +1014,7 @@ red handleReply(makeHttpResponse("OK",
                   requesterAddr: TEST-REQ-ADDR,
                   opStack: (GET-MEDIA-URL-OP : GET-MEDIA-HASHTAG-OP),
                   gettingMediaUrls: emptyUrlList,
+                  gettingTag: makeTag("TEST-TAG"),
                   gettingMedias: emptyMediaFileList))
   == { (masClTestAttrs,
         thisAddr: TEST-FROM-ADDR,
@@ -1016,8 +1022,10 @@ red handleReply(makeHttpResponse("OK",
         requesterAddr: TEST-REQ-ADDR,
         opStack: emptyOpStack,
         gettingMediaUrls: emptyUrlList,
+        gettingTag: makeTag("TEST-TAG"),
         gettingMedias: makeMediaFile("img0.jpg", TEST-SIZE)),
-       (to TEST-REQ-ADDR from TEST-FROM-ADDR : ResponseMediaList(makeMediaFile("img0.jpg", TEST-SIZE))) }
+       (to TEST-REQ-ADDR from TEST-FROM-ADDR : ResponseMediaList(makeTag("TEST-TAG"),
+                                                                 makeMediaFile("img0.jpg", TEST-SIZE))) }
   .
 
 *** Test a media get reply (from a URL) during the process of getting all media from all posts with a certain hashtag.
