@@ -27,9 +27,11 @@
 --- MAUDE_HCS: end
 
 load ../common/_aux
+load ../../../common/maude/cp2-interfaces
 
 mod MASAUX is
   inc MASTODON_NODE .
+  inc MC-INTERFACE .
 
   --- Get a post by Mastodon Id.
   op GetPost : MasId -> Content .
@@ -82,6 +84,26 @@ mod MASAUX is
     downloadTimeline(attrs:AttributeSet)
     if GetTimeline := raceboatReq:Content
     .
+  eq dispatchRaceboatCommand(attrs:AttributeSet, raceboatReq:Content) =
+    dispatchRaceboatCommand(attrs:AttributeSet, translateRbToMasCommand(raceboatReq:Content))
+    [owise]
+    .
+
+  op translateRbToMasCommand : Content -> Content .
+  ceq translateRbToMasCommand(requesterReq:Content) =
+    PostStatus(text:String) 
+    if tootQ(HASHTAG:ByteSeq, noBytes) := requesterReq:Content
+      /\ text:String := "#" + getHashtag(HASHTAG:ByteSeq)
+    [print "Translating requester req " requesterReq:Content " to Mastodon command post " text:String "." ]
+    .
 
 endm
 
+---set trace on .
+red translateRbToMasCommand(tootQ(bHashTag(4), noBytes))
+  == PostStatus("#4")
+  .
+
+red dispatchRaceboatCommand(attrs:AttributeSet, tootQ(bHashTag(4), noBytes))
+  == uploadNewStatus(attrs:AttributeSet, "#4", emptyMasIdList)
+  .
