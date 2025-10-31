@@ -90,11 +90,23 @@ mod MASAUX is
     .
 
   op translateRbToMasCommand : Content -> Content .
+  --- Translate tootQ(hashtag).
   ceq translateRbToMasCommand(requesterReq:Content) =
     PostStatus(text:String) 
     if tootQ(HASHTAG:ByteSeq, noBytes) := requesterReq:Content
       /\ text:String := "#" + getHashtag(HASHTAG:ByteSeq)
     [print "Translating requester req " requesterReq:Content " to Mastodon command post " text:String "." ]
+    .
+  --- Translate tootQ(hashtag, image).
+  ceq translateRbToMasCommand(requesterReq:Content) =
+    PostStatus(text:String, mediaFileList:MediaFileList)
+    if tootQ(HASHTAG:ByteSeq, image:ByteSeq) := requesterReq:Content
+      /\ text:String := "#" + getHashtag(HASHTAG:ByteSeq)
+      /\ filename:String := getFilename(image:ByteSeq)
+      /\ mediaFileList:MediaFileList := makeMediaFile(filename:String,
+                                                      getSize(image:ByteSeq),
+                                                      image:ByteSeq)
+    [print "Translating requester req " requesterReq:Content " to Mastodon command post " text:String " with media " mediaFileList:MediaFileList ]
     .
 
 endm
@@ -107,3 +119,10 @@ red translateRbToMasCommand(tootQ(bHashTag(4), noBytes))
 red dispatchRaceboatCommand(attrs:AttributeSet, tootQ(bHashTag(4), noBytes))
   == uploadNewStatus(attrs:AttributeSet, "#4", emptyMasIdList)
   .
+
+red translateRbToMasCommand(tootQ(wHashTag(4), image(4, 100, 400)))
+  == PostStatus("#4", makeMediaFile("img_4.jpg", 400, image(4, 100, 400)))
+  .
+
+
+
