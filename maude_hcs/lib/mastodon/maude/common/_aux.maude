@@ -198,6 +198,25 @@ mod MASTODON_NODE is
   --- The list of posts to get (usually from a hashtag search).
   op gettingPosts:_ : MasIdList -> Attribute [ctor] .
 
+  --- Make a MasClient:   its_addr srver_addr requester_addr
+  op makeMastodonClient : Address  Address    Address -> Config .
+  ---   requester addr is addr of Raceboat / TGEN.
+  eq makeMastodonClient(MAS_CLIENT_ADDR, MAS_SERVER_ADDR, FROM-ADDR) =
+    < MAS_CLIENT_ADDR : MasClient |
+        thisAddr: MAS_CLIENT_ADDR,
+        masServerAddr: MAS_SERVER_ADDR,
+        requesterAddr: FROM-ADDR,
+        opStack: emptyOpStack,
+        postingMedia: emptyMediaFileList,
+        postingMediaIds: emptyMasIdList,
+        postingText: "",
+        gettingMediaUrls: emptyUrlList,
+        gettingMedias: emptyMediaFileList,
+        gettingTag: nilTag,
+        gettingPosts: emptyMasIdList
+    >
+    .
+
   --- Eqs ---
   ----- For Messages -----
   op getSrcAddr : HttpMsg -> Address .
@@ -551,6 +570,18 @@ mod MASTODON_NODE is
   op mediaMap:_ : IdMediaMap -> Attribute [ctor] .
 
   op tagMap:_ : TagPostIdsMap -> Attribute [ctor] .
+
+  --- Make a MasServer:   its_addr
+  op makeMastodonServer : Address -> Config .
+  eq makeMastodonServer(MAS_SERVER_ADDR) =
+    < MAS_SERVER_ADDR : MasServer |
+      thisAddr: MAS_SERVER_ADDR,
+      currentMapId: 0,
+      tootMap: emptyIdTootMap,
+      mediaMap: emptyIdMediaMap,
+      tagMap: emptyTagPostIdsMap
+    >
+    .
 
   vars masServerAttrs masServerAttrsNext masServerAttrsTrans : AttributeSet .
   vars idTootMap ID_TOOT_MAP : IdTootMap .
