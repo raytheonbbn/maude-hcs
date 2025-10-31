@@ -99,14 +99,13 @@ mod SMC is
 
   op lengthTimeWindow : QueryTimestampList Float Float -> Nat .
   eq lengthTimeWindow (nilQueryTimestamp, T', T'') = 0 .
-  eq lengthTimeWindow (QTL ; queryTimestamp(QUERY, T), T', T'') = if T > T' and T < T'' then 1 + lengthTimeWindow(QTL, T', T'') else lengthTimeWindow(QTL, T', T'') fi .
+  eq lengthTimeWindow (QTL ; queryTimestamp(QUERY, T), T', T'') = if T >= T' and T < T'' then 1 + lengthTimeWindow(QTL, T', T'') else lengthTimeWindow(QTL, T', T'') fi .
 
   ---- the number of messages that occured between T' and T''
   ----                              startT endT
   op lengthTimeWindow : TimeMsgList Float Float -> Nat .
   eq lengthTimeWindow (nilTML, T', T'') = 0 .
-  ***** @Minyoung: Should the below be >= instead to ensure we dont skip any messages that may have occcurred at t=T'
-  eq lengthTimeWindow (TML ; tm(T, M), T', T'') = if T > T' and T < T'' then 1 + lengthTimeWindow(TML, T', T'') else lengthTimeWindow(TML, T', T'') fi .
+  eq lengthTimeWindow (TML ; tm(T, M), T', T'') = if T >= T' and T < T'' then 1 + lengthTimeWindow(TML, T', T'') else lengthTimeWindow(TML, T', T'') fi .
 
   op getNQuerySent : Actor -> Nat .
   eq getNQuerySent (< ADDR : WMonitor | querySent: QTL, attrs >) = length(QTL) .
@@ -133,13 +132,11 @@ mod SMC is
   ----- the QPS in window [T, T+T'] > th*(QPS in window [0, T'])
                         --- startT window threshold
   op highQPS : TimeMsgList Float Float Float -> Bool .
-  ***** @Minyoung: do we need to check that T > T'-bin?
   eq highQPS (TML, T, T', TH) = 
       if avgQPS (TML, T,  T') > avgQPS (TML, 0.0, T') * TH 
       then true 
       else false 
       fi .
-  ***** @Minyoung: does this need an owise?
   eq highQPS (nilTML, T, T', TH) = false . 
 
   ---- Aggregate average query rate exceeds k × initial average query rate for n consecutive time bins of width s
@@ -152,18 +149,12 @@ mod SMC is
       else false 
       fi 
     if I > 0 .
-  **** @Minyoung: should this owise be split into two equations instead
-  **** eq alarm (TML, T, T', T'', TH, 0) = true .
-  **** eq alarm (TML, T, T', T'', TH, I) = false [owise].
-  *****  would be really helpful to create some test cases for this !!
   eq alarm (TML, T, T', T'', TH, I) = true [owise].
 
   ---- time at which the alarm occurred (I bins after start time)
   op alarmTime : Float Float Float Int -> Float .
   eq alarmTime(T, T', T'', I) = T + T' + (float(I) * T'') .
 
-  ***** @Minyoung: tod below is not how I expected it; I was expecting tod to be time we first got an alarm?
-  *****             i.e. do we need the experiment to keep going or should isDone be true at that point?
   ----                 startT window/m bin/s th/k consecutive/n
   op tod : TimeMsgList Float Float Float Float Int -> Float .
   eq tod (TML ; tm(Tmsg, M), T, T', T'', TH, I) = 
