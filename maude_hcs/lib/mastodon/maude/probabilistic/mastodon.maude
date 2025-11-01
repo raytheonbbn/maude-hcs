@@ -30,9 +30,10 @@ load ../../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
 load ../common/_mas_aux
 
 mod MASTODON is
+  inc CP2-COMMON .
   inc MASAUX .
   inc DNS .
-
+  
   vars raceboatCl ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
   vars attrs attrsNext : AttributeSet .
   vars raceboatReq : Content .
@@ -58,7 +59,7 @@ mod MASTODON is
   => 
   < MAS_CLIENT_ADDR : MasClient | attrsNext >
   --- TODO: Figure out what the correct delay should be.
-    (if msgOut == nullMsg then null else [0.5, msgOut, 0] fi)
+    delayMsgs(msgOut, null)
   if {attrsNext, msgOut} := handleReply(httpResponse, attrs)
   [print "(" T "): Mastodon Client handling HTTP Response from Server, sending " msgOut]
   .
@@ -70,10 +71,11 @@ mod MASTODON is
   => 
   < MAS_CLIENT_ADDR : MasClient | attrsNext >
     --- TODO: Figure out what the correct delay should be.
-    [0.5, msgOut, 0]
+    delayMsgs(msgOut, null)
   if { attrsNext, msgOut } := dispatchRaceboatCommand(attrs, raceboatReq)
   [print "(" T "): Mastodon Client handling command " raceboatReq " from Raceboat, sending " msgOut]
   .  
+
 
   -------------------------------
   --- [Mastodon Server] --- Rules
@@ -86,7 +88,7 @@ mod MASTODON is
   =>
   < MAS_SERVER_ADDR : MasServer | attrsNext >
     --- TODO: Figure out what the correct delay should be.
-    (if msgOut == nullMsg then null else [0.5, msgOut, 0] fi)
+    delayMsgs(msgOut, null)
 
   if { attrsNext, msgOut } := handleRequest((to MAS_SERVER_ADDR from MAS_CLIENT_ADDR : REQ:Content), attrs)
   [print "(" T "): Mastodon Server handling HTTP Request, sending " msgOut]
@@ -99,7 +101,7 @@ mod MASTODON is
   =>
   < MAS_CLIENT_ADDR : MasClient | attrsNext >
     --- TODO: Figure out what the correct delay should be.
-    [0.5, msgOut, 0]
+    delayMsgs(msgOut, null)
 
   if {attrsNext, msgOut} := downloadMediaAtHashtag(attrs, HASHTAG)
   [print "(" T "): Mastodon Client start collecting all media associated with " HASHTAG " - send " msgOut]
