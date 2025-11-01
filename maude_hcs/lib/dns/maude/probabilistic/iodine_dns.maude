@@ -60,11 +60,12 @@ mod IODINE_DNS is
   vars MON : Address .
   vars FRAGMENT sentFragment : Fragment .
   vars IODINEREADY : Bool .
-  var N : Nat .
+  var N N1 : Nat .
   vars FILE_SIZE MIN_PKT_SIZE MAX_PKT_SIZE PKT_COUNTER PktSize : Nat .
   var FILE : ByteSeq .
   var sTTL : Float .
   var F : Fragment .
+  var shouldSendPing : Bool .
 
   op fileSize : -> Nat .
   op packetSize : -> Nat .
@@ -171,6 +172,22 @@ crl [wnameserver-receive-query-weird]:
   [print "(" T ") WServer receving query " ID ]
   .
 
+  --- TODO remove when done testing
+  --- crl [wnameserver-eat-queries]:
+  --- < ADDR : WNameserver | wattrs,  
+  ---         conf: (wrappedNS)
+  --- >
+  --- < MON : WMonitor | queryRcvd: QTL, monAttrs >
+  --- {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}
+  --- =>
+  --- < ADDR : WNameserver | wattrs,
+  ---         conf: (wrappedNS) 
+  --- >
+  --- < MON : WMonitor | queryRcvd: QTL, monAttrs >
+  --- if nm(F) . NAME := QNAME
+  --- /\ isOldFragment(wattrs, F)
+  --- [print "Eat dupe query: " ID QNAME]
+  --- .
   
   ---------------------------------------
   --- [Receive App] --- Bob
@@ -384,11 +401,11 @@ crl [wnameserver-receive-query-weird]:
   --- If the packet transmission is incomplete 
   --- send the next fragment to WNameServer.
   crl [iClientExtractFromServer]:
-    < ADDR : WClient | resv: RESOLVER, fragmentsReceived: FRAGMENT_LIST, wattrs >
+    < ADDR : WClient | pingsSent: N, resv: RESOLVER, fragmentsReceived: FRAGMENT_LIST, wattrs >
     < MON : WMonitor | querySent: QTL, monAttrs >
       {T, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))}
     =>
-    < ADDR : WClient | wattrs2 >       
+    < ADDR : WClient | pingsSent: N1, wattrs2 >       
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
     (if msgOutExt == nullMsg 
      then [0.0, (to getFromAddr(response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)) : start), 0]
@@ -397,7 +414,10 @@ crl [wnameserver-receive-query-weird]:
      null 
      else [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
     (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
+    --- Schedule a ping that expects a fragment with this sequence and fragment number
+    [1.0, (to ADDR : pingTimeout(ackFragment(fragment(getFromAddr(F), getToAddr(F), file(0), 0, 0, 0, 0, 0, false, false), getInSeqNo(wattrsTrans), getInFragNo(wattrsTrans)))), 0]
     if wattrsTrans := extract((resv: RESOLVER, fragmentsReceived: FRAGMENT_LIST, wattrs), response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))
+      /\ nm(F) := downstreamdata
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
         if txComplete
@@ -406,6 +426,8 @@ crl [wnameserver-receive-query-weird]:
           else sendFragment(wattrsTrans, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
+      --- Reset fragment limit if we encounter a new fragment; otherwise count up to avoid pinging forever on repeated fragments
+      /\ N1 := (if isOldFragment(wattrs, F) then N else 0 fi)
       /\ {wattrs2, appMsgOut} := updateRcvAppAlice(wattrsNext, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)))
       [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt]
     .
@@ -425,6 +447,26 @@ crl [wnameserver-receive-query-weird]:
       [print "(" T ") WClient got outdated response to query " ID ", dropping it"]
     .
   
+    --- Timeout rule for pings
+  crl [clientPingTimeout]:
+    < ADDR : WClient | pingsSent: N, wattrs >
+    < MON : WMonitor | querySent: QTL, monAttrs >
+    {T, (to ADDR : pingTimeout(FRAGMENT))}
+    =>
+    < ADDR : WClient | pingsSent: (if msgOutExt == nullMsg then N else (s N) fi), wattrsNext >
+    < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
+    --- Get ready to send another ping 1s later
+    ---[delayParamd(msgOut), msgOut, dropParamd(msgOut)]
+    --- (if (N < 10) and isTxComplete(wattrs) then [1.0, (to ADDR : pingTimeout(FRAGMENT)), 0] else null fi)
+    (if msgOutExt == nullMsg then null else [0., msgOutExt, 0] fi)
+    if  {wattrsNext, msgOut} := sendPing(wattrs, ADDR, FRAGMENT)
+    /\ shouldSendPing := needToSendPing((wattrs, pingsSent: N), FRAGMENT)
+    /\ msgOutExt := (if shouldSendPing then msgOut else nullMsg fi)
+    --- This is just for testing so the model doesn't just keep pinging forever
+    /\ (N < 10)
+    [print "(" T ") Time to send ping? " shouldSendPing msgOut ]
+  .
+
     --- Timeout rule for WClient.
   crl [iClientTimeout]:
     < ADDR : WClient | wattrs >
