@@ -358,3 +358,299 @@ graph TD
         T1_Store --> T1_End["End (Return to Idle)"];
     end
 ```
+
+# Adversary
+
+```mermaid
+---
+config:
+  theme: neo
+  themeVariables:
+    fontSize: 44px
+    fontFamily: Inter
+  layout: elk
+---
+graph TD
+    A["Logging Function Called by an External Actor"] --> B{Call type?};
+
+    B -- "logRcvd" --> C{"Does Msg match 'canSeeR' pattern?"};
+    C -- "No" --> End["Return 'attrs' (No Change)"];
+    C -- "Yes" --> D{"Is Msg 'toRouter(Msg)' true?"};
+    D -- "Yes (Router Rcv)" --> E["Add Msg to 'sent' list<br>(addSent)"];
+    D -- "No (Normal Rcv)" --> F["Add Msg to 'rcvd' list<br>(addRcvd)"];
+    E --> End;
+    F --> End;
+    
+    B -- "logSent" --> G{"Does Msg match 'canSeeS' pattern?"};
+    G -- "No" --> End;
+    G -- "Yes" --> H["Add Msg to 'sent' list<br>(addSent)"];
+    H --> End;
+```
+
+# Raceboat Model
+
+## Raceboat Client
+
+```mermaid
+sequenceDiagram
+    participant Alice
+    participant UMC as UserModel_Client
+    participant CMC as ContentManager_Client
+    participant EDC as Destini_Encoder
+    participant Mastodon
+
+    Note over Alice, Mastodon: Raceboat Client System (Exfiltration)
+
+    opt File Upload Path
+        Alice ->> CMC: pkg(efile, wHashTag)
+        
+        loop Until File is Fully Sent
+            UMC ->> CMC: actionQ(media)
+            Note over CMC: File pending, has currentFrags
+            CMC ->> EDC: capQ(fsize)
+            EDC -->> CMC: capR(capacity)
+            Note over CMC: Creates fragment based on capacity
+            CMC ->> EDC: encQ(fragment)
+            EDC -->> CMC: encR(image)
+            Note over CMC: Uses wHashTag from pending list
+            CMC ->> Mastodon: translateTootQ(wHashTag, image)
+            Mastodon -->> CMC: mkPostResponse(ok)
+            Note over CMC: Clears fragment if file complete
+            CMC -->> UMC: actionR(ok)
+        end
+    end
+    
+    opt Benign Media Post (Chaff)
+        UMC ->> CMC: actionQ(media)
+        Note over CMC: No file pending
+        CMC ->> EDC: encQ(noBytes)
+        EDC -->> CMC: encR(blank_image)
+        Note over CMC: Uses a bHashTag
+        CMC ->> Mastodon: translateTootQ(bHashTag, blank_image)
+        Mastodon -->> CMC: mkPostResponse(ok)
+        CMC -->> UMC: actionR(ok)
+    end
+```
+
+## Raceboat Server
+
+```mermaid
+sequenceDiagram
+    participant Bob
+    participant UMS as UserModel_Server
+    participant CMS as ContentManager_Server
+    participant EDS as Destini_Decoder
+    participant Mastodon
+
+    Note over Bob, Mastodon: Raceboat Server System (Infiltration)
+
+    opt File Download Path
+        Bob ->> CMS: pkg(wHashTag)
+        
+        UMS ->> CMS: actionQ(download)
+        Note over CMS: Has wHashTag in pendingHashTags
+        CMS ->> Mastodon: translateFetchQ(wHashTag)
+        Mastodon -->> CMS: ResponseMediaList(wHashTag, images)
+        CMS ->> EDS: decQ(images)
+        EDS -->> CMS: decR(fragments)
+        Note over CMS: Reassembles fragments
+        CMS -->> UMS: actionR(ok)
+        
+        opt File is Complete
+            Note over CMS: efraglComplete? is true
+            CMS ->> Bob: pkg(efile, wHashTag)
+        end
+    end
+    
+    opt Benign Media Post (Chaff)
+        UMS ->> CMS: actionQ(media)
+        Note over CMS: No file to send
+        CMS ->> EDS: encQ(noBytes)
+        EDS -->> CMS: encR(blank_image)
+        Note over CMS: Uses a bHashTag
+        CMS ->> Mastodon: translateTootQ(bHashTag, blank_image)
+        Mastodon -->> CMS: mkPostResponse(ok)
+        CMS -->> UMS: actionR(ok)
+    end
+```
+
+## Markov Actors
+As a sequence diagram orchestrating an external actor
+```mermaid
+sequenceDiagram
+    participant UserModel
+    participant ActionActor as ActionActor (at actAddress)
+
+    Note over UserModel: Initialized with nsteps > 0
+    activate UserModel
+
+    Note over UserModel: Process starts by receiving an actionR
+    loop Repeated for nsteps
+        
+        alt Action State (e.g., media, download)
+            Note over UserModel: Receives actionR(status)
+            Note over UserModel: Internal: Chooses next state (e.g., wait_media)
+            Note over UserModel: Internal: Gets action for *current* state (e.g., media)
+            Note over UserModel: Internal: Action type is NOT wait
+            UserModel ->> ActionActor: actionQ(action_params)
+            activate ActionActor
+            
+            Note over ActionActor: ...Processing...
+            ActionActor -->> UserModel: actionR(ok)
+            deactivate ActionActor
+        
+        else Wait State (e.g., wait_media)
+            Note over UserModel: Receives actionR(status)
+            Note over UserModel: Internal: Chooses next state (e.g., download)
+            Note over UserModel: Internal: Gets action for *current* state (e.g., wait_media)
+            Note over UserModel: Internal: Action type IS wait
+            Note over UserModel: Internal: Calculates sleepTime
+            
+            UserModel ->> UserModel: Schedules actionR(ok) with sleepTime delay
+            
+            Note over UserModel: ...Time Passes...
+            Note over UserModel: Receives self-sent actionR(ok)
+        end
+    end
+
+    Note over UserModel: ...Receives actionR(status)...
+    Note over UserModel: nsteps is 0, loop terminates.
+    deactivate UserModel
+```
+## DNSTgen
+
+```mermaid
+sequenceDiagram
+    participant UserModel
+    participant DNSTgen
+    participant Resolver
+
+    Note over UserModel, Resolver: DNSTgen Behavior Flow
+    
+    UserModel ->> DNSTgen: actionQ(ract)
+    activate DNSTgen
+    
+    Note over DNSTgen: Sets replyTo=umAddr, nRetry, numQ
+    
+    loop For each query in batch (numQ)
+        DNSTgen ->> Resolver: query(N)
+        DNSTgen ->> DNSTgen: (Schedule) dnsTO(queryN)
+
+        alt Response Received
+            Resolver -->> DNSTgen: response(N)
+            Note over DNSTgen: Checks if matchQR is true
+            
+        else Timeout Received
+            DNSTgen ->> DNSTgen: (Receive) dnsTO(queryN)
+            
+            alt nRetry > 0
+                Note over DNSTgen: Retrying query...
+                DNSTgen ->> Resolver: (Retry) query(N)
+                DNSTgen ->> DNSTgen: (Schedule) dnsTO(queryN)
+                
+            else nRetry == 0
+                Note over DNSTgen: Max retries exceeded
+                DNSTgen -->> UserModel: actionR(failed)
+                deactivate DNSTgen
+                Note over UserModel, Resolver: (Stop Interaction)
+            end
+        end
+    end
+    
+    Note over DNSTgen: All queries in batch succeeded
+    DNSTgen -->> UserModel: actionR(ok)
+    
+```
+
+This is an example markov model used by the UM actor to orchestrate DNSTgen
+```mermaid
+stateDiagram-v2
+    direction LR
+
+    state single
+    state batch
+    state wait_single
+    state wait_batch
+
+    single --> wait_single : 1.0
+    batch --> wait_batch : 1.0
+    
+    wait_single --> single : 0.5
+    wait_single --> batch : 0.5
+
+    wait_batch --> single : 0.5
+    wait_batch --> batch : 0.5
+```
+
+# Mastodon
+
+## Mastodon Client / Server Media flow
+
+```mermaid
+sequenceDiagram
+    participant RaceboatClient
+    participant MastodonClient
+    participant MastodonServer
+
+    Note over RaceboatClient, MastodonServer: Flow 1: Client Uploads a Status with Media
+    
+    RaceboatClient ->> MastodonClient: PostStatus(text, mediaFileList)
+    activate MastodonClient
+    
+    Note over MastodonClient: Sets OpStack to POST-STATUS-W-MEDIA-OP
+    
+    loop For Each Media File in List
+        MastodonClient ->> MastodonServer: HttpRequest(POST, mediaFile)
+        activate MastodonServer
+        Note over MastodonServer: handleMediaPostRequest
+        MastodonServer -->> MastodonClient: HttpResponse(OK, mediaId)
+        deactivate MastodonServer
+        Note over MastodonClient: handleReply, calls cueNextPostOp
+    end
+    
+    Note over MastodonClient: All media uploaded. Now post status.
+    MastodonClient ->> MastodonServer: HttpRequest(POST, text, all_mediaIds)
+    activate MastodonServer
+    Note over MastodonServer: handleStatusPostRequest
+    MastodonServer -->> MastodonClient: HttpResponse(OK, postId)
+    deactivate MastodonServer
+    
+    Note over MastodonClient: handleReply, pops op stack. Interaction ends.
+    deactivate MastodonClient
+```
+
+## Mastodon Client/Server Fetch flow
+
+```mermaid
+sequenceDiagram
+    participant RaceboatClient
+    participant MastodonClient
+    participant MastodonServer
+
+    Note over RaceboatClient, MastodonServer: Flow 2: Client Downloads All Media for a Hashtag
+    
+    RaceboatClient ->> MastodonClient: GetMediaHashtag(tag)
+    activate MastodonClient
+    
+    Note over MastodonClient: Sets OpStack to GET-MEDIA-HASHTAG-OP
+    MastodonClient ->> MastodonServer: HttpRequest(GET, tag)
+    activate MastodonServer
+    Note over MastodonServer: handleStatusSearchRequest
+    MastodonServer -->> MastodonClient: HttpResponse(OK, tootList_with_URLs)
+    deactivate MastodonServer
+    
+    Note over MastodonClient: handleStatusGetReply, gets URL list
+    
+    loop For Each URL in List
+        MastodonClient ->> MastodonServer: HttpRequest(GET, mediaUrl)
+        activate MastodonServer
+        Note over MastodonServer: handleMediaGetRequest
+        MastodonServer -->> MastodonClient: HttpResponse(OK, mediaFile)
+        deactivate MastodonServer
+        Note over MastodonClient: handleMediaGetByUrl, stores media
+    end
+    
+    Note over MastodonClient: All media downloaded.
+    MastodonClient ->> RaceboatClient: ResponseMediaList(tag, all_mediaFiles)
+    deactivate MastodonClient
+```
