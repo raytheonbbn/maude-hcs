@@ -1,0 +1,494 @@
+
+load ../common/maude/markov-action-model.maude
+load ../common/maude/cp2-interfaces 
+load cm-aux.maude
+
+***(
+Alice - CM  
+pkg : ByteSeq -> Content  -- efile
+pkg : ByteSeq ByteSeq -> Content -- efile,hashtag
+
+ CM - ED message content 
+ capQ(fsize-remaining), capR(fragsize)  --- next frag
+ encQ(frag), encR(image)
+ decQ(imagel), decR(fragl)
+ )
+
+***(
+req/rsp for CMClient traffic generation
+UM -actionQ(downloadAct)-> CMC 
+    (replyTo: ummsg)
+            [ht := bHastag(ctr)]
+            CMC -fetchQ(ht)-> MC
+    (w4c: mcmsg)
+            CMC <fetchR(imagel) - MC
+            [ignore fetchResults]
+    (w4c: null)            
+UM < actionR("ok")- CMC   
+    (replyTo: null)
+
+-----------------
+[case no files
+UM -actionQ(mediaAct)-> CMC 
+    (replyTo: ummsg)
+            CMC -encQ(noBytes)-> ED
+    (w4c: edmsg)
+            CMC <-encR(image)- ED
+              [ht := bHashtag(bcur), inc bctr]
+            CMC -tootQ(ht,image)-> MC
+    (w4c: mcmsg)
+            CMC <-tootR(...)- MC
+            [ignore tootResponse]
+    (w4c: null)            
+UM <-actionR("ok")- CMC   
+    (replyTo: null)
+
+-----------------
+[case file list has one or more files ]
+  if nofrag, initiate and set curht
+UM -actionA(mediaAct)-> CMC 
+    (replyTo: ummsg)
+            CMC -capQ(fsize)-> ED
+    (w4c: edmsg)
+            CMC <-capR(cap)- ED
+            [split off frag, i]     
+            CMC -encQ(nextfrag)-> ED
+    (w4c: edmsg)
+            CMC <-encR(image)- ED
+            CMC -toot(curht,image)-> MC
+            [if last frag, remove file, curfrag nil]
+    (w4c: mcmsg)
+            CMC <-tootResponse- MC
+    (w4c: null)            
+UM <status("ok",T)- CMC   
+    (replyTo: null)
+)
+
+
+---- {attrs,conf} defined in lib/.../common/_aux.maude
+mod CONTENT-MANAGER-CLIENT is
+  inc CONTENT-MANAGER .
+  inc MARKOV-ACTION-MODEL .
+  inc CP2-COMMON .
+  inc MC-INTERFACE  .
+  inc ED-INTERFACE .
+  inc TGEN-INTERFACE .
+  
+vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+vars cmcAtts cmcAtts1 cmcAtts2 : AttributeSet .
+vars msg msg0 : Msg .
+vars msgs msgs0 config config0 : Config .
+vars j j1 i k l n n0 n1 cap : Nat .
+vars tot remains remains0 ix  id : Nat .
+vars aAddr cmcAddr umAddr edAddr mcAddr : Address .
+vars T : Float .
+vars mcResponse : Content .
+vars efile efrag efrag0 efrag1 image ht hashtag : ByteSeq .
+vars efilel efragl hashtagl : ByteSeqL .
+vars str : String .
+vars ract : Map{String,JV} .
+
+op mkCMCAttrs : Address Address   Nat -> AttributeSet .
+eq mkCMCAttrs(edAddr,mcAddr,l) =
+     bHashTagCtr: 0,
+     numBHashTags: l,
+     pendingHashTags: nilBS,
+     pendingFiles: nilBS,
+     currentFrags: nilBS,
+     edAddress:  edAddr,
+     mcAddress: mcAddr,
+     w4c: null,
+     replyTo: null
+.
+
+op mkCMClient : Address Address Address Nat -> Actor .
+eq mkCMClient(cmcAddr,edAddr,mcAddr,l) =
+< cmcAddr : CMClient | mkCMCAttrs(edAddr,mcAddr,l) > .
+
+------------ Client rules --------------------------
+
+---- client treats all mc responses as action complete
+---- no processing of results
+crl [rbc-rcv-mc-response] :
+{T,(to cmcAddr from mcAddr :  mcResponse )}
+< cmcAddr : CMClient | cmcAtts, mcAddress: mcAddr >
+=>
+< cmcAddr : CMClient | cmcAtts1, mcAddress: mcAddr >
+delayMsgs(msgs,null)
+if {cmcAtts1,msgs} := crcvMCResponse(cmcAtts,
+               (to cmcAddr from mcAddr :  mcResponse ))  
+[print "(" T "): rbc-rcv-mc-response raceboat client got Mastodon client response " mcResponse ", sends " msgs]
+.
+
+---- remove matching req from w4c
+---- send status to replyTo umAddr and clear replyTo
+---- assumes only get responses to requests in w4c
+---- If there is not a matching w4c, just drop.
+op crcvMCResponse : AttributeSet  Msg ->
+                   AttributeSetMsgs . 
+eq crcvMCResponse(attrs, msg) = {attrs,null} [owise] .
+
+ceq crcvMCResponse(attrs,
+                  (to cmcAddr from mcAddr : c:Content))
+  = {attrs1,msg}
+if attrs0, (w4c: (to mcAddr from cmcAddr : c0:Content)),
+          (replyTo: (to cmcAddr from umAddr : c1:Content))
+   := attrs
+/\ attrs1 := attrs0, (w4c: null), (replyTo: null)
+/\ msg := (to umAddr from cmcAddr : actionR("ok"))
+.
+
+--- rbc receives file and hashtag from alice
+---!!! add attr for reply when file sent if need to ack
+rl [rbc-rcv-file] :
+{T, (to cmcAddr from aAddr :  pkg(efile,hashtag) )}
+< cmcAddr : CMClient | cmcAtts, 
+                       pendingHashTags: hashtagl,
+                       pendingFiles: efilel >
+=>
+< cmcAddr : CMClient | cmcAtts, 
+                      pendingHashTags: (hashtagl :: hashtag),
+                      pendingFiles: (efilel :: efile) >
+[print "(" T "): rbc-rcv-file raceboat client got " efile " with hashtag " hashtag " from Alice, adding to pending."]
+.
+
+--- action requests  Action < Content
+
+crl [rbc-rcv-action] :
+{T,(to cmcAddr from umAddr :  actionQ(ract) )}
+< cmcAddr : CMClient | cmcAtts >
+=>
+< cmcAddr : CMClient | cmcAtts1 >
+delayMsgs(msgs,null)
+if {cmcAtts1,msgs} :=
+  crcvActionQ(cmcAtts,getType(ract),
+             (to cmcAddr from umAddr : actionQ(ract) ))   
+ [print "(" T "): rbc-rcv-action raceboat got action request " ract ", sending " msgs]
+   .
+
+--- ht := bHashtag(cur); inc  ctr mod k
+--- msg = (to mcAddr from cmcAddr : fetchQ(ht))
+--- w4c: null >> w4c(msg)
+---- drop msg if w4c, replyTo not null
+op crcvActionQ : AttributeSet String Msg -> AttributeSetMsgs . 
+**** eq crcvActionQ(attrs,str,msg) = {attrs,null} [owise] .
+
+ceq crcvActionQ(attrs,str,msg) = {attrs,msgs}
+if (to cmcAddr from umAddr : actionQ(ract)) := msg
+/\ msgs := (to umAddr from cmcAddr : actionR("notRecognized"))
+ [owise] .
+**** Do we need to check replyTo null to reply failure?
+
+ceq crcvActionQ(attrs,"download",
+              (to cmcAddr from umAddr : actionQ(ract)))
+     = {attrs2,msg}
+if attrs0, (w4c: null), (replyTo: null), (bHashTagCtr: j)
+            := attrs
+/\ attrs1, mcAddress: mcAddr, (numBHashTags: k) := attrs
+/\ ht := bHashTag(j)
+/\ j1 := (if j >= k then 0 else s j fi)
+/\ msg := (to mcAddr from cmcAddr : fetchQ(ht) )
+/\ attrs2 := attrs0, (w4c: msg),  bHashTagCtr: j1,
+         replyTo: (to cmcAddr from umAddr : actionQ(ract))
+.
+
+---- no weird input
+ceq crcvActionQ(attrs,"media",
+             (to cmcAddr from umAddr : actionQ(ract)) )
+     = {attrs2,msg}
+if attrs0, (w4c: null), (replyTo: null) := attrs
+/\ attrs1, edAddress: edAddr, (pendingFiles: nilBS) := attrs
+/\ msg := (to edAddr from cmcAddr : encQ(noBytes))
+/\ attrs2 := attrs0, w4c: msg, 
+           replyTo: (to cmcAddr from umAddr : actionQ(ract))
+.
+
+---- no file in progress
+ceq crcvActionQ(attrs,"media", msg)
+**** (to cmcAddr from umAddr : actionQ(ract)) := msg
+     = crcvActionQ(attrs2,"media",msg)
+if attrs0, (w4c: null), (replyTo: null),
+           (pendingFiles: (efile(id,n,j,k) :: efilel)),
+           (pendingHashTags: (hashtag :: hashtagl)) := attrs
+/\ attrs1, (currentFrags: nilBS) := attrs
+/\  attrs2 := attrs1 ,
+            (currentFrags: efrag(efile(id,n,j,k),0,0,n))     .    
+
+---- file in progress
+ceq crcvActionQ(attrs,"media", msg0)
+     = {attrs2,msg}
+if attrs0, (w4c: null), (replyTo: null) := attrs
+/\ attrs1, (pendingFiles: (efile(id,n,j,k) :: efilel)),
+           (pendingHashTags: (hashtag :: hashtagl)),
+           (currentFrags: efrag) ,
+           (edAddress: edAddr) 
+           := attrs
+/\ efrag(efile(id,n,j,k),tot,ix,n0) := efrag
+/\ (to cmcAddr from umAddr : actionQ(ract)) := msg0
+/\ msg := (to edAddr from cmcAddr : capQ(n0))
+/\ attrs2 := attrs0, (w4c: msg), (replyTo: msg0) 
+.         
+
+
+crl [rbc-rcv-capR] :
+{T,(to cmcAddr from edAddr :  capR(cap) )}
+< cmcAddr : CMClient | cmcAtts >
+=>
+< cmcAddr : CMClient | cmcAtts1 >
+delayMsgs(msgs,null)
+if {cmcAtts1,msgs} := 
+  crcvCapR(cmcAtts,(to cmcAddr from edAddr : capR(cap)))
+[print "(" T "): rbc-rcv-capR raceboat client got " cap " from Destini, sending " msgs ]
+.
+
+
+op crcvCapR : AttributeSet Msg -> AttributeSetMsgs .
+ ---- if w4c(capR) then gen frag, 
+ ----  call reqEnc
+ ----  ow msgs = null, attrs unchanged
+ 
+eq crcvCapR(attrs,msg) = {attrs,null} [owise] .
+ceq crcvCapR(attrs,(to cmcAddr from edAddr : capR(cap)))
+    = {attrs1,msg}
+if w4c: (to edAddr from cmcAddr : capQ(n0)), 
+   pendingFiles: (efile(id,n,j,k) :: efilel), 
+   currentFrags: efrag(efile,tot,ix,n0),  
+   attrs0  := attrs
+/\ l := min(cap,n0)
+/\ efrag0 := efrag(efile,tot + l,ix,l)
+/\ n1 := (if cap < n0 
+                then n0 + (- cap)
+                else 0 fi)
+/\ efrag1 := efrag(efile,tot + l,s ix,n1)
+/\ msg := (to edAddr from cmcAddr : encQ(efrag0))
+/\ attrs1 := attrs0,  w4c: msg,
+        pendingFiles: (efile :: efilel) ,
+        currentFrags: efrag1
+.        
+  
+       
+crl [rbc-rcv-encR] :
+{T,(to cmcAddr from edAddr :  encR(image) )}
+< cmcAddr : CMClient | cmcAtts >
+=>
+< cmcAddr : CMClient | cmcAtts1 >
+delayMsgs(msgs,null)
+if {cmcAtts1,msgs} := 
+  crcvEncR(cmcAtts,(to cmcAddr from edAddr : encR(image)))
+[print "(" T "): rbc-rcv-encR raceboat client got encoded " image " from Destini, sending " msgs ].
+
+op crcvEncR : AttributeSet Msg -> AttributeSetMsgs .
+
+eq crcvEncR(attrs,msg) = {attrs,null} [owise] .
+
+----- weird image
+ceq crcvEncR(attrs,
+             (to cmcAddr from edAddr : encR(image))) 
+       = {attrs2,msg}
+if w4c: (to edAddr from cmcAddr : encQ(efrag)),
+         pendingHashTags: (hashtag :: hashtagl),
+         currentFrags: efrag(efile,tot,ix,n0),  
+         pendingFiles: (efile :: efilel), 
+         attrs0 := attrs
+/\ mcAddress: mcAddr, attrs1 := attrs 
+/\ msg  := (to mcAddr from cmcAddr : tootQ(hashtag,image)) 
+/\ attrs2 := w4c: msg, 
+    (if n0 == 0
+     then pendingHashTags: hashtagl, currentFrags: nilBS,
+          pendingFiles: efilel, attrs0
+     else pendingHashTags: (hashtag :: hashtagl),  
+          currentFrags: efrag(efile,tot,ix,n0),
+          pendingFiles: (efile :: efilel), 
+          attrs0
+     fi )
+.
+
+---- benign image
+ceq crcvEncR(attrs,
+             (to cmcAddr from edAddr : encR(image))) 
+       = {attrs2,msg}
+if  attrs0, w4c: (to edAddr from cmcAddr : encQ(efrag)),
+         bHashTagCtr: j  := attrs
+/\ attrs1, numBHashTags: l,
+         mcAddress: mcAddr,
+         pendingHashTags: nilBS,
+         currentFrags: nilBS,
+         pendingFiles: nilBS 
+         := attrs
+/\ ht := bHashTag(j)    
+/\ j1 := (if j >= l then 0 else s j fi)     
+/\ msg  := (to mcAddr from cmcAddr : tootQ(ht,image)) 
+/\ attrs2 := attrs0, w4c: msg, bHashTagCtr: j1
+.
+
+
+endm  
+
+mod CM-CLIENT-TEST is
+  inc CONTENT-MANAGER-CLIENT . 
+
+ops cmcA edA mcA aA umA : -> Address .
+op CMC : -> Actor .
+eq CMC = mkCMClient(cmcA,edA,mcA,3) .
+
+op CMCAtts : -> AttributeSet .
+eq CMCAtts = mkCMCAttrs(edA,mcA,3) .
+
+op wHT0 : -> ByteSeq .
+eq wHT0 = wHashTag(0) .
+
+op bHT0 : -> ByteSeq .
+eq bHT0 = bHashTag(0) .
+
+op F0 : -> ByteSeq .
+eq F0 = file(0,20) .
+op K0 : -> ByteSeq .
+eq K0 = key(0,20) .
+
+op EF0 : -> ByteSeq .
+eq EF0 = encrypt(F0,K0) .
+
+eq encOH(fsize:Nat,ksize:Nat)  = 
+    (if ksize:Nat < fsize:Nat 
+     then 0 
+     else ksize:Nat + (- fsize:Nat) fi) .
+     
+op FR0 : -> ByteSeq .
+eq FR0 =  efrag(EF0,20,0,20) .     
+ops IM0 IM00 : -> ByteSeq .
+eq IM0 = image(0,500,50)  .
+eq IM00 = encode(image(0,500,50),FR0,1,4,1/10) .
+
+ops CMCf  CMCm  CMCd CMCfm CMCme CMCfmc  CMCfmce 
+    : -> Actor .
+
+ops Mfile Mmedia Mdown 
+    McapR MencR MencR0 MfetchR MtootR 
+    : -> ActiveMsg .
+   
+---- rl [rbc-rcv-file] 
+eq Mfile = {0.1, (to cmcA from aA :  pkg(EF0,wHT0) )} .
+
+---- rew CMC Mfile .
+eq CMCf =
+< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: nilBS, pendingHashTags: wHashTag(0), numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: null, replyTo: null >
+.
+
+---- crl [rbc-rcv-action] :
+eq Mmedia =
+  {0.2,(to cmcA from umA : 
+           actionQ(("type" |->  js("media")) ) )} .
+---- pendingFiles: nilBS or EF0
+---- (w4c: null), (replyTo: null), 
+ 
+---- rew CMC Mmedia .
+eq CMCm =
+< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS,  pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, 
+w4c: (to edA   from cmcA : encQ(noBytes)), 
+replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) > 
+**** [0.0, to edA from cmcA : encQ(noBytes), 0]
+ .
+ 
+eq Mdown = 
+  {0.2,(to cmcA from umA : 
+         actionQ(("type" |->  js("download")) ) )} .
+---- (w4c: null), (replyTo: null), 
+
+---- rew CMC Mdown .
+eq CMCd =
+< cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS,  pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, 
+w4c: (to mcA from cmcA : fetchQ(bHashTag(0))), 
+replyTo: (to cmcA from umA : 
+          actionQ("type" |-> js("download"))) > 
+**** [0.0, to mcA from cmcA : fetchQ(bHashTag(0)), 0]
+.
+
+---- rew CMCf Mmedia .
+eq CMCfm =
+< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: efrag(efile(0, 20, 0, 20), 0, 0, 20), pendingHashTags: wHashTag(0), numBHashTags: 3,  edAddress: edA, mcAddress: mcA, 
+w4c: (to edA from cmcA : capQ(20)), replyTo: 
+(to cmcA from umA : actionQ("type" |-> js("media"))) > 
+**** [0.0, to edA from cmcA : capQ(20), 0]
+.
+
+---- crl [rbc-rcv-mc-response] :
+eq MfetchR =
+     {2.0,(to cmcA from mcA : fetchR(nilBS,wHT0) )} .
+eq MtootR = {2.0,(to cmcA from mcA :  tootR("ok") )} .
+---- w4c replyTo: after download action sent
+---- (w4c: (to mcAddr from cmcAddr : c0:Content)),
+---- (replyTo: (to cmcAddr from umAddr : c1:Content))
+
+---- rew CMCd MfetchR .
+---- < cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: null, replyTo: null >
+****[0.0, to umA from cmcA : actionR("ok"), 0]
+
+
+---- crl [rbc-rcv-capR] : after rcvfile/rcv media action
+eq McapR = {2.0,(to cmcA from edA :  capR(50) )} .
+---- w4c: (to edA from cmcA : capQ(100)) 
+---- pendingFiles: (efile(id,n,j,k); efilel), 
+---- currentFrags: efrag(efile,tot,ix,n0),  
+eq MencR0 = {3.0,(to cmcA from edA :  encR(IM00) )} .
+
+---- rew CMCfm McapR .
+eq CMCfmc = 
+< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: efrag( efile(0, 20, 0, 20), 20, 1, 0), pendingHashTags: wHashTag(0), numBHashTags: 3, edAddress: edA, mcAddress: mcA, 
+w4c: (to edA from cmcA : encQ(efrag(efile(0, 20, 0, 20), 20, 0, 20))), 
+replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) >
+**** [0.0, to edA from cmcA : encQ(efrag(efile(0, 20, 0, 20), 20, 0, 20)), 0]
+.
+
+---- rew CMCfmc MencR0 . --- old parameters
+eq CMCfmce =
+< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: (to mcA from cmcA : tootQ(wHashTag(0), encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0,20), 1,4,1/10))), replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) >
+**** [0.0, to mcA from cmcA : tootQ(wHashTag(0), encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1,4,1/10)), 0]
+   . 
+
+---- rew CMCfmce MtootR .
+---- < cmcA : CMClient | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: null, replyTo: null > 
+---- [0.0, to umA from cmcA : actionR("ok"), 0]
+
+---- crl [rbc-rcv-encR] :
+eq MencR = {3.0,(to cmcA from edA :  encR(IM0) )} .
+---- w4c: (to edAddr from cmcAddr : encQ(efrag)),
+---- pendingFiles: nilBS   or
+----     currentFrags: efrag(efile,tot,ix,n0),  
+----     pendingFiles: (efile ; efilel), 
+
+---- rew CMCm  MencR .  --> CMCme
+eq CMCme =
+< cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, 
+w4c: (to mcA from cmcA : tootQ(bHashTag(0), image(0, 500, 50))), 
+replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) >
+
+*****[0.0, to mcA from cmcA : tootQ(bHashTag(0), image(0, 500, 50)), 0]
+.
+
+---- rew CMCme MtootR .
+---- < cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: null, replyTo: null > 
+---- [0.0, to umA from cmcA : actionR("ok"), 0]
+
+endm  
+eof
+
+
+
+--------------------------------------------------
+set print attribute on .
+red CMC .
+
+
+rew CMC Mfile .
+rew CMC Mmedia .
+rew CMC Mdown .
+
+rew CMCd MfetchR .
+rew CMCm  MencR .
+rew CMCme MtootR .
+
+rew CMCf Mmedia .
+rew CMCfm McapR .
+rew CMCfme MencR0 .
+rew CMCfmce MtootR .
+
