@@ -234,7 +234,7 @@ crl [wnameserver-receive-query-weird]:
               then (to ADDR2 : getFile(Pkt))
               else nullMsg
            fi)
-    [print "Bob rcv app received pkt " Pkt]
+    [print "(" T "): Bob rcv app received pkt " Pkt]
   .
 
   ---------------------------------------
@@ -244,8 +244,10 @@ crl [wnameserver-receive-query-weird]:
   ---               Attributes   Src     Dest     File Min Max
   op packetizeProb : AttributeSet Address Address ByteSeq Nat Nat -> AttributeSet .
   ceq packetizeProb((appAttrs, queue: PACKET_LIST), ALICE, BOB, FILE, MIN_PKT_SIZE, MAX_PKT_SIZE) = appAttrs1
-    if PACKETS' := $packetizeProb(mtpl, ALICE, BOB, FILE, getSize(FILE), MIN_PKT_SIZE, MAX_PKT_SIZE, 0) 
+    if PktSize := getSize(FILE) 
+    /\ PACKETS' := $packetizeProb(mtpl, ALICE, BOB, FILE, PktSize, MIN_PKT_SIZE, MAX_PKT_SIZE, 0) 
     /\ appAttrs1 := (appAttrs, queue: PACKETS')
+    [ print "Packetizing " FILE " of size " PktSize "B." ]
   .
 
   ---             CurrentPktList Src   Dest      File FileSize Min Max Counter
