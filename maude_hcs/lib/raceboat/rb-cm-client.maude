@@ -1,7 +1,7 @@
 
-load ../common/maude/markov-action-model.maude
-load ../common/maude/cp2-interfaces 
-load cm-aux.maude
+sload ../common/maude/markov-action-model.maude
+sload ../common/maude/cp2-interfaces 
+sload cm-aux.maude
 
 ***(
 Alice - CM  
@@ -117,7 +117,7 @@ crl [rbc-rcv-mc-response] :
 delayMsgs(msgs,null)
 if {cmcAtts1,msgs} := crcvMCResponse(cmcAtts,
                (to cmcAddr from mcAddr :  mcResponse ))  
-[print "(" T "): rbc-rcv-mc-response raceboat client got Mastodon client response " mcResponse ", sends " msgs]
+[print "rbc-rcv-mc-response " mcResponse " at " T]
 .
 
 ---- remove matching req from w4c
@@ -149,7 +149,7 @@ rl [rbc-rcv-file] :
 < cmcAddr : CMClient | cmcAtts, 
                       pendingHashTags: (hashtagl :: hashtag),
                       pendingFiles: (efilel :: efile) >
-[print "(" T "): rbc-rcv-file raceboat client got " efile " with hashtag " hashtag " from Alice, adding to pending."]
+[print "rbc-rcv-file " efile " " hashtag]
 .
 
 --- action requests  Action < Content
@@ -163,7 +163,7 @@ delayMsgs(msgs,null)
 if {cmcAtts1,msgs} :=
   crcvActionQ(cmcAtts,getType(ract),
              (to cmcAddr from umAddr : actionQ(ract) ))   
- [print "(" T "): rbc-rcv-action raceboat got action request " ract ", sending " msgs]
+ [print "rbc-rcv-action sending " msgs]
    .
 
 --- ht := bHashtag(cur); inc  ctr mod k
@@ -187,8 +187,10 @@ if attrs0, (w4c: null), (replyTo: null), (bHashTagCtr: j)
 /\ attrs1, mcAddress: mcAddr, (numBHashTags: k) := attrs
 /\ ht := bHashTag(j)
 /\ j1 := (if j >= k then 0 else s j fi)
-/\ msg := (to mcAddr from cmcAddr : fetchQ(ht) )
-/\ attrs2 := attrs0, (w4c: msg),  bHashTagCtr: j1,
+/\ msg0 := (to mcAddr from cmcAddr : fetchQ(ht) )
+/\ msg := (to mcAddr from cmcAddr : 
+                translateFetchQ(fetchQ(ht))) 
+/\ attrs2 := attrs0, (w4c: msg0),  bHashTagCtr: j1,
          replyTo: (to cmcAddr from umAddr : actionQ(ract))
 .
 
@@ -238,7 +240,7 @@ crl [rbc-rcv-capR] :
 delayMsgs(msgs,null)
 if {cmcAtts1,msgs} := 
   crcvCapR(cmcAtts,(to cmcAddr from edAddr : capR(cap)))
-[print "(" T "): rbc-rcv-capR raceboat client got " cap " from Destini, sending " msgs ]
+[print "rbc-rcv-capR " cap]
 .
 
 
@@ -275,7 +277,7 @@ crl [rbc-rcv-encR] :
 delayMsgs(msgs,null)
 if {cmcAtts1,msgs} := 
   crcvEncR(cmcAtts,(to cmcAddr from edAddr : encR(image)))
-[print "(" T "): rbc-rcv-encR raceboat client got encoded " image " from Destini, sending " msgs ].
+[print "rbc-rcv-encR " image].
 
 op crcvEncR : AttributeSet Msg -> AttributeSetMsgs .
 
@@ -291,8 +293,10 @@ if w4c: (to edAddr from cmcAddr : encQ(efrag)),
          pendingFiles: (efile :: efilel), 
          attrs0 := attrs
 /\ mcAddress: mcAddr, attrs1 := attrs 
-/\ msg  := (to mcAddr from cmcAddr : tootQ(hashtag,image)) 
-/\ attrs2 := w4c: msg, 
+/\ msg0  := (to mcAddr from cmcAddr : tootQ(hashtag,image)) 
+/\ msg := (to mcAddr from cmcAddr : 
+             translateTootQ(tootQ(hashtag,image)) )
+/\ attrs2 := w4c: msg0, 
     (if n0 == 0
      then pendingHashTags: hashtagl, currentFrags: nilBS,
           pendingFiles: efilel, attrs0
@@ -317,8 +321,10 @@ if  attrs0, w4c: (to edAddr from cmcAddr : encQ(efrag)),
          := attrs
 /\ ht := bHashTag(j)    
 /\ j1 := (if j >= l then 0 else s j fi)     
-/\ msg  := (to mcAddr from cmcAddr : tootQ(ht,image)) 
-/\ attrs2 := attrs0, w4c: msg, bHashTagCtr: j1
+/\ msg0  := (to mcAddr from cmcAddr : tootQ(ht,image)) 
+/\ msg  := (to mcAddr from cmcAddr : 
+            translateTootQ(tootQ(ht,image)) )
+/\ attrs2 := attrs0, w4c: msg0, bHashTagCtr: j1
 .
 
 
@@ -359,6 +365,32 @@ ops IM0 IM00 : -> ByteSeq .
 eq IM0 = image(0,500,50)  .
 eq IM00 = encode(image(0,500,50),FR0,1,4,1/10) .
 
+
+ops wTAG0  bTAG0 : -> Tag .
+
+eq wTAG0 = hashtag2tag(wHT0) .
+eq bTAG0 = hashtag2tag(bHT0) .
+
+***(
+red tag2hashtag(wTAG0) == wHT0 .
+red tag2hashtag(bTAG0) == bHT0 .
+)
+
+
+ops MF0 MF00 : -> MediaFile .
+eq MF0 = image2mediafile(IM0) .
+eq MF00 = image2mediafile(IM00) .
+
+***(
+red mediaFileL2bytesL(MF0) == IM0 .
+red mediaFileL2bytesL(MF00) == IM00 .
+
+red getPayload(MF0) == IM0 .
+red getPayload(MF00) == IM00 .
+
+)
+
+
 ops CMCf  CMCm  CMCd CMCfm CMCme CMCfmc  CMCfmce 
     : -> Actor .
 
@@ -394,14 +426,15 @@ eq Mdown =
          actionQ(("type" |->  js("download")) ) )} .
 ---- (w4c: null), (replyTo: null), 
 
----- rew CMC Mdown .
+---- rew CMC Mdown . #
 eq CMCd =
 < cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS,  pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, 
 w4c: (to mcA from cmcA : fetchQ(bHashTag(0))), 
 replyTo: (to cmcA from umA : 
           actionQ("type" |-> js("download"))) > 
-**** [0.0, to mcA from cmcA : fetchQ(bHashTag(0)), 0]
 .
+******* [0.0, to mcA from cmcA : fetchQ(bHashTag(0)), 0]
+**** [0.0, to mcA from cmcA : GetMediaHashtag(makeTag("bHashTag-0")), 0]
 
 ---- rew CMCf Mmedia .
 eq CMCfm =
@@ -413,13 +446,20 @@ w4c: (to edA from cmcA : capQ(20)), replyTo:
 
 ---- crl [rbc-rcv-mc-response] :
 eq MfetchR =
-     {2.0,(to cmcA from mcA : fetchR(nilBS,wHT0) )} .
-eq MtootR = {2.0,(to cmcA from mcA :  tootR("ok") )} .
+ **** {2.0,(to cmcA from mcA : fetchR(nilBS,wHT0) )} .
+   {2.0,(to cmcA from mcA : 
+          ResponseMediaList(wTAG0,emptyMediaFileList)  )} .
+
+eq MtootR = 
+****   {2.0,(to cmcA from mcA :  tootR("ok") )} .
+{2.0,(to cmcA from mcA : mkPostResponse("ok") )} .
+
+
 ---- w4c replyTo: after download action sent
 ---- (w4c: (to mcAddr from cmcAddr : c0:Content)),
 ---- (replyTo: (to cmcAddr from umAddr : c1:Content))
-
----- rew CMCd MfetchR .
+ 
+---- rew CMCd MfetchR .  #
 ---- < cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: null, replyTo: null >
 ****[0.0, to umA from cmcA : actionR("ok"), 0]
 
@@ -431,7 +471,7 @@ eq McapR = {2.0,(to cmcA from edA :  capR(50) )} .
 ---- currentFrags: efrag(efile,tot,ix,n0),  
 eq MencR0 = {3.0,(to cmcA from edA :  encR(IM00) )} .
 
----- rew CMCfm McapR .
+---- rew CMCfm McapR .   #
 eq CMCfmc = 
 < cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: efrag( efile(0, 20, 0, 20), 20, 1, 0), pendingHashTags: wHashTag(0), numBHashTags: 3, edAddress: edA, mcAddress: mcA, 
 w4c: (to edA from cmcA : encQ(efrag(efile(0, 20, 0, 20), 20, 0, 20))), 
@@ -439,13 +479,16 @@ replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) >
 **** [0.0, to edA from cmcA : encQ(efrag(efile(0, 20, 0, 20), 20, 0, 20)), 0]
 .
 
----- rew CMCfmc MencR0 . --- old parameters
+---- rew CMCfmc MencR0 .   #   --- old parameters
 eq CMCfmce =
 < cmcA : CMClient | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: (to mcA from cmcA : tootQ(wHashTag(0), encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0,20), 1,4,1/10))), replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) >
-**** [0.0, to mcA from cmcA : tootQ(wHashTag(0), encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1,4,1/10)), 0]
    . 
 
----- rew CMCfmce MtootR .
+**** [0.0, to mcA from cmcA : PostStatus("hashtag is #wHashTag-0", makeMediaFile("image-0", 500, encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))), 0]
+    
+******** [0.0, to mcA from cmcA : tootQ(wHashTag(0), encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1,4,1/10)), 0]
+ 
+---- rew CMCfmce MtootR .  #
 ---- < cmcA : CMClient | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: null, replyTo: null > 
 ---- [0.0, to umA from cmcA : actionR("ok"), 0]
 
@@ -456,16 +499,17 @@ eq MencR = {3.0,(to cmcA from edA :  encR(IM0) )} .
 ----     currentFrags: efrag(efile,tot,ix,n0),  
 ----     pendingFiles: (efile ; efilel), 
 
----- rew CMCm  MencR .  --> CMCme
+---- rew CMCm  MencR .  --> CMCme   #
 eq CMCme =
 < cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, 
 w4c: (to mcA from cmcA : tootQ(bHashTag(0), image(0, 500, 50))), 
 replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) >
 
-*****[0.0, to mcA from cmcA : tootQ(bHashTag(0), image(0, 500, 50)), 0]
+*******[0.0, to mcA from cmcA : tootQ(bHashTag(0), image(0, 500, 50)), 0]
 .
+**** [0.0, to mcA from cmcA : PostStatus("hashtag is #bHashTag-0", makeMediaFile("image-0", 500, image(0, 500, 50))), 0]
 
----- rew CMCme MtootR .
+---- rew CMCme MtootR .   #
 ---- < cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: null, replyTo: null > 
 ---- [0.0, to umA from cmcA : actionR("ok"), 0]
 
@@ -489,6 +533,7 @@ rew CMCme MtootR .
 
 rew CMCf Mmedia .
 rew CMCfm McapR .
-rew CMCfme MencR0 .
+rew CMCfmc MencR0 .
+
 rew CMCfmce MtootR .
 

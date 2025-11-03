@@ -76,7 +76,7 @@ rl [rbc-rcv-hashtag] :
 =>
 < cmsAddr : CMServer | cmsAtts, 
                       pendingHashTags: (hashtagl :: hashtag) >
-[print "(" T "): rbs-rcv-hashtag raceboat server received hashtag #"  hashtag " from Bob, add to pending." ]
+[print "rbs-rcv-hashtag "  hashtag]
 .
 
 crl [rbs-rcv-actionQ] :
@@ -88,7 +88,7 @@ delayMsgs(msgs,null)
 if {cmsAtts1,msgs} := 
   srcvActionQ(cmsAtts,getType(ract),
               (to cmsAddr from umAddr : actionQ(ract))) 
-[print "(" T "): rbs-rcv-actionQ raceboat server received action request " ract ", sending " msgs]
+[print "rbs-rcv-actionQ sending " msgs]                
  .
 
 op srcvActionQ : AttributeSet String Msg
@@ -108,8 +108,10 @@ if (to cmsAddr from umAddr : actionQ(ract) ) := msg0
 /\ attrs1, mcAddress: mcAddr, 
            pendingHashTags: (hashtag :: hashtagl)
            := attrs
-/\ msg := (to mcAddr from cmsAddr : fetchQ(hashtag))
-/\ attrs2 := attrs0, replyTo: msg0, w4c: msg
+/\ msg1 := (to mcAddr from cmsAddr : fetchQ(hashtag))
+/\ msg := (to mcAddr from cmsAddr : 
+             translateFetchQ(fetchQ(hashtag)))
+/\ attrs2 := attrs0, replyTo: msg0, w4c: msg1
 .
 
 ---- ow fetch using bHashTag
@@ -121,22 +123,30 @@ if (to cmsAddr from umAddr : actionQ(ract) ) := msg0
            pendingHashTags: nilBS := attrs
 /\ ht := bHashTag(j)           
 /\ j1 := (if j >= l then 0 else s j fi)
-/\ msg := (to mcAddr from cmsAddr : fetchQ(ht))
-/\ attrs2 := attrs0, replyTo: msg0, w4c: msg,
+/\ msg1 := (to mcAddr from cmsAddr : fetchQ(ht))
+/\ msg := (to mcAddr from cmsAddr :
+              translateFetchQ(fetchQ(ht)))
+/\ attrs2 := attrs0, replyTo: msg0, w4c: msg1,
                      bHashTagCtr: j1
 .
 
+vars  mediaFileList : MediaFileList .
+vars  tag : Tag .
 
 ---- rcv fetch response from mcAddr
 crl [rbs-rcv-fetchR] :
-{T,(to cmsAddr from mcAddr :  fetchR(imagel,ht))}
+{T,(to cmsAddr from mcAddr :  
+       ResponseMediaList(tag,mediaFileList) )}
 < cmsAddr : CMServer | cmsAtts >
 =>
 < cmsAddr : CMServer | cmsAtts1 >
 delayMsgs(msgs,null)
-if {cmsAtts1,msgs} := srcvFetchR(cmsAtts,
-             (to cmsAddr from mcAddr : fetchR(ht,imagel)))   
-[print "(" T "): rbs-rcv-fetchR raceboat server got fetch response " imagel " for tag " ht ", sending " msgs ]
+if  c:Content := translate2FetchR( 
+                  ResponseMediaList(tag,mediaFileList))
+/\ {cmsAtts1,msgs} := 
+  srcvFetchR(cmsAtts, (to cmsAddr from mcAddr : c:Content))
+
+[print "rbs-rcv-fetchR " mediaFileList " tag " tag]
 .
 
  ---- rcv fetchR , ask ed to decode imagel
@@ -145,7 +155,7 @@ eq srcvFetchR(attrs,msg) = {attrs,null} [owise] .
 
 ---- bHashtag download
 ceq srcvFetchR(attrs,
-             (to cmsAddr from mcAddr : fetchR(ht,imagel)) )
+             (to cmsAddr from mcAddr : fetchR(imagel,ht)) )
     = {attrs1,msg}
 if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
            replyTo: (to cmsAddr from umAddr : actionQ(ract))
@@ -155,9 +165,9 @@ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
 /\ attrs1 := attrs0,  w4c: null, replyTo: null
 .    
 
----- wHashtag download no images
+---- w/b Hashtag download no images
 ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
-                       fetchR(ht,nilBS)) )  
+                       fetchR(nilBS,ht)) )  
          = {attrs2,msg}
 if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
     replyTo: (to cmsAddr from umAddr : actionQ(ract))
@@ -167,9 +177,10 @@ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
 /\ attrs2 := attrs0,  w4c: null, replyTo: null
 .   
  
+ 
 ---- wHashtag download non nil result
 ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
-                       fetchR(ht,image :: imagel)) )  
+                       fetchR(image :: imagel,ht)) )  
          = {attrs2,msg}
 if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)) 
            := attrs
@@ -180,6 +191,17 @@ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht))
 /\ attrs2 := attrs0,  w4c: msg
 .    
 
+---- w/b Hashtag download no images
+ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
+                       fetchR(nilBS,ht)) )  
+         = {attrs2,msg}
+if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
+    replyTo: (to cmsAddr from umAddr : actionQ(ract))
+           := attrs
+/\ bHashTag(j) := ht
+/\ msg := (to umAddr from cmsAddr : actionR("ok"))
+/\ attrs2 := attrs0,  w4c: null, replyTo: null
+.   
 
 
 ---- rcv dec response from edAddr
@@ -192,7 +214,7 @@ delayMsgs(msgs,null)
 if {cmsAtts1,msgs} :=
     srcvDecR(cmsAtts,
              (to cmsAddr from edAddr : decR(efragl)) )   
-[print "(" T "): rbs-rcv-decR raceboat server got decoded image from Destini, sending " msgs " ]
+[print "rbs-rcv-decR sending " msgs " at " T]
 .
  
 op srcvDecR : AttributeSet  Msg -> AttributeSetMsgs .
@@ -251,7 +273,7 @@ crl [rbs-rcv-encR] :
 delayMsgs(msgs,null)
 if {cmsAtts1,msgs} := srcvEncR(cmsAtts,
            (to cmsAddr from edAddr : encR(image)) )
-[print "(" T "): rbs-rcv-encR raceboat server got encoded image " image " from Destini, sending " msgs ]
+[print "rbs-rcv-encR " image]
 .
 
 op srcvEncR : AttributeSet Msg -> AttributeSetMsgs .
@@ -266,21 +288,24 @@ if attrs0,  bHashTagCtr: j,
 /\ attrs1,  mcAddress: mcAddr, numBHashTags: l := attrs 
 /\ ht := bHashTag(j)   
 /\ j1 := (if j >= l then 0 else s j fi) 
-/\ msg := (to mcAddr from cmsAddr : tootQ(ht,image) )   
-/\ attrs2 := attrs0, bHashTagCtr: j1, w4c: msg
+/\ msg0 := (to mcAddr from cmsAddr : tootQ(ht,image))   
+/\ msg := (to mcAddr from cmsAddr :  
+            translateTootQ(tootQ(ht,image)) )   
+/\ attrs2 := attrs0, bHashTagCtr: j1, w4c: msg0
 .
 
 
 
  crl [rbs-rcv-tootR] :
- {T,(to cmsAddr from mcAddr :  tootR(str) )}
+**** {T,(to cmsAddr from mcAddr :  tootR(str) )}
+ {T,(to cmsAddr from mcAddr :  mkPostResponse(str) )}
  < cmsAddr : CMServer | cmsAtts >
  =>
  < cmsAddr : CMServer | cmsAtts1 >
  delayMsgs(msgs,null)
  if {cmsAtts1,msgs} := srcvTootR(cmsAtts,
             (to cmsAddr from mcAddr :  tootR(str)) ) 
-[print "(" T "): rbs-rcv-tootR got toot response " str " from Mastodon Client, sending " msgs ]
+[print "rbs-rcv-tootR " str]
  .
   
   op srcvTootR : AttributeSet  Msg ->
@@ -338,6 +363,30 @@ ops IM0 IM00 : -> ByteSeq .
 eq IM0 = image(0,500,50)  .
 eq IM00 = encode(image(0,500,50),FR0,1,4,1/10) .
 
+ops wTAG0  bTAG0 : -> Tag .
+
+eq wTAG0 = hashtag2tag(wHT0) .
+eq bTAG0 = hashtag2tag(bHT0) .
+
+***(
+red tag2hashtag(wTAG0) == wHT0 .
+red tag2hashtag(bTAG0) == bHT0 .
+)
+
+
+ops MF0 MF00 : -> MediaFile .
+eq MF0 = image2mediafile(IM0) .
+eq MF00 = image2mediafile(IM00) .
+
+***(
+red mediaFileL2bytesL(MF0) == IM0 .
+red mediaFileL2bytesL(MF00) == IM00 .
+
+red getPayload(MF0) == IM0 .
+red getPayload(MF00) == IM00 .
+
+)
+
 ops CMSh CMSm CMSme CMSd CMShd CMShdf : -> Actor .
 
 ops Mhash Mmedia Mdown MencR MdecR MtootR 
@@ -362,7 +411,7 @@ eq Mmedia =
 ---- pendingFiles: nilBS or EF0
 ---- (w4c: null), (replyTo: null), 
  
----- rew CMS Mmedia .
+---- rew CMS Mmedia .  #
 eq CMSm = 
 < cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, 
 w4c: (to edA from cmsA : encQ(noBytes)), 
@@ -377,7 +426,7 @@ eq Mdown =
 ---- (w4c: null), (replyTo: null), 
 
 
----- rew CMS Mdown .
+---- rew CMS Mdown .  #
 eq CMSd =
 < cmsA : CMServer | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, 
 w4c: (to mcA from cmsA : fetchQ(bHashTag(0))), 
@@ -387,16 +436,14 @@ replyTo: ( to cmsA from umA : actionQ("type" |-> js("download"))) >
    .
    
 
----- rew CMSh Mdown .
+---- rew CMSh Mdown .   #
 eq CMShd = 
 < cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: wHashTag(0), numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, w4c: (to mcA from cmsA : fetchQ(wHashTag(0))), replyTo: (to cmsA from umA : actionQ("type" |-> js("download"))) >
 
 **** [0.0, to mcA from cmsA : fetchQ(wHashTag(0)), 0]
 .
 
-
----- rcv fetch response from mcAddr
----- crl [rbs-rcv-fetchR] :
+***(
 eq MfetchRw = 
    {2.0,(to cmsA from mcA :  fetchR(nilBS,wHT0))} .
 eq MfetchRb = 
@@ -404,18 +451,27 @@ eq MfetchRb =
 eq MfetchRw0 = 
     {2.0,(to cmsA from mcA : fetchR(IM00,wHT0))} .
 
----- rew CMSd MfetchRb .
+)
+---- rcv fetch response from mcAddr
+---- crl [rbs-rcv-fetchR] :
+eq MfetchRw = {2.0,(to cmsA from mcA : 
+           ResponseMediaList(wTAG0,emptyMediaFileList) )} .
+eq MfetchRb = 
+  {2.0,(to cmsA from mcA : ResponseMediaList(bTAG0,MF0))} .
+eq MfetchRw0 = {2.0,(to cmsA from mcA : 
+                      ResponseMediaList(wTAG0,MF00))} .
+
+---- rew CMSd MfetchRb .  #
 **** < cmsA : CMServer | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, w4c: null, replyTo: null >
 
 **** [0.0, to umA from cmsA : actionR("ok"), 0]
 
-
----- rew CMShd MfetchRw .
+---- rew CMShd MfetchRw .  #
 **** < cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: wHashTag(0), numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, w4c: null, replyTo: null >
 
 **** [0.0, to umA from cmsA : actionR("ok"), 0]
 
----- rew CMShd MfetchRw0 .
+---- rew CMShd MfetchRw0 . #
 eq CMShdf =
 < cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: wHashTag(0), numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, 
 w4c: (to edA from cmsA : decQ(encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20),1,4,1/10))), 
@@ -431,7 +487,7 @@ eq MdecR =
    {2.5,(to cmsA from edA :  decR(FR0))} .
 --- need w4c and replyTo non null
 
----- rew CMShdf MdecR .
+---- rew CMShdf MdecR .   #
 **** < cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, w4c: null, replyTo: null > 
 **** [0.0, to bA from cmsA : pkg( efile(0, 20, 0, 20), wHashTag(0)), 0] 
 **** [0.0, to umA from cmsA : actionR( "ok"), 0]
@@ -440,7 +496,7 @@ eq MdecR =
 eq MencR = {2.0, (to cmsA from edA :  encR(IM00) )} .
 ---- need w4c and replyTo non null
 
----- rew CMSm MencR .
+---- rew CMSm MencR .   #
 eq CMSme = 
 < cmsA : CMServer | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, 
 w4c: (to mcA from cmsA : tootQ(bHashTag(0), encode(image( 0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1,4,1/10))), 
@@ -448,14 +504,16 @@ replyTo: (to cmsA from umA : actionQ("type" |-> js("media"))) >
 .
 
 **** [0.0, to mcA from cmsA : tootQ(bHashTag(0), encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10)), 0] 
-
+****  [0.0, to mcA from cmsA : PostStatus( "hashtag is #bHashTag-0", makeMediaFile("image-0", 500, encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))), 0]
 
 
 ---- crl [rbs-rcv-tootR] :
-eq MtootR =  {2.5,(to cmsA from mcA :  tootR("ok") )} .
+**** eq MtootR =  {2.5,(to cmsA from mcA :  tootR("ok") )} .
+eq MtootR =  {2.5,(to cmsA from mcA : 
+                    mkPostResponse("ok") )} .
 ---- need w4c and replyTo non null
  
----- rew CMSme MtootR .
+---- rew CMSme MtootR .  #
 **** < cmsA : CMServer | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, w4c: null, replyTo: null >
 **** [0.0, to umA from cmsA :  actionR("ok"), 0]
 
