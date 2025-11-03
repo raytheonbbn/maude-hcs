@@ -7,10 +7,6 @@ load ../../../deps/dns_formalization/Maude/common/actor.maude
 load ../../../deps/dns_formalization/Maude/common/apmaude.maude
 load ../../../deps/dns_formalization/Maude/dns/probabilistic-model/parameters.maude
 
-load ../../mastodon/maude/common/tag.maude
-load ../../mastodon/maude/common/media_file.maude
-***** load ../../mastodon/maude/common/_aux.maude
-
 ***(
 There are two flavors of interface: 
    service
@@ -148,124 +144,15 @@ endm
 mod MC-INTERFACE is
  inc ACTOR-MODEL .
  inc BYTESEQ .
- inc TAGS .
- inc MEDIA_FILES .
 
-***** RB perspective
   op fetchQ : ByteSeq -> Content .
   op fetchR : ByteSeqL -> Content .
   op fetchR : ByteSeqL ByteSeq -> Content .
 
   op tootQ : ByteSeq ByteSeq -> Content .
   op tootR : String -> Content .
-
-*****  MC perspective  
-***** from _mas_aux
-  op GetMediaHashtag : Tag -> Content .
-  op GetMediaHashtag : Tag Nat -> Content .
-  op PostStatus : String MediaFileList -> Content .
-  op ResponseMediaList : Tag MediaFileList 
-                           -> Content [ctor] .
-  op mkPostResponse : String -> Content [ctor] .
-
-vars j : Nat .
-vars str hstr : String .
-vars ix : FindResult .
-vars byteseq hashtag image : ByteSeq .
-vars byteseql imagel : ByteSeqL .
-vars tag : Tag .
-vars mediaFile : MediaFile .
-vars mediaFileList mediafileL : MediaFileList .
   
-**** op GetMediaHashtag -> Tag -> Content .
-
-op hashtag2string : ByteSeq -> String .
-eq hashtag2string(wHashTag(j)) =
-         "wHashTag-" + string(j,10) .
-eq hashtag2string(bHashTag(j)) =
-          "bHashTag-" + string(j,10) .
-eq hashtag2string(byteseq) = "" [owise] .
-
-op hashtag2tag : ByteSeq -> Tag .
-eq hashtag2tag(hashtag) = 
-        makeTag(hashtag2string(hashtag)) .
-
-op hashtag2text : ByteSeq -> String .
-eq hashtag2text(hashtag) 
-      = "hashtag is #" + hashtag2string(hashtag) .
-
-op mkHashTag : String Nat -> ByteSeq .
-eq mkHashTag(hstr,j) =
-   (if hstr == "wHashTag"
-    then wHashTag(j)
-    else bHashTag(j)
-    fi)
-.    
-
-op tag2hashtag : Tag -> ByteSeq .
-op tagstr2hashtag : String -> ByteSeq .
-eq tag2hashtag(makeTag(str)) = tagstr2hashtag(str) .
-ceq tagstr2hashtag(str) = mkHashTag(hstr,j)
-if ix := find(str,"-",0)
-/\ hstr := (if ix :: Nat
-            then substr(str,0,ix)
-            else ""
-            fi)
-/\ j :=  (if ix :: Nat
-          then rat(substr(str,s ix, length(str) ),10 )
-          else 0
-          fi)           
-.
-eq tagstr2hashtag(str) = bHashTag(0) [owise] .
-          
-op translateFetchQ : Content -> [Content] .
-eq translateFetchQ(fetchQ(hashtag)) 
-   =  GetMediaHashtag(hashtag2tag(hashtag)) .
-
-**** from media_file.maude
-**** op ResponseMediaList : Tag MediaFileList -> Content [ctor] .
-
- op getImageListFromMCResponse : Content -> ByteSeqL .
- eq getImageListFromMCResponse(
-         ResponseMediaList(tag,mediaFileList) )
-   = mediaFileL2bytesL(mediaFileList) .
-  
-op mediaFileL2bytesL : MediaFileList -> ByteSeqL .
-op mediaFileL2bytesLX : MediaFileList ByteSeqL -> ByteSeqL .
-eq mediaFileL2bytesL(mediafileL) =
-      mediaFileL2bytesLX(mediafileL,nilBS) .
-
-eq mediaFileL2bytesLX(mediaFile :: mediafileL, byteseql)
- = mediaFileL2bytesLX( mediafileL,
-                     byteseql :: getPayload(mediaFile)) .
-eq mediaFileL2bytesLX(emptyMediaFileList, byteseql)
-    = byteseql .
- 
- op getHashTagFromMCResponse : Content -> ByteSeq .
- eq getHashTagFromMCResponse(
-         ResponseMediaList(tag,mediaFileList) )
-   = tag2hashtag(tag) .
- 
-op translate2FetchR : Content -> Content .
-eq translate2FetchR(ResponseMediaList(tag,mediaFileList))
-    = fetchR(mediaFileL2bytesL(mediaFileList),
-            tag2hashtag(tag) )
-.            
-                      
-op image2mediafile : ByteSeq -> MediaFile .
-ceq image2mediafile(image) = 
-   makeMediaFile("image-" + string(j,10), nbytes(image), 
-                   image)
-   if j := imageId(image)
-.
-
-op translateTootQ : Content -> Content .
-eq translateTootQ(tootQ(hashtag,image))  =
-       PostStatus(hashtag2text(hashtag), 
-                  image2mediafile(image)) .
-                  
 endm
-
 
 mod ED-INTERFACE is
  inc ACTOR-MODEL .
