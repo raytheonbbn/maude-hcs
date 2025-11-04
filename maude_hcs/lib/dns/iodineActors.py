@@ -40,7 +40,14 @@ class ReceiveApp:
 
     def to_maude(self) -> str:
         res = f'< {address_to_maude(self.address)} : RcvApp |\n'
-        res += f'    rcvd: mtpl >'
+        res += f'    rcvd: mtpl,\n'
+        res += f'    fileDestAddr: Alice,\n'
+        res += f'    toAddr: (addr-application-server),\n'
+        res += f'    queuePopulated: false,\n'
+        res += f'    queue: (mtpl),\n'
+        res += f'    numAdmittedPkts: 1,\n'
+        res += f'    iodineReady: true,\n'
+        res += f'    sent: mtpl >'
         return res
 
 
@@ -57,12 +64,17 @@ class IodineServer:
     def to_maude(self) -> str:        
         strNS = "" if self.nameServer == None else self.nameServer.to_maude()
         res = f'< {address_to_maude(self.address)} : WNameserver |\n'        
-        res += f'    pendingFragments: mtfl,\n'
-        res += f"    currentSeqNo: 0,\n"
-        res += f"    currentFragment: 0,\n"
+        res += f'    fragmentsReceived: mtfl,\n'
+        res += f"    inSeqNo: 0,\n"
+        res += f"    inFragNo: 0,\n"
         res += f'    lastFragment: false,\n'
         res += f'    severWResponseTTL: {self.severWResponseTTL},\n' # {:.2f}'.format()
-        res += f'    conf: ({strNS}) >'
+        res += f'    conf: ({strNS}),\n'
+        res += f'    outSeqNo: 0,\n'
+        res += f'    fragmentsToSend: mtfl,\n'
+        res += f'    fragmentsSize: 0,\n'
+        res += f'    outFragNo: 0,\n'
+        res += f'    numAttempts: 0 >'
         return res
 
 
@@ -96,8 +108,9 @@ class SendApp:
         res += f'    queuePopulated: false,\n'
         res += f'    queue: ({packetlist_to_maude(self.packets)}),\n'
         res += '    numAdmittedPkts: 1,\n'
-        res += '    wclientReady: true,\n'
-        res += f'    sent: mtpl > '        
+        res += '    iodineReady: true,\n'
+        res += f'    sent: mtpl,\n'
+        res += f'    rcvd: mtpl > '        
         return res
 
 class IodineClient:
@@ -117,12 +130,17 @@ class IodineClient:
         res += f'    wDom: {name_to_maude(self.wDomName)},\n'
         res += f'    weirdQType: {rtype_to_maude(self.wQueryType)},\n'
         res += f'    queryCtr: 0,\n'
-        res += f'    seqCtr: 0,\n'
-        res += f'    fragments: mtfl,\n'
+        res += f'    outSeqNo: 0,\n'
+        res += f'    fragmentsToSend: mtfl,\n'
         res += f'    fragmentsSize: 0,\n'
-        res += f'    currFragment: 0,\n'
+        res += f'    outFragNo: 0,\n'
         res += f'    appAddrMap: mtIdAddr,\n'        
-        res += f'    numAttempts: 0 >'
+        res += f'    numAttempts: 0,\n'
+        res += f'    fragmentsReceived: mtfl,\n'
+        res += f'    inSeqNo: 0,\n'
+        res += f'    inFragNo: 0,\n'
+        res += f'    lastFragment: false,\n'
+        res += f'    severWResponseTTL: 0.0 >'
         return res
     
 '''
