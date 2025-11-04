@@ -1,6 +1,12 @@
 # Maude-HCS
 
-Formal Analysis of Hidden Communications Systems at Scale
+Maude-HCS is one of the first generalized and modular toolchains for specifying 
+and reasoning about Hidden Communication Systems (HCS) at real-world scales. 
+The Maude-HCS toolchain, comprised of a Domain Specific Language (DSL) and analysis toolkit, 
+enables network designers to explore alternative HCS designs quickly and effectively 
+and provides provable privacy-performance guarantees needed to trust the design — 
+a necessary step for HCS users to ultimately trust the system, especially when operating 
+in high threat environments where detection of illicit communication has dire consequences.
 
 # Requirements
 Requires python version `3.12.4`
