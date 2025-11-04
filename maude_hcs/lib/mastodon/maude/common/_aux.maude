@@ -244,6 +244,9 @@ mod MASTODON_NODE is
   op getRequesterAddr : AttributeSet -> Address .
   eq getRequesterAddr(masClAttrs, requesterAddr: FROM-ADDR) = FROM-ADDR .
 
+  op getOpStack : AttributeSet -> OpStack .
+  eq getOpStack(masClAttrs, opStack: OP_STACK) = OP_STACK .
+
   op getPostingMedia : AttributeSet -> MediaFileList .
   eq getPostingMedia(masClAttrs, postingMedia: MEDIA_FILE_LIST) = MEDIA_FILE_LIST .
 
@@ -392,20 +395,24 @@ mod MASTODON_NODE is
       get(getMastodonServerAddr(masClAttrs), getThisAddr(masClAttrs)) }
     .
 
-  --- Handle a reply from the server, for a media posting request.
+  --- Handle a reply from the server.
   op handleReply : HttpMsg AttributeSet -> AttributeSetMsgs .
   eq handleReply(HTTP_MSG, masClAttrs) =
     handleReply(getHttpResponse(HTTP_MSG), masClAttrs)
+    [ print "Handle reply, received " HTTP_MSG ]
     .
   eq handleReply((to MAS_CLIENT_ADDR from MAS_SERVER_ADDR : HTTP_RESPONSE), masClAttrs) =
     handleReply(HTTP_RESPONSE, masClAttrs)
+    [ print "Handle reply, received " HTTP_RESPONSE ]
     .
 
+  --- Handle a reply from the server, for a media posting request.
   ---              MsgAttributes ClientAttributes
   op handleReply : HttpResponse AttributeSet -> AttributeSetMsgs .
   ceq handleReply(makeHttpResponse("OK", RESPONSE_TOOT_LIST), masClAttrs) =
     handleMediaPostReply(getPostId(RESPONSE_TOOT_LIST), masClAttrs)
       if peekOp(masClAttrs) == POST-MEDIA-OP
+    [ print "Handle reply for media post." ]
     .
 
   --- Handle a reply from the server, for a status posting request.
@@ -421,6 +428,7 @@ mod MASTODON_NODE is
   ceq handleReply(makeHttpResponse("OK", RESPONSE_TOOT_LIST), masClAttrs) =
     handleStatusGetReply(RESPONSE_TOOT_LIST, popOp(masClAttrs))
       if peekOp(masClAttrs) == GET-STATUS-OP
+    [ print "Handle reply for status get, received " RESPONSE_TOOT_LIST ]
     .
 
   --- Handle a reply from the server for a get media by URL request.
@@ -437,6 +445,9 @@ mod MASTODON_NODE is
       if peekOp(masClAttrs) == GET-MEDIA-POST-OP
     .
 
+  --- Handle a reply from the server but no context --- use for debugging.
+  eq handleReply(makeHttpResponse("OK", RESPONSE_TOOT_LIST), masClAttrs) = { masClAttrs, nullMsg} [owise] .
+
   --- Handle a Media posting reply.
   ---                       MsgAttributes ClientAttributes  ClientAttributes
   op handleMediaPostReply : MasId AttributeSet -> AttributeSetMsgs .
@@ -447,8 +458,16 @@ mod MASTODON_NODE is
   --- Handle a Status posting reply.
   ---                       MsgAttributes ClientAttributes  ClientAttributes
   op handleStatusPostReply : MasId AttributeSet -> AttributeSet .
-  eq handleStatusPostReply(POST_ID, (masClAttrs, opStack: OP_STACK, postingMediaIds: MAS_ID_LIST)) =
-    (masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: emptyMasIdList)
+  ceq handleStatusPostReply(POST_ID, (masClAttrs, opStack: OP_STACK, postingMediaIds: MAS_ID_LIST)) =
+---    (masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: emptyMasIdList)
+    masClAttrsNext
+    if masClAttrsTrans := (masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: emptyMasIdList)
+      /\ masClAttrsNext := 
+        (if peekOp(masClAttrsTrans) == POST-STATUS-W-MEDIA-OP
+          then popOp(masClAttrsTrans)
+          else masClAttrsTrans
+         fi)
+    [ print "Handle status post reply." ]
     .
     
   --- Finish handling a reply from the server.
