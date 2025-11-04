@@ -50,11 +50,13 @@ mod CP2_APP is
     {T, (to ALICE_ADDR : start)}
   =>
     < ALICE_ADDR : TxApp | attrs, contractCount: s contractId, queue: CONTRACT_LIST >
-    startRbClient(getRbUserModelAddr(attrs))
+    startRbClient(0., getRbUserModelAddr(attrs))
     [0.0002, (to getRbContentMgrAddr(attrs) from ALICE_ADDR : pkg(encryptedContract, contractHashtag)), 0] 
-    [0.001, (to getIodineClientAddr(attrs) from ALICE_ADDR : ccFile(contractKey, contractHash, contractHashtag)), 0]
+    --- TODO: Send using the proper delays.
+    [2.0, (to getIodineClientAddr(attrs) from ALICE_ADDR : ccFile(contractKey, contractHash, contractHashtag)), 0]
     if contractKey := key(contractId, 4)
       /\ contractHash := hash(CONTRACT, 4)
+      --- TODO: Change to the right hashtag generation.
       /\ contractHashtag := wHashTag(contractId)
       /\ encryptedContract := encrypt(CONTRACT, contractKey)
   [ print "(" T "): Alice start, sending contract " contractId " with key " contractKey ]
@@ -74,7 +76,7 @@ mod CP2_APP is
     {T, (to BOB_ADDR : start)}
   =>
     < BOB_ADDR : RxApp | attrs >
-    startRbServer(getRbUserModelAddr(attrs))
+    startRbServer(0., getRbUserModelAddr(attrs))
   [ print "(" T "): Bob start." ]
   .
 

@@ -129,18 +129,9 @@ eq zonePwnd2Com =
       currFragment: 0,
       appAddrMap: mtIdAddr,
       numAttempts: 0 >
-    < mastodon-client : MasClient |
-      thisAddr: mastodon-client,
-      masServerAddr: mastodon-server,
-      requesterAddr: alice-raceboat,
-      opStack: emptyOpStack,
-      postingMedia: emptyMediaFileList,
-      postingMediaIds: emptyMasIdList,
-      postingText: "",
-      gettingMediaUrls: emptyUrlList,
-      gettingMedias: emptyMediaFileList,
-      gettingPosts: emptyMasIdList
-    >
+    makeMastodonClient(mastodon-client,
+                       mastodon-server,
+                       clientContentMgr)
   < iodineServer : WNameserver |
       pendingFragments: mtfl,
       currentSeqNo: 0,
@@ -151,24 +142,10 @@ eq zonePwnd2Com =
                                             queue: nilQueue,
                                             forwardonly: nullAddr,
                                             queriesFwd: nilTAQL >) >
-    < bobMasClient : MasClient |
-      thisAddr: bobMasClient,
-      masServerAddr: mastodon-server,
-      opStack: emptyOpStack,
-      postingMedia: emptyMediaFileList,
-      postingMediaIds: emptyMasIdList,
-      postingText: "",
-      gettingMediaUrls: emptyUrlList,
-      gettingMedias: emptyMediaFileList,
-      gettingPosts: emptyMasIdList
-    >
-    < mastodon-server : MasServer |
-      thisAddr: mastodon-server,
-      currentMapId: 0,
-      tootMap: emptyIdTootMap,
-      mediaMap: emptyIdMediaMap, 
-      tagMap: emptyTagPostIdsMap
-    >
+    makeMastodonClient(bobMasClient,
+                       mastodon-server,
+                       serverContentMgr)
+    makeMastodonServer(mastodon-server)
     makeRbClient(clientUserModel, clientContentMgr, clientDestini, mastodon-client)
     makeRbServer(serverUserModel, serverContentMgr, serverDestini, bobMasClient, bob)
     < monAddr : WMonitor |
@@ -187,7 +164,7 @@ eq zonePwnd2Com =
 ---    (to mastodon-client from alice-raceboat : GetTimeline)
 ---    [1.0, (to mastodon-client from alice-raceboat : GetMediaHashtag(makeTag("media"))), 0]
       [0.5, (to alice : start), 0]
-      [1.0, (to bob : start), 0]
+      [21.0, (to bob : start), 0]
 ---      [1.0, (to mastodon-client from alice-raceboat  : tootQ(bHashTag(0), noBytes)), 0]
     .
 
