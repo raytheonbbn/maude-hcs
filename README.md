@@ -38,25 +38,26 @@ source venv/bin/activate
 We structured the repo source code so that 
 we import dns-formalization-maude as a dependency (a submodule).
 We created a fork of this dependency so that we can track our changes 
-to it. The main initial changes we did are structural so that we can
-import the dependency as a module especially for some relevant python
-source code, and use it.
-We will also use sparse-checkout to avoid needing to checkout all the source of the 
+to it. 
+We use sparse-checkout to avoid needing to checkout all the source of the 
 dependency which includes many irrelevant files (such as Testbed).
 
 First setup a new conda environment and activate it.
 
 Clone the main repo
 ```shell
-git clone git@github.com:jkhourybbn/maude-hcs.git
+git clone git@github.com:raytheonbbn/maude-hcs.git
 ```
+The main branch has the latest (possibly unstable) source.
+Older branches/tags such as `pwnd.cp1` refer to stable snapshots used to produce results during evaluations (e.g., `pwnd.cp1` used for challenge problem 1, and similarly `pwnd.cp2`).
+To use an older snapshot, checkout the specific branch (eg `pwnd.cp1`).
 
 Setup the dns submodule using our clone of the code so we can track changes 
 made to the original source, use sparse-checkout to keep only relevant sources
 ```shell
 cd maude-hcs
 mkdir -p maude_hcs/deps
-git submodule add -b pwnd -f git@github.com:jkhourybbn/dns-formalization-maude.git maude_hcs/deps/dns_formalization
+git submodule add -b <branch> -f git@github.com:raytheonbbn/dns-formalization-maude.git maude_hcs/deps/dns_formalization
 cd maude_hcs/deps/dns_formalization
 git sparse-checkout init --cone
 git sparse-checkout set "Maude/dns" "Maude/common" "Maude/test" "Maude/attack_exploration"
@@ -64,6 +65,8 @@ cd ../../../
 git reset .gitmodules
 git reset maude_hcs/deps/dns_formalization
 ```
+In the command above set `<branch>` either to `pwnd.cp1` to reproduce challenge problem 1 results, 
+or to `pwnd` for the latest version. 
 
 The above should create a new file named sparse-checkout under .git/modules/maude_hcs/deps/dns_formalization/info/ 
 and tell it to only include certain directories such as `Maude/src`.
@@ -93,14 +96,18 @@ To generate a probabilistic DNS model config with iodine and specify the output 
 ```shell
 maude-hcs --verbose --run-args=./use-cases/corporate-iodine-conf.json --model=prob --protocol=dns --filename=generated_test_aa generate
 ```
-And set `--model=nondet` to generate a nondeterministic version.
+Set `--model=nondet` to generate a nondeterministic version.
+
+This produces the executable maude file (and the corresponding HCS config json) in the results/ directory.
 
 See example [corporate-iodine-conf.json](./use-cases/corporate-iodine-conf.json) configuration file, and refer to [HCSParamsGuide](./HCSParamsGuide.md) for a description of the parameters.
 Note that probabilistic model will combine the nondeterministic params as well as the 
 probabilistic params (whic override the nondeterministic ones).
 
-
 ## Using Shadow yaml configuration
+The network configuration can be specified using a shadow file instead of our HCS config json
+(See [Shadow](https://github.com/shadow/shadow) simulator for more info on shadow specifications).
+
 To generate a model that uses characteristics defined in a shadow file, specify:
 ```shell
 --shadow-filename <path_to_shadow_file.yaml>
@@ -303,13 +310,6 @@ https://zenodo.org/records/7071693
 Unified Maude model-checking tool 
 https://github.com/fadoss/umaudemc
 
-# Plan and paper
-
-Current plan 
-https://docs.google.com/spreadsheets/d/1VNd7eNqDvlZrCXnjC-y772eVDkgggKh-jcNATgiM5Hc/edit?usp=sharing
-
-Overlead paper
-https://www.overleaf.com/3267687712qvzjxzjmxjjr#81eb69
 
 # mailing list
 
