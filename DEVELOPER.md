@@ -382,7 +382,6 @@ graph TD
     end
 ```
 
-<<<<<<< HEAD
 # Adversary
 
 ```mermaid
