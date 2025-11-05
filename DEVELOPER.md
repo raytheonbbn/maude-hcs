@@ -593,29 +593,32 @@ sequenceDiagram
     participant MastodonServer
 
     Note over RaceboatClient, MastodonServer: Flow 1: Client Uploads a Status with Media
-    
+
     RaceboatClient ->> MastodonClient: PostStatus(text, mediaFileList)
     activate MastodonClient
-    
-    Note over MastodonClient: Sets OpStack to POST-STATUS-W-MEDIA-OP
-    
+
+    Note over MastodonClient: Push POST-STATUS-W-MEDIA-OP to opStack
+
     loop For Each Media File in List
+        Note over MastodonClient: Push POST-MEDIA to opStack
         MastodonClient ->> MastodonServer: HttpRequest(POST, mediaFile)
         activate MastodonServer
         Note over MastodonServer: handleMediaPostRequest
         MastodonServer -->> MastodonClient: HttpResponse(OK, mediaId)
         deactivate MastodonServer
-        Note over MastodonClient: handleReply, calls cueNextPostOp
+        Note over MastodonClient: handleReply, pop opStack, calls cueNextPostOp
     end
-    
+
     Note over MastodonClient: All media uploaded. Now post status.
+    Note over MastodonClient: Push POST-STATUS to opStack
     MastodonClient ->> MastodonServer: HttpRequest(POST, text, all_mediaIds)
     activate MastodonServer
     Note over MastodonServer: handleStatusPostRequest
     MastodonServer -->> MastodonClient: HttpResponse(OK, postId)
     deactivate MastodonServer
-    
-    Note over MastodonClient: handleReply, pops op stack. Interaction ends.
+
+    Note over MastodonClient: handleReply, pops opStack.
+    Note over MastodonClient: Check opStack head, pop. Interaction ends.
     deactivate MastodonClient
 ```
 
@@ -628,29 +631,32 @@ sequenceDiagram
     participant MastodonServer
 
     Note over RaceboatClient, MastodonServer: Flow 2: Client Downloads All Media for a Hashtag
-    
+
     RaceboatClient ->> MastodonClient: GetMediaHashtag(tag)
     activate MastodonClient
-    
-    Note over MastodonClient: Sets OpStack to GET-MEDIA-HASHTAG-OP
+
+    Note over MastodonClient: Push GET-MEDIA-HASHTAG-OP to opStack
     MastodonClient ->> MastodonServer: HttpRequest(GET, tag)
     activate MastodonServer
     Note over MastodonServer: handleStatusSearchRequest
     MastodonServer -->> MastodonClient: HttpResponse(OK, tootList_with_URLs)
     deactivate MastodonServer
-    
+
     Note over MastodonClient: handleStatusGetReply, gets URL list
-    
+
     loop For Each URL in List
         MastodonClient ->> MastodonServer: HttpRequest(GET, mediaUrl)
         activate MastodonServer
+        Note over MastodonClient: Push GET-MEDIA to opStack
         Note over MastodonServer: handleMediaGetRequest
         MastodonServer -->> MastodonClient: HttpResponse(OK, mediaFile)
         deactivate MastodonServer
         Note over MastodonClient: handleMediaGetByUrl, stores media
+        Note over MastodonClient: pop opStack
     end
-    
-    Note over MastodonClient: All media downloaded.
+
+    Note over MastodonClient: All media downloaded
+    Note over MastodonClient: pop opStack
     MastodonClient ->> RaceboatClient: ResponseMediaList(tag, all_mediaFiles)
     deactivate MastodonClient
 ```
