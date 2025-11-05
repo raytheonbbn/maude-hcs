@@ -382,7 +382,6 @@ graph TD
     end
 ```
 
-<<<<<<< HEAD
 # Adversary
 
 ```mermaid
@@ -678,5 +677,3 @@ sequenceDiagram
     MastodonClient ->> RaceboatClient: ResponseMediaList(tag, all_mediaFiles)
     deactivate MastodonClient
 ```
-=======
->>>>>>> 0d12b40 (Add license and notice files)
