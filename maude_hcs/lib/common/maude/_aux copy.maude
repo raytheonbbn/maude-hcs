@@ -1,0 +1,160 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+
+load ../../../deps/dns_formalization/Maude/dns/common/_aux
+load byteseq
+
+--- from Module TIME-INF: 
+fmod NAT-INF is 
+  including NAT .
+  sort NatInf .
+  subsort Nat < NatInf .
+
+  op infty : -> NatInf .
+
+  op dec : NatInf -> NatInf .
+  eq dec(0) = 0 .
+  eq dec(s n:Nat) = n:Nat .
+  eq dec(infty) = infty .
+
+  op gt : NatInf NatInf -> Bool .
+  eq gt(n0:Nat, n1:Nat) = n0:Nat > n1:Nat .
+  eq gt(n0:Nat, infty) = false .
+  eq gt(infty, n0:Nat) = true .
+  eq gt(infty, infty) = false .
+  
+  op gte : NatInf NatInf -> Bool .
+  eq gte(n0:Nat, n1:Nat) = n0:Nat >= n1:Nat .
+  eq gte(n0:Nat, infty) = false .
+  eq gte(infty, n0:Nat) = true .
+  eq gte(infty, infty) = true .
+
+endfm
+
+---- @CHRIS: does this belong under actor.maude?
+---- Possibly.  I think it fits here, but I am not opposed to move it to actor.maude.
+mod CP2_SORTS is
+  pr AUX-COMMON .
+  var msg : Config .
+  var Attrs : AttributeSet .
+
+  op nullMsg : -> Msg .
+
+  ---- Used by iodine server when extracting information from Query
+  sort AttributeSetMsgs .
+  sort AttributeSetPair .
+  ----              serverAttrs Msgs
+  op `{_`,_`} : AttributeSet Config -> AttributeSetMsgs [ctor] .  
+  ----              serverAttrs appAttrs
+  op `{_`,_`} : AttributeSet AttributeSet -> AttributeSetPair [ctor] .
+
+  op getAttributes : AttributeSetMsgs -> AttributeSet .
+  eq getAttributes({Attrs, msg}) = Attrs .
+endm
+
+---- @CHRIS: does this belong under app/?
+mod CP2_NODE is
+  inc CP2_SORTS .
+  inc BYTESEQ .
+
+  -------------------
+  --- [App Alice] ---
+  ------------------- 
+  op TxApp : -> ActorType [ctor] .
+  --- Destination of exfil.
+  op destAddr:_ : Address -> Attribute [ctor] .
+  --- Raceboat address -- May not be needed..
+  op rbClientAddr:_ : Address -> Attribute [ctor] .
+  --- Raceboat Content Manager address.
+  op rbContentMgrAddr:_ : Address -> Attribute [ctor] .
+  --- Raceboat User Model address.
+  op rbUserModelAddr:_ : Address -> Attribute [ctor] .
+  --- Iodine client address.
+  op iodineClientAddr:_ : Address -> Attribute [ctor] .
+
+---  op queue:_ : PacketList -> Attribute [ctor] .
+  op contractCount:_ : Nat -> Attribute [ctor] .
+  --- Queue of contracts.
+  op queue:_ : ByteSeqL -> Attribute [ctor] .
+  --- Contract cc file.
+  op currentCcFile:_ : ByteSeq -> Attribute [ctor] .
+  --- Encrypted contract.
+  --- Key for encryption.
+
+  vars toAddr destAddr TO_ADDR DEST_ADDR : Address .
+  vars attrs attrsNext otherAttrs ATTRS : AttributeSet .
+  vars file ccInfo FILE : ByteSeq .
+  vars outMsg : Msg .
+
+  op makeTxApp : Address Address -> Actor [ctor] .
+  eq makeTxApp(AliceAddr:Address, BobAddr:Address)  =
+    < AliceAddr:Address : TxApp | destAddr: BobAddr:Address > .
+
+  op getRbClientAddr : AttributeSet -> Address .
+  eq getRbClientAddr((attrs:AttributeSet, rbClientAddr: addr:Address)) = addr:Address .
+
+  op getRbUserModelAddr : AttributeSet -> Address .
+  eq getRbUserModelAddr((attrs:AttributeSet, rbUserModelAddr: addr:Address)) = addr:Address .
+
+  op getRbContentMgrAddr : AttributeSet -> Address .
+  eq getRbContentMgrAddr((attrs:AttributeSet, rbContentMgrAddr: addr:Address)) = addr:Address .
+
+  op getIodineClientAddr : AttributeSet -> Address .
+  eq getIodineClientAddr((attrs:AttributeSet, iodineClientAddr: addr:Address)) = addr:Address .
+
+  --- Get cc file to send over CC (immutable).
+  op getCcFile : AttributeSet -> ByteSeq .
+  eq getCcFile(attrs:AttributeSet, currentCcFile: FILE) = FILE .
+
+  --- Create a CC file to send over CC.
+  --- Very likely the call will require the contract file.
+  op createCcFile : AttributeSet ByteSeq -> ByteSeq .
+  eq createCcFile(attrs, FILE) =
+    ccFile(444, 10, "#HASHTAG")
+    .
+
+  -----------------
+  --- [App Bob] ---
+  -----------------
+  op RxApp : -> ActorType [ctor] .
+
+  --- Raceboat User Model, defined under Alice.
+  --- op rbUserModelAddr:_ : Address -> Attribute [ctor] .
+
+  --- Raceboat Content Manager address, defined under Alice.
+  --- op rbContentMgrAddr:_ : Address -> Attribute [ctor] .
+
+  op rcvd:_ : ByteSeqL -> Attribute [ctor] .
+---  op rcvd:_ : PacketList  -> Attribute [ctor] .
+
+endm
+
+

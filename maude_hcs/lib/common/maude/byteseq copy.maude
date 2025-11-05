@@ -1,0 +1,266 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+
+***(
+
+Different actors (developed by different team
+members) need to agree on some data structures. One
+example is data structures for files, fragments,
+text, images, keys ... . I propose thinking of all
+of these as byte sequences, sort ByteSeq.
+
+We need to compute the size of a byte sequence 
+from basic byte sequence contructions and the
+results of transformation  by operations
+such as encryption, hashing, encoding in an image ...
+
+We could define subsorts File, Image .... but I
+don't think it helps. If needed we can define
+isFile, isImage, isText, isKey... rather than having
+separate subsorts.
+
+The module BYTESEQ defines constructors for the
+various kinds of byte sequence and equations to
+extract information. I think the only thing Mastadon
+should care about is that it gets requests
+with parameters of sort ByteSeq  and the size
+computed by the function nbytes.
+
+In addition to the file/image related data structures
+we need to agree on content exchanged in messages
+i.e. content received and sent by each actor type.
+TBD
+
+)
+
+load ../../../deps/dns_formalization/Maude/common/actor
+
+fmod BYTESEQ is    
+  inc CONVERSION .
+  inc ACTOR-MODEL .
+  
+vars id i j k k1 l l0 n n0 n1 last last0 r d ix ix0 cap : Nat .
+vars tot bpf nf : Nat .
+vars d1 : Rat .
+*** vars tot oh fragMx accum : Nat .
+vars bytes bytes0 : ByteSeq .
+vars file efrag efile image key ef ef0 : ByteSeq .
+vars efl efl1 efl0 : ByteSeqL .
+
+sorts ByteSeq ByteSeqL .
+subsorts ByteSeq < Content .
+subsort ByteSeq < ByteSeqL .
+op nilBS : ->   ByteSeqL [ctor] .
+op emptyFileList : -> ByteSeqL [ctor] .
+op _::_ : ByteSeqL ByteSeqL -> ByteSeqL [ctor assoc id: nilBS] .
+
+op noBytes : -> ByteSeq [ctor] .
+op nilBytes : -> ByteSeq [ctor] .
+
+------- generating distinct benign and weird hash tags
+op wHashTag : Nat -> ByteSeq [ctor] .
+op bHashTag : Nat -> ByteSeq [ctor] .
+
+op wHashTag : String -> ByteSeq [ctor] .
+op bHashTag : String -> ByteSeq [ctor] .
+
+*********** text
+**** index/id  size
+op text : Nat Nat -> ByteSeq [ctor] .
+
+***** files 
+--- A file should at least have a size (and only a size is necessary to be
+--- backward compatible with Iodine CP1).
+op file : Nat -> ByteSeq [ctor] .
+
+****      id  size
+op file : Nat Nat -> ByteSeq [ctor] .
+
+--- Make a file from a size and filename.
+op file : Nat String -> ByteSeq [ctor] .
+
+---       Id  Size Filename
+op file : Nat Nat String -> ByteSeq [ctor] .
+
+--- A Control Channel file.
+---         Key Hash Tag
+op ccFile : Nat Nat String -> ByteSeq [ctor] .
+--- Same but with ByteSeqs.
+op ccFile : ByteSeq ByteSeq ByteSeq -> ByteSeq [ctor] .
+
+
+**** encrypted file 
+   --- not strictly needed, but maybe compacts notation
+****       id  fsize, key index, key len
+op efile : Nat Nat Nat Nat -> ByteSeq [ctor] .
+
+****  keys
+****     ix  len
+op key : Nat Nat -> ByteSeq [ctor] . --- key generator
+
+**** encryption
+op encrypt : ByteSeq ByteSeq -> ByteSeq .
+eq encrypt(file(id,n),key(j,k)) = efile(id,n,j,k) .
+
+op decrypt : ByteSeq ByteSeq -> ByteSeq .
+eq decrypt(efile(id,n,j,k),key(j,k)) = file(id,n) .
+eq decrypt(encrypt(bytes,key(j,k)), key(j,k)) = 
+       bytes [owise] .
+ 
+****       file len 
+op hash : ByteSeq Nat -> ByteSeq .
+
+**** computing len/size of ByteSeq terms
+op nbytes : ByteSeq -> Nat .
+
+eq nbytes(noBytes) = 0 .
+eq nbytes(key(j,k)) = k .
+eq nbytes(file(id,n)) = n .
+eq nbytes(ccFile(key:Nat, hash:Nat, hashtag:String)) = getSize(ccFile(key:Nat, hash:Nat, hashtag:String)) .
+eq nbytes(text(id,n)) = n .
+
+op getSize : ByteSeq -> Nat .
+eq getSize(file(size:Nat)) = size:Nat .
+eq getSize(file(size:Nat, filename:String)) = size:Nat .
+eq getSize(ccFile(key:Nat, hash:Nat, hashtag:String)) =
+  length(hashtag:String) + 4 + 4
+  .
+eq getSize(image(fragNum:Nat, cap:Nat, size:Nat)) = size:Nat .
+
+--- Get a filename.
+op getFilename : ByteSeq -> String .
+eq getFilename(file(size:Nat, name:String)) = name:String .
+eq getFilename(ccFile(key:Nat, hash:Nat, hashtag:String)) =
+  hashtag:String + ".txt"
+  .
+eq getFilename(image(fragNum:Nat, cap:Nat, size:Nat)) = 
+  "img_" + string(fragNum:Nat, 10) + ".jpg"
+  .
+
+--- Get a hashtag from a CcFile.
+op getHashtag : ByteSeq -> String .
+eq getHashtag(ccFile(key:Nat, hash:Nat, hashtag:String)) = hashtag:String .
+eq getHashtag(ccFile(key:ByteSeq, hash:ByteSeq, wHashTag(index:Nat))) = string(index:Nat, 10) .
+eq getHashtag(ccFile(key:ByteSeq, hash:ByteSeq, wHashTag(hashtag:String))) = hashtag:String .
+eq getHashtag(wHashTag(index:Nat)) = string(index:Nat, 10) .
+eq getHashtag(bHashTag(index:Nat)) = string(index:Nat, 10) .
+
+op getHashtagAsByteSeq : ByteSeq -> ByteSeq .
+eq getHashtagAsByteSeq(ccFile(key:ByteSeq, hash:ByteSeq, hashtag:ByteSeq)) = hashtag:ByteSeq .
+
+--- Get a hash from a CcFile.
+op getHash : ByteSeq -> Nat .
+eq getHash(ccFile(key:Nat, hash:Nat, hashtag:String)) = hash:Nat .
+--- TODO: Create a hash match function.
+
+--- Get a key from a CcFile.
+op getKey : ByteSeq -> Nat .
+eq getKey(ccFile(key:Nat, hash:Nat, hashtag:String)) = key:Nat .
+eq getKey(ccFile(key(index:Nat, length:Nat), hash:ByteSeq, hashtag:ByteSeq)) = index:Nat .
+
+--- Get a fragment number from an image.
+op getFragmentNumber : ByteSeq -> Nat .
+eq getFragmentNumber(image(fragNum:Nat, cap:Nat, size:Nat)) = fragNum:Nat .
+
+*** we need to know the encryption algorithm overhead
+*** give input size and key length
+op encOH : Nat Nat -> Nat .
+eq nbytes(efile(id,n,j,k))  = n + encOH(n,k) .
+eq nbytes(hash(file(id,n),k)) = k .
+
+****  efile fragment constructor
+***(  
+ efrag(efile,last, ix ,l)
+  ix in [0,last] the fragment index 
+  l the fragment length (number of efile bytes)
+  last is the index of the last fragment
+    so last+1 is the number of fragments
+)    
+op efrag : ByteSeq Nat Nat Nat -> ByteSeq [ctor] .
+--- overhead of file metadata in efrag --- TBD
+op efragOH : ByteSeq -> Nat .  
+eq nbytes(efrag(bytes,last,ix,l)) = l + efragOH(bytes) .
+
+*********  image sorts functions ********************
+**** image(j,k,n)  image j with cap k size n
+
+op image : Nat Nat Nat -> ByteSeq .
+
+*******     image  efrag  rand density
+op encode : ByteSeq ByteSeq Nat Nat -> ByteSeq .
+---- decoder will need to know what the params should be
+---- decoder can't see the constructor params
+op decode : ByteSeq Nat Nat -> ByteSeq .
+eq decode(encode(image,efrag, r,d),r,d) = efrag .
+
+eq nbytes(image(j,k,n)) = n .
+eq nbytes(encode(image(j,k,n),
+         efrag(efile(id,n1,j,k),n0,ix,l),r,d))
+     =  n + bloat(k,n,l) .
+
+***(
+bpf  -bit per frequency
+nfreqs nf --- # frequencies per mcu
+mcudensity  d fraction of mcus  used (d : Rat in [0,1])
+mcu - 8x8 codeing unit
+#mcus * d * nfreqs * bpf  == number of bits encoded
+)
+*******     image  efrag   bpf nfreq density
+op encode : ByteSeq ByteSeq Nat Nat Rat -> ByteSeq .
+---- decoder will need to know what the params should be
+---- decoder can't see the constructor params
+op decode : ByteSeq Nat Nat Rat -> ByteSeq .
+eq decode(encode(image,efrag,bpf,nf,d1),bpf,nf,d1) = efrag .
+
+eq nbytes(image(j,n,k)) = n .
+eq nbytes(encode(image(j,n,k),
+         efrag(efile(id,n1,j,k1),n0,ix,l),bpf,nf,d))
+     =  n + bloat(n,k,l) .
+
+**** bloat(k,n,l) is the increase in size of an image of
+    ----size n with capacity k when l bytes are embedded.
+
+**** TBDefined
+op bloat : Nat Nat Nat -> Nat .
+eq bloat(n,k,l) = 0 [owise] . 
+
+endfm
+
+eof
+
+red getSize(file(100)) == 100 .
+red getSize(ccFile(10, 40, "TEST_STRING")) == 19 .
+red getFilename(ccFile(10, 40, "TEST_STRING")) == "TEST_STRING.txt" .
+red getHashtag(ccFile(10, 40, "TEST_STRING")) == "TEST_STRING" .
+red getHashtag(ccFile(10, 40, "TEST_STRING"))  == "TEST_STRING" .
+red getHash(ccFile(10, 40, "TEST_STRING"))  == 40 .
+red getKey(ccFile(10, 40, "TEST_STRING"))  == 10 .
+
