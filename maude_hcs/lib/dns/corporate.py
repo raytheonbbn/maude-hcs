@@ -1,17 +1,19 @@
 # MAUDE_HCS: maude_hcs
 #
 # Software Markings (UNCLASS)
-# PWNDD Software
+# Maude-HCS Software
 #
 # Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
 #
-# Contract No: HR00112590083
-# Contractor Name: RTX BBN Technologies Inc.
-# Contractor Address: 10 Moulton Street, Cambridge, Massachusetts 02138
+# The computer software and computer software documentation are licensed
+# under the Apache License, Version 2.0 (the "License"); you may not use
+# this file except in compliance with the License. A copy of the License
+# is provided in the LICENSE file, but you may obtain a copy of the
+# License at:  https://www.apache.org/licenses/LICENSE-2.0
 #
-# The U.S. Government's rights to use, modify, reproduce, release, perform,
-# display, or disclose these technical data and software are defined in the
-# Article VII: Data Rights clause of the OTA.
+# The computer software and computer software documentation are based
+# upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+# under Agreement No. HR00l 12590083.
 #
 # This document does not contain technology or technical data controlled under
 # either the U.S. International Traffic in Arms Regulations or the U.S. Export
@@ -22,7 +24,7 @@
 #
 # Notice: Markings. Any reproduction of this computer software, computer
 # software documentation, or portions thereof must also reproduce the markings
-# contained herein.
+# contained herein. Refer to the provided NOTICE file.
 #
 # MAUDE_HCS: end
 
