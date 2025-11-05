@@ -109,10 +109,14 @@ op file : Nat String -> ByteSeq [ctor] .
 op file : Nat Nat String -> ByteSeq [ctor] .
 
 --- A Control Channel file.
+--- From Alice to Bob.
 ---         Key Hash Tag
 op ccFile : Nat Nat String -> ByteSeq [ctor] .
 --- Same but with ByteSeqs.
 op ccFile : ByteSeq ByteSeq ByteSeq -> ByteSeq [ctor] .
+--- From Bob to Alice.
+---          Status Hashtag
+op ackFile : String ByteSeq -> ByteSeq [ctor] .
 
 
 **** encrypted file 
@@ -146,6 +150,9 @@ eq nbytes(ccFile(key:Nat, hash:Nat, hashtag:String)) = getSize(ccFile(key:Nat, h
 eq nbytes(text(id,n)) = n .
 
 op getSize : ByteSeq -> Nat .
+--- TODO: Change when hashtags are strings.
+eq getSize(wHashTag(index:Nat)) = 2 .
+eq getSize(hash(file:ByteSeq, size:Nat)) = size:Nat .
 eq getSize(file(size:Nat)) = size:Nat .
 eq getSize(file(size:Nat, filename:String)) = size:Nat .
 eq getSize(ccFile(key:Nat, hash:Nat, hashtag:String)) =
@@ -155,6 +162,7 @@ eq getSize(ccFile(key(index:Nat, keySize:Nat), hash(FILE:ByteSeq, hashSize:Nat),
   *** TODO: Change when hashtags are strings.
   keySize:Nat + hashSize:Nat + 2
   .
+eq getSize(ackFile(status:String, hashtag:ByteSeq)) = length(status:String) + getSize(hashtag:ByteSeq) .
 eq getSize(image(fragNum:Nat, cap:Nat, size:Nat)) = size:Nat .
 
 --- Get a filename.
