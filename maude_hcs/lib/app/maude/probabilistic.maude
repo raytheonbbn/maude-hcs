@@ -59,13 +59,13 @@ mod CP2_APP is
     startRbClient(0., getRbUserModelAddr(attrs))
     [0.0002, (to getRbContentMgrAddr(attrs) from ALICE_ADDR : pkg(encryptedContract, contractHashtag)), 0] 
     --- TODO: Send using the proper delays.
-    [2.0, (to getIodineClientAddr(attrs) from ALICE_ADDR : ccFile(contractKey, contractHash, contractHashtag)), 0]
+    [0.2, (to getIodineClientAddr(attrs) from ALICE_ADDR : ccFile(contractKey, contractHash, contractHashtag)), 0]
     if contractKey := key(contractId, 4)
       /\ contractHash := hash(CONTRACT, 4)
       --- TODO: Change to the right hashtag generation.
       /\ contractHashtag := wHashTag(contractId)
       /\ encryptedContract := encrypt(CONTRACT, contractKey)
-  [ print "(" T "): Alice start, sending contract " contractId " with key " contractKey ]
+  [ print "(" T ") Alice start, sending contract #" contractId " <<<< " CONTRACT " >>>> with key " contractKey ]
   .
 
 
@@ -78,7 +78,7 @@ mod CP2_APP is
   =>
     < BOB_ADDR : RxApp | (attrs, currentKey: readKey(CC_FILE)) >
     [0.0, (to getRbContentMgrAddr(attrs) from BOB_ADDR : pkg(getHashtagAsByteSeq(CC_FILE))), 0]
-  [ print "(" T "): Bob received CC file " CC_FILE ]
+  [ print "(" T ") Bob received CC file " CC_FILE ]
   .
 
   rl [bob-start]:
@@ -87,7 +87,7 @@ mod CP2_APP is
   =>
     < BOB_ADDR : RxApp | attrs >
     startRbServer(0., getRbUserModelAddr(attrs))
-  [ print "(" T "): Bob start." ]
+  [ print "(" T ") Bob start." ]
   .
 
   crl [bob-recv-encr-file]:
@@ -96,7 +96,7 @@ mod CP2_APP is
   =>
     < BOB_ADDR : RxApp | attrs >
     if contract := decrypt(encryptedContract, getCurrentKey(attrs))
-  [ print "(" T "): Bob received encrypted file, decrypted with key >>>> " contract " <<<<" ]
+  [ print "(" T ") Bob received encrypted file, decrypted with key >>>> " contract " <<<<" ]
   .
 
 endm
