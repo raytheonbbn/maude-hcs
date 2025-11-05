@@ -659,6 +659,7 @@ sequenceDiagram
     activate MastodonClient
 
     Note over MastodonClient: Push GET-MEDIA-HASHTAG-OP to opStack
+    Note over MastodonClient: Push GET-STATUS to opStack
     MastodonClient ->> MastodonServer: HttpRequest(GET, tag)
     activate MastodonServer
     Note over MastodonServer: handleStatusSearchRequest
