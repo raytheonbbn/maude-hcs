@@ -290,7 +290,3 @@ https://zenodo.org/records/7071693
 Unified Maude model-checking tool 
 https://github.com/fadoss/umaudemc
 
-
-# mailing list
-
-bbn-pwnd2@rlist.app.ray.com
