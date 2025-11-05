@@ -42,7 +42,7 @@ mod CP2_APP is
   vars attrs attrsTemp attrsNext : AttributeSet .
   vars aliceAddr bobAddr ALICE_ADDR BOB_ADDR CONTENT_MGR_ADDR USER_MODEL_ADDR : Address .
   vars encryptedContract CC_FILE CONTRACT : ByteSeq .
-  vars contract contractKey contractHash contractHashtag CONTRACT_KEY : ByteSeq .
+  vars ackFile contract contractKey contractHash contractHashtag CONTRACT_KEY : ByteSeq .
   vars CONTRACT_LIST : ByteSeqL .
   vars T : Float . ---timestamps
   vars contractId : Nat .
@@ -59,7 +59,7 @@ mod CP2_APP is
     startRbClient(0., getRbUserModelAddr(attrs))
     [0.0002, (to getRbContentMgrAddr(attrs) from ALICE_ADDR : pkg(encryptedContract, contractHashtag)), 0] 
     --- TODO: Send using the proper delays.
-    [0.2, (to getIodineClientAddr(attrs) from ALICE_ADDR : ccFile(contractKey, contractHash, contractHashtag)), 0]
+    [0.2, (to getIodineAddr(attrs) from ALICE_ADDR : ccFile(contractKey, contractHash, contractHashtag)), 0]
     if contractKey := key(contractId, 4)
       /\ contractHash := hash(CONTRACT, 4)
       --- TODO: Change to the right hashtag generation.
@@ -92,11 +92,14 @@ mod CP2_APP is
 
   crl [bob-recv-encr-file]:
     < BOB_ADDR : RxApp | attrs >
-    {T, (to BOB_ADDR from CONTENT_MGR_ADDR : pkg(encryptedContract, contractHash))}
+    {T, (to BOB_ADDR from CONTENT_MGR_ADDR : pkg(encryptedContract, contractHashtag))}
   =>
     < BOB_ADDR : RxApp | attrs >
+    [0.0, outMsg:Msg, 0]
     if contract := decrypt(encryptedContract, getCurrentKey(attrs))
-  [ print "(" T ") Bob received encrypted file, decrypted with key >>>> " contract " <<<<" ]
+      /\ ack:ByteSeq := ackFile("OK", contractHashtag)
+      /\ outMsg:Msg := (to getIodineAddr(attrs) from BOB_ADDR : ack:ByteSeq)
+  [ print "(" T ") Bob received encrypted file, decrypted with key >>>> " contract " <<<<, ACK " outMsg:Msg ]
   .
 
 endm

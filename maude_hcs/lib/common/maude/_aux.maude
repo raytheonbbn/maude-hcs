@@ -99,8 +99,8 @@ mod CP2_NODE is
   op rbContentMgrAddr:_ : Address -> Attribute [ctor] .
   --- Raceboat User Model address.
   op rbUserModelAddr:_ : Address -> Attribute [ctor] .
-  --- Iodine client address.
-  op iodineClientAddr:_ : Address -> Attribute [ctor] .
+  --- Iodine address.
+  op iodineAddr:_ : Address -> Attribute [ctor] .
 
 ---  op queue:_ : PacketList -> Attribute [ctor] .
   op contractCount:_ : Nat -> Attribute [ctor] .
@@ -111,7 +111,7 @@ mod CP2_NODE is
   --- Encrypted contract.
   --- Key for encryption.
 
-  vars toAddr destAddr TO_ADDR DEST_ADDR : Address .
+  vars toAddr destAddr TO_ADDR DEST_ADDR FROM_ADDR : Address .
   vars attrs attrsNext otherAttrs ATTRS : AttributeSet .
   vars file ccInfo FILE : ByteSeq .
   vars KEY : ByteSeq .
@@ -130,8 +130,8 @@ mod CP2_NODE is
   op getRbContentMgrAddr : AttributeSet -> Address .
   eq getRbContentMgrAddr((attrs:AttributeSet, rbContentMgrAddr: addr:Address)) = addr:Address .
 
-  op getIodineClientAddr : AttributeSet -> Address .
-  eq getIodineClientAddr((attrs:AttributeSet, iodineClientAddr: addr:Address)) = addr:Address .
+  op getIodineAddr : AttributeSet -> Address .
+  eq getIodineAddr((attrs:AttributeSet, iodineAddr: addr:Address)) = addr:Address .
 
   op getCurrentKey : AttributeSet -> ByteSeq .
   eq getCurrentKey(attrs:AttributeSet, currentKey: KEY) = KEY .
@@ -155,14 +155,31 @@ mod CP2_NODE is
 
   op currentKey:_ : ByteSeq -> Attribute [ctor] .
 
+  --- Iodine address.
+  --- op iodineAddr:_ : Address -> Attribute [ctor] .
+
   --- Raceboat User Model, defined under Alice.
   --- op rbUserModelAddr:_ : Address -> Attribute [ctor] .
 
   --- Raceboat Content Manager address, defined under Alice.
   --- op rbContentMgrAddr:_ : Address -> Attribute [ctor] .
 
+  --- The source of the exfil.
+  op sourceAddr:_ : Address -> Attribute [ctor] .
+
   op rcvd:_ : ByteSeqL -> Attribute [ctor] .
 ---  op rcvd:_ : PacketList  -> Attribute [ctor] .
+ 
+  ---            This    Iodine    UserModel ContentMgr
+  op makeRxApp : Address Address   Address   Address -> Config .
+  eq makeRxApp(BobAddr:Address, Iodine:Address, rbUserModel:Address, rbContentMgr:Address) =
+    < BobAddr:Address : RxApp |
+        iodineAddr: Iodine:Address,
+        rbUserModelAddr: rbUserModel:Address,
+        rbContentMgrAddr: rbContentMgr:Address,
+        currentKey: nilBytes,
+        rcvd: emptyFileList >
+  .
 
 endm
 
