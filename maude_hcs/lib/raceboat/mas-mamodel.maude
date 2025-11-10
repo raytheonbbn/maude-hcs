@@ -54,6 +54,42 @@ eq mas-params = (
         ) .
 
 
+--- Make a download only model.
+op makeDownloadOnlyModel : -> MAModel .
+eq makeDownloadOnlyModel =
+  ma("download only",
+     makeDownloadOnlyMarkov,
+     makeDownloadOnlyActions,
+     makeDownloadOnlyParams)
+  .
+
+op makeDownloadOnlyMarkov : -> Map{String,Map{String,Float}} .
+eq makeDownloadOnlyMarkov =
+  ( "download" |-> ("wait_download" |-> 1.0) ),
+  ( "wait_download" |-> ("download" |-> 0.5) )
+  .
+
+op makeDownloadOnlyActions : -> Map{String,JV} .
+eq makeDownloadOnlyActions = (
+  ("download"      |-> jo((("type" |-> js("download")) )) ),
+  ("wait_download" |-> jo(( "type" |-> js("wait"),
+                           "sleep" |-> jo(("random" |-> js("gaussian"),
+                                             "mean" |-> jf(10.0),
+                                              "std" |-> jf(3.0) ))
+                          ))
+  )
+) .
+
+op makeDownloadOnlyParams : -> Map{String,JV} .
+eq makeDownloadOnlyParams = (
+  ("model_steps" |->  jn(50)),        
+  ("hashtags" |-> jl(js("person") ; js("man") ; 
+                  js("woman") ; js("camera") ; js("TV") )),
+  ("username" |-> js("user7")),
+  ("password" |-> js("passwor®d1234"))
+) .
+
+
 endfm 
   
 eof  
