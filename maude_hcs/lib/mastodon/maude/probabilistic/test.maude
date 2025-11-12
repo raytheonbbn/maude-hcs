@@ -30,6 +30,7 @@
 
 
 load ./mastodon
+load ../../../dns/maude/probabilistic/iodine_dns
 load ../../../common/maude/adversary-observer
 load ../../../common/maude/cp2-interfaces
 load ../../../common/maude/_aux
@@ -41,16 +42,19 @@ set print attribute on .
 set show advisories off .
 
 mod MASTODON_TEST is
+  inc IODINE_DNS .
   inc ADVERSARY-OBSERVER .
   inc MASTODON .
   inc CP2-COMMON .
   inc ROUTER .
   inc ADVERSARY-OBSERVER .
   inc CP2_APP . ---- loads rb-integration 
+  inc MC-INTERFACE .
 
   ops alice-raceboat bob-raceboat mastodon-client mastodon-server : -> Address .
-  ops alice bob aliceRbClient iodineSendApp iodineRecvApp iodineClient iodineServer aliceMasClient bobMasClient masServer : -> Address .
+  ops alice bob aliceRbClient iodineSendApp iodineRecvApp iodineClient iodineServer bobMasClient : -> Address .
   ops clientContentMgr serverContentMgr clientDestini serverDestini clientUserModel serverUserModel : -> Address .
+  ops monAddr : -> Address .
   op adversary : -> Address .
   ---- the sendtime / receive time collection patterns
   ops ObsS ObsR : -> Observable .
@@ -62,6 +66,19 @@ mod MASTODON_TEST is
   --- (stored as sent by local-dns)
   eq ObsR = obsC .  
 
+eq monitorQueryLog? = true .
+
+op router : -> Address .
+op adversary : -> Address .
+
+op zonePwnd2Com : -> List{Record} .
+eq zonePwnd2Com =
+  < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+  < 'ns . 'pwnd2 . 'com . root, a, 3600.0, iodineServer >
+  < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+  < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+  < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
 
   --- Initial configuration.
 
@@ -80,6 +97,15 @@ mod MASTODON_TEST is
                  (3 ~>(makeMediaFile("img2.jpg", 1000), makeUrl(makeMediaFile("img2.jpg", 1000))))), --- emptyIdMediaMap, 
       tagMap: (makeTag("media") ~> 3) --- emptyTagPostIdsMap
     >
+    makeRbClient(clientUserModel, clientContentMgr, clientDestini, mastodon-client)
+    makeRbServer(serverUserModel, serverContentMgr, serverDestini, bobMasClient, bob)
+    < monAddr : WMonitor |
+      querySent: nilQueryTimestamp,
+      queryRcvd: nilQueryTimestamp,
+      pktSent: nilPacketTimestamp,
+      pktRcvd: nilPacketTimestamp >
+    mkRouter(router)
+    mkAdversary(adversary,ObsS,ObsR)
 ---    (to mastodon-client from alice-raceboat : PostStatus("This is the toot"))
 ---    (to mastodon-client from alice-raceboat : PostStatus("This is the #tag toot"))
 ---    (to mastodon-client from alice-raceboat : PostMedia(makeMediaFile("cat.jpg", 1000)))
@@ -87,7 +113,10 @@ mod MASTODON_TEST is
 ---    (to mastodon-client from alice-raceboat : GetPost(3))
 ---    (to mastodon-client from alice-raceboat : GetMedia(makeUrl(makeMediaFile("img1.jpg", 1000))))
 ---    (to mastodon-client from alice-raceboat : GetTimeline)
-    [1.0, (to mastodon-client from alice-raceboat : GetMediaHashtag(makeTag("media"))), 0]
+---    [1.0, (to mastodon-client from alice-raceboat : GetMediaHashtag(makeTag("media"))), 0]
+---      [0.5, (to alice : start), 0]
+---      [1.0, (to mastodon-client from alice-raceboat  : tootQ(bHashTag(0), noBytes)), 0]
+      [1.0, (to mastodon-client from mastodon-server : makeHttpResponse("OK", makeResponseToot(4, "hashtag is #wHashTag-0", url("randimage-0.com"), 3) : makeResponseToot(8, "hashtag is #wHashTag-0", url("randimage-0.com"), 7))), 0]
     .
 
     op initConfig : -> Config .
