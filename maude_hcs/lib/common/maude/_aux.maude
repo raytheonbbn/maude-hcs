@@ -29,7 +29,6 @@
 --- MAUDE_HCS: end
 
 
-**** load ../../../deps/dns_formalization/Maude/dns/common/_aux
 sload ../../../deps/dns_formalization/Maude/common/actor.maude
 sload byteseq
 
@@ -93,14 +92,12 @@ mod CP2_NODE is
   op TxApp : -> ActorType [ctor] .
   --- Destination of exfil.
   op destAddr:_ : Address -> Attribute [ctor] .
-  --- Raceboat address -- May not be needed..
-  op rbClientAddr:_ : Address -> Attribute [ctor] .
-  --- Raceboat Content Manager address.
-  op rbContentMgrAddr:_ : Address -> Attribute [ctor] .
-  --- Raceboat User Model address.
-  op rbUserModelAddr:_ : Address -> Attribute [ctor] .
   --- Iodine address.
   op iodineAddr:_ : Address -> Attribute [ctor] .
+  --- Raceboat User Model address.
+  op rbUserModelAddr:_ : Address -> Attribute [ctor] .
+  --- Raceboat Content Manager address.
+  op rbContentMgrAddr:_ : Address -> Attribute [ctor] .
 
 ---  op queue:_ : PacketList -> Attribute [ctor] .
   op contractCount:_ : Nat -> Attribute [ctor] .
@@ -117,12 +114,23 @@ mod CP2_NODE is
   vars KEY : ByteSeq .
   vars outMsg : Msg .
 
-  op makeTxApp : Address Address -> Actor [ctor] .
-  eq makeTxApp(AliceAddr:Address, BobAddr:Address)  =
-    < AliceAddr:Address : TxApp | destAddr: BobAddr:Address > .
-
-  op getRbClientAddr : AttributeSet -> Address .
-  eq getRbClientAddr((attrs:AttributeSet, rbClientAddr: addr:Address)) = addr:Address .
+  ---            This    Dest    Iodine  UserModel ContentMgr Contracts
+  op makeTxApp : Address Address Address Address   Address    ByteSeqL -> Actor [ctor] .
+  eq makeTxApp(AliceAddr:Address,
+               BobAddr:Address,
+               iodine:Address,
+               userModel:Address,
+               contentMgr:Address,
+               contracts:ByteSeqL)  =
+    < AliceAddr:Address : TxApp |
+        destAddr: BobAddr:Address,
+        iodineAddr: iodine:Address,
+        rbUserModelAddr: userModel:Address,
+        rbContentMgrAddr: contentMgr:Address,
+        contractCount: 0,
+        queue: contracts:ByteSeqL,
+        currentCcFile: nilBytes
+    > .
 
   op getRbUserModelAddr : AttributeSet -> Address .
   eq getRbUserModelAddr((attrs:AttributeSet, rbUserModelAddr: addr:Address)) = addr:Address .
@@ -171,15 +179,15 @@ mod CP2_NODE is
 ---  op rcvd:_ : PacketList  -> Attribute [ctor] .
  
   ---            This    Iodine    UserModel ContentMgr
-  op makeRxApp : Address Address   Address   Address -> Config .
+  op makeRxApp : Address Address   Address   Address -> Actor [ctor] .
   eq makeRxApp(BobAddr:Address, Iodine:Address, rbUserModel:Address, rbContentMgr:Address) =
     < BobAddr:Address : RxApp |
         iodineAddr: Iodine:Address,
         rbUserModelAddr: rbUserModel:Address,
         rbContentMgrAddr: rbContentMgr:Address,
         currentKey: nilBytes,
-        rcvd: emptyFileList >
-  .
+        rcvd: emptyFileList
+    > .
 
 endm
 
