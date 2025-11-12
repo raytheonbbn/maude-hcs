@@ -437,6 +437,27 @@ mod IODINE_NODE is
   --- The maximum number of fragment transmission tries.
   op maxFragmentTx : -> Nat .
 
+  ---              ThisAddr Resvr   WDomain QueryType
+  op makeWClient : Address  Address Name    RType Float -> Actor [ctor] .
+  eq makeWClient(ADDR, ADDR1, NAME, QTYPE, sTTL) =
+    < ADDR : WClient |
+        resv: ADDR1,
+        wDom: NAME,
+        weirdQType: QTYPE,
+        queryCtr: 0,
+        inSeqNo: 0,
+        inFragNo: 0,
+        outSeqNo: 0,
+        outFragNo: 0,
+        fragmentsToSend: mtfl,
+        fragmentsReceived: mtfl,
+        fragmentsSize: 0,
+        lastFragment: false,
+        appAddrMap: mtIdAddr,
+        numAttempts: 0,
+        severWResponseTTL: sTTL
+    > .
+
   op getResolver : AttributeSet ~> Address .
   eq getResolver(wattrs, resv: ADDR) = ADDR .
 
@@ -644,6 +665,22 @@ mod IODINE_NODE is
        --- query msg pending response
 
   **** constructor for making a name server
+  op makeWNameServer : Address Float List{Record} -> Actor [ctor] .
+  eq makeWNameServer(ADDR, sTTL, db) =
+    < ADDR : WNameserver |
+        fragmentsToSend: mtfl,
+        fragmentsReceived: mtfl,
+        fragmentsSize: 0,
+        inSeqNo: 0,
+        inFragNo: 0,
+        outSeqNo: 0, 
+        outFragNo: 0,
+        numAttempts: 0,
+        lastFragment: false,
+        severWResponseTTL: sTTL,
+        conf: mkNameServer(ADDR, db)
+    > .
+
   op mkNameServer : Address List{Record}  -> Actor [ctor] .  
   eq mkNameServer(ADDR, db) =
     < ADDR : Nameserver |
