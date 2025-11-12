@@ -198,28 +198,8 @@ eq initState (umADDR,dnsTADDR,dnsMA) =
     forwardonly: X(public-dns),
     queriesFwd: nilTAQL >
   --- tunnels
-  < application-client : WClient |
-    resv: local-dns,
-    wDom: 'pwnd . 'com . root,
-    weirdQType: a,
-    queryCtr: 0,
-    seqCtr: 0,
-    fragments: mtfl,
-    fragmentsSize: 0,
-    currFragment: 0,
-    appAddrMap: mtIdAddr,
-    numAttempts: 0 >
-  < application-server : WNameserver |
-    pendingFragments: mtfl,
-    currentSeqNo: 0,
-    currentFragment: 0,
-    lastFragment: false,
-    severWResponseTTL: 0.0,
-    conf: (< application-server : Nameserver |
-    db: (zonePwndCom),
-    queue: nilQueue,
-    forwardonly: nullAddr,
-    queriesFwd: nilTAQL >) >
+  makeWClient(application-client, local-dns, 'pwnd . 'com . root, a, 0.0)
+  makeWNameServer(application-server, 0.0, (zonePwndCom))
   --- applications
   < Alice : SendApp |
     fileDestAddr: Bob,
@@ -227,15 +207,12 @@ eq initState (umADDR,dnsTADDR,dnsMA) =
     queuePopulated: false,
     queue: (mtpl),
     numAdmittedPkts: 1,
-    wclientReady: true,
+    iodineReady: true,
     sent: mtpl > 
   < Bob : RcvApp |
     rcvd: mtpl,
     fileDestAddr: bobapp >
-  < bobapp : RxApp |
-      rcvd: emptyFileList,
-      rbUserModelAddr: serverUserModel,
-      rbContentMgrAddr: serverContentMgr >
+  makeRxApp(bobapp, Bob, serverUserModel, serverContentMgr)
   --- WMonitor
   < monAddr : WMonitor |
     querySent: nilQueryTimestamp,

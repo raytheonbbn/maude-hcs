@@ -42,7 +42,7 @@ inc CP2_APP .
 inc ROUTER .
 inc ADVERSARY-OBSERVER .
 
-ops alice bob aliceRbClient iodineSendApp iodineRecvApp iodineClient iodineServer aliceMasClient bobMasClient masServer : -> Address .
+ops alice bob iodineSendApp iodineRecvApp iodineClient iodineServer aliceMasClient bobMasClient masServer : -> Address .
 ops clientContentMgr serverContentMgr clientDestini serverDestini clientUserModel serverUserModel : -> Address .
 ops monAddr : -> Address .
 
@@ -92,51 +92,20 @@ eq ObsR = obsC .
 op initState : -> Config .
 eq initState =
   rCtr(0)
-  < alice : TxApp |
-      destAddr: bob,
-      rbClientAddr: aliceRbClient,
-      rbUserModelAddr: clientUserModel,
-      rbContentMgrAddr: clientContentMgr,
-      iodineAddr: iodineSendApp,
-      contractCount: 0,
-      queue: file(0, 400),
-      currentCcFile: nilBytes >
-  < bob : RxApp |
-      rcvd: emptyFileList,
-      currentKey: nilBytes,
-      rbUserModelAddr: serverUserModel,
-      rbContentMgrAddr: serverContentMgr >
+  makeTxApp(alice, bob, iodineSendApp, clientUserModel, clientContentMgr, file(0, 400))
+  makeRxApp(bob, iodineRecvApp, serverUserModel, serverContentMgr)
   < iodineSendApp : SendApp | 
       fileDestAddr: iodineRecvApp,
       toAddr: iodineClient,
       queuePopulated: false,
       queue: mtpl,
       numAdmittedPkts: 1,
-      wclientReady: true,
+      iodineReady: true,
       sent: mtpl >
   < iodineRecvApp : RcvApp | rcvd: mtpl,
       fileDestAddr: bob > 
-  < iodineClient : WClient |
-      resv: iodineServer, ---addrNScorporate,
-      wDom: 'pwnd2 . 'com . root,
-      weirdQType: a,
-      queryCtr: 0,
-      seqCtr: 0,
-      fragments: mtfl,
-      fragmentsSize: 0,
-      currFragment: 0,
-      appAddrMap: mtIdAddr,
-      numAttempts: 0 >
-  < iodineServer : WNameserver |
-      pendingFragments: mtfl,
-      currentSeqNo: 0,
-      currentFragment: 0,
-      lastFragment: false,
-      severWResponseTTL: 0.0,
-      conf: (< iodineServer : Nameserver |  db: (zonePwnd2Com),
-                                            queue: nilQueue,
-                                            forwardonly: nullAddr,
-                                            queriesFwd: nilTAQL >) >
+  makeWClient(iodineClient, iodineServer, 'pwnd2 . 'com . root, a, 0.0)
+  makeWNameServer(iodineServer, 0.0, (zonePwnd2Com))
   --- WMonitor
   < monAddr : WMonitor |
       querySent: nilQueryTimestamp,
