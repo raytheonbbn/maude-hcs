@@ -303,24 +303,30 @@ if attrs0,  bHashTagCtr: j,
  < cmsAddr : CMServer | cmsAtts >
  =>
  < cmsAddr : CMServer | cmsAtts1 >
- delayMsgs(msgs,null)
+ (if msgs == nullMsg then null else delayMsgs(msgs,null) fi)
  if {cmsAtts1,msgs} := srcvTootR(cmsAtts,
             (to cmsAddr from mcAddr :  mkRequestResponse(str)) ) 
 [print "(" T ") Raceboat server got toot response " str " from Mastodon Client " mcAddr ", sending " msgs ]
  .
   
-  op srcvTootR : AttributeSet  Msg ->
-                 AttributeSetMsgs .
- eq srcvTootR(attrs,msg) = {attrs,msg} [owise] .
+ op srcvTootR : AttributeSet  Msg -> AttributeSetMsgs .
+ --- Neuter the message (otherwise, it will keep looping through the same rule).
+ eq srcvTootR(attrs,msg) = {attrs, nullMsg} [owise] .
  
  ceq srcvTootR(attrs, (to cmsAddr from mcAddr : mkRequestResponse(str)) ) = {attrs1, msg}
   if attrs0,
-     w4c: (to mcAddr from cmsAddr : tootQ(ht,bytes)),
+     w4c:     (to mcAddr from cmsAddr : req:Content), ---tootQ(ht,bytes)),
      replyTo: (to cmsAddr from umAddr : actionQ(ract))
-      := attrs
+    := attrs
   /\ msg := (to umAddr from cmsAddr : actionR("ok"))
   /\ attrs1 := attrs0, w4c: null, replyTo: null
-   .
+---  /\ attrs1 :=
+---      (if tootQ(ht, bytes) := req:Content
+---        then attrs0, w4c: null, replyTo: null
+---        else attrs
+---      fi)
+  [ print "Raceboat server got request response " str ]
+  .
       
 
 endm
