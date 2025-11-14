@@ -142,6 +142,7 @@ if (to cmsAddr from umAddr : actionQ(ract) ) := msg0
 /\ msg := (to mcAddr from cmsAddr : 
              translateFetchQ(fetchQ(hashtag)))
 /\ attrs2 := attrs0, replyTo: msg0, w4c: msg1
+[ print "Raceboat server got fetch request, set replyTo " msg0 " and w4c " msg1 ]
 .
 
 ---- ow fetch using bHashTag
@@ -158,6 +159,7 @@ if (to cmsAddr from umAddr : actionQ(ract) ) := msg0
               translateFetchQ(fetchQ(ht)))
 /\ attrs2 := attrs0, replyTo: msg0, w4c: msg1,
                      bHashTagCtr: j1
+[ print "Raceboat server got fetch request, set replyTo " msg0 " and w4c " msg1 ]
 .
 
 vars  mediaFileList : MediaFileList .
@@ -327,23 +329,21 @@ if attrs0,  bHashTagCtr: j,
 
  crl [rbs-rcv-tootR] :
 **** {T,(to cmsAddr from mcAddr :  tootR(str) )}
- {T,(to cmsAddr from mcAddr :  mkPostResponse(str) )}
+ {T,(to cmsAddr from mcAddr :  mkRequestResponse(str) )}
  < cmsAddr : CMServer | cmsAtts >
  =>
  < cmsAddr : CMServer | cmsAtts1 >
  delayMsgs(msgs,null)
  if {cmsAtts1,msgs} := srcvTootR(cmsAtts,
-            (to cmsAddr from mcAddr :  tootR(str)) ) 
-[print "(" T ") Raceboat server got toot response " str " from Mastodon Client, sending " msgs ]
+            (to cmsAddr from mcAddr :  mkRequestResponse(str)) ) 
+[print "(" T ") Raceboat server got toot response " str " from Mastodon Client " mcAddr ", sending " msgs ]
  .
   
   op srcvTootR : AttributeSet  Msg ->
                  AttributeSetMsgs .
  eq srcvTootR(attrs,msg) = {attrs,msg} [owise] .
  
- ceq srcvTootR(attrs,
-               (to cmsAddr from mcAddr : tootR(str)) )
-     = {attrs1,msg}
+ ceq srcvTootR(attrs, (to cmsAddr from mcAddr : mkRequestResponse(str)) ) = {attrs1, msg}
   if attrs0,
      w4c: (to mcAddr from cmsAddr : tootQ(ht,bytes)),
      replyTo: (to cmsAddr from umAddr : actionQ(ract))
@@ -539,7 +539,7 @@ replyTo: (to cmsA from umA : actionQ("type" |-> js("media"))) >
 ---- crl [rbs-rcv-tootR] :
 **** eq MtootR =  {2.5,(to cmsA from mcA :  tootR("ok") )} .
 eq MtootR =  {2.5,(to cmsA from mcA : 
-                    mkPostResponse("ok") )} .
+                    mkRequestResponse("ok") )} .
 ---- need w4c and replyTo non null
  
 ---- rew CMSme MtootR .  #
