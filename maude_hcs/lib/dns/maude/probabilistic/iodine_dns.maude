@@ -421,8 +421,10 @@ crl [wnameserver-receive-query-weird]:
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
         if txComplete
-          --- TODO: Investigate how iodine.c client handles ACKing server data when it's done sending upstream, likely a ping? (client.c:1070)
-          then {wattrsTrans, nullMsg}
+          --- Ping immediately if we have nothing to send but server sends down a non-empty fragment (meaning it still has more to send)
+          then (if isEmptyFile(F) 
+                    then {wattrsTrans, nullMsg}
+                    else sendPing(wattrsTrans, ADDR, ackFragment(fragment(getFromAddr(F), getToAddr(F), file(0), 0, 0, 0, 0, 0, false, false), getInSeqNo(wattrsTrans), getInFragNo(wattrsTrans))) fi)
           else sendFragment(wattrsTrans, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
