@@ -214,6 +214,11 @@ mod IODINE_SORTS is
   op isLastPacket : Packet -> Bool .
   eq isLastPacket(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_FRAG)) = LAST_FRAG .
 
+  --- True if the file contained in the fragment is empty (ie pings or server response when server has nothing to send)
+  op isEmptyFile : Fragment -> Bool .
+  eq isEmptyFile(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = (getSize(FILE) == 0) .
+
+
 endm  
 --- these views allow us to create lists LIST{X} where X is sort Packet or Fragment
 --- view Packet from TRIV to IODINE_SORTS is sort Elt to Packet . endv
@@ -432,8 +437,6 @@ mod IODINE_NODE is
 
   op fragmentsReceived:_ : FragmentList -> Attribute [ctor] .
 
-  op pingsSent:_ : Nat -> Attribute [ctor] .
-
   --- The maximum fragment length (or fragment size).
   op maxFragmentLen : -> Nat .
   --- The maximum number of fragment transmission tries.
@@ -457,8 +460,7 @@ mod IODINE_NODE is
         lastFragment: false,
         appAddrMap: mtIdAddr,
         numAttempts: 0,
-        severWResponseTTL: sTTL,
-        pingsSent: 0
+        severWResponseTTL: sTTL
     > .
 
   op getResolver : AttributeSet ~> Address .
