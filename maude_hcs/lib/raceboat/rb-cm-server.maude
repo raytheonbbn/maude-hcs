@@ -217,6 +217,9 @@ if {cmsAtts1,msgs} :=
              (to cmsAddr from edAddr : decR(efragl)) )   
 [print "(" T ") Raceboat server got decoded image from Destini, sending " msgs ]
 .
+
+***** fix?
+var efileX : ByteSeqL .
  
 op srcvDecR : AttributeSet  Msg -> AttributeSetMsgs .
  ---- add efragl to current frags
@@ -224,33 +227,37 @@ op srcvDecR : AttributeSet  Msg -> AttributeSetMsgs .
  ---- msg0 - status to umAddr
  ---- msg1 -- if frags complete efile to Bob ow null
  -----  if msg1 not null pop pendingHashTags
- eq srcvDecR(attrs, msg) = {attrs,null} [owise] .
+ eq srcvDecR(attrs, msg) = {attrs,null}
+[owise print "srcvDecR no match for msg " msg] .
  ceq srcvDecR(attrs, 
             (to cmsAddr from edAddr : decR(efragl))) 
-    = {attrs2, msg0 msg1}
+    = {attrs2, msg0 msgs0}
 if attrs0, w4c: (to edAddr from cmsAddr : decQ(imagel)),
    replyTo: (to cmsAddr from umAddr : actionQ(ract)),
    currentFrags: efragl0,
    pendingHashTags: (ht :: hashtagl) := attrs    
 /\ efragl1 := addEfrags(efragl,efragl0)
-/\ efile := efraglComplete?(efragl1)
-/\ efragl3 := (if efile == nilBS
+/\ efileX := efraglComplete?(efragl1)
+**** /\ efile := efraglComplete?(efragl1)
+/\ efragl3 := (if efileX == nilBS
                then efragl1 else nilBS fi)
 /\ msg0 := (to umAddr from cmsAddr : actionR("ok"))
-/\ msg1 := (if efile == nilBS 
+/\ msgs0 := (if efileX == nilBS 
             then null
             else (to getBobAddress(attrs) from cmsAddr
-                    : pkg(efile,ht)) 
+                    : pkg(efileX,ht)) 
             fi)
+***(
 /\ attrs1 := (if efile == nilBS 
-              then  (currentFrags: efragl0,
+              then  (currentFrags: efragl1,
                     pendingHashTags: (ht :: hashtagl) )
               else (currentFrags: nilBS,
                     pendingHashTags: hashtagl )
                fi)
+)               
 /\ attrs2 := attrs0, w4c: null, replyTo: null,
              currentFrags: efragl3,
-             (if efile == nilBS 
+             (if efileX == nilBS 
               then pendingHashTags: (ht :: hashtagl) 
               else pendingHashTags: hashtagl 
               fi)
