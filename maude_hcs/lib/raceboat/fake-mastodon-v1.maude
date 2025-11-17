@@ -1,0 +1,263 @@
+
+load ../common/maude/cp2-interfaces.maude  --- 
+
+load ../common/maude/_aux.maude  ---- AttributeSetMsgs
+
+***(
+  op fetchQ : ByteSeq -> Content .
+  op fetchR : ByteSeqL -> Content .
+  op fetchR : ByteSeqL ByteSeq -> Content .
+  
+  op tootQ : ByteSeq ByteSeq -> Content .
+  op tootR : String -> Content .
+
+FAKEM <- tootQ(ht,image)  adds to msgs;_ r
+          replies tootR("ok")
+        
+FAKEM <- fetchQ(ht)  
+         replies fetchR(ht,imagel)
+          where imagel is all the images in toots
+            with tag ht
+
+
+)
+
+mod FIXES is
+  inc MC-INTERFACE .
+
+vars j n k id n1 j1 k1 n0 ix l bpf nf : Nat .
+vars d1 : Rat .
+vars hashtag image efrag : ByteSeq .
+
+**** MC-INTERFACE 
+***** op translateTootQ : Content -> Content .
+**** image args
+op iargs2str : Nat Nat Nat -> String .
+eq iargs2str(j,n,k) = "I-" + string(j,10) + "-"
+                    + string(n,10) + "-" + string(k,10) .
+**** efile args
+op efargs2str : Nat Nat Nat Nat -> String .
+eq efargs2str(j,n,j1,n1) =
+   "EF-" + string(j,10) + "-" + string(n,10) 
+         + "-" + string(j1,10) + "-" + string(n1,10) .
+ 
+**** frag args         
+op frargs2str : Nat Nat Nat  -> String .
+eq frargs2str(j,n,k) = "FR-" + string(j,10) + "-" 
+                    + string(n,10) + "-" + string(k,10) .
+         
+op im2str : ByteSeq -> String .
+eq im2str(image(j,n,k)) = "image:" + iargs2str(j,n,k) .
+
+ceq im2str(encode(image, efrag, bpf,nf,d1)) =
+  "eimage:" + iargs2str(j,n,k) 
+            + ":" + efargs2str(id,n1,j1,k1)
+            + ":" + frargs2str(n0,ix,l)
+if image(j,n,k)  := image
+/\ efrag(efile(id,n1,j1,k1),n0,ix,l) := efrag
+.
+**** fix defn in MC-INTERFACE
+
+op translateTootQQ : Content -> Content .
+eq translateTootQQ(tootQ(hashtag,image))  =
+       PostStatus(hashtag2text(hashtag), 
+                  makeMediaFile(im2str(image),
+                                nbytes(image),
+                                image) ) 
+.
+endm
+
+  
+***(
+        
+Someone commented out the definition of
+makeMediaFilename -- leaving it a constructor.
+I object.  The sort String is built in and should not
+be extended with new constructions
+I have defined im2str that will produce different
+strings for different images.
+
+)  
+
+
+mod FAKE-MASTODON is
+  inc CP2-COMMON . --- SCHEDULER+ACTOR-MODEL+PARAMETERS 
+  inc MC-INTERFACE .
+  pr CP2_SORTS .  --- for AttributeSetMsgs  
+  inc FIXES .
+  
+vars attrs : AttributeSet .
+vars fmcAddr addr addr0 addr1 : Address .
+vars msgs : Config .
+vars msg : Msg .
+vars ht bytes byteseq : ByteSeq .
+vars byteseql : ByteSeqL .
+vars T : Float .
+vars str tagtext hashtext : String .
+vars ix : FindResult .
+vars tag : Tag .
+vars mediaFile : MediaFile .
+vars mediaFileList : MediaFileList .
+
+op FakeMastodon : -> ActorType [ctor] .
+op toots:_ : Config  -> Attribute [ctor] .
+
+
+**** find("hashtag is #wHashTag-0", "wHashTag-0",0)
+
+op fetchByTag : Config Tag -> MediaFileList .
+op fetchByTagX : Config Tag MediaFileList -> MediaFileList .
+eq fetchByTag(msgs,tag) = fetchByTagX(msgs,tag,emptyMediaFileList) .
+eq fetchByTagX(msgs,tag,mediaFileList) = mediaFileList [owise] .
+ceq fetchByTagX(msgs (to addr0 from addr1 : 
+                      PostStatus(str,mediaFile) ), 
+              makeTag(tagtext),mediaFileList) 
+    = fetchByTagX(msgs, makeTag(tagtext), 
+                  mediaFileList :: mediaFile) 
+if find(str,tagtext,0) :: Nat .
+
+op mkFakeActor : Address -> Actor .
+eq mkFakeActor(fmcAddr) =
+  < fmcAddr : FakeMastodon | toots: null >
+.
+
+op mkFakeActor : Address Config -> Actor .
+eq mkFakeActor(fmcAddr,msgs) =
+ < fmcAddr : FakeMastodon | toots: msgs >
+ .
+ 
+ ***(
+ fetchQ >> GetMediaHashtag(tag)
+ fetchR >> ResponseMediaList(tag, mediaFileList)
+)
+
+**** crl [fmc-rcv-fetch]:
+crl [fmc-rcv-get]:
+{T, (to fmcAddr from addr : GetMediaHashtag(tag))}
+< fmcAddr : FakeMastodon | toots: msgs, attrs >
+=>
+< fmcAddr : FakeMastodon | toots: msgs, attrs >
+delayMsgs(msg,null)
+if mediaFileList := fetchByTag(msgs,tag)
+/\ msg := (to addr from fmcAddr :
+           ResponseMediaList(tag,mediaFileList))
+[print "fmc-rcv-get tag " tag ]
+.
+
+***(
+ tootQ >> PostStatus(string,mediaFileList)
+ tootR >> mkRequestRespons("ok")
+ )
+
+rl [fmc-rcv-post]:
+**** {T, (to fmcAddr from addr : tootQ(ht,byteseq))}
+{T, (to fmcAddr from addr : PostStatus(hashtext,mediaFile))}
+< fmcAddr : FakeMastodon | toots: msgs, attrs >
+=>
+< fmcAddr : FakeMastodon | toots: (msgs 
+           (to fmcAddr from addr : PostStatus(hashtext,mediaFile))),
+             attrs >
+delayMsgs((to addr from fmcAddr : mkRequestResponse("ok")),null) 
+[print "fmc-rcv-post hashtext " hashtext " mediaFile " mediaFile]
+.
+
+endm  
+
+
+mod TEST-FAKE-MASTASON is
+  inc FAKE-MASTODON .
+
+  ops fmA xA : -> Address .
+  op FMAct : -> Actor .
+  eq FMAct = mkFakeActor(fmA) .
+
+op wHT : -> ByteSeq .
+eq wHT = wHashTag(0) .
+
+op bHT : -> ByteSeq .
+eq bHT = bHashTag(0) .
+
+op F0 : -> ByteSeq .
+eq F0 = file(0,20) .
+op K0 : -> ByteSeq .
+eq K0 = key(0,20) .
+
+op EF0 : -> ByteSeq .
+eq EF0 = encrypt(F0,K0) .
+
+op FR0 : -> ByteSeq .
+eq FR0 =  efrag(EF0,20,0,20) .     
+ops IM0 IM00 : -> ByteSeq .
+eq IM0 = image(0,500,50)  .
+eq IM00 = encode(image(0,500,50),FR0,1,4,1/10) .
+
+
+ops Mtootb Mtootw Mfetchb Mfetchw : -> ActiveMsg .
+eq Mtootw = {1.0, (to fmA from xA : 
+                   translateTootQQ(tootQ(wHT,IM00)))} .
+eq Mtootb = {1.0, (to fmA from xA :  
+                   translateTootQQ(tootQ(bHT,IM0)))} .
+eq Mfetchw = {1.0, (to fmA from xA : 
+                    translateFetchQ(fetchQ(wHT)))} .
+eq Mfetchb = {1.0, (to fmA from xA : 
+                    translateFetchQ(fetchQ(bHT)))} .
+
+ops FMActw FMActb FMActwb : -> Actor .
+
+---- rew FMAct Mtootw .
+eq FMActw = 
+< fmA : FakeMastodon | toots: (to fmA from xA : PostStatus("hashtag is #wHashTag-0", makeMediaFile("eimage:I-0-500-50:EF-0-20-0-20:FR-20-0-20", 500, encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10)))) > 
+.    
+**** [0.0, to xA from fmA : mkRequestResponse("ok"), 0]
+
+---- rew FMAct Mtootb .
+eq FMActb = 
+< fmA : FakeMastodon | toots: (to fmA from xA : PostStatus("hashtag is #bHashTag-0", makeMediaFile("image:I-0-500-50", 500, image(0, 500, 50)))) >
+.
+**** [0.0, to xA from fmA : mkRequestResponse("ok"), 0]
+
+----TODO
+---- rew FMActw Mtootb .
+eq FMActwb = 
+< fmA : FakeMastodon | toots: ((to fmA from xA : PostStatus("hashtag is #bHashTag-0", makeMediaFile("image:I-0-500-50", 500, image(0, 500, 50)))) to fmA from xA : PostStatus("hashtag is #wHashTag-0", makeMediaFile( "eimage:I-0-500-50:EF-0-20-0-20:FR-20-0-20", 500, encode(image(0, 500, 50), efrag( efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10)))) > .
+**** [0.0, to xA from fmA : mkRequestResponse("ok"), 0]
+
+----  rew FMAct Mfetchw .
+---- < fmA : FakeMastodon | toots: null > 
+---- [0.0, to xA from fmA : ResponseMediaList(makeTag("wHashTag-0"), emptyMediaFileList), 0]
+
+----  rew FMAct Mfetchb .
+---- < fmA : FakeMastodon | toots: null > 
+---- [0.0, to xA from fmA : ResponseMediaList(makeTag( "bHashTag-0"), emptyMediaFileList), 0]
+
+----  rew FMActw Mfetchw .
+---- < fmA : FakeMastodon | toots: (to fmA from xA : PostStatus("hashtag is #wHashTag-0", makeMediaFile("eimage:I-0-500-50:EF-0-20-0-20:FR-20-0-20", 500, encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10)))) >
+
+**** [0.0, to xA from fmA : ResponseMediaList(makeTag("wHashTag-0"), makeMediaFile( "eimage:I-0-500-50:EF-0-20-0-20:FR-20-0-20", 500, encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))), 0]
+
+    
+----  rew FMActw Mfetchb .
+---- < fmA : FakeMastodon | toots: (to fmA from xA : PostStatus("hashtag is #wHashTag-0", makeMediaFile("eimage:I-0-500-50:EF-0-20-0-20:FR-20-0-20", 500, encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10)))) >
+**** [0.0, to xA from fmA : ResponseMediaList(makeTag("bHashTag-0"), emptyMediaFileList), 0]
+
+----  rew FMActb Mfetchw .
+---- < fmA : FakeMastodon | toots: (to fmA from xA : PostStatus("hashtag is #bHashTag-0", makeMediaFile("image:I-0-500-50", 500, image(0, 500, 50)))) >
+**** [0.0, to xA from fmA : ResponseMediaList(makeTag("wHashTag-0"), emptyMediaFileList), 0]
+
+----  rew FMActb Mfetchb .
+---- < fmA : FakeMastodon | toots: (to fmA from xA : PostStatus("hashtag is #bHashTag-0", makeMediaFile("image:I-0-500-50", 500, image(0, 500, 50)))) >
+**** [0.0, to xA from fmA : ResponseMediaList(makeTag("bHashTag-0"), makeMediaFile("image:I-0-500-50", 500, image(0, 500, 50))), 0]
+
+
+----  rew FMActwb Mfetchw .
+---- < fmA : FakeMastodon | toots: ((to fmA from xA : PostStatus("hashtag is #bHashTag-0", makeMediaFile("image:I-0-500-50", 500, image(0, 500, 50)))) to fmA from xA : PostStatus("hashtag is #wHashTag-0", makeMediaFile( "eimage:I-0-500-50:EF-0-20-0-20:FR-20-0-20", 500, encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10)))) >
+
+****  [0.0, to xA from fmA : ResponseMediaList(makeTag("wHashTag-0"), makeMediaFile( "eimage:I-0-500-50:EF-0-20-0-20:FR-20-0-20", 500, encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))), 0]
+
+----  rew FMActwb Mfetchb .
+---- < fmA : FakeMastodon | toots: ((to fmA from xA : PostStatus("hashtag is #bHashTag-0", makeMediaFile("image:I-0-500-50", 500, image(0, 500, 50)))) to fmA from xA : PostStatus("hashtag is #wHashTag-0", makeMediaFile( "eimage:I-0-500-50:EF-0-20-0-20:FR-20-0-20", 500, encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10)))) >
+**** [0.0, to xA from fmA : ResponseMediaList(makeTag("bHashTag-0"), makeMediaFile("image:I-0-500-50", 500, image(0, 500, 50))), 0]
+
+endm  
+
+eof
