@@ -171,7 +171,7 @@ eq getFilename(file(size:Nat, name:String)) = name:String .
 eq getFilename(ccFile(key:Nat, hash:Nat, hashtag:String)) =
   hashtag:String + ".txt"
   .
-eq getFilename(image(fragNum:Nat, cap:Nat, size:Nat)) = 
+eq getFilename(image(fragNum:Nat, size:Nat, cap:Nat)) = 
   "img_" + string(fragNum:Nat, 10) + ".jpg"
   .
 
@@ -223,13 +223,16 @@ eq nbytes(hash(file(id,n),k)) = k .
 op efrag : ByteSeq Nat Nat Nat -> ByteSeq [ctor] .
 --- overhead of file metadata in efrag --- TBD
 op efragOH : ByteSeq -> Nat .  
+eq efragOH(bytes) = 0 [owise] .
 eq nbytes(efrag(bytes,last,ix,l)) = l + efragOH(bytes) .
 
 *********  image sorts functions ********************
-**** image(j,k,n)  image j with cap k size n
+**** image(j,n,k)  image j with cap k size n
 
 op image : Nat Nat Nat -> ByteSeq .
+eq nbytes(image(j,n,k)) = n .
 
+***(
 *******     image  efrag  rand density
 op encode : ByteSeq ByteSeq Nat Nat -> ByteSeq .
 ---- decoder will need to know what the params should be
@@ -237,11 +240,10 @@ op encode : ByteSeq ByteSeq Nat Nat -> ByteSeq .
 op decode : ByteSeq Nat Nat -> ByteSeq .
 eq decode(encode(image,efrag, r,d),r,d) = efrag .
 
-eq nbytes(image(j,k,n)) = n .
 eq nbytes(encode(image(j,k,n),
          efrag(efile(id,n1,j,k),n0,ix,l),r,d))
      =  n + bloat(k,n,l) .
-
+)
 ***(
 bpf  -bit per frequency
 nfreqs nf --- # frequencies per mcu
@@ -256,7 +258,6 @@ op encode : ByteSeq ByteSeq Nat Nat Rat -> ByteSeq .
 op decode : ByteSeq Nat Nat Rat -> ByteSeq .
 eq decode(encode(image,efrag,bpf,nf,d1),bpf,nf,d1) = efrag .
 
-eq nbytes(image(j,n,k)) = n .
 eq nbytes(encode(image(j,n,k),
          efrag(efile(id,n1,j1,k1),n0,ix,l),bpf,nf,d1))
      =  n + bloat(n,k,l) .
@@ -271,7 +272,7 @@ eq bloat(n,k,l) = 0 [owise] .
 op imageId : ByteSeq -> Nat .
 eq imageId(image(j,n,k)) = j .
 eq imageId(encode(image(j,n,k),
-         efrag(efile(id,n1,j,k1),n0,ix,l),bpf,nf,d))
+         efrag(efile(id,n1,j1,k1),n0,ix,l),bpf,nf,d))
      = j .
 eq imageId(bytes)  = 0 [owise] .
 
