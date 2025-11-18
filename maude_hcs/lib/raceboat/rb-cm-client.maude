@@ -116,23 +116,27 @@ vars efile efrag efrag0 efrag1 image ht hashtag : ByteSeq .
 vars efilel efragl hashtagl : ByteSeqL .
 vars str : String .
 vars ract : Map{String,JV} .
+vars benignModel : MAModel .
 
-op mkCMCAttrs : Address Address   Nat -> AttributeSet .
-eq mkCMCAttrs(edAddr,mcAddr,l) =
+---             Destini ContentMgr NumHashtags  Model
+op mkCMCAttrs : Address Address    Nat          MAModel -> AttributeSet .
+eq mkCMCAttrs(edAddr, mcAddr, l, benignModel) =
      bHashTagCtr: 0,
      numBHashTags: l,
+     model: benignModel,
      pendingHashTags: nilBS,
      pendingFiles: nilBS,
      currentFrags: nilBS,
-     edAddress:  edAddr,
+     edAddress: edAddr,
      mcAddress: mcAddr,
      w4c: null,
      replyTo: null
 .
 
-op mkCMClient : Address Address Address Nat -> Actor .
-eq mkCMClient(cmcAddr,edAddr,mcAddr,l) =
-< cmcAddr : CMClient | mkCMCAttrs(edAddr,mcAddr,l) > .
+---             This    Destini ContentMgr NumHashtags Model
+op mkCMClient : Address Address Address    Nat         MAModel -> Actor .
+eq mkCMClient(cmcAddr, edAddr, mcAddr, l, benignModel) =
+< cmcAddr : CMClient | mkCMCAttrs(edAddr, mcAddr, l, benignModel) > .
 
 ------------ Client rules --------------------------
 
@@ -213,8 +217,9 @@ ceq crcvActionQ(attrs,"download",
      = {attrs2,msg}
 if attrs0, (w4c: null), (replyTo: null), (bHashTagCtr: j)
             := attrs
-/\ attrs1, mcAddress: mcAddr, (numBHashTags: k) := attrs
-/\ ht := bHashTag(j)
+/\ attrs1, mcAddress: mcAddr, (numBHashTags: k), model: benignModel := attrs
+---/\ ht := bHashTag(j)
+/\ ht := hashTag(realizeHashTag(benignModel, j))
 /\ j1 := (if j >= k then 0 else s j fi)
 /\ msg0 := (to mcAddr from cmcAddr : fetchQ(ht) )
 /\ msg := (to mcAddr from cmcAddr : 
@@ -346,9 +351,11 @@ if  attrs0, w4c: (to edAddr from cmcAddr : encQ(efrag)),
          mcAddress: mcAddr,
          pendingHashTags: nilBS,
          currentFrags: nilBS,
-         pendingFiles: nilBS 
+         pendingFiles: nilBS,
+         model: maModel:MAModel 
          := attrs
-/\ ht := bHashTag(j)    
+---/\ ht := bHashTag(j)    
+/\ ht := hashTag(realizeHashTag(maModel:MAModel, j))
 /\ j1 := (if j >= l then 0 else s j fi)     
 /\ msg0  := (to mcAddr from cmcAddr : tootQ(ht,image)) 
 /\ msg  := (to mcAddr from cmcAddr : 
@@ -364,16 +371,16 @@ mod CM-CLIENT-TEST is
 
 ops cmcA edA mcA aA umA : -> Address .
 op CMC : -> Actor .
-eq CMC = mkCMClient(cmcA,edA,mcA,3) .
+eq CMC = mkCMClient(cmcA,edA,mcA,3, mas-ma) .
 
 op CMCAtts : -> AttributeSet .
-eq CMCAtts = mkCMCAttrs(edA,mcA,3) .
+eq CMCAtts = mkCMCAttrs(edA,mcA,3, mas-ma) .
 
 op wHT0 : -> ByteSeq .
-eq wHT0 = wHashTag(0) .
+eq wHT0 = hashTag("man") .
 
 op bHT0 : -> ByteSeq .
-eq bHT0 = bHashTag(0) .
+eq bHT0 = hashTag("meow") .
 
 op F0 : -> ByteSeq .
 eq F0 = file(0,20) .
@@ -432,7 +439,7 @@ eq Mfile = {0.1, (to cmcA from aA :  pkg(EF0,wHT0) )} .
 
 ---- rew CMC Mfile .
 eq CMCf =
-< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: nilBS, pendingHashTags: wHashTag(0), numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: null, replyTo: null >
+< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: nilBS, pendingHashTags: wHT0, numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: null, replyTo: null >
 .
 
 ---- crl [rbc-rcv-action] :
@@ -458,7 +465,7 @@ eq Mdown =
 ---- rew CMC Mdown . #
 eq CMCd =
 < cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS,  pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, 
-w4c: (to mcA from cmcA : fetchQ(bHashTag(0))), 
+w4c: (to mcA from cmcA : fetchQ(hashTag("meow"))), 
 replyTo: (to cmcA from umA : 
           actionQ("type" |-> js("download"))) > 
 .
@@ -467,7 +474,7 @@ replyTo: (to cmcA from umA :
 
 ---- rew CMCf Mmedia .
 eq CMCfm =
-< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: efrag(efile(0, 20, 0, 20), 0, 0, 20), pendingHashTags: wHashTag(0), numBHashTags: 3,  edAddress: edA, mcAddress: mcA, 
+< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: efrag(efile(0, 20, 0, 20), 0, 0, 20), pendingHashTags: wHT0, numBHashTags: 3,  edAddress: edA, mcAddress: mcA, 
 w4c: (to edA from cmcA : capQ(20)), replyTo: 
 (to cmcA from umA : actionQ("type" |-> js("media"))) > 
 **** [0.0, to edA from cmcA : capQ(20), 0]
@@ -502,7 +509,7 @@ eq MencR0 = {3.0,(to cmcA from edA :  encR(IM00) )} .
 
 ---- rew CMCfm McapR .   #
 eq CMCfmc = 
-< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: efrag( efile(0, 20, 0, 20), 20, 1, 0), pendingHashTags: wHashTag(0), numBHashTags: 3, edAddress: edA, mcAddress: mcA, 
+< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: efrag( efile(0, 20, 0, 20), 20, 1, 0), pendingHashTags: wHT0, numBHashTags: 3, edAddress: edA, mcAddress: mcA, 
 w4c: (to edA from cmcA : encQ(efrag(efile(0, 20, 0, 20), 20, 0, 20))), 
 replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) >
 **** [0.0, to edA from cmcA : encQ(efrag(efile(0, 20, 0, 20), 20, 0, 20)), 0]
@@ -510,7 +517,7 @@ replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) >
 
 ---- rew CMCfmc MencR0 .   #   --- old parameters
 eq CMCfmce =
-< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: (to mcA from cmcA : tootQ(wHashTag(0), encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0,20), 1,4,1/10))), replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) >
+< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, w4c: (to mcA from cmcA : tootQ(wHT0, encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0,20), 1,4,1/10))), replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) >
    . 
 
 **** [0.0, to mcA from cmcA : PostStatus("hashtag is #wHashTag-0", makeMediaFile("image-0", 500, encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))), 0]
@@ -531,7 +538,7 @@ eq MencR = {3.0,(to cmcA from edA :  encR(IM0) )} .
 ---- rew CMCm  MencR .  --> CMCme   #
 eq CMCme =
 < cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, 
-w4c: (to mcA from cmcA : tootQ(bHashTag(0), image(0, 500, 50))), 
+w4c: (to mcA from cmcA : tootQ(hashTag("meow"), image(0, 500, 50))), 
 replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))) >
 
 *******[0.0, to mcA from cmcA : tootQ(bHashTag(0), image(0, 500, 50)), 0]

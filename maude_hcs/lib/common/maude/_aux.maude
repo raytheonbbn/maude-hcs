@@ -31,6 +31,7 @@
 
 sload ../../../deps/dns_formalization/Maude/common/actor.maude
 sload byteseq
+sload json
 
 --- from Module TIME-INF: 
 fmod NAT-INF is 
@@ -62,8 +63,8 @@ endfm
 ---- @CHRIS: does this belong under actor.maude?
 ---- Possibly.  I think it fits here, but I am not opposed to move it to actor.maude.
 mod CP2_SORTS is
-****  pr AUX-COMMON .
   inc ACTOR-MODEL .
+
   var msg : Config .
   var Attrs : AttributeSet .
 
@@ -84,7 +85,16 @@ endm
 ---- @CHRIS: does this belong under app/?
 mod CP2_NODE is
   inc CP2_SORTS .
-  inc BYTESEQ .
+  inc BYTESEQ + JSON .
+
+  --- List of hashtags.
+  op weirdHashtags : -> JV .
+  eq weirdHashtags = jl(js("person") ;
+                        js("man") ;
+                        js("woman") ;
+                        js("camera") ;
+                        js("TV") )
+  .
 
   -------------------
   --- [App Alice] ---
@@ -105,8 +115,6 @@ mod CP2_NODE is
   op queue:_ : ByteSeqL -> Attribute [ctor] .
   --- Contract cc file.
   op currentCcFile:_ : ByteSeq -> Attribute [ctor] .
-  --- Encrypted contract.
-  --- Key for encryption.
 
   vars toAddr destAddr TO_ADDR DEST_ADDR FROM_ADDR : Address .
   vars attrs attrsNext otherAttrs ATTRS : AttributeSet .
@@ -121,7 +129,7 @@ mod CP2_NODE is
                iodine:Address,
                userModel:Address,
                contentMgr:Address,
-               contracts:ByteSeqL)  =
+               contracts:ByteSeqL) =
     < AliceAddr:Address : TxApp |
         destAddr: BobAddr:Address,
         iodineAddr: iodine:Address,
@@ -143,6 +151,13 @@ mod CP2_NODE is
 
   op getCurrentKey : AttributeSet -> ByteSeq .
   eq getCurrentKey(attrs:AttributeSet, currentKey: KEY) = KEY .
+
+  --- Get the next contract hashtag from model, stored as attribute.
+  op getContractHashtag : AttributeSet -> String .
+  ceq getContractHashtag(attrs:AttributeSet, contractCount: i:Nat) = hashtag:String
+    if js(hashtag:String) := getElement(weirdHashtags, i:Nat)
+    .
+  eq getContractHashtag(attrs:AttributeSet) = "NOTAG" [owise] .
 
   --- Get cc file to send over CC (immutable).
   op getCcFile : AttributeSet -> ByteSeq .
