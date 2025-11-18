@@ -44,12 +44,15 @@ vars efile efrag image ht hashtag bytes : ByteSeq .
 vars efilel efragl efragl0 efragl1 efragl3 imagel hashtagl : ByteSeqL .
 vars str : String .
 vars ract : Map{String,JV} .
+vars benignModel : MAModel .
 
-op mkCMSAttrs : Address Address Address Nat
+---             Destini ContentMgr MastodonClient NumHashtags Model
+op mkCMSAttrs : Address Address    Address        Nat         MAModel
                  -> AttributeSet .
-eq mkCMSAttrs(edAddr,mcAddr,bAddr,l) =
+eq mkCMSAttrs(edAddr,mcAddr,bAddr,l, benignModel) =
    bHashTagCtr: 0,
    numBHashTags: l,
+   model: benignModel,
    pendingHashTags: nilBS,
    pendingFiles: nilBS,
    currentFrags: nilBS,
@@ -60,11 +63,12 @@ eq mkCMSAttrs(edAddr,mcAddr,bAddr,l) =
    bobAddress: bAddr
  .
 
-op mkCMServer : Address Address Address Address Nat
+---             This    Destini ContentMgr MastodonClient NumHashtags Model
+op mkCMServer : Address Address Address    Address        Nat         MAModel
                  -> Actor .
-eq mkCMServer(cmsAddr,edAddr,mcAddr,bAddr,l) =
+eq mkCMServer(cmsAddr,edAddr,mcAddr,bAddr,l, benignModel) =
   < cmsAddr : CMServer | 
-    mkCMSAttrs(edAddr,mcAddr,bAddr,l)  >
+    mkCMSAttrs(edAddr,mcAddr,bAddr,l, benignModel)  >
  .
 
 --- rbs receives hashtag from bob
@@ -122,7 +126,8 @@ if (to cmsAddr from umAddr : actionQ(ract) ) := msg0
            := attrs
 /\ attrs1, mcAddress: mcAddr, numBHashTags: l,
            pendingHashTags: nilBS := attrs
-/\ ht := bHashTag(j)           
+---/\ ht := bHashTag(j)           
+/\ ht := hashTag(realizeHashTag(getModel(attrs), j))
 /\ j1 := (if j >= l then 0 else s j fi)
 /\ msg1 := (to mcAddr from cmsAddr : fetchQ(ht))
 /\ msg := (to mcAddr from cmsAddr :
@@ -161,9 +166,12 @@ ceq srcvFetchR(attrs,
 if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
            replyTo: (to cmsAddr from umAddr : actionQ(ract))
             := attrs
-/\ bHashTag(j) := ht
+/\ hashTag(hashtag:String) := ht
+---Replace /\ bHashTag(j) := ht with this test finding if payload in image.
+/\ isWeird(imagel) == false
 /\ msg := (to umAddr from cmsAddr : actionR("ok"))    
 /\ attrs1 := attrs0,  w4c: null, replyTo: null
+[ print "Raceboat server has benign download." ]
 .    
 
 ---- w/b Hashtag download no images
@@ -176,6 +184,7 @@ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
 /\ attrs1, pendingHashTags: (ht :: hashtagl) := attrs
 /\ msg := (to umAddr from cmsAddr : actionR("ok"))
 /\ attrs2 := attrs0,  w4c: null, replyTo: null
+[ print "Raceboat server has download of pending hashtag " ht ", no images." ]
 .   
  
  
@@ -190,6 +199,7 @@ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht))
 /\ msg := 
     (to edAddr from cmsAddr : decQ(image :: imagel))    
 /\ attrs2 := attrs0,  w4c: msg
+[ print "Raceboat server has weird download, with result." ]
 .    
 
 ---- w/b Hashtag download no images
@@ -199,9 +209,11 @@ ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
 if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
     replyTo: (to cmsAddr from umAddr : actionQ(ract))
            := attrs
-/\ bHashTag(j) := ht
+---/\ bHashTag(j) := ht
+/\ hashTag(hashtag:String) := ht
 /\ msg := (to umAddr from cmsAddr : actionR("ok"))
 /\ attrs2 := attrs0,  w4c: null, replyTo: null
+[ print "Raceboat server has download, no images." ]
 .   
 
 
@@ -289,16 +301,15 @@ eq  srcvEncR(attrs,msg) = {attrs,null} [owise] .
 
 ceq srcvEncR(attrs,
             (to cmsAddr from edAddr : encR(image)) )
-   = {attrs2,msg}
-if attrs0,  bHashTagCtr: j,
-          w4c:  (to edAddr from cmsAddr : encQ(bytes))
-    := attrs
-/\ attrs1,  mcAddress: mcAddr, numBHashTags: l := attrs 
-/\ ht := bHashTag(j)   
-/\ j1 := (if j >= l then 0 else s j fi) 
-/\ msg0 := (to mcAddr from cmsAddr : tootQ(ht,image))   
+   = {attrs2, msg}
+if attrs0, bHashTagCtr: j, w4c: (to edAddr from cmsAddr : encQ(bytes)) := attrs
+/\ attrs1, mcAddress: mcAddr, numBHashTags: l := attrs 
+---/\ ht := bHashTag(j)
+/\ ht := hashTag(realizeHashTag(getModel(attrs), j))
+/\ j1 := (if j >= l then 0 else s j fi)
+/\ msg0 := (to mcAddr from cmsAddr : tootQ(ht,image))
 /\ msg := (to mcAddr from cmsAddr :  
-            translateTootQ(tootQ(ht,image)) )   
+            translateTootQ(tootQ(ht,image)) )
 /\ attrs2 := attrs0, bHashTagCtr: j1, w4c: msg0
 .
 
@@ -351,10 +362,10 @@ op CMSAtts : -> AttributeSet .
 eq CMSAtts = mkCMSAttrs(edA,mcA,bA,3) .
 
 op wHT0 : -> ByteSeq .
-eq wHT0 = wHashTag(0) .
+eq wHT0 = hashTag("man") .
 
 op bHT0 : -> ByteSeq .
-eq bHT0 = bHashTag(0) .
+eq bHT0 = hashTag("meow") .
 
 op F0 : -> ByteSeq .
 eq F0 = file(0,20) .
@@ -411,7 +422,7 @@ eq Mhash = {0.1, (to cmsA from bA :  pkg(wHT0) )} .
 
 ---- rew CMS Mhash .
 eq CMSh =
-< cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: wHashTag(0), numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA,
+< cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: wHT0, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, model: mas-ma,
 w4c: null, replyTo: null >
  .
 
@@ -425,7 +436,7 @@ eq Mmedia =
  
 ---- rew CMS Mmedia .  #
 eq CMSm = 
-< cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, 
+< cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, model: mas-ma,
 w4c: (to edA from cmsA : encQ(noBytes)), 
 replyTo: (to cmsA from umA : actionQ("type" |-> js("media"))) >
 ***  [0.0, to edA from cmsA : encQ(noBytes), 0]
@@ -440,8 +451,8 @@ eq Mdown =
 
 ---- rew CMS Mdown .  #
 eq CMSd =
-< cmsA : CMServer | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, 
-w4c: (to mcA from cmsA : fetchQ(bHashTag(0))), 
+< cmsA : CMServer | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, model: mas-ma,
+w4c: (to mcA from cmsA : fetchQ(hashTag("meow"))),
 replyTo: ( to cmsA from umA : actionQ("type" |-> js("download"))) >
 
 **** [0.0, to mcA from cmsA : fetchQ(bHashTag(0)), 0]
@@ -450,7 +461,7 @@ replyTo: ( to cmsA from umA : actionQ("type" |-> js("download"))) >
 
 ---- rew CMSh Mdown .   #
 eq CMShd = 
-< cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: wHashTag(0), numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, w4c: (to mcA from cmsA : fetchQ(wHashTag(0))), replyTo: (to cmsA from umA : actionQ("type" |-> js("download"))) >
+< cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: wHT0, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, model: mas-ma, w4c: (to mcA from cmsA : fetchQ(wHT0)), replyTo: (to cmsA from umA : actionQ("type" |-> js("download"))) >
 
 **** [0.0, to mcA from cmsA : fetchQ(wHashTag(0)), 0]
 .
@@ -485,7 +496,7 @@ eq MfetchRw0 = {2.0,(to cmsA from mcA :
 
 ---- rew CMShd MfetchRw0 . #
 eq CMShdf =
-< cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: wHashTag(0), numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, 
+< cmsA : CMServer | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: wHT0, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, model: mas-ma,
 w4c: (to edA from cmsA : decQ(encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20),1,4,1/10))), 
 replyTo: (to cmsA from umA : actionQ("type" |-> js("download"))) >
 
@@ -510,8 +521,8 @@ eq MencR = {2.0, (to cmsA from edA :  encR(IM00) )} .
 
 ---- rew CMSm MencR .   #
 eq CMSme = 
-< cmsA : CMServer | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, 
-w4c: (to mcA from cmsA : tootQ(bHashTag(0), encode(image( 0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1,4,1/10))), 
+< cmsA : CMServer | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 3, edAddress: edA, mcAddress: mcA, bobAddress: bA, model: mas-ma,
+w4c: (to mcA from cmsA : tootQ(hashTag("meow"), encode(image( 0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1,4,1/10))), 
 replyTo: (to cmsA from umA : actionQ("type" |-> js("media"))) >
 .
 

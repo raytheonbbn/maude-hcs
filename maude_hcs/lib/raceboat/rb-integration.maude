@@ -25,7 +25,8 @@ op FMASAct : -> Actor .
 eq FMASAct = mkFakeActor(fmA) .
 
 op wHT0 : -> ByteSeq .
-eq wHT0 = wHashTag(0) .
+---eq wHT0 = wHashTag(0) .
+eq wHT0 = hashTag(realizeHashTag(mas-ma, 0)) .
 
 op F0 : -> ByteSeq .
 eq F0 = file(0,20) .
@@ -41,7 +42,8 @@ eq IM0 = image(0,500,50)  .
 eq IM00 = encode(image(0,500,50),FR0,1,4,1/10) .
 
 op wHT1 : -> ByteSeq .
-eq wHT1 = wHashTag(1) .
+---eq wHT1 = wHashTag(1) .
+eq wHT1 = hashTag(realizeHashTag(mas-ma, 1)) .
 
 ops F1 : -> ByteSeq .
 eq F1 = file(1,100) .
@@ -88,7 +90,7 @@ mod RB-CLIENT is
 ops umcA cmcA edcA : -> Address .
 ops UMCAct CMCAct EDCAct FMASAct : -> Actor .
 
-eq CMCAct = mkCMClient(cmcA,edcA,fmA,3) .
+eq CMCAct = mkCMClient(cmcA,edcA,fmA,3, mas-ma) .
 
 op Imlc : -> ByteSeqL .
 eq Imlc = image(0,500,50) :: image(1,400,50) .
@@ -118,7 +120,7 @@ eq makeRbClient(userModel:Address,
                 destini:Address,
                 masClient:Address) =
   mkUMactor(userModel:Address, mas-ma, contentMgr:Address)
-  mkCMClient(contentMgr:Address, destini:Address, masClient:Address, 3)
+  mkCMClient(contentMgr:Address, destini:Address, masClient:Address, 3, mas-ma)
   makeDestiniActor(destini:Address, Imlc)
   .
 
@@ -157,7 +159,7 @@ mod RB-SERVER is
 ops umsA cmsA edsA : -> Address .
 ops UMSAct CMSAct EDSAct  : -> Actor .
 
-eq CMSAct = mkCMServer(cmsA,edsA,fmA,bobA,3) .
+eq CMSAct = mkCMServer(cmsA,edsA,fmA,bobA,3, mas-ma) .
 
 op Imls : -> ByteSeqL .
 eq Imls = image(2,500,50) :: image(3,400,50) .
@@ -186,7 +188,7 @@ eq makeRbServer(userModel:Address,
                 masClient:Address,
                 bob:Address) =
   mkUMactor(userModel:Address, mas-ma, contentMgr:Address)
-  mkCMServer(contentMgr:Address, destini:Address, masClient:Address, bob:Address, 3)
+  mkCMServer(contentMgr:Address, destini:Address, masClient:Address, bob:Address, 3, mas-ma)
   makeDestiniActor(destini:Address, Imls)
   .
 
@@ -220,12 +222,12 @@ mod RB-SERVER-X is
 op cmcA : -> Address .
 op toots : -> Config .
 eq toots = 
-((to fmA from cmcA : tootQ(wHashTag(0), encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))) 
-( to fmA from cmcA : tootQ(wHashTag(1), encode(image(0, 500, 50), efrag( efile(1, 100, 1, 50), 50, 0, 50), 1, 4, 1/10))) 
-(to fmA from cmcA : tootQ( wHashTag(1), encode(image(1, 400, 50), efrag(efile(1, 100, 1, 50), 100, 1, 50), 1, 4, 1/10)))
-(to fmA from cmcA : tootQ(bHashTag(0), image(1, 400, 50))) 
-(to fmA from cmcA : tootQ(bHashTag(2), image(1, 400, 50))) 
-(to fmA from cmcA : tootQ(bHashTag(3), image(0, 500, 50))) to fmA from cmcA : tootQ(bHashTag(3), image(0, 500, 50))) 
+((to fmA from cmcA : tootQ(hashTag("man"), encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))) 
+( to fmA from cmcA : tootQ(hashTag("woman"), encode(image(0, 500, 50), efrag( efile(1, 100, 1, 50), 50, 0, 50), 1, 4, 1/10))) 
+(to fmA from cmcA : tootQ(hashTag("woman"), encode(image(1, 400, 50), efrag(efile(1, 100, 1, 50), 100, 1, 50), 1, 4, 1/10)))
+(to fmA from cmcA : tootQ(hashTag("meow"), image(1, 400, 50))) 
+(to fmA from cmcA : tootQ(hashTag("dog"), image(1, 400, 50))) 
+(to fmA from cmcA : tootQ(hashTag("orange"), image(0, 500, 50))) to fmA from cmcA : tootQ(hashTag("orange"), image(0, 500, 50))) 
 .
 
 ***** removing msg to bob so exe can continure
