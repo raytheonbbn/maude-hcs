@@ -76,8 +76,8 @@ vars str : String .
 vars ract : Map{String,JV} .
 vars benignModel : MAModel .
 
----             Destini ContentMgr MastodonClient NumHashtags Model
-op mkCMSAttrs : Address Address    Address        Nat         MAModel
+---          Destini  MastodonClient  Bob   NumHashtags Model
+op mkCMSAttrs : Address Address    Address Nat MAModel
                  -> AttributeSet .
 eq mkCMSAttrs(edAddr,mcAddr,bAddr,l, benignModel) =
    bHashTagCtr: 0,
@@ -93,13 +93,13 @@ eq mkCMSAttrs(edAddr,mcAddr,bAddr,l, benignModel) =
    bobAddress: bAddr
  .
 
----             This    Destini ContentMgr MastodonClient NumHashtags Model
-op mkCMServer : Address Address Address    Address        Nat         MAModel
-                 -> Actor .
-eq mkCMServer(cmsAddr,edAddr,mcAddr,bAddr,l, benignModel) =
+op mkCMServer : Address Address Address Address  Nat  MAModel
+                -> Actor .
+eq mkCMServer(cmsAddr, edAddr,mcAddr,bAddr,l, benignModel) =
   < cmsAddr : CMServer | 
     mkCMSAttrs(edAddr,mcAddr,bAddr,l, benignModel)  >
  .
+
 
 --- rbs receives hashtag from bob
 --- models bob writing shared file
@@ -189,7 +189,7 @@ if  c:Content := translate2FetchR(
 op srcvFetchR : AttributeSet Msg -> AttributeSetMsgs .
 eq srcvFetchR(attrs,msg) = {attrs,null} [owise] .
 
----- bHashtag download
+---- non weird  download  just reply to um --- imagel may be empty
 ceq srcvFetchR(attrs,
              (to cmsAddr from mcAddr : fetchR(imagel,ht)) )
     = {attrs1,msg}
@@ -204,7 +204,7 @@ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
 [ print "Raceboat server has benign download." ]
 .    
 
----- w/b Hashtag download no images
+---- w Hashtag download no images
 ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
                        fetchR(nilBS,ht)) )  
          = {attrs2,msg}
@@ -217,7 +217,23 @@ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
 [ print "Raceboat server has download of pending hashtag " ht ", no images." ]
 .   
  
- 
+***(
+****  redundant 
+ ---- w/b Hashtag download no images
+ ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
+                        fetchR(nilBS,ht)) )  
+          = {attrs2,msg}
+ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
+     replyTo: (to cmsAddr from umAddr : actionQ(ract))
+            := attrs
+ ---/\ bHashTag(j) := ht
+ /\ hashTag(hashtag:String) := ht --- noop
+ /\ msg := (to umAddr from cmsAddr : actionR("ok"))
+ /\ attrs2 := attrs0,  w4c: null, replyTo: null
+ [ print "Raceboat server has download, no images." ]
+ .   
+)
+
 ---- wHashtag download non nil result
 ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
                        fetchR(image :: imagel,ht)) )  
@@ -229,22 +245,8 @@ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht))
 /\ msg := 
     (to edAddr from cmsAddr : decQ(image :: imagel))    
 /\ attrs2 := attrs0,  w4c: msg
-[ print "Raceboat server has weird download, with result." ]
+[ print "Raceboat server has weird download for tag " ht  ]
 .    
-
----- w/b Hashtag download no images
-ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
-                       fetchR(nilBS,ht)) )  
-         = {attrs2,msg}
-if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
-    replyTo: (to cmsAddr from umAddr : actionQ(ract))
-           := attrs
----/\ bHashTag(j) := ht
-/\ hashTag(hashtag:String) := ht
-/\ msg := (to umAddr from cmsAddr : actionR("ok"))
-/\ attrs2 := attrs0,  w4c: null, replyTo: null
-[ print "Raceboat server has download, no images." ]
-.   
 
 
 ---- rcv dec response from edAddr
@@ -344,35 +346,32 @@ if attrs0, bHashTagCtr: j, w4c: (to edAddr from cmsAddr : encQ(bytes)) := attrs
 .
 
 
-
+**** mkRequestResponse may be response to Post or Get
+**** if post, the ack to um, if get, eat and wait for result
  crl [rbs-rcv-tootR] :
 **** {T,(to cmsAddr from mcAddr :  tootR(str) )}
  {T,(to cmsAddr from mcAddr :  mkRequestResponse(str) )}
  < cmsAddr : CMServer | cmsAtts >
  =>
  < cmsAddr : CMServer | cmsAtts1 >
- (if msgs == nullMsg then null else delayMsgs(msgs,null) fi)
- if {cmsAtts1,msgs} := srcvTootR(cmsAtts,
+ delayMsgs(msgs,null)
+ if {cmsAtts1,msgs} := srcvRequestR(cmsAtts,
             (to cmsAddr from mcAddr :  mkRequestResponse(str)) ) 
 [print "(" T ") Raceboat server got toot response " str " from Mastodon Client " mcAddr ", sending " msgs ]
  .
-  
- op srcvTootR : AttributeSet  Msg -> AttributeSetMsgs .
- --- Neuter the message (otherwise, it will keep looping through the same rule).
- eq srcvTootR(attrs,msg) = {attrs, nullMsg} [owise] .
+
+ op srcvRequestR : AttributeSet  Msg -> AttributeSetMsgs .
+---- catches case of mediafile response  or other unexpected response
+ eq srcvRequestR(attrs,msg) = {attrs, null} [owise] .
  
- ceq srcvTootR(attrs, (to cmsAddr from mcAddr : mkRequestResponse(str)) ) = {attrs1, msg}
+ **** toot complete ack to UM
+ ceq srcvRequestR(attrs, (to cmsAddr from mcAddr : mkRequestResponse(str)) ) = {attrs1, msg}
   if attrs0,
-     w4c:     (to mcAddr from cmsAddr : req:Content), ---tootQ(ht,bytes)),
+     w4c:     (to mcAddr from cmsAddr : tootQ(ht,bytes)),
      replyTo: (to cmsAddr from umAddr : actionQ(ract))
     := attrs
   /\ msg := (to umAddr from cmsAddr : actionR("ok"))
   /\ attrs1 := attrs0, w4c: null, replyTo: null
----  /\ attrs1 :=
----      (if tootQ(ht, bytes) := req:Content
----        then attrs0, w4c: null, replyTo: null
----        else attrs
----      fi)
   [ print "Raceboat server got request response " str ]
   .
       
@@ -386,10 +385,10 @@ mod CM-SERVER-TEST is
 
 ops cmsA edA mcA bA umA : -> Address .
 op CMS : -> Actor .
-eq CMS = mkCMServer(cmsA,edA,mcA,bA,3) .
+eq CMS = mkCMServer(cmsA,edA,mcA,bA,3,mas-ma ) .
 
 op CMSAtts : -> AttributeSet .
-eq CMSAtts = mkCMSAttrs(edA,mcA,bA,3) .
+eq CMSAtts = mkCMSAttrs(edA,mcA,bA,3,mas-ma ) .
 
 op wHT0 : -> ByteSeq .
 eq wHT0 = hashTag("man") .
