@@ -340,6 +340,10 @@ mod IODINE_NODE is
   --- The per-packet overhead in bytes.
   op packetOverhead : -> Nat .
 
+  ---  Returns the address we're sending files to (typically the iodine client address)
+  op getToAddr : AttributeSet -> Address .
+  eq getToAddr(Attrs, toAddr: ADDR) = ADDR .
+
   op makeSendApp : Address Address -> Actor [ctor] .
   eq makeSendApp(AliceAddr, BobAddr) =
     < AliceAddr : SendApp | toAddr: BobAddr, queue: mtpl, sent: mtpl > .
@@ -437,6 +441,14 @@ mod IODINE_NODE is
 
   op fragmentsReceived:_ : FragmentList -> Attribute [ctor] .
 
+  --- False at the start, then always true once first periodic ping is scheduled. 
+  op pingsStarted:_ : Bool -> Attribute [ctor] .
+
+  --- Tracks when the last message from the server was received. 
+  --- If this is more than x seconds ago where x is the ping's delay time, 
+  --- then send the ping. Otherwise, no need.
+  op timeLastRecvd:_ : Float -> Attribute [ctor] .
+
   --- The maximum fragment length (or fragment size).
   op maxFragmentLen : -> Nat .
   --- The maximum number of fragment transmission tries.
@@ -460,7 +472,9 @@ mod IODINE_NODE is
         lastFragment: false,
         appAddrMap: mtIdAddr,
         numAttempts: 0,
-        severWResponseTTL: sTTL
+        severWResponseTTL: sTTL,
+        pingsStarted: false,
+        timeLastRecvd: 0.0
     > .
 
   op getResolver : AttributeSet ~> Address .
