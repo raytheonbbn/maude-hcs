@@ -421,23 +421,20 @@ crl [wnameserver-receive-query-weird]:
      null 
      else [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
     (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
-    --- Schedule a ping that expects a fragment with this sequence and fragment number
-    --- [1.0, (to ADDR : pingTimeout(ackFragment(fragment(getFromAddr(F), getToAddr(F), file(0), 0, 0, 0, 0, 0, false, false), getInSeqNo(wattrsTrans), getInFragNo(wattrsTrans)))), 0]
     if wattrsTrans := extract((resv: RESOLVER, fragmentsReceived: FRAGMENT_LIST, timeLastRecvd: T, wattrs), response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))
       /\ nm(F) := downstreamdata
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
-        if txComplete then {wattrsTrans, nullMsg} 
+        if txComplete
           --- Ping immediately if we have nothing to send but server sends down a non-empty fragment (meaning it still has more to send)
-          --- then (if isEmptyFile(F) 
-          ---           then {wattrsTrans, nullMsg}
-          ---           else sendPing(wattrsTrans, ADDR, ackFragment(fragment(getFromAddr(F), getToAddr(F), file(0), 0, 0, 0, 0, 0, false, false), getInSeqNo(wattrsTrans), getInFragNo(wattrsTrans))) fi)
+          then (if isEmptyFile(F) 
+                    then {wattrsTrans, nullMsg}
+                    else sendPing(wattrsTrans, ADDR, fragment(getFromAddr(F), getToAddr(F), file(0), 0, 0, getInSeqNo(wattrsTrans), getInFragNo(wattrsTrans), 0, false, false)) fi)
           else sendFragment(wattrsTrans, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
-      --- Reset fragment limit if we encounter a new fragment; otherwise count up to avoid pinging forever on repeated fragments
       /\ {wattrs2, appMsgOut} := updateRcvAppAlice(wattrsNext, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)))
-      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt downstreamdata wattrs2]
+      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt]
     .
 
   --- Handle a response from the resolver to WClient that is for a past Fragment.
@@ -458,10 +455,10 @@ crl [wnameserver-receive-query-weird]:
   --- Schedule a periodic ping some milliseconds into the future. 
   ---               wattrs       client  sendapp recvapp delay_seconds
   op schedulePeriodicPing : AttributeSet Address Address Address Float -> Msg .
-  eq schedulePeriodicPing((wattrs, inSeqNo: IN_SEQNO, inFragNo: IN_FRAGNO), ADDR, ALICE, BOB, DELAY) = [DELAY, (to ADDR : pingTimeout(true, fragment(ALICE, BOB, file(0), 0, 0, IN_SEQNO, IN_FRAGNO, 0, false, false), DELAY)), 0] .
+  eq schedulePeriodicPing((wattrs, inSeqNo: IN_SEQNO, inFragNo: IN_FRAGNO), ADDR, ALICE, BOB, DELAY) = [DELAY, (to ADDR : pingTimeout(fragment(ALICE, BOB, file(0), 0, 0, IN_SEQNO, IN_FRAGNO, 0, false, false), DELAY)), 0] .
 
 
-  --- Start a periodic timer to schedule pings
+  --- Start a periodic timer to schedule pings, but only schedule this once ever, so we don't have duplicate ping timers
   rl [clientStartPeriodicPings]:
     < ADDR : WClient | wattrs, pingsStarted: PINGS_STARTED >
     {T, (to ADDR : startPeriodicPings(ALICE, BOB))}
@@ -472,23 +469,23 @@ crl [wnameserver-receive-query-weird]:
     [print "(" T ") WClient requested to start periodic pings. Already started: " PINGS_STARTED]
   .
 
-    --- Timeout rule for pings
-  crl [clientPingTimeout]:
+    --- Timeout rule for ping periodic timer
+  crl [clientPeriodicPingTimeout]:
     < ADDR : WClient | wattrs, timeLastRecvd: T' >
     < MON : WMonitor | querySent: QTL, monAttrs >
-    {T, (to ADDR : pingTimeout(IS_PERIODIC, FRAGMENT, DELAY))}
+    {T, (to ADDR : pingTimeout(FRAGMENT, DELAY))}
     =>
     < ADDR : WClient | wattrsNext, timeLastRecvd: T' >
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
 
     (if msgOutExt == nullMsg then null else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
-    --- Only schedule another ping in the future if this is a periodic ping
-    (if IS_PERIODIC then schedulePeriodicPing(wattrs, ADDR, getFromAddr(FRAGMENT), getToAddr(FRAGMENT), 1.0) else null fi)
-    --- Send a ping if no downstream message received since the ping was originally scheduled
+    --- Only schedule another ping in the future if this is a periodic ping, 1s value from select timeout in client.c:1094 when lazy mode is off
+    schedulePeriodicPing(wattrs, ADDR, getFromAddr(FRAGMENT), getToAddr(FRAGMENT), 1.0)
+    --- Send a ping if no downstream message received in the time between when the ping was originally scheduled and now
     if shouldSendPing := (T - DELAY) > T' 
     /\ {wattrsNext, msgOut} := sendPing(wattrs, ADDR, FRAGMENT)
     /\ msgOutExt := (if shouldSendPing then msgOut else nullMsg fi)
-   [print "(" T ") Ping scheduled, did send? " shouldSendPing " Is periodic? " IS_PERIODIC " Sent: " msgOutExt]
+   [print "(" T ") Ping scheduled, did send? " shouldSendPing " Sent: " msgOutExt]
   .
 
     --- Timeout rule for WClient.

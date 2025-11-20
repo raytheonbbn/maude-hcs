@@ -28,8 +28,8 @@
 
 
 
---- Test the ping functionality. Alice sends a tiny file while Bob has a huge file to send back (100x bigger). Without pings, Alice will never receive the full file from Bob.
---- Expected behavior: Alice receives 18 packets from Bob, totaling 10k bytes plus overhead. The test is successful if the final received packet on Alice's side has the end-of-packet flag set to true.
+--- Test the periodic ping functionality. Iodine client will ping the server at a rate of 1 ping per second. The server has nothing to send so will just respond with a dataless packet.
+--- Expected behavior: Client schedules a ping every second, but doesn't always send since the server responds within the 1s window between pings. So every other scheduled ping will be sent.
 --- Run with rew initConfig .
 set clear rules off .
 set print attribute on .
@@ -140,9 +140,8 @@ eq zonePwnd2Com =
     .
 
     op initConfig : -> Config .
-    --- redefine limit to be 100s, so that pings don't go forever
+    --- redefine limit to be 20s, so that pings don't go forever
     eq limit = 20.0 .
     eq initConfig = run({0.0 | nil} initState, limit) .
 endm
 red initConfig .
-rew initConfig .
