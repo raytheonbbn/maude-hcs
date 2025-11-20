@@ -89,9 +89,9 @@ mod CONTENT-MANAGER is
   inc MAS-MAMODEL .
   inc ACTOR-MODEL .
   pr PARAMETERS .
---- inc PARAMETERS-COMMON + SAMPLER + APMAUDE .
   pr CP2_SORTS .  --- for AttributeSetMsgs  
     ---- need to pull it out to share file -- like actors
+ inc MAP{Nat,String} .
   
 vars attrs : AttributeSet .
 vars msg msg0 : Msg .
@@ -101,6 +101,13 @@ vars bAddr : Address .
 vars efl0 efl : ByteSeqL .
 vars addr : Address .
 vars atype : ActorType .
+
+vars jv : JV .
+vars jvl : JVL .
+vars str : String .
+vars n : Nat .
+vars natstr : Map{Nat,String} .
+vars mamodel : MAModel .
 
   
 ops CMClient CMServer  : -> ActorType .
@@ -115,6 +122,8 @@ op currentFrags:_   : ByteSeqL -> Attribute [ctor] .
 op pendingHashTags:_ : ByteSeqL -> Attribute [ctor] .
 op numBHashTags:_ : Nat -> Attribute [ctor] .
 op model:_ : MAModel -> Attribute [ctor] .
+
+op hashtagMap:_ : Map{Nat,String} -> Attribute [ctor] .
 
 op edAddress:_  : Address -> Attribute [ctor] .
 op mcAddress:_ : Address -> Attribute [ctor] .
@@ -179,6 +188,28 @@ eq incBHashTagCtr((attrs, bHashTagCtr: j,
 
 op getBobAddress : AttributeSet -> Address .
 eq getBobAddress((attrs, bobAddress: bAddr)) = bAddr .
+
+
+************* morphing hash string manipulation
+op ma2HashstrMap : MAModel -> Map{Nat,String} .
+op ma2HashstrLen : MAModel -> Nat .
+op jhashstrl2HashstrMap : JVL Nat Map{Nat,String} -> 
+                           Map{Nat,String} .
+                           
+ceq ma2HashstrMap(mamodel) =
+   jhashstrl2HashstrMap(jvl,0,empty)
+if jl(jvl) := getParams(mamodel)["hashtags"]
+ .
+
+ceq ma2HashstrLen(mamodel) = len(jvl)
+if jl(jvl) := getParams(mamodel)["hashtags"]  .
+ 
+eq jhashstrl2HashstrMap(nilJV,n,natstr) = natstr .
+eq jhashstrl2HashstrMap((js(str) ; jvl), n , natstr) 
+  = jhashstrl2HashstrMap(jvl, s n, (natstr, (n |-> str))) 
+.
+
+************** end morphing
 
 endm
 
