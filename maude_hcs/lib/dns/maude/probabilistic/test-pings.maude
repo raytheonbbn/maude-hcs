@@ -25,6 +25,7 @@
 --- contained herein.
 ---
 --- MAUDE_HCS: end
+<<<<<<<< HEAD:maude_hcs/lib/dns/maude/probabilistic/test-pings.maude
 
 
 
@@ -36,12 +37,24 @@ set print attribute on .
 set show advisories off .
 set verbose off .
 
+========
+
+
+load ../../../mastodon/maude/probabilistic/mastodon
+>>>>>>>> a899e3c (Tests: Move end to end test):maude_hcs/lib/app/maude/test/test-e2e.needsfix.maude
 load ../../../dns/maude/probabilistic/iodine_dns
 load ../../../common/maude/cp2-interfaces
 load ../../../common/maude/_aux
 load ../../../common/maude/router
+<<<<<<<< HEAD:maude_hcs/lib/dns/maude/probabilistic/test-pings.maude
 load ../../../app/maude/probabilistic
+========
+load ../../../common/maude/adversary-observer
+load ../probabilistic
+>>>>>>>> a899e3c (Tests: Move end to end test):maude_hcs/lib/app/maude/test/test-e2e.needsfix.maude
 
+set print attribute on .
+set show advisories off .
 
 mod PING_TEST is
   inc IODINE_DNS .
@@ -49,7 +62,13 @@ mod PING_TEST is
   inc ROUTER .
   inc MC-INTERFACE .
 
+<<<<<<<< HEAD:maude_hcs/lib/dns/maude/probabilistic/test-pings.maude
   ops alice bob iodineSendApp iodineRecvApp iodineClient iodineServer : -> Address .
+========
+  ops alice-raceboat bob-raceboat mastodon-client mastodon-server : -> Address .
+  ops alice bob aliceRbClient iodineSendApp iodineRecvApp iodineClient iodineServer bobMasClient : -> Address .
+  ops clientContentMgr serverContentMgr clientDestini serverDestini clientUserModel serverUserModel : -> Address .
+>>>>>>>> a899e3c (Tests: Move end to end test):maude_hcs/lib/app/maude/test/test-e2e.needsfix.maude
   ops monAddr : -> Address .
 
 eq monitorQueryLog? = true .
@@ -57,6 +76,7 @@ eq monitorQueryLog? = true .
 op router : -> Address .
 op adversary : -> Address .
 
+<<<<<<<< HEAD:maude_hcs/lib/dns/maude/probabilistic/test-pings.maude
 eq fileSize = 1000 .
 eq packetSize = 530 .
 eq maxPacketSize = 530 .
@@ -86,6 +106,8 @@ rl [dropOutputFiles]:
     < BOB : RcvApp | attrs >
 .
 
+========
+>>>>>>>> a899e3c (Tests: Move end to end test):maude_hcs/lib/app/maude/test/test-e2e.needsfix.maude
 op zonePwnd2Com : -> List{Record} .
 eq zonePwnd2Com =
   < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
@@ -100,7 +122,22 @@ eq zonePwnd2Com =
   op initState : -> Config .
   eq initState = 
     rCtr(0)
+<<<<<<<< HEAD:maude_hcs/lib/dns/maude/probabilistic/test-pings.maude
 
+========
+    < alice : TxApp |
+      destAddr: bob,
+      rbUserModelAddr: clientUserModel,
+      rbContentMgrAddr: clientContentMgr,
+      iodineAddr: iodineSendApp,
+      contractCount: 0,
+      queue: file(0, 400),
+      currentCcFile: nilBytes >
+    < bob : RxApp |
+      rcvd: emptyFileList,
+      rbUserModelAddr: serverUserModel,
+      rbContentMgrAddr: serverContentMgr >
+>>>>>>>> a899e3c (Tests: Move end to end test):maude_hcs/lib/app/maude/test/test-e2e.needsfix.maude
   < iodineSendApp : SendApp |
       fileDestAddr: iodineRecvApp,
       toAddr: iodineClient,
@@ -112,15 +149,15 @@ eq zonePwnd2Com =
       rcvd: mtpl > 
   < iodineRecvApp : RcvApp | rcvd: mtpl,
       fileDestAddr: bob,
-      fileSrcAddr: iodineSendApp,
       toAddr: (iodineServer),
-      queuePopulated: true,
+      queuePopulated: false,
       queue: (mtpl),
       numAdmittedPkts: 1,
       iodineReady: true,
       sent: mtpl >
   makeWClient(iodineClient, iodineServer, 'pwnd2 . 'com . root, a, 0.0)
   makeWNameServer(iodineServer, 0.0, (zonePwnd2Com))
+<<<<<<<< HEAD:maude_hcs/lib/dns/maude/probabilistic/test-pings.maude
   < monAddr : WMonitor |
     querySent: nilQueryTimestamp,
     queryRcvd: nilQueryTimestamp,
@@ -143,9 +180,70 @@ eq zonePwnd2Com =
     (canDrop: false)
     .
 
+========
+    < mastodon-client : MasClient |
+      thisAddr: mastodon-client,
+      masServerAddr: mastodon-server,
+      requesterAddr: alice-raceboat,
+      opStack: emptyOpStack,
+      postingMedia: emptyMediaFileList,
+      postingMediaIds: emptyMasIdList,
+      postingText: "",
+      gettingMediaUrls: emptyUrlList,
+      gettingMedias: emptyMediaFileList,
+      gettingPosts: emptyMasIdList
+    >
+    < bobMasClient : MasClient |
+      thisAddr: bobMasClient,
+      masServerAddr: mastodon-server,
+      opStack: emptyOpStack,
+      postingMedia: emptyMediaFileList,
+      postingMediaIds: emptyMasIdList,
+      postingText: "",
+      gettingMediaUrls: emptyUrlList,
+      gettingMedias: emptyMediaFileList,
+      gettingPosts: emptyMasIdList
+    >
+    < mastodon-server : MasServer |
+      thisAddr: mastodon-server,
+      currentMapId: 3, ---0,
+      tootMap: (3 ~> makeToot("This is the #media toot with media", makeUrl(makeMediaFile("img0.jpg", 1000)) ; makeUrl(makeMediaFile("img2.jpg", 1000)), (1 : 2))), --- emptyIdTootMap,
+      mediaMap: ((1 ~>(makeMediaFile("img0.jpg", 1000), makeUrl(makeMediaFile("img0.jpg", 1000)))) : 
+                 (2 ~>(makeMediaFile("img1.jpg", 1000), makeUrl(makeMediaFile("img1.jpg", 1000)))) :
+                 (3 ~>(makeMediaFile("img2.jpg", 1000), makeUrl(makeMediaFile("img2.jpg", 1000))))), --- emptyIdMediaMap, 
+      tagMap: (makeTag("media") ~> 3) --- emptyTagPostIdsMap
+    >
+    makeRbClient(clientUserModel, clientContentMgr, clientDestini, mastodon-client)
+    makeRbServer(serverUserModel, serverContentMgr, serverDestini, bobMasClient, bob)
+    < monAddr : WMonitor |
+      querySent: nilQueryTimestamp,
+      queryRcvd: nilQueryTimestamp,
+      pktSent: nilPacketTimestamp,
+      pktRcvd: nilPacketTimestamp >
+    mkRouter(router)
+    mkAdversary(adversary,ObsS,ObsR)
+---    (to mastodon-client from alice-raceboat : PostStatus("This is the toot"))
+---    (to mastodon-client from alice-raceboat : PostStatus("This is the #tag toot"))
+---    (to mastodon-client from alice-raceboat : PostMedia(makeMediaFile("cat.jpg", 1000)))
+---    (to mastodon-client from alice-raceboat : PostStatus("This is the #media toot with media", (makeMediaFile("img0.jpg", 1000) :: makeMediaFile("img1.jpg", 1000))))
+---    (to mastodon-client from alice-raceboat : GetPost(3))
+---    (to mastodon-client from alice-raceboat : GetMedia(makeUrl(makeMediaFile("img1.jpg", 1000))))
+---    (to mastodon-client from alice-raceboat : GetTimeline)
+---    [1.0, (to mastodon-client from alice-raceboat : GetMediaHashtag(makeTag("media"))), 0]
+      [0.5, (to alice : start), 0]
+---      [1.0, (to mastodon-client from alice-raceboat  : tootQ(bHashTag(0), noBytes)), 0]
+    .
+
+>>>>>>>> a899e3c (Tests: Move end to end test):maude_hcs/lib/app/maude/test/test-e2e.needsfix.maude
     op initConfig : -> Config .
     --- redefine limit to be 50s, so that pings don't go forever
     eq limit = 50.0 .
     eq initConfig = run({0.0 | nil} initState, limit) .
 endm
+<<<<<<<< HEAD:maude_hcs/lib/dns/maude/probabilistic/test-pings.maude
 red initConfig .
+========
+
+eof
+
+>>>>>>>> a899e3c (Tests: Move end to end test):maude_hcs/lib/app/maude/test/test-e2e.needsfix.maude
