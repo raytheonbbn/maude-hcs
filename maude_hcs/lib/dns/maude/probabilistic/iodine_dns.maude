@@ -418,7 +418,17 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : WClient | wattrs2 >       
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
     --- Schedule a ping 1s later if we didn't send either a ping or a fragment already
-    (if msgOutExt == nullMsg then schedulePeriodicPing(wattrs, ADDR, getFromAddr(F), getToAddr(F), pingInterval, receiveToPingDelay) else null fi)
+    --- msgOutExt == nullMsg means client has no fragments to send upstream, and is handling a downstream fragment marked as the last one.
+    --- Therefore two scenarios are possible: either we've encountered the last packet or we're receiving a dataless packet. 
+    --- Ping after 5ms if server sent down the last fragment (client.c:1009)
+    --- Otherwise fall back to the select loop to ping (likely client.c:1155)
+    
+    (if msgOutExt == nullMsg then 
+      schedulePing(wattrs2, ADDR, getFromAddr(F), getToAddr(F), 
+        (if isLastFragment(F) then 0.005 else pingInterval fi), 
+      receiveToPingDelay) else null fi)
+    --- If the server ACKed the last fragment of our packet, ping 20ms later (client.c:1053)
+    (if isTxComplete(wattrs2) and isAckMatch(wattrs, F) then schedulePing(wattrs2, ADDR, getFromAddr(F), getToAddr(F), 0.02, receiveToPingDelay) else null fi)
     (if msgOutExt == nullMsg 
      then [0.0, (to getFromAddr(response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)) : start), 0]
      else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
@@ -431,16 +441,18 @@ crl [wnameserver-receive-query-weird]:
       /\ txComplete := isTxComplete(wattrsTrans)
       /\ {wattrsNext, msgOutExt} :=
         if txComplete
-          --- Ping immediately if we have nothing to send but server sends down a non-empty fragment (meaning it still has more to send)
+          --- Ping immediately if we have nothing to send but server sends down a non-last fragment (meaning it still has more to send) (client.c:1072)
           then 
           (if isEmptyFile(F) 
-                    then {wattrsTrans, nullMsg}
-                    else sendPing(wattrsTrans, ADDR, fragment(getFromAddr(F), getToAddr(F), file(0), 0, 0, getInSeqNo(wattrsTrans), getInFragNo(wattrsTrans), 0, false, false)) fi)
+              then {wattrsTrans, nullMsg}
+              else (if not isLastFragment(F) then sendPing(wattrsTrans, ADDR, fragment(getFromAddr(F), getToAddr(F), file(0), 0, 0, getInSeqNo(wattrsTrans), getInFragNo(wattrsTrans), 0, false, false))
+                    else {wattrsTrans, nullMsg} fi) 
+          fi)
           else sendFragment(wattrsTrans, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
       /\ {wattrs2, appMsgOut} := updateRcvAppAlice(wattrsNext, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)))
-      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt downstreamdata]
+      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt downstreamdata] 
     .
 
   --- Handle a response from the resolver to WClient that is for a past Fragment.
@@ -460,9 +472,10 @@ crl [wnameserver-receive-query-weird]:
 
   --- Schedule a periodic ping some milliseconds into the future. 
   ---               wattrs       client  sendapp recvapp delay_seconds extra_delay
-  op schedulePeriodicPing : AttributeSet Address Address Address Float Float -> Msg .
+  op schedulePing : AttributeSet Address Address Address Float Float -> Msg .
   --- Small extra delay added to the ping delay, because a ping scheduled immediately after receiving a packet will check, exactly DELAY seconds later if it's received another packet. However, the last packet also arrived (approximately) DELAY seconds ago and sometimes causes the ping to fail to fire.
-  eq schedulePeriodicPing((wattrs, inSeqNo: IN_SEQNO, inFragNo: IN_FRAGNO), ADDR, ALICE, BOB, DELAY, DELAY2) = [DELAY + DELAY2, (to ADDR : pingTimeout(fragment(ALICE, BOB, file(0), 0, 0, IN_SEQNO, IN_FRAGNO, 0, false, false), DELAY)), 0] 
+  eq schedulePing((wattrs, inSeqNo: IN_SEQNO, inFragNo: IN_FRAGNO), ADDR, ALICE, BOB, DELAY, DELAY2) = [DELAY + DELAY2, (to ADDR : pingTimeout(fragment(ALICE, BOB, file(0), 0, 0, IN_SEQNO, IN_FRAGNO, 0, false, false), DELAY)), 0] 
+  [print "Scheduling ping for " DELAY " seconds from now"]
   .
 
   --- Start a periodic timer to schedule pings, but only schedule this once ever, so we don't have duplicate ping timers
@@ -472,7 +485,7 @@ crl [wnameserver-receive-query-weird]:
     =>
     < ADDR : WClient | wattrs, pingsStarted: true >
     --- iodine client.c:110 always starts first ping 1ms later
-    (if not PINGS_STARTED then schedulePeriodicPing(wattrs, ADDR, ALICE, BOB, initialPingDelay, 0.0) else null fi)
+    (if not PINGS_STARTED then schedulePing(wattrs, ADDR, ALICE, BOB, initialPingDelay, 0.0) else null fi)
     [print "(" T ") WClient requested to start periodic pings. Already started: " PINGS_STARTED]
   .
 
@@ -487,7 +500,7 @@ crl [wnameserver-receive-query-weird]:
 
     (if msgOutExt == nullMsg then null else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
     --- Only schedule another ping if we didn't hear back from the server in the ping interval. Otherwise receiving a fragment will schedule a ping.
-    (if shouldSendPing then schedulePeriodicPing(wattrs, ADDR, getFromAddr(FRAGMENT), getToAddr(FRAGMENT), pingInterval, 0.0) else null fi)
+    (if shouldSendPing then schedulePing(wattrs, ADDR, getFromAddr(FRAGMENT), getToAddr(FRAGMENT), pingInterval, 0.0) else null fi)
     --- Send a ping if no downstream message received in the time between when the ping was originally scheduled and now
     if shouldSendPing := (T - DELAY) > T' 
     /\ {wattrsNext, msgOut} := sendPing(wattrs, ADDR, FRAGMENT)
