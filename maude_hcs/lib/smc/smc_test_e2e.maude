@@ -1,0 +1,76 @@
+--- This maude file has been created automatically from the Python representation ---
+load ../dns/maude/probabilistic/iodine_dns
+--- load ../dns/maude/probabilistic/paced-client-checkdone
+load ../../deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
+load ../common/maude/router
+load ../common/maude/adversary-observer
+load ../app/maude/probabilistic
+
+mod HCS_TEST is
+
+  inc IODINE_DNS + TEST-HELPERS .
+  inc CP2_APP .
+  inc ROUTER .
+  inc ADVERSARY-OBSERVER .
+
+  ops adversary Alice Bob bobapp application-client application-server dnsperf internet-dns local-dns mAddr monAddr public-dns root-dns tld-dns : -> Address .
+
+  op myIC : -> Config .
+  eq myIC = < adversary : Adversary | sent: (
+		tm(1.9791922322474421e-5, to X(public-dns) from local-dns : query(0, 'www1 . 'internet . 'com . root, a)) ; 
+		tm(1.8023190411290415e+1, to X(public-dns) from local-dns : query(1, 'com . root, a)) ; 
+		tm(3.7207920434996083e+1, to X(public-dns) from local-dns : query(2, 'www0 . 'internet . 'com . root, a)) ; 
+		tm(3.7291787597979507e+1, to X(public-dns) from local-dns : query(3, 'www1 . 'internet . 'com .  root, a)) ; 
+		tm(3.7383492457204099e+1, to X(public-dns) from local-dns : query(4, 'www2 . 'internet . 'com . root, a)) ; 
+		tm(3.7510292353615377e+1, to X(public-dns) from local-dns : query(5, 'www0 . 'internet . 'com . root, a)) ; 
+		tm(3.76229505218326e+1, to X(public-dns) from local-dns : query(6, 'www0 . 'internet . 'com . root, a)) ; 
+		tm(3.7700942458617888e+1, to X(public-dns) from local-dns : query(7, 'www0 . 'internet . 'com . root, a)) ; 
+		tm(3.7804909471899606e+1, to X(public-dns) from local-dns : query(8, 'com . root, a)) ; 
+		tm(3.7858939687327116e+1, to X(public-dns) from local-dns : query(9, 'www2 . 'internet . 'com . root, a)) ; 
+		tm(3.7955463285589651e+1, to X(public-dns) from local-dns : query(10, 'www2 . 'internet . 'com . root, a)) ; 
+		tm(5.6558060177011292e+1, to X(public-dns) from local-dns : query(11, 'www2 . 'internet . 'com . root, a)) ; 
+		tm(5.6659762990720999e+1, to X(public-dns) from local-dns : query(12, 'www1 . 'internet . 'com . root, a)) ; 
+		tm(7.7534465724158494e+1, to X(public-dns) from local-dns : query(13, 'www0 . 'internet . 'com . root, a)) ; 
+		tm(7.7652054407687416e+1, to X(public-dns) from local-dns : query(14, 'www0 . 'internet . 'com . root, a)) ; 
+		tm(7.7767731373543398e+1, to X(public-dns) from local-dns : query(15, 'www1 . 'internet . 'com . root, a)) ; 
+		tm(7.7864315759028287e+1, to X(public-dns) from local-dns : query(16, 'www1 . 'internet . 'com . root, a)) ; 
+		tm(7.8006859394496487e+1, to X(public-dns) from local-dns : query(17, 'www . 'internet., a)) ; 
+		tm(9.6902603208951447e+1, to X(public-dns) from local-dns : query(18, 'www1 . 'internet . 'com . root, a)) ; 
+		tm(1.2039090295540143e+2, to X(public-dns) from local-dns : query(19, 'www1 . 'internet . 'com . root, a)) ; 
+		tm(1.381114613729342e+2, to X(public-dns) from local-dns : query(20, 'com . root, a)) ; 
+		tm(1.6049011501782041e+2, to X(public-dns) from local-dns : query(21, 'www2 . 'internet . 'com . root, a)) ; 
+		tm(1.7988022645889168e+2, to X(public-dns) from local-dns : query(22, 'www2 . 'internet . 'com . root, a)) ; 
+		tm(2.0000000238523828e+2, to X(public-dns) from local-dns : query(7727, nm(fragment(Alice, Bob, file(10000), 0, 1, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a))), 
+    rcvd: nilTML, canSeeS: mtObs, canSeeR: pat("X", "addr") > .
+
+endm
+
+load smc
+set print attribute on .
+
+red getPerWindowQPs(myIC, 0.0, 100.0, 20.0) == 0.19 0.17 0.1 0.08 0.05 0.04 0.05 0.03 0.03 0.01 0.01 . 
+red getPerWindowQS(myIC, 0.0, 100.0, 20.0) == 1.7263157894736842e+1 1.7882352941176471e+1 17.1 16.625 16.2 15.5 41.6 6.1333333333333336e+1 6.1333333333333336e+1 146.0 146.0 . 
+
+red getNQuerySent(myIC) == 24 .
+red getAvgQuerySize(myIC) == 2.2333333333333332e+1 .
+
+red getToDCumulativeNQueryPreNAT (myIC, 0) == 2.0000000238523828e+2 .
+red getToDCumulativeNQueryPreNAT(myIC, 1) == 0.0 . 
+
+red getToDCumulativeNQueryPostNAT(myIC, 1) == 1.8023190411290415e+1 .
+red getToDCumulativeNQueryPostNAT(myIC, 10) == 3.7955463285589651e+1 .
+red getToDCumulativeNQueryPostNAT(myIC, 23) == 2.0000000238523828e+2 .
+red getToDCumulativeNQueryPostNAT(myIC, 24) == 0.0 .
+
+red size(query(0, 'www1 . 'internet . 'com . root, a)) == 19 .
+red size(query(17, 'www . 'internet., a)) == 14 .
+red size(query(20, 'com . root, a)) == 5 .
+red size(query(7727, nm(fragment(Alice, Bob, file(10000), 0, 1, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) == 146 .
+
+red getToDCumulativeQuerySizePreNAT (myIC, 145) == 2.0000000238523828e+2 .
+red getToDCumulativeQuerySizePreNAT (myIC, 146) == 0.0 .
+
+red getToDCumulativeQuerySizePostNAT (myIC, 10) == 1.9791922322474421e-5 .
+red getToDCumulativeQuerySizePostNAT (myIC, 20) == 1.8023190411290415e+1 .
+red getToDCumulativeQuerySizePostNAT (myIC, 30) == 3.7207920434996083e+1 .
+red getToDCumulativeQuerySizePostNAT (myIC, 50) == 3.7291787597979507e+1 .
