@@ -212,6 +212,7 @@ mod SMC is
   op getHcsQPS : Config Float -> Float .
   eq getHcsQPS (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQPS(TML, T, lastT(TML) - T) .  
 
+  --- MA.1 Aggregate post-NAT average DNS query rate exceeds k × initial TGEN-only average query rate for n consecutive time bins of width s.
                         --- init start window bin th consecutive
   op getToD : Config Float Float Float Float Int -> Float .
   eq getToD (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = tod(TML, T'' - T, T, T', TH, I) . 
@@ -220,7 +221,6 @@ mod SMC is
   op isDetected : Config Float Float Float Float Int -> Bool .
   eq isDetected (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = if tod(TML, T'' - T, T, T', TH, I) > 0.0 then true else false fi . 
 
-  
   ---- get the avg qps for each window
   op perWindowQPS : TimeMsgList Float Float Float -> List{Float} .
   op $perWindowQPS : TimeMsgList Float Float Float List{Float} -> List{Float} .
@@ -234,23 +234,19 @@ mod SMC is
     fi
     .
   
-  
-  
   ----                        startT window bin -> List of values one per window
   op getPerWindowQPs : Config Float Float Float -> List{Float} .
   eq getPerWindowQPs (C < ADDR : Adversary | sent: TML, attrs >, T, T', T'') = perWindowQPS(TML, T, T', T'') . 
-
-
 
   var ID : Id .
   var NAME : Name .
   var RTYPE : RType .
   vars B1 B2 : Bool .
   vars ALICE BOB : Address .
-  vars N1 N2 N3 : Nat .
+  vars N1 N2 N3 N4 N5 : Nat .
 
   op size : Name -> Nat .
-  eq size (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, B1, B2)) . NAME) = N3 + nameLength(NAME) .
+  eq size (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) .
   eq size (NAME) = nameLength(NAME) [owise] .
 
   op size : Query -> Nat .
@@ -266,12 +262,130 @@ mod SMC is
 
                             --- start window 
   op avgQuerySize : TimeMsgList Float Float -> Float .
-  eq avgQuerySize (TML, T, T') = float(sizeTimeWindow(TML, T, T + T')) / float(lengthTimeWindow(TML, T, T + T')) .
+  eq avgQuerySize (TML, T, T') = if float(lengthTimeWindow(TML, T, T + T')) > 0.0 then float(sizeTimeWindow(TML, T, T + T')) / float(lengthTimeWindow(TML, T, T + T')) else 0.0 fi .
 
   op getAvgQuerySize : Config -> Float .
   eq getAvgQuerySize (C < ADDR : Adversary | sent: TML, attrs >) = float(size(TML)) / float(length(TML)) .
 
   op getHcsQuerySize : Config Float -> Float .
   eq getHcsQuerySize (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQuerySize(TML, T, lastT(TML) - T) .  
+
+  ----- the average query size in window [T, T+T'] > th*(average query size in window [0, T'])
+                        --- startT window threshold
+  op highQuerySize : TimeMsgList Float Float Float -> Bool .
+  eq highQuerySize (TML, T, T', TH) =
+      if avgQuerySize (TML, T,  T') > avgQuerySize (TML, 0.0, T') * TH
+      then true
+      else false
+      fi .
+  eq highQuerySize (nilTML, T, T', TH) = false .
+
+  ---- Aggregate average query rate exceeds k × initial average query rate for n consecutive time bins of width s
+  ---- More clearly, we check avgQPS over n consecutive windows each of size T', shifted by bin size T''
+  ----                   startT window/m bin/s th/k consecutive/n
+  op alarmQuerySize : TimeMsgList Float Float Float Float Int -> Bool .
+  ceq alarm (TML, T, T', T'', TH, I) =
+      if highQuerySize(TML, T + (float(I) * T''), T', TH)
+      then alarmQuerySize(TML, T, T', T'', TH, I - 1)
+      else false
+      fi
+    if I > 0 .
+  eq alarmQuerySize (TML, T, T', T'', TH, I) = true [owise].
+
+  ----                 startT window/m bin/s th/k consecutive/n
+  op todQuerySize : TimeMsgList Float Float Float Float Int -> Float .
+  eq todQuerySize (TML ; tm(Tmsg, M), T, T', T'', TH, I) =
+    if  T >= Tmsg --- passed the end
+      then 0.0
+      else
+        (if alarmQuerySize(TML ; tm(Tmsg, M), T, T', T'', TH, I)
+          then alarmTime(T, T', T'', I)
+          else todQuerySize(TML ; tm(Tmsg, M), T + T'', T', T'', TH, I)
+        fi)
+    fi
+            --- if lastT(TML ; tm(Tmsg, M)) > alarmTime(T, T', T'', I - 1)
+            --- [print "ToD [" T "," T' "] bin " T'' ]
+            .
+
+  --- MA.2 Aggregate post-NAT average DNS query size exceeds k × initial TGEN-only average query size for n consecutive time bins of width s.
+                        --- init start window bin th consecutive
+  op getToDAvgQuerySize : Config Float Float Float Float Int -> Float .
+  eq getToDAvgQuerySize (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = todQuerySize(TML, T'' - T, T, T', TH, I) .
+
+  ---- get the avg query size for each window
+  op perWindowQS : TimeMsgList Float Float Float -> List{Float} .
+  op $perWindowQS : TimeMsgList Float Float Float List{Float} -> List{Float} .
+  eq  perWindowQS(TML, T, T', T'') = $perWindowQS(TML, T, T', T'', nil) .
+  eq $perWindowQS(nilTML, T, T', T'', LF) = nil .
+  eq $perWindowQS(TML ; tm(Tmsg, M), T, T', T'', LF) = 
+    if T >= Tmsg --- passed the end
+      then LF
+      ---- append average of this window and go to next window
+      else $perWindowQS(TML ; tm(Tmsg, M), T + T'', T', T'', (LF avgQuerySize(TML ; tm(Tmsg, M), T, T')))
+    fi
+    .
+  
+  ----                        startT window bin -> List of values one per window
+  op getPerWindowQS : Config Float Float Float -> List{Float} .
+  eq getPerWindowQS (C < ADDR : Adversary | sent: TML, attrs >, T, T', T'') = perWindowQS(TML, T, T', T'') . 
+
+  op AliceQuery : Name -> Bool .
+  eq AliceQuery (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = true .
+  eq AliceQuery (NAME) = false [owise] .
+
+  op AliceQuery : Query -> Bool .
+  eq AliceQuery (query(ID, NAME, RTYPE)) = AliceQuery(NAME) .
+
+  op nthQueryTimePreNAT : TimeMsgList Nat -> Float .
+  eq nthQueryTimePreNAT (TML, 0) = 0.0 .
+  ceq nthQueryTimePreNAT (tm(T, M) ; TML, s 0) = T if AliceQuery(getQuery(M)) .
+  eq nthQueryTimePreNAT (tm(T, M) ; TML, s N) = if AliceQuery(getQuery(M)) then nthQueryTimePreNAT(TML, N) else nthQueryTimePreNAT(TML, s N) fi .
+  eq nthQueryTimePreNAT (nilTML, s N) = 0.0 .
+
+  --- C.1 Pre-NAT earliest time cumulative number of queries > N
+  op getToDCumulativeNQueryPreNAT : Config Nat -> Float .
+  eq getToDCumulativeNQueryPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthQueryTimePreNAT(TML, s N) .
+
+  op nthQueryTimePostNAT : TimeMsgList Nat -> Float .
+  eq nthQueryTimePostNAT (TML, 0) = 0.0 .
+  eq nthQueryTimePostNAT (tm(T, M) ; TML, s 0) = T .
+  eq nthQueryTimePostNAT (tm(T, M) ; TML, s N) = nthQueryTimePostNAT(TML, N) .
+  eq nthQueryTimePostNAT (nilTML, s N) = 0.0 .
+
+  --- C.2 Post-NAT earliest time cumulative number of queries > N
+  op getToDCumulativeNQueryPostNAT : Config Nat -> Float .
+  eq getToDCumulativeNQueryPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthQueryTimePostNAT(TML, s N) .
+
+  op nByteQueryTimePreNAT : TimeMsgList Nat -> Float .
+  eq nByteQueryTimePreNAT (TML, 0) = 0.0 .
+  eq nByteQueryTimePreNAT (tm(T, M) ; TML, N) = 
+    if AliceQuery(getQuery(M)) then	
+      (if size(getQuery(M)) > N then T else nByteQueryTimePreNAT(TML, N - size(getQuery(M))) fi) 
+    else 
+      nByteQueryTimePreNAT(TML, N) 
+    fi .
+  eq nByteQueryTimePreNAT (nilTML, N) = 0.0 .
+
+  --- C.3 Pre-NAT earliest time cumulative size of queries > N
+  op getToDCumulativeQuerySizePreNAT : Config Nat -> Float .
+  eq getToDCumulativeQuerySizePreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteQueryTimePreNAT(TML, N) .
+
+  op nByteQueryTimePostNAT : TimeMsgList Nat -> Float .
+  eq nByteQueryTimePostNAT (TML, 0) = 0.0 .
+  eq nByteQueryTimePostNAT (tm(T, M) ; TML, N) = if size(getQuery(M)) > N then T else nByteQueryTimePostNAT(TML, N - size(getQuery(M))) fi .
+  eq nByteQueryTimePostNAT (nilTML, N) = 0.0 .
+
+  --- C.4 Post-NAT earliest time cumulative size of queries > N
+  op getToDCumulativeQuerySizePostNAT : Config Nat -> Float .
+  eq getToDCumulativeQuerySizePostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteQueryTimePostNAT(TML, N) .
+
+  op iByteQueryTime : TimeMsgList Nat -> Float .
+  eq iByteQueryTime (TML, 0) = 0.0 .
+  eq iByteQueryTime (tm(T, M) ; TML, N) = if size(getQuery(M)) > N then T else iByteQueryTime(TML, N) fi .
+  eq iByteQueryTime (nilTML, N) = 0.0 .
+
+  --- earliest time size of an individual query > N
+  op getToDQuerySize : Config Nat -> Float .
+  eq getToDQuerySize (C < ADDR : Adversary | sent: TML, attrs >, N) = iByteQueryTime(TML, N) .
 
 endm
