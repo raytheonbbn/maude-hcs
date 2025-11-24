@@ -25,45 +25,32 @@
 --- contained herein.
 ---
 --- MAUDE_HCS: end
+
+
+
+--- Test the ping functionality. Bob has a huge file to send back (100x bigger). Without pings, Alice will never receive the full file from Bob.
+--- Expected behavior: Alice receives 18 packets from Bob, totaling 10k bytes plus overhead. The test is successful if the final received packet on Alice's side has the end-of-packet flag set to true.
+--- Run with rew initConfig .
 set clear rules off .
 set print attribute on .
 set show advisories off .
 set verbose off .
 
-load ../../../mastodon/maude/probabilistic/mastodon
 load ../../../dns/maude/probabilistic/iodine_dns
-load ../../../common/maude/adversary-observer
 load ../../../common/maude/cp2-interfaces
 load ../../../common/maude/_aux
 load ../../../common/maude/router
-load ../../../common/maude/adversary-observer
 load ../../../app/maude/probabilistic
 
 
-mod MASTODON_TEST is
+mod PING_TEST is
   inc IODINE_DNS .
-  inc ADVERSARY-OBSERVER .
-  inc MASTODON .
   inc CP2-COMMON .
   inc ROUTER .
-  inc ADVERSARY-OBSERVER .
-  inc CP2_APP . ---- loads rb-integration 
   inc MC-INTERFACE .
 
-  ops alice-raceboat mastodon-client mastodon-server : -> Address .
-  ops alice bob iodineSendApp iodineRecvApp iodineClient iodineServer bobMasClient : -> Address .
-  ops clientContentMgr serverContentMgr clientDestini serverDestini clientUserModel serverUserModel : -> Address .
+  ops alice bob iodineSendApp iodineRecvApp iodineClient iodineServer : -> Address .
   ops monAddr : -> Address .
-  op adversary : -> Address .
-  ---- the sendtime / receive time collection patterns
-  ops ObsS ObsR : -> Observable .
-  eq ObsS = mtObs [owise] .
-  eq ObsR = mtObs [owise] .
-
-  --- uncomment to model aversary at router inside corporate
-  --- collects msgs received by router from interal actors
-  --- (stored as sent by local-dns)
-  eq ObsR = obsC .  
 
 eq monitorQueryLog? = true .
 
@@ -85,6 +72,20 @@ eq pingInterval = 1.0 .
 eq initialPingDelay = 0.001 .
 eq receiveToPingDelay = 0.000001 .
 
+
+--- This is needed so the rewrites don't freeze up when Bob receives Alice's file (normally this is handled by the other raceboat components)
+vars FILE : ByteSeq .
+vars BOB : Address .
+vars attrs : AttributeSet .
+vars T : Float .
+
+rl [dropOutputFiles]:
+    < BOB : RcvApp | attrs >
+    {T, (to bob : FILE)}
+    =>
+    < BOB : RcvApp | attrs >
+.
+
 op zonePwnd2Com : -> List{Record} .
 eq zonePwnd2Com =
   < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
@@ -94,24 +95,16 @@ eq zonePwnd2Com =
   < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
   < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
 
-eq weirdHashtags = jl(js("person") ;
-                      js("man") ;           
-                      js("woman") ;
-                      js("camera") ;
-                      js("TV") )
-  .
-
-
   --- Initial configuration.
+
   op initState : -> Config .
   eq initState = 
     rCtr(0)
-  makeTxApp(alice, bob, iodineSendApp, clientUserModel, clientContentMgr, file(0, 30))
-  makeRxApp(bob, iodineRecvApp, serverUserModel, serverContentMgr)
+
   < iodineSendApp : SendApp |
       fileDestAddr: iodineRecvApp,
       toAddr: iodineClient,
-      queuePopulated: false,
+      queuePopulated: true,
       queue: mtpl,
       numAdmittedPkts: 1,
       iodineReady: true,
@@ -126,35 +119,16 @@ eq weirdHashtags = jl(js("person") ;
       numAdmittedPkts: 1,
       iodineReady: true,
       sent: mtpl >
-  makeMastodonClient(mastodon-client,
-                     mastodon-server,
-                     clientContentMgr)
   makeWClient(iodineClient, iodineServer, 'pwnd2 . 'com . root, a, 0.0)
   makeWNameServer(iodineServer, 0.0, (zonePwnd2Com))
-  makeMastodonClient(bobMasClient,
-                     mastodon-server,
-                     serverContentMgr)
-  makeMastodonServer(mastodon-server)
-  makeRbClient(clientUserModel, clientContentMgr, clientDestini, mastodon-client)
-  makeRbServer(serverUserModel, serverContentMgr, serverDestini, bobMasClient, bob)
   < monAddr : WMonitor |
     querySent: nilQueryTimestamp,
     queryRcvd: nilQueryTimestamp,
     pktSent: nilPacketTimestamp,
     pktRcvd: nilPacketTimestamp >
   mkRouter(router)
-  mkAdversary(adversary,ObsS,ObsR)
----    (to mastodon-client from alice-raceboat : PostStatus("This is the toot"))
----    (to mastodon-client from alice-raceboat : PostStatus("This is the #tag toot"))
----    (to mastodon-client from alice-raceboat : PostMedia(makeMediaFile("cat.jpg", 1000)))
----    (to mastodon-client from alice-raceboat : PostStatus("This is the #media toot with media", (makeMediaFile("img0.jpg", 1000) :: makeMediaFile("img1.jpg", 1000))))
----    (to mastodon-client from alice-raceboat : GetPost(3))
----    (to mastodon-client from alice-raceboat : GetMedia(makeUrl(makeMediaFile("img1.jpg", 1000))))
----    (to mastodon-client from alice-raceboat : GetTimeline)
----    [1.0, (to mastodon-client from alice-raceboat : GetMediaHashtag(makeTag("media"))), 0]
-      [0.5, (to alice : start), 0]
-      [21.0, (to bob : start), 0]
----      [1.0, (to mastodon-client from alice-raceboat  : tootQ(bHashTag(0), noBytes)), 0]
+    [0.6, (to iodineSendApp : start), 0]
+    [0.6, (to iodineRecvApp from bob : file(10000)), 0]
     .
 
   op LinkType-1 : -> AttributeSet .
@@ -169,15 +143,9 @@ eq weirdHashtags = jl(js("person") ;
     (canDrop: false)
     .
 
----  eq LinkData =
----    aaa(mastodon-client, mastodon-server, LinkType-1)
----    aaa(bobMasClient, mastodon-server, LinkType-1)
----  .
-
     op initConfig : -> Config .
-    --- Limiting maximum time because pings will continue forever
-    eq limit = 100.0 .
+    --- redefine limit to be 50s, so that pings don't go forever
+    eq limit = 50.0 .
     eq initConfig = run({0.0 | nil} initState, limit) .
 endm
 red initConfig .
-

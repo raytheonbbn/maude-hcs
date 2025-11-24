@@ -212,6 +212,11 @@ mod IODINE_SORTS is
   op isLastPacket : Packet -> Bool .
   eq isLastPacket(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_FRAG)) = LAST_FRAG .
 
+  --- True if the file contained in the fragment is empty (ie pings or server response when server has nothing to send)
+  op isEmptyFile : Fragment -> Bool .
+  eq isEmptyFile(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = (getSize(FILE) == 0) .
+
+
 endm  
 --- these views allow us to create lists LIST{X} where X is sort Packet or Fragment
 --- view Packet from TRIV to IODINE_SORTS is sort Elt to Packet . endv
@@ -278,12 +283,12 @@ mod IODINE_NODE is
   var NAME NAME1 NAME' : Name .
   var F : Fragment .
   var F' : Fragment .
-  var ADDR ADDR1 AliceAddr BobAddr RESOLVER FROM_ADDR : Address .
+  var ADDR ADDR1 AliceAddr BobAddr RESOLVER FROM_ADDR TO_ADDR : Address .
   var ID : Id .
   var QTYPE : RType .
   vars NUM_ATTEMPTS NUM_FRAGS : Nat .
   var LAST_FRAG LAST_PACKET : Bool .
-  vars OUT_SEQNO QUERY_CTR OUT_FRAGNO IN_SEQNO IN_FRAGNO : Nat .
+  vars OUT_SEQNO QUERY_CTR OUT_FRAGNO IN_SEQNO IN_FRAGNO FRAG_LEN : Nat .
   vars N N1 N2 P_LEN HOSTNAME_LEN : Nat .
   vars FRAGMENT_LIST FRAGMENT_LIST' : FragmentList .
   var PACKET : Packet .
@@ -332,6 +337,10 @@ mod IODINE_NODE is
   op iodineReady:_ : Bool -> Attribute [ctor] .
   --- The per-packet overhead in bytes.
   op packetOverhead : -> Nat .
+
+  ---  Returns the address we're sending files to (typically the iodine client address)
+  op getToAddr : AttributeSet -> Address .
+  eq getToAddr(Attrs, toAddr: ADDR) = ADDR .
 
   op makeSendApp : Address Address -> Actor [ctor] .
   eq makeSendApp(AliceAddr, BobAddr) =
@@ -430,6 +439,14 @@ mod IODINE_NODE is
 
   op fragmentsReceived:_ : FragmentList -> Attribute [ctor] .
 
+  --- False at the start, then always true once first periodic ping is scheduled. 
+  op pingsStarted:_ : Bool -> Attribute [ctor] .
+
+  --- Tracks when the last message from the server was received. 
+  --- If this is more than x seconds ago where x is the ping's delay time, 
+  --- then send the ping. Otherwise, no need.
+  op timeLastRecvd:_ : Float -> Attribute [ctor] .
+
   --- The maximum fragment length (or fragment size).
   op maxFragmentLen : -> Nat .
   --- The maximum number of fragment transmission tries.
@@ -453,7 +470,9 @@ mod IODINE_NODE is
         lastFragment: false,
         appAddrMap: mtIdAddr,
         numAttempts: 0,
-        severWResponseTTL: sTTL
+        severWResponseTTL: sTTL,
+        pingsStarted: false,
+        timeLastRecvd: 0.0
     > .
 
   op getResolver : AttributeSet ~> Address .
@@ -578,6 +597,32 @@ mod IODINE_NODE is
       --- keep track of app address that resulted in this query Id 
       /\ MIdAddr1 := updateMap(MIdAddr, ID, getFromAddr(F))
     .
+
+  --- Send a ping in response to the last fragment we received. Sends an empty fragment that is "reflected" from the incoming packet (ie the to/from addresses interchanged)
+  op sendPing : AttributeSet Address Fragment -> AttributeSetMsgs .
+  ceq sendPing((wattrs, weirdQType: QTYPE), ADDR, F) =
+     {(wattrsNext, weirdQType: QTYPE), (to RESOLVER from ADDR : QUERY)}
+    if RESOLVER := getResolver(wattrs)
+      /\ wattrsNext := incrQueryCtr(wattrs)
+      /\ ID := getQueryCtr(wattrsNext)
+      /\ NAME := nm(ackFragment(fragment(getToAddr(F), getFromAddr(F), file(0), 0, 0, 0, 0, 0, false, false), getInSeqNo(wattrs), getInFragNo(wattrs))) . getWDom(wattrsNext)
+      /\ QUERY := query(ID, NAME, QTYPE)
+      --- keep track of app address that resulted in this query Id 
+      ---/\ MIdAddr1 := updateMap(MIdAddr, ID, getToAddr(F))
+    .
+    
+  op isOldFragment : Attribute Fragment -> Bool .
+  --- Old if incoming sequence number equal, incoming fragment equal or less
+  ceq isOldFragment((wattrs, inSeqNo: IN_SEQNO, inFragNo: N), fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = true 
+  if OUT_FRAGNO <= N .
+
+  --- Old if incoming sequence number is less
+  ceq isOldFragment((wattrs, inSeqNo: N, inFragNo: N2), fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = true 
+  if OUT_SEQNO < N .
+
+  eq isOldFragment(wattrs, F) = false
+  [owise]
+  .
 
 --- TODO: Is severWResponseTTL the right thing to record for client?
   --- Extract a response and move to next fragment if is current fragment ACK.
