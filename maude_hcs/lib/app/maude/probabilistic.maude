@@ -40,7 +40,7 @@ mod CP2_APP is
   vars attrs attrsTemp attrsNext : AttributeSet .
   vars aliceAddr bobAddr ALICE_ADDR BOB_ADDR CONTENT_MGR_ADDR USER_MODEL_ADDR : Address .
   vars encryptedContract CC_FILE CONTRACT : ByteSeq .
-  vars ackFile contract contractKey contractHash contractHashtag CONTRACT_KEY : ByteSeq .
+  vars ackFile contract contractKey contractHash contractHashtag CONTRACT_KEY CONTRACT_HASH : ByteSeq .
   vars CONTRACT_LIST : ByteSeqL .
   vars T : Float . ---timestamps
   vars contractId : Nat .
@@ -70,10 +70,14 @@ mod CP2_APP is
   --- Bob Rules ---
   -----------------
   rl [bob-recv-cc-file]:
-    < BOB_ADDR : RxApp | (attrs, currentKey: CONTRACT_KEY) >
+    < BOB_ADDR : RxApp | (attrs,
+                          currentKey: CONTRACT_KEY,
+                          currentHash: CONTRACT_HASH) >
     {T, (to BOB_ADDR : CC_FILE)}
   =>
-    < BOB_ADDR : RxApp | (attrs, currentKey: readKey(CC_FILE)) >
+    < BOB_ADDR : RxApp | (attrs,
+                          currentKey: readKey(CC_FILE),
+                          currentHash: readHash(CC_FILE)) >
     [0.0, (to getRbContentMgrAddr(attrs) from BOB_ADDR : pkg(getHashtagAsByteSeq(CC_FILE))), 0]
   [ print "(" T ") Bob received CC file " CC_FILE ]
   .
