@@ -1,38 +1,8 @@
---- MAUDE_HCS: maude_hcs
----
---- Software Markings (UNCLASS)
---- Maude-HCS Software
----
---- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
----
---- The computer software and computer software documentation are licensed
---- under the Apache License, Version 2.0 (the "License"); you may not use
---- this file except in compliance with the License. A copy of the License
---- is provided in the LICENSE file, but you may obtain a copy of the
---- License at:  https://www.apache.org/licenses/LICENSE-2.0
----
---- The computer software and computer software documentation are based
---- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
---- under Agreement No. HR00l 12590083.
----
---- This document does not contain technology or technical data controlled under
---- either the U.S. International Traffic in Arms Regulations or the U.S. Export
---- Administration Regulations.
----
---- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
---- unlimited.
----
---- Notice: Markings. Any reproduction of this computer software, computer
---- software documentation, or portions thereof must also reproduce the markings
---- contained herein. Refer to the provided NOTICE file.
----
---- MAUDE_HCS: end
-
 load ../common/maude/user-action-actor
 load rb-cm-client
 load rb-cm-server
 load enc-dec-actor
-load fake-mastodon
+load fake-mastodon-v1
 load mas-mamodel
 
 ***(
@@ -55,8 +25,7 @@ op FMASAct : -> Actor .
 eq FMASAct = mkFakeActor(fmA) .
 
 op wHT0 : -> ByteSeq .
----eq wHT0 = wHashTag(0) .
-eq wHT0 = hashTag(realizeHashTag(mas-ma, 0)) .
+eq wHT0 = wHashTag(0) .
 
 op F0 : -> ByteSeq .
 eq F0 = file(0,20) .
@@ -72,8 +41,7 @@ eq IM0 = image(0,500,50)  .
 eq IM00 = encode(image(0,500,50),FR0,1,4,1/10) .
 
 op wHT1 : -> ByteSeq .
----eq wHT1 = wHashTag(1) .
-eq wHT1 = hashTag(realizeHashTag(mas-ma, 1)) .
+eq wHT1 = wHashTag(1) .
 
 ops F1 : -> ByteSeq .
 eq F1 = file(1,100) .
@@ -89,6 +57,17 @@ ops IM1 IM10 IM11 : -> ByteSeq .
 eq IM1 = image(1,500,60)  .
 eq IM10 = encode(image(1,500,60),FR10,1,4,1/10) .
 eq IM11 = encode(image(1,500,60),FR11,1,4,1/10) .
+
+op wHT2 : -> ByteSeq .
+eq wHT2 = wHashTag(2) .
+
+op F2 : -> ByteSeq .
+eq F2 = file(2,400) .
+op K2 : -> ByteSeq .
+eq K2 = key(1,400) .
+
+op EF2 : -> ByteSeq .
+eq EF2 = encrypt(F2,K2) .
 
 
 eq encOH(fsize:Nat,ksize:Nat)  = 
@@ -120,7 +99,7 @@ mod RB-CLIENT is
 ops umcA cmcA edcA : -> Address .
 ops UMCAct CMCAct EDCAct FMASAct : -> Actor .
 
-eq CMCAct = mkCMClient(cmcA,edcA,fmA,3, mas-ma) .
+eq CMCAct = mkCMClient(cmcA,edcA,fmA,3) .
 
 op Imlc : -> ByteSeqL .
 eq Imlc = image(0,500,50) :: image(1,400,50) .
@@ -150,7 +129,7 @@ eq makeRbClient(userModel:Address,
                 destini:Address,
                 masClient:Address) =
   mkUMactor(userModel:Address, mas-ma, contentMgr:Address)
-  mkCMClient(contentMgr:Address, destini:Address, masClient:Address, 3, mas-ma)
+  mkCMClient(contentMgr:Address, destini:Address, masClient:Address, 3)
   makeDestiniActor(destini:Address, Imlc)
   .
 
@@ -171,14 +150,16 @@ set print attribute on .
 
 rew [100] mkRun(rbcIC Mstartc(.1) Mpkga(.2),100.0) .
 
---- wtootR @ 20
+--- stop time 8.9021821001552183e+1 
+--- 4 posts, 1w 87 steps left
 
 rew [100] mkRun(rbcIC Mstartc(.2) Mpkga(.1),100.0) .
 
---- wtootR @ 20
+--- similar 
 
 rew [100] mkRun(rbcIC Mstartc(.2) Mpkga(.1) Mpkga1(25.1), 130.0) .
-
+----- seems ok nsteps 89  two wposts
+---- need more interesting file sizes
 )
 endm
 
@@ -189,7 +170,7 @@ mod RB-SERVER is
 ops umsA cmsA edsA : -> Address .
 ops UMSAct CMSAct EDSAct  : -> Actor .
 
-eq CMSAct = mkCMServer(cmsA,edsA,fmA,bobA,3, mas-ma) .
+eq CMSAct = mkCMServer(cmsA,edsA,fmA,bobA,3) .
 
 op Imls : -> ByteSeqL .
 eq Imls = image(2,500,50) :: image(3,400,50) .
@@ -218,7 +199,7 @@ eq makeRbServer(userModel:Address,
                 masClient:Address,
                 bob:Address) =
   mkUMactor(userModel:Address, mas-ma, contentMgr:Address)
-  mkCMServer(contentMgr:Address, destini:Address, masClient:Address, bob:Address, 3, mas-ma)
+  mkCMServer(contentMgr:Address, destini:Address, masClient:Address, bob:Address, 3)
   makeDestiniActor(destini:Address, Imls)
   .
 
@@ -235,11 +216,10 @@ select  RB-SERVER .
 set print attribute on .
 
 rew [100] mkRun(rbsIC Mstarts(.1) Mpkgb(.2), 100.0) .
---- rb-server-run0
+--- 87 steps left stoptime 89
 
 rew [100] mkRun(rbsIC Mstarts(.2) Mpkgb(.1), 100.0) .
---- rb-server-run1
-
+--- similar
 
 )
 
@@ -252,12 +232,15 @@ mod RB-SERVER-X is
 op cmcA : -> Address .
 op toots : -> Config .
 eq toots = 
-((to fmA from cmcA : tootQ(hashTag("man"), encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))) 
-( to fmA from cmcA : tootQ(hashTag("woman"), encode(image(0, 500, 50), efrag( efile(1, 100, 1, 50), 50, 0, 50), 1, 4, 1/10))) 
-(to fmA from cmcA : tootQ(hashTag("woman"), encode(image(1, 400, 50), efrag(efile(1, 100, 1, 50), 100, 1, 50), 1, 4, 1/10)))
-(to fmA from cmcA : tootQ(hashTag("meow"), image(1, 400, 50))) 
-(to fmA from cmcA : tootQ(hashTag("dog"), image(1, 400, 50))) 
-(to fmA from cmcA : tootQ(hashTag("orange"), image(0, 500, 50))) to fmA from cmcA : tootQ(hashTag("orange"), image(0, 500, 50))) 
+((to fmA from cmcA : translateTootQQ(tootQ(wHashTag(0), encode( image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))) ) 
+( to fmA from cmcA : translateTootQQ(tootQ(wHashTag(1), encode(image(0, 500, 50), efrag( efile(1, 100, 1, 50), 50, 0, 50), 1, 4, 1/10))) ) 
+(to fmA from cmcA : translateTootQQ(tootQ( wHashTag(1), encode(image(1, 400, 50), efrag(efile(1, 100, 1, 50), 100, 1, 50), 1, 4, 1/10))))
+(to fmA from cmcA : translateTootQQ(tootQ(bHashTag(0), image(1, 400, 50))) )
+(to fmA from cmcA : translateTootQQ(tootQ(bHashTag(2), image(1, 400, 50))) )
+(to fmA from cmcA : translateTootQQ(tootQ(bHashTag(3), image(0, 500, 50))) )
+
+(to fmA from cmcA : translateTootQQ(tootQ(bHashTag(3), image(0, 500, 50))) )
+ )
 .
 
 ***** removing msg to bob so exe can continure
@@ -278,14 +261,18 @@ set print attribute on .
 
 --- fetching file with 1 fragment
 rew [100] mkRun(rbsIC Mstarts(.1) Mpkgb(.2), toots, 100.0) .
---- rb-server-run0x
+---- (3.9435947865552748e+1): bob-rcv-efile raceboat server receives encrypted file efile(0, 20, 0, 20) with tag wHashTag(0)
+---- end time 8.9021814519833413e+1 ,  nsteps: 88
 
---- fetching file with 2 fragments
+--- fetching 2 files
 rew [200] mkRun(rbsIC Mstarts(.1) Mpkgb(.2) Mpkgb1(25.0), toots, 200.0) .
 
---- rb-server-run0xx
+--- (3.9435947865552748e+1): bob-rcv-efile raceboat server receives encrypted file efile( 0, 20, 0, 20) with tag wHashTag(0)
 )     
 
+---- (4.7169618822497334e+1): bob-rcv-efile raceboat server receives encrypted file efile( 1, 100, 1, 50) with tag wHashTag(1)
+
+---- endtime 1.8122593067819025e+2  nsteps: 75
 endm   
 
 
@@ -311,6 +298,15 @@ rCtr(j)
 [ print "(" T "): bob-rcv-efile raceboat server receives encrypted file " efile  " with tag " ht ]
 .
 
+var d : Float .
+op Mpkga2 : Float -> Msg .
+eq Mpkga2(d) =
+    [d, (to cmcA from aliceA : pkg(EF2,wHT2)), 0] .
+
+op Mpkgb2 : Float -> Msg .
+eq Mpkgb2(d) =
+    [d, (to cmsA from bobA : pkg(wHT2)), 0] .
+
 
 
 ***(
@@ -319,13 +315,25 @@ set print attribute on .
 
 rew [200] mkRun(rbcsIC Mstartc(.11) Mpkga(.2) Mstarts(.1) Mpkgb(.5), 300.0) .
 
---- rb-client-server-exfil0.txt
+---- ****bob-rcv-efile efile(1, 100, 1, 50) tag wHashTag(1) at 1.551027966734967e+2
 
 rew [500] mkRun(rbcsIC Mstartc(.11) Mpkga(.2) Mpkga1(25.1) Mstarts(.1) Mpkgb(.5) Mpkgb1(26.1), 400.0) .
 
-****bob-rcv-efile efile(1, 100, 1, 50) tag wHashTag(1) at 1.551027966734967e+2
+---- (1.3476699524257958e+2): bob-rcv-efile raceboat server receives encrypted file efile( 0, 20, 0, 20) with tag wHashTag(0)
 
---- rb-client-server-run1
+---- (1.551027966734967e+2): bob-rcv-efile raceboat server receives encrypted file efile( 1, 100, 1, 50) with tag wHashTag(1) --- second file
+
+--- file with 4 frags
+rew [500] mkRun(rbcsIC Mstartc(.11) Mpkga(.2) Mpkga1(25.1) Mstarts(.1) Mpkgb(.5) Mpkgb1(26.1) Mpkga2(50.) Mpkgb2(55.), 400.0) .
+
+---- (1.3476699524257958e+2): bob-rcv-efile raceboat server receives encrypted file efile( 0, 20, 0, 20) with tag wHashTag(0)
+
+---- (1.551027966734967e+2): bob-rcv-efile raceboat server receives encrypted file efile( 1, 100, 1, 50) with tag wHashTag(1)
+
+**** wHashTag(2)
+(3.8178859716282369e+2): bob-rcv-efile raceboat server receives encrypted file efile(
+    2, 400, 1, 400) with tag wHashTag(2)
+
 
 )
 

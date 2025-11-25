@@ -30,13 +30,14 @@
 
 set show advisories off .
 
-load ../common/maude/byteseq.maude
-load ../../deps/dns_formalization/Maude/common/actor.maude
+sload ../common/maude/byteseq.maude
+sload ../../deps/dns_formalization/Maude/common/actor.maude
 
-load ../../deps/dns_formalization/Maude/dns/probabilistic-model/parameters.maude
+sload ../../deps/dns_formalization/Maude/dns/probabilistic-model/parameters.maude
 
-load ../common/maude/_aux.maude  ---- AttributeSetMsgs
-load ../common/maude/cp2-interfaces
+sload ../common/maude/_aux.maude  ---- AttributeSetMsgs
+sload ../common/maude/cp2-interfaces
+sload ./mas-mamodel
 
 ***** functions used by Content Manager
 fmod EFRAGMENTS is
@@ -115,11 +116,12 @@ mod CONTENT-MANAGER is
   inc EFRAGMENTS .
   inc RB-INTERFACE .
   inc MC-INTERFACE .
+  inc MAS-MAMODEL .
   inc ACTOR-MODEL .
   pr PARAMETERS .
---- inc PARAMETERS-COMMON + SAMPLER + APMAUDE .
   pr CP2_SORTS .  --- for AttributeSetMsgs  
     ---- need to pull it out to share file -- like actors
+ inc MAP{Nat,String} .
   
 vars attrs : AttributeSet .
 vars msg msg0 : Msg .
@@ -129,6 +131,13 @@ vars bAddr : Address .
 vars efl0 efl : ByteSeqL .
 vars addr : Address .
 vars atype : ActorType .
+
+vars jv : JV .
+vars jvl : JVL .
+vars str : String .
+vars n : Nat .
+vars natstr : Map{Nat,String} .
+vars mamodel : MAModel .
 
   
 ops CMClient CMServer  : -> ActorType .
@@ -142,6 +151,9 @@ op pendingFiles:_ : ByteSeqL -> Attribute [ctor] .
 op currentFrags:_   : ByteSeqL -> Attribute [ctor] .
 op pendingHashTags:_ : ByteSeqL -> Attribute [ctor] .
 op numBHashTags:_ : Nat -> Attribute [ctor] .
+op model:_ : MAModel -> Attribute [ctor] .
+
+op hashtagMap:_ : Map{Nat,String} -> Attribute [ctor] .
 
 op edAddress:_  : Address -> Attribute [ctor] .
 op mcAddress:_ : Address -> Attribute [ctor] .
@@ -149,6 +161,8 @@ op bobAddress:_  : Address -> Attribute [ctor] .
 op w4c:_ : Config -> Attribute [ctor] . ---msg or null
 op replyTo:_ : Config -> Attribute [ctor] . ---- ""
 
+op getModel : AttributeSet -> MAModel .
+eq getModel(attrs, model: maModel:MAModel) = maModel:MAModel .
 
 op setReplyTo : Actor Msg -> Actor .
 eq setReplyTo( < addr : atype | attrs > , msg) =
@@ -204,6 +218,28 @@ eq incBHashTagCtr((attrs, bHashTagCtr: j,
 
 op getBobAddress : AttributeSet -> Address .
 eq getBobAddress((attrs, bobAddress: bAddr)) = bAddr .
+
+
+************* morphing hash string manipulation
+op ma2HashstrMap : MAModel -> Map{Nat,String} .
+op ma2HashstrLen : MAModel -> Nat .
+op jhashstrl2HashstrMap : JVL Nat Map{Nat,String} -> 
+                           Map{Nat,String} .
+                           
+ceq ma2HashstrMap(mamodel) =
+   jhashstrl2HashstrMap(jvl,0,empty)
+if jl(jvl) := getParams(mamodel)["hashtags"]
+ .
+
+ceq ma2HashstrLen(mamodel) = len(jvl)
+if jl(jvl) := getParams(mamodel)["hashtags"]  .
+ 
+eq jhashstrl2HashstrMap(nilJV,n,natstr) = natstr .
+eq jhashstrl2HashstrMap((js(str) ; jvl), n , natstr) 
+  = jhashstrl2HashstrMap(jvl, s n, (natstr, (n |-> str))) 
+.
+
+************** end morphing
 
 endm
 

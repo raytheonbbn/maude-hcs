@@ -29,14 +29,14 @@
 --- MAUDE_HCS: end
 
 
-load ./mastodon
+load ../../../mastodon/maude/probabilistic/mastodon
 load ../../../dns/maude/probabilistic/iodine_dns
 load ../../../common/maude/adversary-observer
 load ../../../common/maude/cp2-interfaces
 load ../../../common/maude/_aux
 load ../../../common/maude/router
 load ../../../common/maude/adversary-observer
-load ../../../app/maude/probabilistic
+load ../probabilistic
 
 set print attribute on .
 set show advisories off .
@@ -71,18 +71,6 @@ eq monitorQueryLog? = true .
 op router : -> Address .
 op adversary : -> Address .
 
-eq fileSize = 1000 .
-eq packetSize = 530 .
-eq maxPacketSize = 530 .
-eq packetOverhead = 33 .
-eq maxFragmentLen = 200 .
-eq maxFragmentTx = 20 .
----eq nsResourceBounds? = false .
-eq pacingTimeoutDelay = 0.05 .
-eq pacingTimeoutDelayMax = 0.05 .
-eq ackTimeoutDelay = 1.0 . 
-eq maxMinimiseCount = 0 .
-
 op zonePwnd2Com : -> List{Record} .
 eq zonePwnd2Com =
   < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
@@ -99,16 +87,14 @@ eq zonePwnd2Com =
     rCtr(0)
     < alice : TxApp |
       destAddr: bob,
-      rbClientAddr: aliceRbClient,
       rbUserModelAddr: clientUserModel,
       rbContentMgrAddr: clientContentMgr,
-      iodineClientAddr: iodineSendApp,
+      iodineAddr: iodineSendApp,
       contractCount: 0,
-      queue: file(0, 30),
+      queue: file(0, 400),
       currentCcFile: nilBytes >
     < bob : RxApp |
       rcvd: emptyFileList,
-      currentKey: nilBytes,
       rbUserModelAddr: serverUserModel,
       rbContentMgrAddr: serverContentMgr >
   < iodineSendApp : SendApp |
@@ -128,44 +114,40 @@ eq zonePwnd2Com =
       numAdmittedPkts: 1,
       iodineReady: true,
       sent: mtpl >
-  < iodineClient : WClient |
-      resv: iodineServer, ---addrNScorporate,
-      wDom: 'pwnd2 . 'com . root,
-      weirdQType: a,
-      queryCtr: 0,
-      outSeqNo: 0,
-      fragmentsToSend: mtfl,
-      fragmentsSize: 0,
-      outFragNo: 0,
-      appAddrMap: mtIdAddr,
-      numAttempts: 0,
-      fragmentsReceived: mtfl,
-      inSeqNo: 0,
-      inFragNo: 0,
-      lastFragment: false,
-      severWResponseTTL: 0.0 >
-    makeMastodonClient(mastodon-client,
-                       mastodon-server,
-                       clientContentMgr)
-  < iodineServer : WNameserver |
-      fragmentsReceived: mtfl,
-      inSeqNo: 0,
-      inFragNo: 0,
-      lastFragment: false,
-      severWResponseTTL: 0.0,
-      outSeqNo: 0,
-      fragmentsToSend: mtfl,
-      fragmentsSize: 0,
-      outFragNo: 0,
-      numAttempts: 0,
-      conf: (< iodineServer : Nameserver |  db: (zonePwnd2Com),
-                                            queue: nilQueue,
-                                            forwardonly: nullAddr,
-                                            queriesFwd: nilTAQL >) >
-    makeMastodonClient(bobMasClient,
-                       mastodon-server,
-                       serverContentMgr)
-    makeMastodonServer(mastodon-server)
+  makeWClient(iodineClient, iodineServer, 'pwnd2 . 'com . root, a, 0.0)
+  makeWNameServer(iodineServer, 0.0, (zonePwnd2Com))
+    < mastodon-client : MasClient |
+      thisAddr: mastodon-client,
+      masServerAddr: mastodon-server,
+      requesterAddr: alice-raceboat,
+      opStack: emptyOpStack,
+      postingMedia: emptyMediaFileList,
+      postingMediaIds: emptyMasIdList,
+      postingText: "",
+      gettingMediaUrls: emptyUrlList,
+      gettingMedias: emptyMediaFileList,
+      gettingPosts: emptyMasIdList
+    >
+    < bobMasClient : MasClient |
+      thisAddr: bobMasClient,
+      masServerAddr: mastodon-server,
+      opStack: emptyOpStack,
+      postingMedia: emptyMediaFileList,
+      postingMediaIds: emptyMasIdList,
+      postingText: "",
+      gettingMediaUrls: emptyUrlList,
+      gettingMedias: emptyMediaFileList,
+      gettingPosts: emptyMasIdList
+    >
+    < mastodon-server : MasServer |
+      thisAddr: mastodon-server,
+      currentMapId: 3, ---0,
+      tootMap: (3 ~> makeToot("This is the #media toot with media", makeUrl(makeMediaFile("img0.jpg", 1000)) ; makeUrl(makeMediaFile("img2.jpg", 1000)), (1 : 2))), --- emptyIdTootMap,
+      mediaMap: ((1 ~>(makeMediaFile("img0.jpg", 1000), makeUrl(makeMediaFile("img0.jpg", 1000)))) : 
+                 (2 ~>(makeMediaFile("img1.jpg", 1000), makeUrl(makeMediaFile("img1.jpg", 1000)))) :
+                 (3 ~>(makeMediaFile("img2.jpg", 1000), makeUrl(makeMediaFile("img2.jpg", 1000))))), --- emptyIdMediaMap, 
+      tagMap: (makeTag("media") ~> 3) --- emptyTagPostIdsMap
+    >
     makeRbClient(clientUserModel, clientContentMgr, clientDestini, mastodon-client)
     makeRbServer(serverUserModel, serverContentMgr, serverDestini, bobMasClient, bob)
     < monAddr : WMonitor |
@@ -184,13 +166,14 @@ eq zonePwnd2Com =
 ---    (to mastodon-client from alice-raceboat : GetTimeline)
 ---    [1.0, (to mastodon-client from alice-raceboat : GetMediaHashtag(makeTag("media"))), 0]
       [0.5, (to alice : start), 0]
-      [21.0, (to bob : start), 0]
 ---      [1.0, (to mastodon-client from alice-raceboat  : tootQ(bHashTag(0), noBytes)), 0]
     .
 
     op initConfig : -> Config .
+    --- redefine limit to be 100s, so that pings don't go forever
+    eq limit = 100.0 .
     eq initConfig = run({0.0 | nil} initState, limit) .
 endm
-rew initConfig .
+
 eof
 

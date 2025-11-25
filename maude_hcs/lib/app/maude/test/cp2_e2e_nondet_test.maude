@@ -40,6 +40,7 @@ inc MASTODON .
 inc CP2_APP .
 
 ops alice bob aliceRbClient iodineSendApp iodineRecvApp iodineClient iodineServer aliceMasClient bobMasClient masServer : -> Address .
+ops userModel contentMgr : -> Address .
 
 op zonePwnd2Com : -> List{Record} .
 eq zonePwnd2Com =
@@ -59,44 +60,20 @@ eq maxFragmentTx = 20 .
   --- Initial configuration
 op initConfig : -> Config .
 eq initConfig =
-  < alice : TxApp |
-      destAddr: bob,
-      rbClientAddr: aliceRbClient,
-      iodineClientAddr: iodineSendApp,
-      queue: ccFile(400, 2, "test"),
-      currentCcFile: nilBytes >
-  < bob : RxApp | rcvd: emptyFileList >
+  makeTxApp(alice, bob, iodineSendApp, userModel, contentMgr, ccFile(400, 2, "test"))
+  makeRxApp(bob, iodineRecvApp, userModel, contentMgr)
   < iodineSendApp : SendApp | 
       fileDestAddr: iodineRecvApp,
       toAddr: iodineClient,
       queuePopulated: false,
       queue: mtpl,
       numAdmittedPkts: 1,
-      wclientReady: true,
+      iodineReady: true,
       sent: mtpl >
   < iodineRecvApp : RcvApp | rcvd: mtpl,
       fileDestAddr: bob > 
-  < iodineClient : WClient |
-      resv: iodineServer, ---addrNScorporate,
-      wDom: 'pwnd2 . 'com . root,
-      weirdQType: a,
-      queryCtr: 0,
-      seqCtr: 0,
-      fragments: mtfl,
-      fragmentsSize: 0,
-      currFragment: 0,
-      appAddrMap: mtIdAddr,
-      numAttempts: 0 >
-  < iodineServer : WNameserver |
-      pendingFragments: mtfl,
-      currentSeqNo: 0,
-      currentFragment: 0,
-      lastFragment: false,
-      severWResponseTTL: 0.0,
-      conf: (< iodineServer : Nameserver |  db: (zonePwnd2Com),
-                                            queue: nilQueue,
-                                            forwardonly: nullAddr,
-                                            queriesFwd: nilTAQL >) >
+  makeWClient(iodineClient, iodineServer, 'pwnd2 . 'com  . root, a, 0.0)
+  makeWNameServer(iodineServer, 0.0, (zonePwnd2Com))
   makeMastodonClient(aliceMasClient,
                      masServer,
                      alice)

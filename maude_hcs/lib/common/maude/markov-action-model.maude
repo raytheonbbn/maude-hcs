@@ -166,6 +166,19 @@ eq realizeParam(str,jo((("random" |-> js(str1)) , mj)),j) =
       realizeRand(str,str1,mj,j) .
 eq realizeParam(str,jv,j) = {str |-> jv,j} [owise] .
 
+--- Get the ith hashtag from a model.
+op realizeHashTag : MAModel Nat -> String .
+ceq realizeHashTag(ma(name:String,
+                      markov:Map{String, Map{String, Float}},
+                      actions:Map{String, JV},
+                      params:Map{String, JV}),
+                   i:Nat) =
+  hashtag:String
+  if js(hashtag:String) := getElement(params:Map{String, JV}, "hashtags", i:Nat)
+  .
+eq realizeHashTag(ma:MAModel, i:Nat) = "NOTAG" [owise] .
+
+
 ***
 ceq realizeRand(str,"gaussian",
       (("mean" |-> jf(mean) ), ("std" |-> jf(std) ), mj), 
@@ -190,6 +203,15 @@ eq realizeRand(str,str1,mj,j)
        = {(str |-> nullJV),j} [owise] .
         
 endfm  
+
+eof
+red realizeHashTag(ma("mas",
+                      ("download" |-> "wait_download" |-> 1.0, "media" |-> "wait_media" |-> 1.0, "wait_download" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1), "wait_media" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1)),
+                      ("download" |-> jo("type" |-> js("download")), "media" |-> jo(("start" |-> jb(true), "type" |-> js("media"))), "wait_download" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait"))), "wait_media" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait")))),
+                      ("hashtags" |-> jl(js("meow") ; js("cat") ; js("dog") ; js("orange") ; js("purple")), "model_steps" |-> jn(100), "password" |-> js("passwor\302\256d1234"), "username" |-> js("user5"))),
+                   1) 
+  == "cat"
+  .
 
 eof 
 

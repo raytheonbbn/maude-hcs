@@ -47,6 +47,11 @@ fmod JV is
   eq len(jvl) = lenX(jvl,0) .
   eq lenX(jv ; jvl, n) = lenX(jvl,s n) .
   eq lenX(nilJV, n) =  n .
+
+  op from_at_ : JVL Nat -> JV .
+  eq from nilJV at n = nullJV .
+  eq from (jv ; jvl) at 0 = jv .
+  eq from (jv ; jvl) at (s n) = from jvl at  n .
   
 endfm
 
@@ -58,20 +63,36 @@ fmod JSON is
   inc JV .
   inc MAP{String,JV} .
 
-  var mj : Map{String,JV} .
+  var mj mj' : Map{String,JV} .
   var jv1 : JV .
+  vars jvl : JVL .
 
+  --- Json nat.
   op jn : Nat -> JV .
+  --- Json string.
   op js : String -> JV .
+  --- Json list.
   op jl : JVL -> JV .
+  --- Json object(?).
   op jo : Map{String,JV}  -> JV .
+  --- Json float.
   op jf : Float -> JV .
+  --- Json bool.
   op jb : Bool -> JV .
 
   op getJOmap : JV -> Map{String,JV} .
   eq getJOmap(jo(mj)) = mj .
   eq getJOmap(jv1) = empty [owise] .
 
+  --- Get the [i]th element in a Json list.
+  op getElement : JV Nat -> JV .
+  eq getElement(jl(jvl), i:Nat) = from jvl at i:Nat .
+
+  op getElement : Map{String, JV} String Nat -> JV .
+  ceq getElement(mj, listName:String, i:Nat) = getElement(jl(jvl), i:Nat) ---from jvl at i:Nat
+    if (listName:String |-> jl(jvl), mj') := mj
+    [ print "Get element " i:Nat " in " listName:String " of " mj ]
+    .
 
 *** 
 endfm
@@ -86,6 +107,20 @@ eq j1 = ("str" |-> js("abc")) .
 eq j2 = ("list" |-> jl(jn(0) ; js("0")) ) .
 eq j3 = ("obj" |-> jo((j0, j1, j2)) ) .
 eq j4 =  ("bool" |-> jb(true)) .
-endfm
 
+endfm
+ 
+ eof
+red len(jn(0) ; js("0")) == 2 .
+red from (jn(0) ; js("0")) at 0 == jn(0) .
+red from (jn(0) ; js("0")) at 1 == js("0") .
+red from (jn(0) ; js("dummystr") ; js("0")) at 1 == js("dummystr") .
+
+red getElement(jl(js("person") ;
+                      js("man") ;
+                      js("woman") ;
+                      js("camera") ;
+                      js("TV") ),
+               2) == js("woman")
+  .
 eof
