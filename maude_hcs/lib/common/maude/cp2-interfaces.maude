@@ -198,10 +198,11 @@ mod MC-INTERFACE is
                            -> Content [ctor] .
   op mkRequestResponse : String -> Content [ctor] .
 
-vars j : Nat .
+vars j n k j1 n1 k1 n0 id ix l bpf nf : Nat .
+vars d1 : Rat .
 vars str hstr : String .
-vars ix : FindResult .
-vars byteseq hashtag image : ByteSeq .
+**** vars ix : FindResult .
+vars byteseq hashtag image efrag : ByteSeq .
 vars byteseql imagel : ByteSeqL .
 vars tag : Tag .
 vars mediaFile : MediaFile .
@@ -223,28 +224,11 @@ eq hashtag2text(hashtag)
 
 op mkHashTag : String Nat -> ByteSeq .
 eq mkHashTag(hstr,j) = hashTag(hstr) .
----   (if hstr == "wHashTag"
----    then wHashTag(j)
----    else bHashTag(j)
----    fi)
----.    
 
 op tag2hashtag : Tag -> ByteSeq .
 op tagstr2hashtag : String -> ByteSeq .
 ---eq tag2hashtag(makeTag(str)) = tagstr2hashtag(str) .
 eq tag2hashtag(makeTag(str)) = hashTag(str) .
----ceq tagstr2hashtag(str) = mkHashTag(hstr,j)
----if ix := find(str,"-",0)
----/\ hstr := (if ix :: Nat
----            then substr(str,0,ix)
----            else ""
----            fi)
----/\ j :=  (if ix :: Nat
----          then rat(substr(str,s ix, length(str) ),10 )
----          else 0
----          fi)           
----.
----eq tagstr2hashtag(str) = bHashTag(0) [owise] .
           
 op translateFetchQ : Content -> [Content] .
 eq translateFetchQ(fetchQ(hashtag)) 
@@ -279,18 +263,48 @@ eq translate2FetchR(ResponseMediaList(tag,mediaFileList))
     = fetchR(mediaFileL2bytesL(mediaFileList),
             tag2hashtag(tag) )
 .            
+
+**** Defining makeMediaFilename
+
+op iargs2str : Nat Nat Nat -> String .
+eq iargs2str(j,n,k) = "I-" + string(j,10) + "-"
+                    + string(n,10) + "-" + string(k,10) .
+**** efile args
+op efargs2str : Nat Nat Nat Nat -> String .
+eq efargs2str(j,n,j1,n1) =
+   "EF-" + string(j,10) + "-" + string(n,10) 
+         + "-" + string(j1,10) + "-" + string(n1,10) .
+ 
+**** frag args         
+op frargs2str : Nat Nat Nat  -> String .
+eq frargs2str(j,n,k) = "FR-" + string(j,10) + "-" 
+                    + string(n,10) + "-" + string(k,10) .
+         
+op im2str : ByteSeq -> String .
+eq im2str(image(j,n,k)) = "image:" + iargs2str(j,n,k) .
+
+ceq im2str(encode(image, efrag, bpf,nf,d1)) =
+  "eimage:" + iargs2str(j,n,k) 
+            + ":" + efargs2str(id,n1,j1,k1)
+            + ":" + frargs2str(n0,ix,l)
+if image(j,n,k)  := image
+/\ efrag(efile(id,n1,j1,k1),n0,ix,l) := efrag
+.
+
+eq makeMediaFilename(image) = im2str(image) .
+
+******** end defining makeMediaFilename
                       
 op image2mediafile : ByteSeq -> MediaFile .
 ceq image2mediafile(image) = 
-  --- Leave makeMediaFilename declared but undefined, so that filenames not
-  --- conflict: if we define makeMediaFilename to be based on e.g., an image
-  --- index, two MediaFiles may end up with the same name, which confuses the
-  --- Mastodon server.
    makeMediaFile(makeMediaFilename(image),
                  nbytes(image),
                    image)
    if j := imageId(image)
 .
+
+
+
 
 op translateTootQ : Content -> Content .
 eq translateTootQ(tootQ(hashtag,image))  =
