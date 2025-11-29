@@ -30,12 +30,12 @@
 
 set show advisories off .
 
-load markov-action-model.maude
-load cp2-interfaces
+sload markov-action-model.maude
+sload cp2-interfaces
 --- load dns-mamodel
-load ./_aux
-load ../../../deps/dns_formalization/Maude/common/actor.maude
-load ../../../deps/dns_formalization/Maude/common/apmaude.maude
+sload ./_aux
+sload ../../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
 
 
 ***(
@@ -59,19 +59,22 @@ mod USER-ACTION-ACTOR is
        **** ACTOR-MODEL SCHEDULER PARAMETERS
   inc TGEN-INTERFACE .
   inc CP2_SORTS .
+  inc MAP{String,Float} .
+  inc MAP{String,Nat} .
 
 
 vars umAddr aAddr addr : Address .
 vars mm : Map{String,Map{String,Float}} .
 vars ma : MAModel .
-vars init str  sid sid1 : String .
+vars msum wmap : Map{String,Float} .
+vars init str  sid sid1 default : String .
 vars acts ract : Map{String,JV} .
-vars maxSteps j j1 j2 n : Nat .
+vars maxSteps j j0 j1 j2 n : Nat .
 vars attrs attrs0 attrs1 attrs2 : AttributeSet .
 vars msgs : Config .
 vars msg msg0 : Msg .
 vars dmsg : ScheduleMsg .
-vars T sleepT noiseD : Float .
+vars T sleepT noiseD fl fl0 wsum wt : Float .
 vars ac : Content . --- action content
 vars b : Bool .
 
@@ -88,6 +91,11 @@ op nsteps:_ : Nat -> Attribute [ctor] . --- remaining
 op actAddress:_ : Address -> Attribute [ctor] .
 op w4:_ : Config -> Attribute [ctor] .
 
+**** op mSum:_ : Map{String,Float} -> Attribute [ctor] .
+op default:_ : String -> Attribute [ctor] . --- probably the start state
+
+op mSum:_ : Map{String,Float} -> Attribute [ctor] .
+
 op getMarkovA : AttributeSet ->  
                 Map{String,Map{String,Float}} .
 eq getMarkovA((attrs, markov: mm)) = mm .
@@ -98,19 +106,43 @@ eq getActionsA((attrs, actions: acts)) = acts .
 op getW4A : AttributeSet -> Config .
 eq getW4A((attrs,w4: msgs)) = msgs .
 
+op getMSum : AttributeSet -> Map{String,Float}  .
+eq getMSum((attrs, mSum: msum)) = msum .
 
+op getDefault : AttributeSet -> String  .
+eq getDefault((attrs, default: str)) = str .
+
+**** state -> the sum of weights of choices from state
+op markov2msum : Map{String,Map{String,Float}} -> 
+                   Map{String,Float} .
+op markov2msumX : Map{String,Map{String,Float}}  
+                  Map{String,Float}  -> Map{String,Float} .
+
+eq markov2msum(mm) = markov2msumX(mm,empty) .
+
+eq markov2msumX(empty,msum)  = msum .
+eq markov2msumX(((str |-> wmap), mm), msum)  = 
+    markov2msumX(mm, (msum, (str |-> mapSum(wmap,0.0) )))  .
+
+ op mapSum : Map{String,Float} Float -> Float .
+ eq mapSum(empty,fl) = fl .
+ eq mapSum(((str |-> fl0), wmap),fl) = mapSum(wmap,fl + fl0)  .
+ 
 
 op mkUMactor : Address MAModel Address -> Actor .
 ceq mkUMactor (umAddr,ma,aAddr) =
   < umAddr : UM | markov: mm, 
+                  mSum: msum,
                   actions: acts,
                   curState: init, 
+                  default: init,
                   actAddress: aAddr,
                   nsteps: maxSteps ,
                   w4: (to umAddr from umAddr :
                         actionQ(empty)) >
                   
-if mm := getMarkov(ma)     
+if mm := getMarkov(ma)    
+/\ msum := markov2msum(mm) 
 /\ acts := getActions(ma)             
 /\ init := getStart(ma)
 /\ maxSteps := getMaxSteps(ma)
@@ -121,8 +153,9 @@ rl [rcvStatusEnd] :
 < umAddr : UM | attrs, nsteps: 0 >
 =>
 < umAddr : UM | attrs, nsteps: 0 >
-[ print "(" T ") User Model receiving action " str " but reached end step." ]
+[ print "(" T ") User Model receiving action " str " with nsteps 0."]
 .
+
 
 crl [umRcvStatusNext] :
 rCtr(j)
@@ -136,7 +169,7 @@ if {attrs1, msgs, j1} :=
     umRcvStatus((attrs, nsteps: s n),
                  (to umAddr from addr : actionR(str)),
                  j)
-[ print "(" T ") User Model " umAddr " receiving next action " str ]
+[ print "(" T ") User Model " umAddr " receiving action status " str]
 .
 
 op umRcvStatus : AttributeSet Msg Nat -> AttributeSetMsgsNat .
@@ -147,11 +180,10 @@ ceq umRcvStatus(attrs, msg0, j) =
   if (to umAddr from addr : actionR(str)) := msg0 
   /\ attrs1, w4: (to addr from umAddr : ac),
             curState: sid, nsteps: (s n)  := attrs 
-  /\ attrs0, markov: mm, actions: acts, actAddress: aAddr
-          := attrs        
-  /\ sid1 := chooseState(mm,sid,j) 
-  *** inc j
-  /\ {ract,j1} := realizeParams(acts[sid],s j) 
+  /\ attrs0, markov: mm, mSum: msum,  default: default,
+             actions: acts, actAddress: aAddr := attrs        
+  /\ (sid1 |-> j0) := chooseNextState(mm[sid],msum[sid],j,default) 
+  /\ {ract,j1} := realizeParams(acts[sid],j0) 
   /\ b := isWaitType(ract)
   /\ msg := 
       (if b
@@ -164,7 +196,67 @@ ceq umRcvStatus(attrs, msg0, j) =
               then [sleepT, msg, 0] 
               else [noiseD, msg, 0] fi)
   /\ attrs2 := attrs1, w4: msg, curState: sid1, nsteps:  n
-  ---[print "(.): umRcvStatus User Model process action " str "  from " addr  " to  " umAddr ", returning msg " msg]    
+
   .                       
 
+op chooseNextState : Map{String,Float} Float Nat String
+                -> Map{String,Nat} .
+eq chooseNextState(((str |-> wt), wmap), wsum,j,default)
+   = (if wmap == empty
+     then (str |-> j)
+     else (if genRandomX(j,0.0, wsum) < wt
+           then (str |-> j)
+           else chooseNextState(wmap, (wsum + (- wt)),s j,default)
+           fi)
+    fi) .
+eq chooseNextState( wmap, wsum,j,default) 
+           = (default |-> j) [owise] .
+
+
 endm  
+
+sload ../../raceboat/mas-mamodel
+sload ../../dns/maude/probabilistic/dns-mamodel.maude
+
+mod UM-UNIT-TEST is
+  inc USER-ACTION-ACTOR .
+  inc DNS-MAMODEL . ---- dns-ma
+  inc MAS-MAMODEL . ---- mas-ma
+  
+ops umdA ummA dnsA masA : -> Address .
+
+ops umActD umActD0 umActM umActM0 : -> Actor .
+
+eq umActD = mkUMactor (umdA,dns-ma,dnsA) .
+
+eq umActM = mkUMactor (ummA,mas-ma,masA) .
+
+ops umActDa  umActMa : -> Actor .
+
+**** rew umActD rCtr(0) {1.0, (to umdA from umdA : actionR("ok"))}.
+eq umActDa =
+**** rCtr(1)
+< umdA : UM | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ( "batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(("num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js("uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo(("start" |-> jb(true), "type" |-> js( "resolve_a"))), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait"))), "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf( 2.0))), "type" |-> js("wait")))), curState: "wait_single", nsteps: 99, actAddress: dnsA, w4: (to dnsA from umdA : actionQ(("start" |-> jb(true), "type" |-> js( "resolve_a")))), default: "single", mSum: ("batch" |-> 1.0, "single" |-> 1.0, "wait_batch" |-> 1.0, "wait_single" |-> 1.0) > 
+.
+
+**** [5.4881350230425597e-6, to dnsA from umdA : actionQ(("start" |-> jb(true), "type" |-> js("resolve_a"))), 0]
+
+****rew umActM rCtr(0) {1.0, (to ummA from ummA : actionR("ok"))} .
+eq umActMa =
+**** rCtr(1)
+< ummA : UM | markov: ("download" |-> "wait_download" |-> 1.0, "media" |-> "wait_media" |-> 1.0, "wait_download" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1), "wait_media" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1)), actions: ("download" |-> jo("type" |-> js("download")), "media" |-> jo(("start" |-> jb(true), "type" |-> js("media"))), "wait_download" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait"))), "wait_media" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js( "gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait")))), curState: "wait_media", nsteps: 99, actAddress: masA, w4: (to masA from ummA : actionQ(("start" |-> jb(true), "type" |-> js("media")))), default: "media", mSum: ("download" |-> 1.0, "media" |-> 1.0, "wait_download" |-> 1.0, "wait_media" |-> 1.0) > 
+.
+
+**** [5.4881350230425597e-6, to masA from ummA : actionQ(("start" |-> jb(true), "type" |-> js("media"))), 0]
+
+
+endm  
+
+eof
+
+rew umActD rCtr(0) {1.0, (to umdA from umdA : actionR("ok")) } .
+rew umActDa rCtr(1) {2.0, (to umdA from dnsA : actionR("ok"))} .
+
+rew umActM rCtr(0) {1.0, (to ummA from ummA : actionR("ok"))} .
+rew umActMa rCtr(1) {2.0, (to ummA from masA : actionR("ok"))} .
+
