@@ -73,7 +73,7 @@ vars d1 : Rat .
 *** vars tot oh fragMx accum : Nat .
 vars bytes bytes0 : ByteSeq .
 vars file efrag efile image key ef ef0 : ByteSeq .
-vars efl efl1 efl0 : ByteSeqL .
+vars efl efl1 efl0 bsl : ByteSeqL .
 
 sorts ByteSeq ByteSeqL .
 subsorts ByteSeq < Content .
@@ -84,6 +84,18 @@ op _::_ : ByteSeqL ByteSeqL -> ByteSeqL [ctor assoc id: nilBS] .
 
 op noBytes : -> ByteSeq [ctor] .
 op nilBytes : -> ByteSeq [ctor] .
+
+
+op lenBSL : ByteSeqL -> Nat .
+op lenBSLX : ByteSeqL Nat -> Nat .
+eq lenBSL(bsl) = lenBSLX(bsl,0) .
+eq lenBSLX(nilBS,n) = n .
+eq lenBSLX(bytes :: bsl,n) = lenBSLX(bsl,s n) .
+
+
+op getNthBS : ByteSeqL Nat -> ByteSeq .
+eq getNthBS(bytes :: bsl, 0) = bytes .
+eq getNthBS(bytes :: bsl, s n) = getNthBS(bsl, n) .
 
 ------- generating distinct benign and weird hash tags
 ---op wHashTag : Nat -> ByteSeq [ctor] .
@@ -290,6 +302,11 @@ eq imageId(bytes)  = 0 [owise] .
 endfm
 
 eof
+
+red lenBSL (key(0,2) :: key(1,2) :: key (2,2)) .
+red getNthBS (key(0,2) :: key(1,2) :: key (2,2), 0) .
+red getNthBS (key(0,2) :: key(1,2) :: key (2,2), 2) .
+red getNthBS (key(0,2) :: key(1,2) :: key (2,2), 5) .
 
 red getSize(file(100)) == 100 .
 red getSize(ccFile(10, 40, "TEST_STRING")) == 19 .
