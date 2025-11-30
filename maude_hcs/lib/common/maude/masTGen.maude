@@ -1,0 +1,298 @@
+
+sload markov-action-model.maude
+sload cp2-interfaces 
+**** sload mc-interface-fixes
+sload ../../raceboat/cm-aux.maude
+
+
+
+
+---- {attrs,conf} defined in lib/.../common/_aux.maude
+mod MAS-TGEN is
+  inc MARKOV-ACTION-MODEL .
+  inc CP2-COMMON .   --- for rCtr actor
+****  inc MC-INTERFACE-FIXES  . 
+  inc MC-INTERFACE  .
+  inc TGEN-INTERFACE .
+  inc SAMPLER-X .  
+  inc CONTENT-MANAGER .  --- ma2HashstrMap ma2HashstrLen need to move
+  
+vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+vars msg msg0 : Msg .
+vars msgs msgs0 config config0 : Config .
+vars j j1 i k k1 l l1 n n0 n1 : Nat .
+vars mtgAddr umAddr mcAddr : Address .
+vars T : Float .
+vars mcResponse : Content .
+vars image image0 ht bytes : ByteSeq .
+vars imagel imagel0 bytesl : ByteSeqL .
+vars str : String .
+vars ract : Map{String,JV} .
+vars tag : Tag .
+vars mediaFileList : MediaFileList .
+vars natstr : Map{Nat,String} .
+vars mamodel : MAModel .
+
+***** belongs in byteseq
+op getNthBS : ByteSeqL Nat -> ByteSeq .
+eq getNthBS(bytes :: bytesl,0) = bytes .
+eq getNthBS(bytes :: bytesl, s n) 
+      =  getNthBS(bytesl, n) .
+eq getNthBS(bytesl,n) = noBytes [owise] .
+
+op MASTgen : -> ActorType . 
+
+
+
+op numBHashTags:_ : Nat -> Attribute [ctor] .
+op hashtagMap:_ : Map{Nat,String} -> Attribute [ctor] .
+op imageL:_ : ByteSeqL -> Attribute [ctor] .
+op numImages:_  : Nat -> Attribute [ctor] .
+op mcAddress:_ : Address -> Attribute [ctor] .
+op w4c:_ : Config -> Attribute [ctor] .
+op replyTo:_ : Config  -> Attribute [ctor] .
+
+
+---                  mc     
+op mkMasTGenAttrs : Address ByteSeqL MAModel -> AttributeSet .
+eq mkMasTGenAttrs(mcAddr,imagel,mamodel) =
+     numBHashTags: ma2HashstrLen(mamodel),
+     hashtagMap: ma2HashstrMap(mamodel),
+     imageL: imagel,
+     numImages: lenBSL(imagel),
+     mcAddress: mcAddr,
+     w4c: null,
+     replyTo: null
+.
+
+
+
+---                 This   MastodonC images  MAModel
+op mkMasTGenActor : Address Address ByteSeqL  MAModel -> Actor .
+eq mkMasTGenActor(mtgAddr, mcAddr, imagel, mamodel) =
+< mtgAddr : MASTgen | mkMasTGenAttrs(mcAddr, imagel, mamodel) > .
+
+------------ Client rules --------------------------
+
+---- MasTGen treats Post mc response as action complete
+---- Get reqR eaten
+crl [mtgen-rcv-mc-response] :
+{T,(to mtgAddr from mcAddr :  mcResponse )}
+< mtgAddr : MASTgen | attrs, mcAddress: mcAddr >
+=>
+< mtgAddr : MASTgen | attrs1, mcAddress: mcAddr >
+delayMsgs(msgs,null)
+if {attrs1,msgs} := mtgenRcvMCResponse(attrs,
+               (to mtgAddr from mcAddr :  mcResponse ))  
+[print "(" T ") MasTGen mtgAddr got Mastodon client response " mcResponse ", sends " msgs]
+.
+
+---- remove matching req from w4c if any
+---- send status to replyTo umAddr and clear replyTo if pending
+---- If there is not a matching w4c, just drop.
+op mtgenRcvMCResponse : AttributeSet  Msg -> AttributeSetMsgs . 
+----- generic response w4 fetch or no w4
+----- any response with no w4                   
+eq mtgenRcvMCResponse(attrs, msg) = {attrs,null} [owise] .
+
+---- waiting for tootQ/Post ack
+ceq mtgenRcvMCResponse(attrs,
+        (to mtgAddr from mcAddr : mkRequestResponse(str) ))
+  = {attrs1,msg}
+if attrs0, (w4c: (to mcAddr from mtgAddr : tootQ(ht,image))),
+          (replyTo: (to mtgAddr from umAddr : c1:Content))
+   := attrs
+/\ attrs1 := attrs0, (w4c: null), (replyTo: null)
+/\ msg := (to umAddr from mtgAddr : actionR("ok"))
+.
+
+---- waiting for fetch/get results
+ceq mtgenRcvMCResponse(attrs,
+                  (to mtgAddr from mcAddr : 
+                       ResponseMediaList(tag,mediaFileList) ))
+  = {attrs1,msg}
+if attrs0, (w4c: (to mcAddr from mtgAddr : fetchQ(ht))),
+          (replyTo: (to mtgAddr from umAddr : c1:Content))
+   := attrs
+/\ attrs1 := attrs0, (w4c: null), (replyTo: null)
+/\ msg := (to umAddr from mtgAddr : actionR("ok"))
+.
+
+
+--- action requests  Action < Content
+
+crl [mtgen-rcv-action] :
+rCtr(j)
+{T,(to mtgAddr from umAddr :  actionQ(ract) )}
+< mtgAddr : MASTgen | attrs >
+=>
+rCtr(s s j)
+< mtgAddr : MASTgen | attrs1 >
+delayMsgs(msgs,null)
+if {attrs1,msgs} :=
+  mtgenRcvActionQ(attrs,getType(ract),j,
+             (to mtgAddr from umAddr : actionQ(ract) ))   
+ [print "(" T ") MasTGen mtgAddr got action request " ract ", sending " msgs]
+   .
+
+op mtgenRcvActionQ : AttributeSet String Nat Msg 
+                    -> AttributeSetMsgs . 
+
+ceq mtgenRcvActionQ(attrs,str,j,msg) = {attrs,msgs}
+if (to mtgAddr from umAddr : actionQ(ract)) := msg
+/\ msgs := (to umAddr from mtgAddr : actionR("notRecognized"))
+ [owise] .
+**** Do we need to check replyTo null to reply failure?
+
+ceq mtgenRcvActionQ(attrs,"download",j,
+              (to mtgAddr from umAddr : actionQ(ract)))
+     = {attrs2,msg}
+if attrs0, (w4c: null), (replyTo: null) := attrs
+/\ attrs1, mcAddress: mcAddr, 
+           (numBHashTags: l), hashtagMap: natstr
+            := attrs
+/\ k := rat(floor(genRandomX(j,0.0, float(l))))
+/\ ht := hashTag(natstr[k])
+/\ msg0 := (to mcAddr from mtgAddr : fetchQ(ht) )
+/\ msg := (to mcAddr from mtgAddr : 
+                translateFetchQ(fetchQ(ht))) 
+/\ attrs2 := attrs0, (w4c: msg0), 
+         replyTo: (to mtgAddr from umAddr : actionQ(ract))
+.
+
+
+ceq mtgenRcvActionQ(attrs,"media",j,
+             (to mtgAddr from umAddr : actionQ(ract)) )
+     = {attrs2,msg}
+if attrs0, (w4c: null), (replyTo: null) := attrs
+/\ attrs1, mcAddress: mcAddr, 
+           (numBHashTags: l), hashtagMap: natstr,
+           imageL: imagel, numImages: l1           
+            := attrs
+/\ k := rat(floor(genRandomX(j,0., float(l))))
+/\ ht := hashTag(natstr[k])
+/\ k1 := rat(floor(genRandomX(s j,0., float(l1))))
+/\ image := getNthBS(imagel,k1)
+/\ msg0 := (to mcAddr from mtgAddr : tootQ(ht,image))
+/\ msg := (to mcAddr from mtgAddr : 
+                 translateTootQ(tootQ(ht,image)) )
+/\ attrs2 := attrs0, w4c: msg0, 
+           replyTo: (to mtgAddr from umAddr : actionQ(ract))
+.
+
+
+endm  
+
+mod MAS-TGEN-TEST is
+  inc MAS-TGEN . 
+
+ops mtgA mcA  umA : -> Address .
+op MTG : -> Actor .
+eq MTG = mkMasTGenActor(mtgA, mcA, IM0 :: IM1, mas-ma) .
+
+
+eq encOH(fsize:Nat,ksize:Nat)  = 
+    (if ksize:Nat < fsize:Nat 
+     then 0 
+     else ksize:Nat + (- fsize:Nat) fi) .
+     
+ops IM0 IM1 IM2 IM3 : -> ByteSeq .
+eq IM0 = image(1,500,50)  .
+eq IM1 = image(2,250,50)  .
+eq IM0 = image(3,1500,50)  .
+eq IM0 = image(0,100,50)  .
+
+
+
+ops MF0 MF1 : -> MediaFile .
+eq MF0 = image2mediafile(IM0) .
+eq MF1 = image2mediafile(IM1) .
+
+ops MTGm MTGd   : -> Actor .
+
+ops  Mmedia Mdown  MfetchR MrequestR  : -> ActiveMsg .
+   
+
+---- crl [mtgen-rcv-action] :
+eq Mmedia =
+  {0.2,(to mtgA from umA : 
+           actionQ(("type" |->  js("media")) ) )} .
+ 
+---- rew rCtr(0) MTG Mmedia .
+eq MTGm = 
+**** rCtr(2)
+< mtgA : MASTgen | numBHashTags: 5, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA, w4c: (to mcA from mtgA : tootQ( hashTag("meow"), image(2, 250, 50))), replyTo: (to mtgA from umA : actionQ("type" |-> js("media"))), imageL: (image(1, 500, 50) :: image(2, 250, 50)), numImages: 2 > 
+.
+
+****[0.0, to mcA from mtgA : PostStatus("hashtag is #meow", makeMediaFile("image:I-2-250-50", 250, image(2, 250, 50))), 0]
+ 
+eq Mdown = 
+  {0.2,(to mtgA from umA : 
+         actionQ(("type" |->  js("download")) ) )} .
+
+---- rew rCtr(0) MTG Mdown . #
+eq MTGd = 
+**** rCtr(2)
+< mtgA : MASTgen | numBHashTags: 5, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA, w4c: (to mcA from mtgA : fetchQ( hashTag("dog"))), replyTo: (to mtgA from umA : actionQ("type" |-> js("download"))), imageL: (image(1, 500, 50) :: image(2, 250, 50)), numImages: 2 > 
+.
+
+**** [0.0, to mcA from mtgA : GetMediaHashtag(makeTag("dog")), 0]
+
+
+---- rew rCtr(2) MTGm Mdown .
+**** [0.0, to umA from mtgA : actionR("notRecognized"), 0]
+---- rew rCtr(2) MTGd Mmedia .
+**** [0.0, to umA from mtgA : actionR("notRecognized"), 0]
+
+eq MfetchR =
+   {2.1, (to mtgA from mcA : 
+      ResponseMediaList(makeTag("meow"),
+                       emptyMediaFileList)  )} .
+
+op MrequestR : -> ActiveMsg .
+eq MrequestR = 
+{2.0,(to mtgA from mcA : mkRequestResponse("ACCEPT") )} .
+
+**** {2.0,(to cmcA from mcA :  tootR("ok") )} .
+**** {2.0,(to cmcA from mcA : fetchR(nilBS,wHT0) )} .
+
+
+---- rew rCtr(2) MTGd MfetchR .   
+***(
+rCtr(2)
+< mtgA : MASTgen | numBHashTags: 5, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA, w4c: null, replyTo: null, imageL: ( image(1, 500, 50) :: image(2, 250, 50)), numImages: 2 > 
+[0.0, to umA from mtgA : actionR("ok"), 0]
+    )
+---- rew rCtr(2) MTGd MrequestR .
+***(
+rCtr(2)
+< mtgA : MASTgen | numBHashTags: 5, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA, w4c: (to mcA from mtgA : fetchQ( hashTag("dog"))), replyTo: (to mtgA from umA : actionQ("type" |-> js("download"))), imageL: (image(1, 500, 50) :: image(2, 250, 50)), numImages: 2 >
+    )
+---- rew rCtr(2) MTGm MrequestR .  
+***(
+ rCtr(2)
+< mtgA : MASTgen | numBHashTags: 5, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA, w4c: null, replyTo: null, imageL: ( image(1, 500, 50) :: image(2, 250, 50)), numImages: 2 > 
+[0.0, to umA from mtgA : actionR("ok"), 0]
+    )
+---- rew rCtr(2) MTG MrequestR .
+***(
+ rCtr(2)
+< mtgA : MASTgen | numBHashTags: 5, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA, w4c: null, replyTo: null, imageL: ( image(1, 500, 50) :: image(2, 250, 50)), numImages: 2 >
+    )
+---- rew rCtr(2) MTGm MfetchR .
+***(
+ rCtr(2)
+< mtgA : MASTgen | numBHashTags: 5, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA, w4c: (to mcA from mtgA : tootQ( hashTag("meow"), image(2, 250, 50))), replyTo: (to mtgA from umA : actionQ("type" |-> js("media"))), imageL: (image(1, 500, 50) :: image(2, 250, 50)), numImages: 2 >
+    )
+
+
+
+endm  
+eof
+
+
+
+--------------------------------------------------
+set print attribute on .
+red MTG .
+
