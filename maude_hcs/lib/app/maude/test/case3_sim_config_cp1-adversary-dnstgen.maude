@@ -32,20 +32,23 @@ set clear rules off .
 set print attribute off .
 set show advisories off .
 
-load ../../../dns/maude/probabilistic/iodine_dns
-load ../../../common/maude/user-action-actor.maude
-load ../../../dns/maude/probabilistic/dnsTgen-actor.maude
-load ../../../common/maude/router
-load ../../../common/maude/adversary-observer
-load ../../../app/maude/probabilistic
+sload ../../../mastodon/maude/probabilistic/mastodon
+sload ../../../dns/maude/probabilistic/iodine_dns
+sload ../../../common/maude/user-action-actor.maude
+sload ../../../dns/maude/probabilistic/dnsTgen-actor.maude
+sload ../../../common/maude/router
+sload ../../../common/maude/adversary-observer
+sload ../../../app/maude/probabilistic
 
 mod HCS_TEST is
   inc DNS .
   inc USER-ACTION-ACTOR .
   inc DNS-TGEN .
   inc DNS-MAMODEL .
+  inc MASTODON .
   inc IODINE_DNS . --- + TEST-HELPERS .
   inc CP2_APP .
+  inc ROUTER .
   inc ADVERSARY-OBSERVER .
 
 
@@ -59,8 +62,6 @@ mod HCS_TEST is
        ('www2 . 'internet . 'com . root) )
  .
 
-inc ROUTER .
-
 eq monitorQueryLog? = true .
 
 eq fileSize = 10000 .
@@ -73,10 +74,17 @@ eq maxPacketSize = 1097 .
 eq pacingTimeoutDelay = 0.01 .
 eq pacingTimeoutDelayMax = 1.0 .
 eq ackTimeoutDelay = 1.0 .
+eq maxMinimiseCount = 0 .
+eq pingInterval = 1.0 .
+eq initialPingDelay = 0.001 .
+eq receiveToPingDelay = 0.001 .
 
 --- Actor addresses
-ops Alice Bob bobapp application-client application-server dnsperf internet-dns local-dns mAddr monAddr public-dns root-dns tld-dns : -> Address .
+--- Top-level apps aliceapp and bobapp talk to each other and are connected to Iodine Alice and Bob, and alice/bobMasClient.
+--- Iodine Tx and Rx apps iodineAlice and iodineBob are connected to iodine-client and iodine-server.
+ops aliceapp bobapp iodineAlice iodineBob iodine-client iodine-server dnsperf internet-dns local-dns mAddr monAddr public-dns root-dns tld-dns : -> Address .
 ops clientContentMgr serverContentMgr clientDestini serverDestini clientUserModel serverUserModel : -> Address .
+ops aliceMasClient bobMasClient mastodonServer : -> Address .
 
 ***!!!
 op router : -> Address .
@@ -146,7 +154,7 @@ eq zoneCom =
   < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
   < 'ns . 'internet . 'com . root, a, 3600.0, internet-dns >
   < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
-  < 'ns . 'pwnd . 'com . root, a, 3600.0, application-server >
+  < 'ns . 'pwnd . 'com . root, a, 3600.0, iodine-server >
   < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
   < 'ns . 'corporate . 'com . root, a, 3600.0, local-dns > .
 
@@ -154,7 +162,7 @@ op zonePwndCom : -> List{Record} .
 eq zonePwndCom =
   < 'pwnd . 'com . root, soa, 3600.0, soaData(3600.0) >
   < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
-  < 'ns . 'pwnd . 'com . root, a, 3600.0, application-server >
+  < 'ns . 'pwnd . 'com . root, a, 3600.0, iodine-server >
   < 'tmp0 . 'pwnd . 'com . root, a, 0.0, 2 . 0 . 1 . 2 >
   < wildcard . 'pwnd . 'com . root, a, 0.0, 2 . 1 . 1 . 2 > .
 
@@ -168,7 +176,7 @@ eq resolverCache =
   cacheEntry(< 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >, 1)
   cacheEntry(< 'ns . 'internet . 'com . root, a, 3600.0, internet-dns >, 1)
   cacheEntry(< 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >, 1)
-  cacheEntry(< 'ns . 'pwnd . 'com . root, a, 3600.0, application-server >, 1)
+  cacheEntry(< 'ns . 'pwnd . 'com . root, a, 3600.0, iodine-server >, 1)
   cacheEntry(< 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >, 1)
   cacheEntry(< 'ns . 'corporate . 'com . root, a, 3600.0, local-dns >, 1) .
 
@@ -226,21 +234,43 @@ eq initState (umADDR,dnsTADDR,dnsMA) =
     forwardonly: X(public-dns),
     queriesFwd: nilTAQL >
   --- tunnels
-  makeWClient(application-client, local-dns, 'pwnd . 'com . root, a, 0.0)
-  makeWNameServer(application-server, 0.0, (zonePwndCom))
+  ----- Iodine
+  makeWClient(iodine-client, local-dns, 'pwnd . 'com . root, a, 0.0)
+  makeWNameServer(iodine-server, 0.0, (zonePwndCom))
+  ----- Mastodon
+  makeMastodonClient(aliceMasClient,
+                     mastodonServer,
+                     clientContentMgr)
+  makeMastodonClient(bobMasClient,
+                     mastodonServer,
+                     serverContentMgr)
+  makeMastodonServer(mastodonServer)
+  makeRbClient(clientUserModel, clientContentMgr, clientDestini, aliceMasClient)
+  makeRbServer(serverUserModel, serverContentMgr, serverDestini, bobMasClient, bobapp)
   --- applications
-  < Alice : SendApp |
-    fileDestAddr: Bob,
-    toAddr: (application-client),
-    queuePopulated: false,
-    queue: (mtpl),
-    numAdmittedPkts: 1,
-    iodineReady: true,
-    sent: mtpl > 
-  < Bob : RcvApp |
-    rcvd: mtpl,
-    fileDestAddr: bobapp >
-  makeRxApp(bobapp, Bob, serverUserModel, serverContentMgr)
+  ----- Top level apps
+  makeTxApp(aliceapp, bobapp, iodineAlice, clientUserModel, clientContentMgr, file(0, 400))
+  makeRxApp(bobapp, iodineBob, serverUserModel, serverContentMgr)
+  ----- Iodine apps
+  < iodineAlice : SendApp |
+      fileDestAddr: iodineBob,
+      toAddr: (iodine-client),
+      queuePopulated: false,
+      queue: (mtpl),
+      numAdmittedPkts: 1,
+      iodineReady: true,
+      sent: mtpl,
+      rcvd: mtpl > 
+  < iodineBob : RcvApp |
+      rcvd: mtpl,
+      fileDestAddr: bobapp,
+      fileSrcAddr: iodineAlice,
+      toAddr: iodine-server,
+      queuePopulated: true,
+      queue: (mtpl),
+      numAdmittedPkts: 1,
+      iodineReady: true,
+      sent: mtpl >
   --- WMonitor
   < monAddr : WMonitor |
     querySent: nilQueryTimestamp,
@@ -256,7 +286,9 @@ eq initState (umADDR,dnsTADDR,dnsMA) =
   mkDnsTgenA(dnsTADDR,local-dns,dnameDb, 5.0, 2)
   [0.0, (to umADDR from umADDR : actionR("")), 0]
   --- App start messages
-  [1.0, (to Alice : start), 0] 
+---  [1.0, (to iodineAlice : start), 0] 
+  [1.5, (to aliceapp : start), 0]
+  [10., (to bobapp : start), 0]
   .
 
  --- Link Characteristic definitions
@@ -309,13 +341,13 @@ eq LinkType-3 =
   .
 
 eq LinkData =
-  aaa(local-dns,application-client,LinkType-0)
+  aaa(local-dns,iodine-client,LinkType-0)
 	aaa(local-dns,dnsTAddr,LinkType-0)
   ****!!!  
   aaa(public-dns,local-dns,LinkType-1)
   aaa(X(public-dns),local-dns,LinkType-0) --- to router
   aaa(local-dns,X(public-dns),LinkType-0) --- from router
-  aaa(public-dns,application-server,LinkType-1)
+  aaa(public-dns,iodine-server,LinkType-1)
   aaa(public-dns,root-dns,LinkType-2)
   aaa(public-dns,tld-dns,LinkType-2)
   aaa(public-dns,internet-dns,LinkType-3)
@@ -327,6 +359,7 @@ eq LinkData =
 eq defaultDelay = 0.0015 .
 
 op initConfig : -> Config .
+eq limit = 200.0 .
 eq initConfig = run({0.0 | nil} initState (umDAddr,dnsTAddr, dns-ma),limit) .
 
 endm
