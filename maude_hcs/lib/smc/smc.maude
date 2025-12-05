@@ -58,7 +58,8 @@ mod SMC is
 
   var LF LF1 : List{Float} .
 
-  var bytes : ByteSeq .
+  vars bytes bytes' : ByteSeq .
+  vars KEY HASH HASHTAG : ByteSeq .
 
   op getMonitor : Config -> Actor .
   eq getMonitor (C < ADDR : WMonitor | attrs >) = < ADDR : WMonitor | attrs > .
@@ -75,8 +76,30 @@ mod SMC is
   op getLastPktRcvdTime : Actor -> Float .
   eq getLastPktRcvdTime (< ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL'), attrs >) = T .
 
+  op getLatencyCP1 : Actor -> Float .
+  eq getLatencyCP1 (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = T' - T .
+
+  op isCCFile : ByteSeq -> Bool .
+  eq isCCFile(ccFile(KEY, HASH, HASHTAG)) = true .
+  eq isCCFile(bytes) = false [owise] .
+
+  op isGoodAckFile : ByteSeq -> Bool .
+  eq isGoodAckFile(ackFile("OK", HASHTAG)) = true .
+  eq isGoodAckFile(bytes) = false [owise] .
+
+  op exfilStartTime : PacketTimestampList -> Float .
+  eq exfilStartTime (nilPacketTimestamp) = 0.0 .
+  eq exfilStartTime (packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL) = if isCCFile(bytes) then T else exfilStartTime(PTL) fi .
+
+  op exfilEndTime : PacketTimestampList -> Float .
+  eq exfilEndTime (nilPacketTimestamp) = 0.0 .
+  eq exfilEndTime (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T)) = if isGoodAckFile(bytes) then T else exfilEndTime(PTL) fi .
+
+  op getLatencyCP2 : Actor -> Float .
+  eq getLatencyCP2 (< ADDR : WMonitor | pktSent: PTL, pktRcvd: PTL', attrs >) = exfilEndTime(PTL') - exfilStartTime(PTL) .
+
   op getLatency : Actor -> Float .
-  eq getLatency (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = T' - T .
+  eq getLatency (A:Actor) = getLatencyCP2 (A) .
 
   op getGoodput : Actor -> Float .
   eq getGoodput (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = float(8 * fileSize) / (T' - T) .
@@ -339,7 +362,7 @@ mod SMC is
   op nthQueryTimePreNAT : TimeMsgList Nat -> Float .
   eq nthQueryTimePreNAT (TML, 0) = 0.0 .
   eq nthQueryTimePreNAT (tm(T, M) ; TML, 1) = if AliceQuery(getQuery(M)) then T else nthQueryTimePreNAT (TML, 1) fi .
-  ceq nthQueryTimePreNAT (tm(T, M) ; TML, s N) = if AliceQuery(getQuery(M)) then nthQueryTimePreNAT(TML, N) else nthQueryTimePreNAT(TML, s N) fi if N > 0.
+  ceq nthQueryTimePreNAT (tm(T, M) ; TML, s N) = if AliceQuery(getQuery(M)) then nthQueryTimePreNAT(TML, N) else nthQueryTimePreNAT(TML, s N) fi if N > 0 .
   eq nthQueryTimePreNAT (nilTML, N) = 0.0 .
 
   --- C.1 Pre-NAT earliest time cumulative number of queries > N

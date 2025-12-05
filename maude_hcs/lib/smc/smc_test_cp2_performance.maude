@@ -1,0 +1,1817 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+--- This maude file has been created automatically from the Python representation ---
+sload ../mastodon/maude/probabilistic/mastodon
+sload ../dns/maude/probabilistic/iodine_dns
+sload ../common/maude/user-action-actor.maude
+sload ../dns/maude/probabilistic/dnsTgen-actor.maude
+sload ../common/maude/masTGen.maude
+sload ../common/maude/router
+sload ../common/maude/adversary-observer
+sload ../app/maude/probabilistic
+sload ../../deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
+
+mod HCS_TEST is
+  inc DNS .
+  inc USER-ACTION-ACTOR .
+  inc DNS-TGEN .
+  inc DNS-MAMODEL .
+  inc MASTODON .
+  inc MAS-TGEN .
+  inc IODINE_DNS . --- + TEST-HELPERS .
+  inc CP2_APP .
+  inc ROUTER .
+  inc ADVERSARY-OBSERVER .
+
+  ops aliceapp bobapp iodineAlice iodineBob iodine-client iodine-server dnsperf internet-dns local-dns mAddr monAddr public-dns root-dns tld-dns : -> Address .
+  ops clientContentMgr serverContentMgr clientDestini serverDestini clientUserModel serverUserModel : -> Address .
+  ops aliceMasClient bobMasClient mastodonServer : -> Address .
+  ops umDAddr dnsTAddr  : -> Address .
+  ops mtgA mcA  umA : -> Address .
+
+  op router : -> Address .
+  op adversary : -> Address .
+
+  var attrs : AttributeSet .
+
+  op myIC : -> Config .
+  eq myIC =
+< aliceapp : TxApp | queue: nilBS, destAddr: bobapp, iodineAddr: iodineAlice,
+    rbUserModelAddr: clientUserModel, rbContentMgrAddr: clientContentMgr,
+    contractCount: 1, currentCcFile: nilBytes > 
+< bobapp : RxApp | rcvd: emptyFileList, iodineAddr: iodineBob, rbUserModelAddr:
+    serverUserModel, rbContentMgrAddr: serverContentMgr, currentKey: key(0, 4),
+    currentHash: hash(file(0, 400), 4) > 
+< iodineAlice : SendApp | fileDestAddr: iodineBob, toAddr: iodine-client,
+    queuePopulated: true, queue: mtpl, sent: packet(iodineAlice, iodineBob,
+    ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true),
+    numAdmittedPkts: 1, iodineReady: true, rcvd: packet(iodineBob, iodineAlice,
+    ackFile("OK", hashTag("person")), 0, 41, true) > 
+< iodineBob : RcvApp | fileDestAddr: bobapp, toAddr: iodine-server,
+    queuePopulated: true, queue: mtpl, sent: packet(iodineBob, iodineAlice,
+    ackFile("OK", hashTag("person")), 0, 41, true), numAdmittedPkts: 1,
+    iodineReady: true, rcvd: packet(iodineAlice, iodineBob, ccFile(key(0, 4),
+    hash(file(0, 400), 4), hashTag("person")), 0, 43, true), fileSrcAddr:
+    iodineAlice > 
+< iodine-client : WClient | resv: local-dns, wDom: 'pwnd . 'com . root,
+    queryCtr: 3824865, outSeqNo: 0, fragmentsToSend: mtfl, fragmentsSize: 1,
+    outFragNo: 2, numAttempts: 0, weirdQType: a, appAddrMap: ((7727 <~
+    iodineAlice) !! 23181 <~ iodineAlice), fragmentsReceived: mtfl,
+    pingsStarted: true, timeLastRecvd: 2.9913146384358322e+2, inSeqNo: 0,
+    inFragNo: 1, lastFragment: false, severWResponseTTL: 0.0 > 
+< iodine-server : WNameserver | conf: 
+< iodine-server : Nameserver | 
+  db: (< 'pwnd . 'com . root, soa, 3.6e+3, soaData(3.6e+3) > < 'pwnd . 'com .
+    root, ns, 3.6e+3, 'ns . 'pwnd . 'com . root > < 'ns . 'pwnd . 'com . root,
+    a, 3.6e+3, iodine-server > < 'tmp0 . 'pwnd . 'com . root, a, 0.0, 2 . 0 . 1
+    . 2 > < wildcard . 'pwnd . 'com . root, a, 0.0, 2 . 1 . 1 . 2 >),
+    forwardonly: nullAddr, 
+  queriesFwd: nilTAQL, 
+  queue: nilQueue >, outSeqNo: 0, fragmentsToSend: mtfl, fragmentsSize: 1,
+    outFragNo: 2, numAttempts: 0, fragmentsReceived: mtfl, inSeqNo: 0,
+    inFragNo: 1, lastFragment: false, severWResponseTTL: 0.0 > 
+< internet-dns : Nameserver | 
+  db: (< 'internet . 'com . root, soa, 3.6e+3, soaData(3.6e+3) > < 'internet .
+    'com . root, ns, 3.6e+3, 'ns . 'internet . 'com . root > < 'ns . 'internet
+    . 'com . root, a, 3.6e+3, internet-dns > < 'tmp0 . 'internet . 'com . root,
+    a, 0.0, 1 . 0 . 1 . 2 > < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1
+    . 1 . 2 >), forwardonly: nullAddr, 
+  queriesFwd: nilTAQL, 
+  queue: nilQueue > 
+< local-dns : Nameserver | 
+  db: (< 'corporate . 'com . root, soa, 3.6e+3, soaData(3.6e+3) > < 'corporate
+    . 'com . root, ns, 3.6e+3, 'ns . 'corporate . 'com . root > < 'ns .
+    'corporate . 'com . root, a, 3.6e+3, local-dns > < 'tmp0 . 'corporate .
+    'com . root, a, 0.0, 3 . 0 . 1 . 2 > < wildcard . 'corporate . 'com . root,
+    a, 0.0, 3 . 1 . 1 . 2 >), forwardonly: X(public-dns), 
+  queriesFwd: (tupleAddrQuery(iodine-client, query(3778503, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a)) tupleAddrQuery(iodine-client, query(3755322, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a)) tupleAddrQuery(iodine-client, query(3685779, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a)) tupleAddrQuery(iodine-client, query(3461696, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a)) tupleAddrQuery(iodine-client, query(3283975, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a)) tupleAddrQuery(dnsTAddr, query(36, 'www1 . 'internet .
+    'com . root, a)) tupleAddrQuery(dnsTAddr, query(36, 'www1 . 'internet .
+    'com . root, a)) tupleAddrQuery(dnsTAddr, query(35, 'www1 . 'internet .
+    'com . root, a)) tupleAddrQuery(iodine-client, query(3028984, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a)) tupleAddrQuery(iodine-client, query(3005803, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a)) tupleAddrQuery(iodine-client, query(2596272, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a)) tupleAddrQuery(iodine-client, query(2449459, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a)) tupleAddrQuery(iodine-client, query(2395370, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a)) tupleAddrQuery(iodine-client, query(2341281, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a)) tupleAddrQuery(dnsTAddr, query(25, 'www . 'internet., a))
+    tupleAddrQuery(iodine-client, query(1924023, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a)) tupleAddrQuery(iodine-client, query(1862207, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a)) tupleAddrQuery(dnsTAddr, query(19, 'www0 . 'internet . 'com . root, a))
+    tupleAddrQuery(iodine-client, query(1854480, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a)) tupleAddrQuery(iodine-client, query(1475857, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a)) tupleAddrQuery(iodine-client, query(1344498, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a)) tupleAddrQuery(iodine-client, query(1244047, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a)) tupleAddrQuery(iodine-client, query(1205412, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a)) tupleAddrQuery(iodine-client, query(1012237, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a)) tupleAddrQuery(iodine-client, query(741792, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a)) tupleAddrQuery(iodine-client, query(533163, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a))), 
+  queue: nilQueue > 
+< monAddr : WMonitor | 
+  pktSent: (packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4),
+    hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 1.7) ;
+    packetTimestamp(packet(iodineBob, iodineAlice, ackFile("OK", hashTag(
+    "person")), 0, 41, true), 2.9722887209003477e+2)), 
+  pktRcvd: (packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4),
+    hash(file(0, 400), 4), hashTag("person")), 0, 43, true),
+    1.8630658052729672) ; packetTimestamp(packet(iodineBob, iodineAlice,
+    ackFile("OK", hashTag("person")), 0, 41, true), 2.9790838479826795e+2)), 
+  querySent: (queryTimestamp(query(7727, nm(fragment(iodineAlice, iodineBob,
+    ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 1, 0, 0,
+    43, true, true)) . 'pwnd . 'com . root, a), 1.7) ; queryTimestamp(query(
+    15454, nm(fragment(iodineBob, iodineAlice, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.7009999999999998) ; queryTimestamp(
+    query(23181, nm(fragment(iodineAlice, iodineBob, ccFile(key(0, 4), hash(
+    file(0, 400), 4), hashTag("person")), 0, 1, 0, 0, 43, true, true)) . 'pwnd
+    . 'com . root, a), 1.8090436033546431) ; queryTimestamp(query(30908, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.9580854171775905) ; queryTimestamp(query(69543,
+    nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false))
+    . 'pwnd . 'com . root, a), 3.6290837761689887) ; queryTimestamp(query(
+    84997, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 4.7381227102646815) ; queryTimestamp(
+    query(100451, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 5.8471527003638624) ;
+    queryTimestamp(query(115905, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    6.9561946628785964) ; queryTimestamp(query(131359, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a), 8.0652301741172305) ; queryTimestamp(query(146813, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 9.174273573359871) ; queryTimestamp(query(162267, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.0283304511360802e+1) ; queryTimestamp(query(
+    177721, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.1392328802812198e+1) ; queryTimestamp(
+    query(193175, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.2501362977337292e+1) ;
+    queryTimestamp(query(208629, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.3610398532487915e+1) ; queryTimestamp(query(224083, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.4719445498032366e+1) ; queryTimestamp(query(239537, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.5828492900274256e+1) ; queryTimestamp(query(
+    254991, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.693753640096719e+1) ; queryTimestamp(
+    query(270445, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.8046567009908156e+1) ;
+    queryTimestamp(query(285899, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.9155600074872432e+1) ; queryTimestamp(query(301353, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.0264642137524625e+1) ; queryTimestamp(query(316807, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.1373679931125352e+1) ; queryTimestamp(query(
+    332261, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.2482714843414598e+1) ; queryTimestamp(
+    query(347715, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.3591745218224851e+1) ;
+    queryTimestamp(query(363169, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.4700784288646307e+1) ; queryTimestamp(query(378623, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.5809823163790689e+1) ; queryTimestamp(query(394077, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.6918872260602239e+1) ; queryTimestamp(query(
+    409531, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.802790076940974e+1) ; queryTimestamp(
+    query(424985, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.9136944982687893e+1) ;
+    queryTimestamp(query(440439, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    3.0245991575499815e+1) ; queryTimestamp(query(455893, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 3.1355027487667929e+1) ; queryTimestamp(query(471347, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 3.2464072328318473e+1) ; queryTimestamp(query(
+    486801, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 3.3573104071353001e+1) ; queryTimestamp(
+    query(502255, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 3.4682134109251145e+1) ;
+    queryTimestamp(query(517709, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    3.5791182124254853e+1) ; queryTimestamp(query(533163, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 3.6900215890948701e+1) ; queryTimestamp(query(540890, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 3.7900215890948701e+1) ; queryTimestamp(query(
+    556344, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 3.9809271890571495e+1) ; queryTimestamp(
+    query(571798, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 4.0918308919366545e+1) ;
+    queryTimestamp(query(587252, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    4.2027355436941733e+1) ; queryTimestamp(query(602706, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 4.3936485451629771e+1) ; queryTimestamp(query(618160, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 4.5045510815358632e+1) ; queryTimestamp(query(
+    633614, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 4.6154559993727482e+1) ; queryTimestamp(
+    query(649068, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 4.7263584897345488e+1) ;
+    queryTimestamp(query(664522, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    4.8372631373226419e+1) ; queryTimestamp(query(679976, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 5.0281741830731029e+1) ; queryTimestamp(query(695430, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 5.1390779838627076e+1) ; queryTimestamp(query(
+    710884, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 5.2499824185908302e+1) ; queryTimestamp(
+    query(726338, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 5.3608861288026851e+1) ;
+    queryTimestamp(query(741792, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    5.4717885744096257e+1) ; queryTimestamp(query(749519, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 5.5717885744096257e+1) ; queryTimestamp(query(764973, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 5.6826926795559302e+1) ; queryTimestamp(query(
+    772700, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 5.7826926795559302e+1) ; queryTimestamp(
+    query(795881, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 5.9735975493519867e+1) ;
+    queryTimestamp(query(811335, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    6.0845016740644716e+1) ; queryTimestamp(query(826789, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 6.1954063408088032e+1) ; queryTimestamp(query(842243, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 6.3063099477283629e+1) ; queryTimestamp(query(
+    857697, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 6.4172131523467968e+1) ; queryTimestamp(
+    query(873151, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 6.5281165288992511e+1) ;
+    queryTimestamp(query(888605, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    6.6390210225623889e+1) ; queryTimestamp(query(904059, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 6.7499256113770556e+1) ; queryTimestamp(query(919513, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 6.8608281036459161e+1) ; queryTimestamp(query(
+    934967, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 6.9717313528101442e+1) ; queryTimestamp(
+    query(950421, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 7.0826358783714412e+1) ;
+    queryTimestamp(query(965875, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    7.2735414855642574e+1) ; queryTimestamp(query(981329, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 7.464454129840118e+1) ; queryTimestamp(query(996783, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 7.575359444910211e+1) ; queryTimestamp(query(
+    1012237, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 7.6862625021339667e+1) ; queryTimestamp(
+    query(1019964, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 7.7862625021339667e+1) ;
+    queryTimestamp(query(1035418, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    7.8971653773053262e+1) ; queryTimestamp(query(1050872, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 8.0080704752330064e+1) ; queryTimestamp(query(1066326, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 8.1189748690413822e+1) ; queryTimestamp(query(
+    1081780, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 8.2298782881314793e+1) ; queryTimestamp(
+    query(1097234, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 8.4207849051312905e+1) ;
+    queryTimestamp(query(1112688, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    8.5316889147751056e+1) ; queryTimestamp(query(1128142, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 8.6425923540578395e+1) ; queryTimestamp(query(1143596, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 8.7534977964680053e+1) ; queryTimestamp(query(
+    1159050, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 8.864401264181808e+1) ; queryTimestamp(
+    query(1174504, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 8.975307033171481e+1) ;
+    queryTimestamp(query(1189958, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    9.166218509573504e+1) ; queryTimestamp(query(1205412, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 9.2771240418966812e+1) ; queryTimestamp(query(1213139, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 9.3771240418966812e+1) ; queryTimestamp(query(
+    1228593, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 9.4880272882607613e+1) ; queryTimestamp(
+    query(1244047, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 9.5989317663180373e+1) ;
+    queryTimestamp(query(1251774, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    9.6989317663180373e+1) ; queryTimestamp(query(1267228, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 9.8098370061305275e+1) ; queryTimestamp(query(1282682, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.0000749903025459e+2) ; queryTimestamp(query(
+    1298136, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.0111654164610003e+2) ; queryTimestamp(
+    query(1313590, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.0222558659263547e+2) ;
+    queryTimestamp(query(1329044, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.0333462864369109e+2) ; queryTimestamp(query(1344498, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.0444366755045128e+2) ; queryTimestamp(query(1352225, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.0544366755045128e+2) ; queryTimestamp(query(
+    1367679, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.0655270461420986e+2) ; queryTimestamp(
+    query(1383133, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.0766176375293811e+2) ;
+    queryTimestamp(query(1398587, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.0877080027107162e+2) ; queryTimestamp(query(1414041, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.0987984521854814e+2) ; queryTimestamp(query(1429495, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.1178891411949621e+2) ; queryTimestamp(query(
+    1444949, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.1289794956869925e+2) ; queryTimestamp(
+    query(1460403, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.1400700037645349e+2) ;
+    queryTimestamp(query(1475857, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.1511603414507333e+2) ; queryTimestamp(query(1483584, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.1611603414507333e+2) ; queryTimestamp(query(1499038, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.1722507057225316e+2) ; queryTimestamp(query(
+    1514492, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.1833411666518877e+2) ; queryTimestamp(
+    query(1529946, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.2024319114211185e+2) ;
+    queryTimestamp(query(1545400, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.2135223954363504e+2) ; queryTimestamp(query(1560854, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.2246128038853533e+2) ; queryTimestamp(query(1576308, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.2357031869066218e+2) ; queryTimestamp(query(
+    1591762, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.2467935498221262e+2) ; queryTimestamp(
+    query(1607216, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.2578839035772135e+2) ;
+    queryTimestamp(query(1622670, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.2689743482347814e+2) ; queryTimestamp(query(1638124, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.2880652816560888e+2) ; queryTimestamp(query(1653578, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.2991556363921356e+2) ; queryTimestamp(query(
+    1669032, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.3102460114710308e+2) ; queryTimestamp(
+    query(1684486, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.3213364584288109e+2) ;
+    queryTimestamp(query(1699940, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.3324268681070004e+2) ; queryTimestamp(query(1715394, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.3435172457726873e+2) ; queryTimestamp(query(1730848, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.3546076619002804e+2) ; queryTimestamp(query(
+    1746302, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.3656980117306966e+2) ; queryTimestamp(
+    query(1761756, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.3767884864115399e+2) ;
+    queryTimestamp(query(1777210, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.3878789153758521e+2) ; queryTimestamp(query(1792664, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.3989692662901189e+2) ; queryTimestamp(query(1808118, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.4100596530989466e+2) ; queryTimestamp(query(
+    1823572, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.4211500887351116e+2) ; queryTimestamp(
+    query(1839026, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.4322404804871576e+2) ;
+    queryTimestamp(query(1854480, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.4513316590067626e+2) ; queryTimestamp(query(1862207, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.4613316590067626e+2) ; queryTimestamp(query(1869934, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.4713316590067626e+2) ; queryTimestamp(query(
+    1885388, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.4824221623508888e+2) ; queryTimestamp(
+    query(1900842, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.493512566621246e+2) ;
+    queryTimestamp(query(1916296, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.5046028381352221e+2) ; queryTimestamp(query(1924023, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.5146028381352221e+2) ; queryTimestamp(query(1939477, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.5316947340346115e+2) ; queryTimestamp(query(
+    1954931, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.5427852878391835e+2) ; queryTimestamp(
+    query(1970385, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.5538757420586293e+2) ;
+    queryTimestamp(query(1985839, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.5649662944119794e+2) ; queryTimestamp(query(2001293, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.576056651958321e+2) ; queryTimestamp(query(2016747, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.5871469859122107e+2) ; queryTimestamp(query(
+    2032201, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.5982376050026406e+2) ; queryTimestamp(
+    query(2047655, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.6093279243128671e+2) ;
+    queryTimestamp(query(2063109, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.6204183525972832e+2) ; queryTimestamp(query(2078563, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.6315086142136215e+2) ; queryTimestamp(query(2094017, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.6425990850805351e+2) ; queryTimestamp(query(
+    2109471, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.661689848512932e+2) ; queryTimestamp(
+    query(2124925, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.6727802878344255e+2) ;
+    queryTimestamp(query(2140379, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.683870754487468e+2) ; queryTimestamp(query(2155833, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.6949613504523862e+2) ; queryTimestamp(query(2171287, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.7060518432428645e+2) ; queryTimestamp(query(
+    2186741, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.7251424748205719e+2) ; queryTimestamp(
+    query(2202195, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.7362328882770478e+2) ;
+    queryTimestamp(query(2217649, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.7553233359441759e+2) ; queryTimestamp(query(2233103, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.7664136080985452e+2) ; queryTimestamp(query(2248557, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.7855046327086541e+2) ; queryTimestamp(query(
+    2264011, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.7965951606664686e+2) ; queryTimestamp(
+    query(2279465, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.8076856235737412e+2) ;
+    queryTimestamp(query(2294919, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.8187761584840223e+2) ; queryTimestamp(query(2310373, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.8298665760581358e+2) ; queryTimestamp(query(2325827, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.8409568424592135e+2) ; queryTimestamp(query(
+    2341281, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.8520472710315954e+2) ; queryTimestamp(
+    query(2349008, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.8620472710315954e+2) ;
+    queryTimestamp(query(2364462, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.8731377818707929e+2) ; queryTimestamp(query(2379916, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.8842282021371057e+2) ; queryTimestamp(query(2395370, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.8953185364200382e+2) ; queryTimestamp(query(
+    2403097, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.9053185364200382e+2) ; queryTimestamp(
+    query(2418551, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.9164089910995585e+2) ;
+    queryTimestamp(query(2434005, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.9274994000203162e+2) ; queryTimestamp(query(2449459, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.9385897216886966e+2) ; queryTimestamp(query(2457186, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.9485897216886966e+2) ; queryTimestamp(query(
+    2472640, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.9596800501446674e+2) ; queryTimestamp(
+    query(2488094, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.9707704288185695e+2) ;
+    queryTimestamp(query(2503548, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.9818609657602383e+2) ; queryTimestamp(query(2519002, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.9929513456528002e+2) ; queryTimestamp(query(2534456, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.004041728998493e+2) ; queryTimestamp(query(
+    2549910, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.015132159381306e+2) ; queryTimestamp(
+    query(2565364, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.0262225426303414e+2) ;
+    queryTimestamp(query(2580818, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.0373128939636024e+2) ; queryTimestamp(query(2596272, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.0484033325750906e+2) ; queryTimestamp(query(2603999, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.0584033325750906e+2) ; queryTimestamp(query(
+    2619453, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.0694936699375873e+2) ; queryTimestamp(
+    query(2634907, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.0805840732556683e+2) ;
+    queryTimestamp(query(2650361, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.0916744996892925e+2) ; queryTimestamp(query(2665815, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.1027649174449627e+2) ; queryTimestamp(query(2681269, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.1138552636792349e+2) ; queryTimestamp(query(
+    2696723, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.1249457528528001e+2) ; queryTimestamp(
+    query(2712177, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.1360361830305794e+2) ;
+    queryTimestamp(query(2727631, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.1551269440554714e+2) ; queryTimestamp(query(2743085, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.1662172378861487e+2) ; queryTimestamp(query(2758539, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.1773077229230702e+2) ; queryTimestamp(query(
+    2773993, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.1883982122879317e+2) ; queryTimestamp(
+    query(2789447, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.2074887180480846e+2) ;
+    queryTimestamp(query(2804901, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.2185791771933842e+2) ; queryTimestamp(query(2820355, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.2296696087311926e+2) ; queryTimestamp(query(2835809, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.2407600486633868e+2) ; queryTimestamp(query(
+    2851263, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.2518505668057676e+2) ; queryTimestamp(
+    query(2866717, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.262941001934e+2) ;
+    queryTimestamp(query(2882171, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.2740313462517113e+2) ; queryTimestamp(query(2897625, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.2851217583604387e+2) ; queryTimestamp(query(2913079, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.2962119916541437e+2) ; queryTimestamp(query(
+    2928533, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.3073025233666746e+2) ; queryTimestamp(
+    query(2943987, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.3183928791034126e+2) ;
+    queryTimestamp(query(2959441, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.3294833262642553e+2) ; queryTimestamp(query(2974895, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.3405737244457038e+2) ; queryTimestamp(query(2990349, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.351664255433281e+2) ; queryTimestamp(query(
+    3005803, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.3627546828452165e+2) ; queryTimestamp(
+    query(3013530, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.3727546828452165e+2) ;
+    queryTimestamp(query(3028984, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.3838450412943061e+2) ; queryTimestamp(query(3036711, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.3938450412943061e+2) ; queryTimestamp(query(3052165, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.4049352767947386e+2) ; queryTimestamp(query(
+    3067619, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.4160255423922882e+2) ; queryTimestamp(
+    query(3083073, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.4271158817447989e+2) ;
+    queryTimestamp(query(3098527, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.438206221792932e+2) ; queryTimestamp(query(3113981, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.4492965122021465e+2) ; queryTimestamp(query(3129435, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.4603868679948499e+2) ; queryTimestamp(query(
+    3144889, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.4714771976527896e+2) ; queryTimestamp(
+    query(3160343, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.4905678948555666e+2) ;
+    queryTimestamp(query(3175797, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.501658176138009e+2) ; queryTimestamp(query(3191251, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.5127485691666047e+2) ; queryTimestamp(query(3206705, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.52383899915657e+2) ; queryTimestamp(query(
+    3222159, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.5349293952339883e+2) ; queryTimestamp(
+    query(3237613, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.5460198584412444e+2) ;
+    queryTimestamp(query(3253067, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.5571102194103656e+2) ; queryTimestamp(query(3268521, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.5762008006693304e+2) ; queryTimestamp(query(3283975, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.5872913542660893e+2) ; queryTimestamp(query(
+    3291702, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.5972913542660893e+2) ; queryTimestamp(
+    query(3307156, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.6083817636939142e+2) ;
+    queryTimestamp(query(3322610, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.6194722058100831e+2) ; queryTimestamp(query(3338064, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.6305626775579856e+2) ; queryTimestamp(query(3353518, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.6416529949357727e+2) ; queryTimestamp(query(
+    3368972, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.6527434550922487e+2) ; queryTimestamp(
+    query(3384426, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.6638338221396617e+2) ;
+    queryTimestamp(query(3399880, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.6749241192121701e+2) ; queryTimestamp(query(3415334, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.6860145700539402e+2) ; queryTimestamp(query(3430788, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.6971050478529355e+2) ; queryTimestamp(query(
+    3446242, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.7081954757407505e+2) ; queryTimestamp(
+    query(3461696, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.7192859073835803e+2) ;
+    queryTimestamp(query(3469423, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.7292859073835803e+2) ; queryTimestamp(query(3484877, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.7403763597313571e+2) ; queryTimestamp(query(3500331, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.7514666620944769e+2) ; queryTimestamp(query(
+    3515785, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.762557235015006e+2) ; queryTimestamp(
+    query(3531239, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.7736474579437447e+2) ;
+    queryTimestamp(query(3546693, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.784737889897068e+2) ; queryTimestamp(query(3562147, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.8038284087960312e+2) ; queryTimestamp(query(3577601, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.8149187355205009e+2) ; queryTimestamp(query(
+    3593055, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.8260091035353759e+2) ; queryTimestamp(
+    query(3608509, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.8370994872293545e+2) ;
+    queryTimestamp(query(3623963, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.8481898233360329e+2) ; queryTimestamp(query(3639417, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.8592803181699082e+2) ; queryTimestamp(query(3654871, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.8703707483734621e+2) ; queryTimestamp(query(
+    3670325, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.8814611182077863e+2) ; queryTimestamp(
+    query(3685779, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.8925515145082403e+2) ;
+    queryTimestamp(query(3693506, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.9025515145082403e+2) ; queryTimestamp(query(3708960, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.913642023783533e+2) ; queryTimestamp(query(3724414, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.9247324339540535e+2) ; queryTimestamp(query(
+    3739868, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.9358227598559648e+2) ; queryTimestamp(
+    query(3755322, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.9469132606765004e+2) ;
+    queryTimestamp(query(3763049, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.9569132606765004e+2) ; queryTimestamp(query(3778503, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.968003531106566e+2) ; queryTimestamp(query(3786230, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.978003531106566e+2) ; queryTimestamp(query(
+    3793957, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 1, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.9791438479826792e+2) ; queryTimestamp(
+    query(3817138, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 1, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.9902342835859849e+2)), 
+  queryRcvd: (queryTimestamp(query(15454 .. init, nm(fragment(iodineBob,
+    iodineAlice, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a), 1.7550207713083199) ; queryTimestamp(query(23181 .. init, nm(fragment(
+    iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag(
+    "person")), 0, 1, 0, 0, 43, true, true)) . 'pwnd . 'com . root, a),
+    1.8630658052729672) ; queryTimestamp(query(30908 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.0120972222007385) ; queryTimestamp(query(7727 .. init ..
+    nxt, nm(fragment(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0,
+    400), 4), hashTag("person")), 0, 1, 0, 0, 43, true, true)) . 'pwnd . 'com .
+    root, a), 2.5540578977515294) ; queryTimestamp(query(69543 .. init, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 3.6831070248683058) ; queryTimestamp(query(84997
+    .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 4.792132839158481) ; queryTimestamp(
+    query(100451 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 5.9011761887965832) ;
+    queryTimestamp(query(115905 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    7.0102060356827938) ; queryTimestamp(query(131359 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 8.1192560157412714) ; queryTimestamp(query(146813 .. init,
+    nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false))
+    . 'pwnd . 'com . root, a), 9.228288378091003) ; queryTimestamp(query(162267
+    .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.0337318426830914e+1) ; queryTimestamp(
+    query(177721 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 1.1446353429814216e+1) ;
+    queryTimestamp(query(193175 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.2555381789938748e+1) ; queryTimestamp(query(208629 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.3664424776494863e+1) ; queryTimestamp(query(224083 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.4773473716990557e+1) ; queryTimestamp(
+    query(239537 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 1.5882521323581438e+1) ;
+    queryTimestamp(query(254991 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.6991554158692612e+1) ; queryTimestamp(query(270445 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.8100582524847049e+1) ; queryTimestamp(query(285899 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.9209613638203535e+1) ; queryTimestamp(
+    query(301353 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 2.0318660472723451e+1) ;
+    queryTimestamp(query(316807 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.1427701958259352e+1) ; queryTimestamp(query(332261 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.2536734358331014e+1) ; queryTimestamp(query(347715 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.3645770278908572e+1) ; queryTimestamp(
+    query(363169 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 2.4754799158344966e+1) ;
+    queryTimestamp(query(378623 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.5863853160775438e+1) ; queryTimestamp(query(394077 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.6972891355934895e+1) ; queryTimestamp(query(409531 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.8081932483513278e+1) ; queryTimestamp(
+    query(424985 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 2.9190970622977037e+1) ;
+    queryTimestamp(query(440439 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    3.0300004262261343e+1) ; queryTimestamp(query(455893 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 3.1409045239966829e+1) ; queryTimestamp(query(471347 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 3.2518089499293929e+1) ; queryTimestamp(
+    query(486801 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 3.3627117765373789e+1) ;
+    queryTimestamp(query(502255 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    3.4736165042877964e+1) ; queryTimestamp(query(517709 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 3.5845199464029307e+1) ; queryTimestamp(query(533163 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 3.6954233947993849e+1) ; queryTimestamp(
+    query(540890 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 3.7954232931645898e+1) ;
+    queryTimestamp(query(540890 .. init .. nxt, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a), 3.8754248544778427e+1) ; queryTimestamp(query(556344 .. init, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 3.9863291383728743e+1) ; queryTimestamp(query(
+    571798 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 4.0972340758517966e+1) ;
+    queryTimestamp(query(587252 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    4.2081378026713388e+1) ; queryTimestamp(query(587252 .. init .. nxt, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 4.2881470174951964e+1) ; queryTimestamp(query(
+    602706 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 4.3990500039302106e+1) ;
+    queryTimestamp(query(618160 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    4.5099534411758235e+1) ; queryTimestamp(query(633614 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 4.6208570092322688e+1) ; queryTimestamp(query(649068 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 4.7317607191620382e+1) ; queryTimestamp(
+    query(664522 .. init .. nxt, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    4.9226729523175301e+1) ; queryTimestamp(query(679976 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 5.0335763086063338e+1) ; queryTimestamp(query(695430 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 5.1444807038600558e+1) ; queryTimestamp(
+    query(710884 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 5.2553836641457536e+1) ;
+    queryTimestamp(query(726338 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    5.366287101284022e+1) ; queryTimestamp(query(741792 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 5.4771911579732567e+1) ; queryTimestamp(query(749519 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 5.577190673123355e+1) ; queryTimestamp(
+    query(764973 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 5.6880937491291782e+1) ;
+    queryTimestamp(query(764973 .. init .. nxt .. nxt, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a), 5.8481053719324976e+1) ; queryTimestamp(query(772700 .. init .. nxt,
+    nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false))
+    . 'pwnd . 'com . root, a), 5.8680966563470825e+1) ; queryTimestamp(query(
+    795881 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 5.9790004666801352e+1) ;
+    queryTimestamp(query(811335 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    6.0899035076238064e+1) ; queryTimestamp(query(826789 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 6.2008077066451264e+1) ; queryTimestamp(query(842243 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 6.3117115039602993e+1) ; queryTimestamp(
+    query(857697 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 6.4226150164179401e+1) ;
+    queryTimestamp(query(873151 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    6.5335190777426504e+1) ; queryTimestamp(query(888605 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 6.6444234436676098e+1) ; queryTimestamp(query(904059 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 6.7553266162534044e+1) ; queryTimestamp(
+    query(919513 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0,
+    0, 0, false, false)) . 'pwnd . 'com . root, a), 6.8662292522921902e+1) ;
+    queryTimestamp(query(934967 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    6.977133047046982e+1) ; queryTimestamp(query(950421 .. init .. nxt, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 7.1680402506555694e+1) ; queryTimestamp(query(
+    965875 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 7.2789441194621276e+1) ;
+    queryTimestamp(query(965875 .. init .. nxt, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a), 7.3589527199718319e+1) ; queryTimestamp(query(981329 .. init, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 7.469856559663701e+1) ; queryTimestamp(query(
+    996783 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 7.5807612934580675e+1) ;
+    queryTimestamp(query(1012237 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    7.691664351989121e+1) ; queryTimestamp(query(1019964 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 7.7916641849360147e+1) ; queryTimestamp(query(1035418 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 7.9025682324670441e+1) ; queryTimestamp(
+    query(1050872 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 8.0134724064276341e+1) ;
+    queryTimestamp(query(1066326 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    8.1243760589950014e+1) ; queryTimestamp(query(1081780 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 8.2352801732583274e+1) ; queryTimestamp(query(1081780 ..
+    init .. nxt, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 8.3152832835364677e+1) ;
+    queryTimestamp(query(1097234 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    8.4261872544044721e+1) ; queryTimestamp(query(1112688 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 8.5370906185619347e+1) ; queryTimestamp(query(1128142 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 8.6479954637362809e+1) ; queryTimestamp(
+    query(1143596 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 8.7588994977120763e+1) ;
+    queryTimestamp(query(1159050 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    8.8698043838930772e+1) ; queryTimestamp(query(1174504 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 8.9807083465711557e+1) ; queryTimestamp(query(1174504 ..
+    init .. nxt, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 9.0607172423623226e+1) ;
+    queryTimestamp(query(1189958 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    9.1716215217822949e+1) ; queryTimestamp(query(1213139 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 9.3825258956095752e+1) ; queryTimestamp(query(1228593 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 9.4934295592596527e+1) ; queryTimestamp(
+    query(1244047 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 9.6043339956697082e+1) ;
+    queryTimestamp(query(1251774 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    9.704334585212915e+1) ; queryTimestamp(query(1267228 .. init .. nxt, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 9.8952481611749903e+1) ; queryTimestamp(query(
+    1282682 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0,
+    0, false, false)) . 'pwnd . 'com . root, a), 1.0006151850594003e+2) ;
+    queryTimestamp(query(1298136 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.0117056039156944e+2) ; queryTimestamp(query(1313590 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.0227960326683434e+2) ; queryTimestamp(query(1329044 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.0338864906844817e+2) ; queryTimestamp(
+    query(1344498 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.0449768889440577e+2) ;
+    queryTimestamp(query(1352225 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.054976865038463e+2) ; queryTimestamp(query(1367679 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.0660674053699687e+2) ; queryTimestamp(query(1383133 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.0771578163156829e+2) ; queryTimestamp(
+    query(1398587 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.0882482349037868e+2) ;
+    queryTimestamp(query(1414041 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.0993387108660049e+2) ; queryTimestamp(query(1414041 .. init .. nxt, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.1073389221685852e+2) ; queryTimestamp(query(
+    1429495 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0,
+    0, false, false)) . 'pwnd . 'com . root, a), 1.1184293848029242e+2) ;
+    queryTimestamp(query(1444949 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.1295197557824466e+2) ; queryTimestamp(query(1460403 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.1406101893228393e+2) ; queryTimestamp(query(1475857 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.151700535712701e+2) ; queryTimestamp(
+    query(1483584 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.1617004336719795e+2) ;
+    queryTimestamp(query(1499038 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.1727908782198983e+2) ; queryTimestamp(query(1514492 .. init .. nxt, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.1918817693241847e+2) ; queryTimestamp(query(
+    1529946 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0,
+    0, false, false)) . 'pwnd . 'com . root, a), 1.2029721734885443e+2) ;
+    queryTimestamp(query(1545400 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.2140626453547797e+2) ; queryTimestamp(query(1560854 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.2251529955280014e+2) ; queryTimestamp(query(1576308 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.2362434118668423e+2) ; queryTimestamp(
+    query(1591762 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.2473337531919319e+2) ;
+    queryTimestamp(query(1607216 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.2584240752450323e+2) ; queryTimestamp(query(1622670 .. init .. nxt, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.277515067663721e+2) ; queryTimestamp(query(
+    1638124 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0,
+    0, false, false)) . 'pwnd . 'com . root, a), 1.2886054331513122e+2) ;
+    queryTimestamp(query(1653578 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.2996958280052732e+2) ; queryTimestamp(query(1669032 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.3107862295257527e+2) ; queryTimestamp(query(1684486 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.3218767052408552e+2) ; queryTimestamp(
+    query(1699940 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.332967139740513e+2) ;
+    queryTimestamp(query(1715394 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.34405748081795e+2) ; queryTimestamp(query(1730848 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.3551478300176791e+2) ; queryTimestamp(query(1746302 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.3662382388188033e+2) ; queryTimestamp(
+    query(1761756 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.3773286392911925e+2) ;
+    queryTimestamp(query(1777210 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.3884190226294035e+2) ; queryTimestamp(query(1792664 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.3995094236393987e+2) ; queryTimestamp(query(1808118 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.4105998601415979e+2) ; queryTimestamp(
+    query(1823572 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.4216902470103412e+2) ;
+    queryTimestamp(query(1839026 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.4327807355897457e+2) ; queryTimestamp(query(1839026 .. init .. nxt, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.4407814886372361e+2) ; queryTimestamp(query(
+    1869934 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0,
+    0, false, false)) . 'pwnd . 'com . root, a), 1.4718718909868619e+2) ;
+    queryTimestamp(query(1885388 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.4829623865932058e+2) ; queryTimestamp(query(1900842 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.4940526685443837e+2) ; queryTimestamp(query(1916296 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.5051430295436549e+2) ; queryTimestamp(
+    query(1916296 .. init .. nxt, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.5131439295021792e+2) ; queryTimestamp(query(1916296 .. init .. nxt ..
+    nxt, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.5211445783345542e+2) ; queryTimestamp(
+    query(1939477 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.5322350784381419e+2) ;
+    queryTimestamp(query(1954931 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.543325515037719e+2) ; queryTimestamp(query(1970385 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.554416025134874e+2) ; queryTimestamp(query(1985839 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.5655064933420493e+2) ; queryTimestamp(
+    query(2001293 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.576596846185237e+2) ;
+    queryTimestamp(query(2016747 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.5876872609558259e+2) ; queryTimestamp(query(2032201 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.5987777639988371e+2) ; queryTimestamp(query(2047655 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.609868160712106e+2) ; queryTimestamp(
+    query(2063109 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.6209585190817864e+2) ;
+    queryTimestamp(query(2078563 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.6320489146759604e+2) ; queryTimestamp(query(2094017 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.6431392619491459e+2) ; queryTimestamp(query(2094017 ..
+    init .. nxt, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 1.6511395590215523e+2) ;
+    queryTimestamp(query(2109471 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.6622299676929086e+2) ; queryTimestamp(query(2124925 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.6733205077999716e+2) ; queryTimestamp(query(2140379 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.6844110501160569e+2) ; queryTimestamp(
+    query(2155833 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.6955016422351875e+2) ;
+    queryTimestamp(query(2171287 .. init .. nxt, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a), 1.7145922185457295e+2) ; queryTimestamp(query(2186741 .. init, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.7256826782121124e+2) ; queryTimestamp(query(
+    2202195 .. init .. nxt, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.7447731274686029e+2) ;
+    queryTimestamp(query(2217649 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.7558635534740694e+2) ; queryTimestamp(query(2233103 .. init .. nxt, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 1.7749544064807645e+2) ; queryTimestamp(query(
+    2248557 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0,
+    0, false, false)) . 'pwnd . 'com . root, a), 1.7860448534697971e+2) ;
+    queryTimestamp(query(2264011 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.7971353447517893e+2) ; queryTimestamp(query(2279465 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.8082259690265437e+2) ; queryTimestamp(query(2294919 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.8193163278413087e+2) ; queryTimestamp(
+    query(2310373 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.8304066826328577e+2) ;
+    queryTimestamp(query(2325827 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.841496966913181e+2) ; queryTimestamp(query(2349008 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.8625875477433593e+2) ; queryTimestamp(query(2364462 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.8736779730470917e+2) ; queryTimestamp(
+    query(2379916 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.8847683598746514e+2) ;
+    queryTimestamp(query(2395370 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.8958588265758755e+2) ; queryTimestamp(query(2403097 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.9058587640901018e+2) ; queryTimestamp(query(2418551 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.916949184010104e+2) ; queryTimestamp(
+    query(2434005 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.9280395234506139e+2) ;
+    queryTimestamp(query(2457186 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.9491298974693669e+2) ; queryTimestamp(query(2472640 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 1.9602201813201103e+2) ; queryTimestamp(query(2488094 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 1.97131066434216e+2) ; queryTimestamp(
+    query(2503548 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 1.9824012221308732e+2) ;
+    queryTimestamp(query(2519002 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    1.9934915234664771e+2) ; queryTimestamp(query(2534456 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.0045820135576054e+2) ; queryTimestamp(query(2549910 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.0156723261255462e+2) ; queryTimestamp(
+    query(2565364 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.0267627283535987e+2) ;
+    queryTimestamp(query(2580818 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.0378531371638729e+2) ; queryTimestamp(query(2603999 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.0589434935578043e+2) ; queryTimestamp(query(2619453 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.0700339076412951e+2) ; queryTimestamp(
+    query(2634907 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.0811243298299462e+2) ;
+    queryTimestamp(query(2650361 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.0922146723509772e+2) ; queryTimestamp(query(2665815 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.103305149279243e+2) ; queryTimestamp(query(2681269 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.1143955105595941e+2) ; queryTimestamp(
+    query(2696723 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.1254859715739363e+2) ;
+    queryTimestamp(query(2712177 .. init .. nxt, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a), 2.1445768378571853e+2) ; queryTimestamp(query(2727631 .. init, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.1556670742024207e+2) ; queryTimestamp(query(
+    2743085 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0,
+    0, false, false)) . 'pwnd . 'com . root, a), 2.1667574758738132e+2) ;
+    queryTimestamp(query(2758539 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.1778479493245391e+2) ; queryTimestamp(query(2773993 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.1889383893854711e+2) ; queryTimestamp(query(2773993 ..
+    init .. nxt, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.1969384868247516e+2) ;
+    queryTimestamp(query(2789447 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.2080289430121783e+2) ; queryTimestamp(query(2804901 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.2191193982129468e+2) ; queryTimestamp(query(2820355 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.230209817216959e+2) ; queryTimestamp(
+    query(2835809 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.2413002536709115e+2) ;
+    queryTimestamp(query(2851263 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.2523908361262934e+2) ; queryTimestamp(query(2866717 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.2634811099425389e+2) ; queryTimestamp(query(2882171 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.2745715438483342e+2) ; queryTimestamp(
+    query(2897625 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.2856619558950939e+2) ;
+    queryTimestamp(query(2913079 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.2967522806187259e+2) ; queryTimestamp(query(2928533 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.3078427200846969e+2) ; queryTimestamp(query(2943987 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.3189331388512591e+2) ; queryTimestamp(
+    query(2959441 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.3300235106624913e+2) ;
+    queryTimestamp(query(2974895 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.3411140357712137e+2) ; queryTimestamp(query(2990349 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.3522044895757904e+2) ; queryTimestamp(query(3013530 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.3732947478897182e+2) ; queryTimestamp(
+    query(3028984 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.3843853116297578e+2) ;
+    queryTimestamp(query(3028984 .. init .. nxt, nm(fragment(iodineAlice,
+    iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root,
+    a), 2.3923858478456805e+2) ; queryTimestamp(query(3036711 .. init, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.3943851270515941e+2) ; queryTimestamp(query(
+    3052165 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0,
+    0, false, false)) . 'pwnd . 'com . root, a), 2.405475338872242e+2) ;
+    queryTimestamp(query(3067619 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.416565759396874e+2) ; queryTimestamp(query(3083073 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.4276560036591536e+2) ; queryTimestamp(query(3098527 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.4387463228695339e+2) ; queryTimestamp(
+    query(3113981 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.4498367542334032e+2) ;
+    queryTimestamp(query(3129435 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.460927080333191e+2) ; queryTimestamp(query(3144889 .. init .. nxt, nm(
+    fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) .
+    'pwnd . 'com . root, a), 2.4800177494031749e+2) ; queryTimestamp(query(
+    3160343 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0,
+    0, false, false)) . 'pwnd . 'com . root, a), 2.4911080305724911e+2) ;
+    queryTimestamp(query(3175797 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.5021983755395223e+2) ; queryTimestamp(query(3191251 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.5132887641911606e+2) ; queryTimestamp(query(3206705 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.5243792443024645e+2) ; queryTimestamp(
+    query(3222159 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.5354695202756255e+2) ;
+    queryTimestamp(query(3237613 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.5465600719265305e+2) ; queryTimestamp(query(3253067 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.557650463311175e+2) ; queryTimestamp(query(3253067 ..
+    init .. nxt, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0,
+    false, false)) . 'pwnd . 'com . root, a), 2.5656506698159302e+2) ;
+    queryTimestamp(query(3268521 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.5767410892166021e+2) ; queryTimestamp(query(3291702 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.5978315507619504e+2) ; queryTimestamp(query(3307156 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.6089220281230001e+2) ; queryTimestamp(
+    query(3322610 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.6200124061453357e+2) ;
+    queryTimestamp(query(3338064 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.631102792557046e+2) ; queryTimestamp(query(3353518 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.6421931447017079e+2) ; queryTimestamp(query(3368972 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.6532836106672829e+2) ; queryTimestamp(
+    query(3384426 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.6643739594037646e+2) ;
+    queryTimestamp(query(3399880 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.6754644212446135e+2) ; queryTimestamp(query(3415334 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.6865547107423055e+2) ; queryTimestamp(query(3430788 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.6976452663689741e+2) ; queryTimestamp(
+    query(3446242 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.708735742413009e+2) ;
+    queryTimestamp(query(3461696 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.7198262177711996e+2) ; queryTimestamp(query(3469423 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.7298262222292414e+2) ; queryTimestamp(query(3484877 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.7409164914272725e+2) ; queryTimestamp(
+    query(3500331 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.7520069440111655e+2) ;
+    queryTimestamp(query(3515785 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.7630973573175038e+2) ; queryTimestamp(query(3531239 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.7741876809348656e+2) ; queryTimestamp(query(3546693 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.7852780576735159e+2) ; queryTimestamp(
+    query(3546693 .. init .. nxt, nm(fragment(iodineAlice, iodineBob, file(0),
+    0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.7932781306286932e+2) ; queryTimestamp(query(3562147 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.8043685882170479e+2) ; queryTimestamp(query(3577601 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.8154589086975375e+2) ; queryTimestamp(
+    query(3593055 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.8265492568102115e+2) ;
+    queryTimestamp(query(3608509 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.8376396325057067e+2) ; queryTimestamp(query(3623963 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.8487300839197604e+2) ; queryTimestamp(query(3639417 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.8598205426903121e+2) ; queryTimestamp(
+    query(3654871 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.8709109625280757e+2) ;
+    queryTimestamp(query(3670325 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.8820013931542383e+2) ; queryTimestamp(query(3685779 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.8930916408653286e+2) ; queryTimestamp(query(3693506 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.9030917151527768e+2) ; queryTimestamp(
+    query(3708960 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.9141822139196341e+2) ;
+    queryTimestamp(query(3724414 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.9252726491111281e+2) ; queryTimestamp(query(3739868 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.9363630072582873e+2) ; queryTimestamp(query(3755322 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 0, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.9474534583393648e+2) ; queryTimestamp(
+    query(3763049 .. init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0,
+    0, 0, 0, false, false)) . 'pwnd . 'com . root, a), 2.9574534235621854e+2) ;
+    queryTimestamp(query(3786230 .. init, nm(fragment(iodineAlice, iodineBob,
+    file(0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com . root, a),
+    2.9785436500287642e+2) ; queryTimestamp(query(3793957 .. init, nm(fragment(
+    iodineAlice, iodineBob, file(0), 0, 0, 0, 1, 0, false, false)) . 'pwnd .
+    'com . root, a), 2.9796840848127317e+2) ; queryTimestamp(query(3817138 ..
+    init, nm(fragment(iodineAlice, iodineBob, file(0), 0, 0, 0, 1, 0, false,
+    false)) . 'pwnd . 'com . root, a), 2.990774465666376e+2)) > 
+< public-dns : Resolver | 
+  cache: (cacheEntry(< root, ns, 3.6e+3, 'a . 'root-servers . 'net . root >, 1)
+    cacheEntry(< 'a . 'root-servers . 'net . root, a, 3.6e+3, root-dns >, 1)
+    cacheEntry(< 'com . root, ns, 3.6e+3, 'ns . 'com . root >, 1) cacheEntry(<
+    'ns . 'com . root, a, 3.6e+3, tld-dns >, 1) cacheEntry(< 'internet . 'com .
+    root, ns, 3.6e+3, 'ns . 'internet . 'com . root >, 1) cacheEntry(< 'ns .
+    'internet . 'com . root, a, 3.6e+3, internet-dns >, 1) cacheEntry(< 'pwnd .
+    'com . root, ns, 3.6e+3, 'ns . 'pwnd . 'com . root >, 1) cacheEntry(< 'ns .
+    'pwnd . 'com . root, a, 3.6e+3, iodine-server >, 1) cacheEntry(< 'corporate
+    . 'com . root, ns, 3.6e+3, 'ns . 'corporate . 'com . root >, 1) cacheEntry(
+    < 'ns . 'corporate . 'com . root, a, 3.6e+3, local-dns >, 1) cacheEntry(<
+    'com . root, soa, 3.6386902169898081e+3, soaData(3.6e+3) >, 1)), 
+  nxdomainCache: nilNxdomainCache, 
+  nodataCache: nodataEntry('com . root, a, < 'com . root, soa,
+    3.6386902169898081e+3, soaData(3.6e+3) >, 5), 
+  sbelt: < root ('a . 'root-servers . 'net . root |-> root-dns) >, 
+  workBudget: emptyIN, 
+  blockedQueries: eptQSS, 
+  sentQueries: eptQSS > 
+< root-dns : Nameserver | 
+  db: (< root, soa, 3.6e+3, soaData(3.6e+3) > < root, ns, 3.6e+3, 'a .
+    'root-servers . 'net . root > < 'a . 'root-servers . 'net . root, a,
+    3.6e+3, root-dns > < 'com . root, ns, 3.6e+3, 'ns . 'com . root > < 'ns .
+    'com . root, a, 3.6e+3, tld-dns >), forwardonly: nullAddr, 
+  queriesFwd: nilTAQL, 
+  queue: nilQueue > 
+< tld-dns : Nameserver | 
+  db: (< 'com . root, soa, 3.6e+3, soaData(3.6e+3) > < 'com . root, ns, 3.6e+3,
+    'ns . 'com . root > < 'ns . 'com . root, a, 3.6e+3, tld-dns > < 'internet .
+    'com . root, ns, 3.6e+3, 'ns . 'internet . 'com . root > < 'ns . 'internet
+    . 'com . root, a, 3.6e+3, internet-dns > < 'pwnd . 'com . root, ns, 3.6e+3,
+    'ns . 'pwnd . 'com . root > < 'ns . 'pwnd . 'com . root, a, 3.6e+3,
+    iodine-server > < 'corporate . 'com . root, ns, 3.6e+3, 'ns . 'corporate .
+    'com . root > < 'ns . 'corporate . 'com . root, a, 3.6e+3, local-dns >),
+    forwardonly: nullAddr, 
+  queriesFwd: nilTAQL, 
+  queue: nilQueue > 
+< clientContentMgr : CMClient | replyTo: null, bHashTagCtr: 0, pendingFiles:
+    nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 5,
+    hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |->
+    "purple"), edAddress: clientDestini, mcAddress: aliceMasClient, w4c: null >
+    
+< serverContentMgr : CMServer | replyTo: null, bHashTagCtr: 3, pendingFiles:
+    nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 5,
+    hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |->
+    "purple"), edAddress: serverDestini, mcAddress: bobMasClient, bobAddress:
+    bobapp, w4c: null > 
+< clientDestini : ED | density: 1/6, bpf: 1, nfreq: 1, images: (image(1, 400,
+    50) :: image(0, 500, 50)) > 
+< serverDestini : ED | density: 1/6, bpf: 1, nfreq: 1, images: (image(2, 500,
+    50) :: image(3, 400, 50)) > 
+< clientUserModel : UM | markov: ("download" |-> "wait_download" |-> 1.0,
+    "media" |-> "wait_media" |-> 1.0, "wait_download" |-> ("download" |->
+    5.0e-1, "media" |-> 5.0e-1), "wait_media" |-> ("download" |-> 5.0e-1,
+    "media" |-> 5.0e-1)), actions: ("download" |-> jo("type" |-> js(
+    "download")), "media" |-> jo(("start" |-> jb(true), "type" |-> js(
+    "media"))), "wait_download" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1),
+    "random" |-> js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait"))),
+    "wait_media" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |->
+    js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait")))), curState:
+    "media", nsteps: 64, actAddress: clientContentMgr, w4: (to clientUserModel
+    from clientUserModel : actionR("ok")), default: "media", mSum: ("download"
+    |-> 1.0, "media" |-> 1.0, "wait_download" |-> 1.0, "wait_media" |-> 1.0) > 
+< serverUserModel : UM | markov: ("download" |-> "wait_download" |-> 1.0,
+    "media" |-> "wait_media" |-> 1.0, "wait_download" |-> ("download" |->
+    5.0e-1, "media" |-> 5.0e-1), "wait_media" |-> ("download" |-> 5.0e-1,
+    "media" |-> 5.0e-1)), actions: ("download" |-> jo("type" |-> js(
+    "download")), "media" |-> jo(("start" |-> jb(true), "type" |-> js(
+    "media"))), "wait_download" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1),
+    "random" |-> js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait"))),
+    "wait_media" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |->
+    js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait")))), curState:
+    "media", nsteps: 68, actAddress: serverContentMgr, w4: (to serverUserModel
+    from serverUserModel : actionR("ok")), default: "media", mSum: ("download"
+    |-> 1.0, "media" |-> 1.0, "wait_download" |-> 1.0, "wait_media" |-> 1.0) > 
+< aliceMasClient : MasClient | thisAddr: aliceMasClient, masServerAddr:
+    mastodonServer, requesterAddr: clientContentMgr, opStack: emptyOpStack,
+    postingMedia: emptyMediaFileList, postingMediaIds: emptyMasIdList,
+    postingText: "hashtag is #purple", gettingMediaUrls: emptyUrlList,
+    gettingMedias: (makeMediaFile("image:I-2-500-50", 500, image(2, 500, 50))
+    :: makeMediaFile("image:I-3-400-50", 400, image(3, 400, 50))), gettingTag:
+    makeTag("dog"), gettingPosts: emptyMasIdList > 
+< bobMasClient : MasClient | thisAddr: bobMasClient, masServerAddr:
+    mastodonServer, requesterAddr: serverContentMgr, opStack: emptyOpStack,
+    postingMedia: emptyMediaFileList, postingMediaIds: emptyMasIdList,
+    postingText: "hashtag is #dog", gettingMediaUrls: emptyUrlList,
+    gettingMedias: (makeMediaFile("eimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50",
+    400, encode(image(1, 400, 50), efrag(efile(0, 400, 0, 4), 50, 0, 50), 1, 1,
+    1/6)) :: makeMediaFile("eimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50", 500,
+    encode(image(0, 500, 50), efrag(efile(0, 400, 0, 4), 100, 1, 50), 1, 1,
+    1/6)) :: makeMediaFile("eimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50", 400,
+    encode(image(1, 400, 50), efrag(efile(0, 400, 0, 4), 150, 2, 50), 1, 1,
+    1/6)) :: makeMediaFile("eimage:I-0-500-50:EF-0-400-0-4:FR-200-3-50", 500,
+    encode(image(0, 500, 50), efrag(efile(0, 400, 0, 4), 200, 3, 50), 1, 1,
+    1/6)) :: makeMediaFile("eimage:I-1-400-50:EF-0-400-0-4:FR-250-4-50", 400,
+    encode(image(1, 400, 50), efrag(efile(0, 400, 0, 4), 250, 4, 50), 1, 1,
+    1/6)) :: makeMediaFile("eimage:I-0-500-50:EF-0-400-0-4:FR-300-5-50", 500,
+    encode(image(0, 500, 50), efrag(efile(0, 400, 0, 4), 300, 5, 50), 1, 1,
+    1/6)) :: makeMediaFile("eimage:I-1-400-50:EF-0-400-0-4:FR-350-6-50", 400,
+    encode(image(1, 400, 50), efrag(efile(0, 400, 0, 4), 350, 6, 50), 1, 1,
+    1/6)) :: makeMediaFile("eimage:I-0-500-50:EF-0-400-0-4:FR-400-7-50", 500,
+    encode(image(0, 500, 50), efrag(efile(0, 400, 0, 4), 400, 7, 50), 1, 1,
+    1/6))), gettingTag: makeTag("person"), gettingPosts: emptyMasIdList > 
+< mastodonServer : MasServer | thisAddr: mastodonServer, currentMapId: 38,
+    tootMap: ((2 ~> makeToot("hashtag is #meow", url(
+    "randimage:I-0-500-50.com"), 1)) : (4 ~> makeToot("hashtag is #meow", url(
+    "randimage:I-2-500-50.com"), 3)) : (6 ~> makeToot("hashtag is #person",
+    url("randeimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50.com"), 5)) : (8 ~>
+    makeToot("hashtag is #cat", url("randimage:I-3-400-50.com"), 7)) : (10 ~>
+    makeToot("hashtag is #person", url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50.com"), 9)) : (12 ~>
+    makeToot("hashtag is #person", url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50.com"), 11)) : (14 ~>
+    makeToot("hashtag is #dog", url("randimage:I-2-500-50.com"), 13)) : (16 ~>
+    makeToot("hashtag is #orange", url("randimage:I-3-400-50.com"), 15)) : (18
+    ~> makeToot("hashtag is #purple", url("randimage:I-2-500-50.com"), 17)) : (
+    20 ~> makeToot("hashtag is #meow", url("randimage:I-3-400-50.com"), 19)) :
+    (22 ~> makeToot("hashtag is #person", url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-200-3-50.com"), 21)) : (24 ~>
+    makeToot("hashtag is #cat", url("randimage:I-2-500-50.com"), 23)) : (26 ~>
+    makeToot("hashtag is #person", url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-250-4-50.com"), 25)) : (28 ~>
+    makeToot("hashtag is #person", url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-300-5-50.com"), 27)) : (30 ~>
+    makeToot("hashtag is #person", url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-350-6-50.com"), 29)) : (32 ~>
+    makeToot("hashtag is #dog", url("randimage:I-3-400-50.com"), 31)) : (34 ~>
+    makeToot("hashtag is #person", url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-400-7-50.com"), 33)) : (36 ~>
+    makeToot("hashtag is #orange", url("randimage:I-1-400-50.com"), 35)) : 38
+    ~> makeToot("hashtag is #purple", url("randimage:I-0-500-50.com"), 37)),
+    mediaMap: ((1 ~>(makeMediaFile("image:I-0-500-50", 500, image(0, 500, 50)),
+    url("randimage:I-0-500-50.com"))) : (3 ~>(makeMediaFile("image:I-2-500-50",
+    500, image(2, 500, 50)), url("randimage:I-2-500-50.com"))) : (5 ~>(
+    makeMediaFile("eimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50", 400, encode(
+    image(1, 400, 50), efrag(efile(0, 400, 0, 4), 50, 0, 50), 1, 1, 1/6)), url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50.com"))) : (7 ~>(
+    makeMediaFile("image:I-3-400-50", 400, image(3, 400, 50)), url(
+    "randimage:I-3-400-50.com"))) : (9 ~>(makeMediaFile(
+    "eimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50", 500, encode(image(0, 500,
+    50), efrag(efile(0, 400, 0, 4), 100, 1, 50), 1, 1, 1/6)), url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50.com"))) : (11 ~>(
+    makeMediaFile("eimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50", 400, encode(
+    image(1, 400, 50), efrag(efile(0, 400, 0, 4), 150, 2, 50), 1, 1, 1/6)),
+    url("randeimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50.com"))) : (13 ~>(
+    makeMediaFile("image:I-2-500-50", 500, image(2, 500, 50)), url(
+    "randimage:I-2-500-50.com"))) : (15 ~>(makeMediaFile("image:I-3-400-50",
+    400, image(3, 400, 50)), url("randimage:I-3-400-50.com"))) : (17 ~>(
+    makeMediaFile("image:I-2-500-50", 500, image(2, 500, 50)), url(
+    "randimage:I-2-500-50.com"))) : (19 ~>(makeMediaFile("image:I-3-400-50",
+    400, image(3, 400, 50)), url("randimage:I-3-400-50.com"))) : (21 ~>(
+    makeMediaFile("eimage:I-0-500-50:EF-0-400-0-4:FR-200-3-50", 500, encode(
+    image(0, 500, 50), efrag(efile(0, 400, 0, 4), 200, 3, 50), 1, 1, 1/6)),
+    url("randeimage:I-0-500-50:EF-0-400-0-4:FR-200-3-50.com"))) : (23 ~>(
+    makeMediaFile("image:I-2-500-50", 500, image(2, 500, 50)), url(
+    "randimage:I-2-500-50.com"))) : (25 ~>(makeMediaFile(
+    "eimage:I-1-400-50:EF-0-400-0-4:FR-250-4-50", 400, encode(image(1, 400,
+    50), efrag(efile(0, 400, 0, 4), 250, 4, 50), 1, 1, 1/6)), url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-250-4-50.com"))) : (27 ~>(
+    makeMediaFile("eimage:I-0-500-50:EF-0-400-0-4:FR-300-5-50", 500, encode(
+    image(0, 500, 50), efrag(efile(0, 400, 0, 4), 300, 5, 50), 1, 1, 1/6)),
+    url("randeimage:I-0-500-50:EF-0-400-0-4:FR-300-5-50.com"))) : (29 ~>(
+    makeMediaFile("eimage:I-1-400-50:EF-0-400-0-4:FR-350-6-50", 400, encode(
+    image(1, 400, 50), efrag(efile(0, 400, 0, 4), 350, 6, 50), 1, 1, 1/6)),
+    url("randeimage:I-1-400-50:EF-0-400-0-4:FR-350-6-50.com"))) : (31 ~>(
+    makeMediaFile("image:I-3-400-50", 400, image(3, 400, 50)), url(
+    "randimage:I-3-400-50.com"))) : (33 ~>(makeMediaFile(
+    "eimage:I-0-500-50:EF-0-400-0-4:FR-400-7-50", 500, encode(image(0, 500,
+    50), efrag(efile(0, 400, 0, 4), 400, 7, 50), 1, 1, 1/6)), url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-400-7-50.com"))) : (35 ~>(
+    makeMediaFile("image:I-1-400-50", 400, image(1, 400, 50)), url(
+    "randimage:I-1-400-50.com"))) : 37 ~>(makeMediaFile("image:I-0-500-50",
+    500, image(0, 500, 50)), url("randimage:I-0-500-50.com"))), tagMap: ((
+    makeTag("cat") ~> 8 : 24) : (makeTag("dog") ~> 14 : 32) : (makeTag("meow")
+    ~> 2 : 4 : 20) : (makeTag("orange") ~> 16 : 36) : (makeTag("person") ~> 6 :
+    10 : 12 : 22 : 26 : 28 : 30 : 34) : makeTag("purple") ~> 18 : 38) > 
+< router : Router | rctr: 301 > 
+< adversary : Adversary | sent: nilTML, rcvd: (tm(1.5000084725173726, to
+    mastodonServer from aliceMasClient : makeHttpRequest(postRequest,
+    makeMediaFile("image:I-0-500-50", 500, image(0, 500, 50)))) ; tm(
+    1.5000084725173726, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, "hashtag is #meow", 1)) ; tm(
+    8.035871942065091, to mastodonServer from aliceMasClient : makeHttpRequest(
+    getRequest, makeTag("cat"))) ; tm(1.0000002975346053e+1, to mastodonServer
+    from bobMasClient : makeHttpRequest(postRequest, makeMediaFile(
+    "image:I-2-500-50", 500, image(2, 500, 50)))) ; tm(1.0000002975346053e+1,
+    to mastodonServer from bobMasClient : makeHttpRequest(postRequest,
+    "hashtag is #meow", 3)) ; tm(1.5732386176317627e+1, to mastodonServer from
+    aliceMasClient : makeHttpRequest(getRequest, makeTag("dog"))) ; tm(
+    2.3466052939422873e+1, to mastodonServer from aliceMasClient :
+    makeHttpRequest(getRequest, makeTag("orange"))) ; tm(4.323884415420568e+1,
+    to mastodonServer from aliceMasClient : makeHttpRequest(postRequest,
+    makeMediaFile("eimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50", 400, encode(
+    image(1, 400, 50), efrag(efile(0, 400, 0, 4), 50, 0, 50), 1, 1, 1/6)))) ;
+    tm(4.323884415420568e+1, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, "hashtag is #person", 5)) ; tm(
+    4.7207063274996081e+1, to mastodonServer from bobMasClient :
+    makeHttpRequest(postRequest, makeMediaFile("image:I-3-400-50", 400, image(
+    3, 400, 50)))) ; tm(4.7207063274996081e+1, to mastodonServer from
+    bobMasClient : makeHttpRequest(postRequest, "hashtag is #cat", 7)) ; tm(
+    4.9386393184893045e+1, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, makeMediaFile(
+    "eimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50", 500, encode(image(0, 500,
+    50), efrag(efile(0, 400, 0, 4), 100, 1, 50), 1, 1, 1/6)))) ; tm(
+    4.9386393184893045e+1, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, "hashtag is #person", 9)) ; tm(
+    5.3340562354867387e+1, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, makeTag("person"))) ; tm(5.3340562354867387e+1,
+    to mastodonServer from bobMasClient : makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50.com"))) ; tm(
+    5.3340562354867387e+1, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50.com"))) ; tm(
+    8.007987214291407e+1, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, makeMediaFile(
+    "eimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50", 400, encode(image(1, 400,
+    50), efrag(efile(0, 400, 0, 4), 150, 2, 50), 1, 1, 1/6)))) ; tm(
+    8.007987214291407e+1, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, "hashtag is #person", 11)) ; tm(
+    8.1357431975223847e+1, to mastodonServer from bobMasClient :
+    makeHttpRequest(postRequest, makeMediaFile("image:I-2-500-50", 500, image(
+    2, 500, 50)))) ; tm(8.1357431975223847e+1, to mastodonServer from
+    bobMasClient : makeHttpRequest(postRequest, "hashtag is #dog", 13)) ; tm(
+    8.7506247588170936e+1, to mastodonServer from bobMasClient :
+    makeHttpRequest(postRequest, makeMediaFile("image:I-3-400-50", 400, image(
+    3, 400, 50)))) ; tm(8.7506247588170936e+1, to mastodonServer from
+    bobMasClient : makeHttpRequest(postRequest, "hashtag is #orange", 15)) ;
+    tm(9.3689691734835932e+1, to mastodonServer from bobMasClient :
+    makeHttpRequest(postRequest, makeMediaFile("image:I-2-500-50", 500, image(
+    2, 500, 50)))) ; tm(9.3689691734835932e+1, to mastodonServer from
+    bobMasClient : makeHttpRequest(postRequest, "hashtag is #purple", 17)) ;
+    tm(9.573946282467567e+1, to mastodonServer from aliceMasClient :
+    makeHttpRequest(getRequest, makeTag("purple"))) ; tm(9.573946282467567e+1,
+    to mastodonServer from aliceMasClient : makeHttpRequest(getRequest, url(
+    "randimage:I-2-500-50.com"))) ; tm(1.0000429741155365e+2, to mastodonServer
+    from bobMasClient : makeHttpRequest(getRequest, makeTag("person"))) ; tm(
+    1.0000429741155365e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50.com"))) ; tm(
+    1.0000429741155365e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50.com"))) ; tm(
+    1.0000429741155365e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50.com"))) ; tm(
+    1.1225510853552608e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(postRequest, makeMediaFile("image:I-3-400-50", 400, image(
+    3, 400, 50)))) ; tm(1.1225510853552608e+2, to mastodonServer from
+    bobMasClient : makeHttpRequest(postRequest, "hashtag is #meow", 19)) ; tm(
+    1.2844031000195679e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(getRequest, makeTag("meow"))) ; tm(1.2844031000195679e+2,
+    to mastodonServer from aliceMasClient : makeHttpRequest(getRequest, url(
+    "randimage:I-0-500-50.com"))) ; tm(1.2844031000195679e+2, to mastodonServer
+    from aliceMasClient : makeHttpRequest(getRequest, url(
+    "randimage:I-2-500-50.com"))) ; tm(1.2844031000195679e+2, to mastodonServer
+    from aliceMasClient : makeHttpRequest(getRequest, url(
+    "randimage:I-3-400-50.com"))) ; tm(1.5156614218662895e+2, to mastodonServer
+    from bobMasClient : makeHttpRequest(getRequest, makeTag("person"))) ; tm(
+    1.5156614218662895e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50.com"))) ; tm(
+    1.5156614218662895e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50.com"))) ; tm(
+    1.5156614218662895e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50.com"))) ; tm(
+    1.545323979642705e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, makeMediaFile(
+    "eimage:I-0-500-50:EF-0-400-0-4:FR-200-3-50", 500, encode(image(0, 500,
+    50), efrag(efile(0, 400, 0, 4), 200, 3, 50), 1, 1, 1/6)))) ; tm(
+    1.545323979642705e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, "hashtag is #person", 21)) ; tm(
+    1.6297697335482292e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, makeTag("person"))) ; tm(1.6297697335482292e+2,
+    to mastodonServer from bobMasClient : makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50.com"))) ; tm(
+    1.6297697335482292e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50.com"))) ; tm(
+    1.6297697335482292e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50.com"))) ; tm(
+    1.6297697335482292e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-200-3-50.com"))) ; tm(
+    1.7687913035203357e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(getRequest, makeTag("cat"))) ; tm(1.7687913035203357e+2, to
+    mastodonServer from aliceMasClient : makeHttpRequest(getRequest, url(
+    "randimage:I-3-400-50.com"))) ; tm(1.8241565142509234e+2, to mastodonServer
+    from bobMasClient : makeHttpRequest(postRequest, makeMediaFile(
+    "image:I-2-500-50", 500, image(2, 500, 50)))) ; tm(1.8241565142509234e+2,
+    to mastodonServer from bobMasClient : makeHttpRequest(postRequest,
+    "hashtag is #cat", 23)) ; tm(1.8859090597065946e+2, to mastodonServer from
+    bobMasClient : makeHttpRequest(getRequest, makeTag("person"))) ; tm(
+    1.8859090597065946e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50.com"))) ; tm(
+    1.8859090597065946e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50.com"))) ; tm(
+    1.8859090597065946e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50.com"))) ; tm(
+    1.8859090597065946e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-200-3-50.com"))) ; tm(
+    1.9718716174087859e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, makeMediaFile(
+    "eimage:I-1-400-50:EF-0-400-0-4:FR-250-4-50", 400, encode(image(1, 400,
+    50), efrag(efile(0, 400, 0, 4), 250, 4, 50), 1, 1, 1/6)))) ; tm(
+    1.9718716174087859e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, "hashtag is #person", 25)) ; tm(
+    2.2767646279820468e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, makeMediaFile(
+    "eimage:I-0-500-50:EF-0-400-0-4:FR-300-5-50", 500, encode(image(0, 500,
+    50), efrag(efile(0, 400, 0, 4), 300, 5, 50), 1, 1, 1/6)))) ; tm(
+    2.2767646279820468e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, "hashtag is #person", 27)) ; tm(
+    2.2780809846842615e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, makeTag("person"))) ; tm(2.2780809846842615e+2,
+    to mastodonServer from bobMasClient : makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50.com"))) ; tm(
+    2.2780809846842615e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50.com"))) ; tm(
+    2.2780809846842615e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50.com"))) ; tm(
+    2.2780809846842615e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-200-3-50.com"))) ; tm(
+    2.2780809846842615e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-250-4-50.com"))) ; tm(
+    2.2780809846842615e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-300-5-50.com"))) ; tm(
+    2.4788293295539665e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, makeMediaFile(
+    "eimage:I-1-400-50:EF-0-400-0-4:FR-350-6-50", 400, encode(image(1, 400,
+    50), efrag(efile(0, 400, 0, 4), 350, 6, 50), 1, 1, 1/6)))) ; tm(
+    2.4788293295539665e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, "hashtag is #person", 29)) ; tm(
+    2.4805905940971556e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(postRequest, makeMediaFile("image:I-3-400-50", 400, image(
+    3, 400, 50)))) ; tm(2.4805905940971556e+2, to mastodonServer from
+    bobMasClient : makeHttpRequest(postRequest, "hashtag is #dog", 31)) ; tm(
+    2.5527229210599378e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, makeTag("person"))) ; tm(2.5527229210599378e+2,
+    to mastodonServer from bobMasClient : makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50.com"))) ; tm(
+    2.5527229210599378e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50.com"))) ; tm(
+    2.5527229210599378e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50.com"))) ; tm(
+    2.5527229210599378e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-200-3-50.com"))) ; tm(
+    2.5527229210599378e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-250-4-50.com"))) ; tm(
+    2.5527229210599378e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-300-5-50.com"))) ; tm(
+    2.5527229210599378e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-350-6-50.com"))) ; tm(
+    2.6140955739368798e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(getRequest, makeTag("dog"))) ; tm(2.6140955739368798e+2, to
+    mastodonServer from aliceMasClient : makeHttpRequest(getRequest, url(
+    "randimage:I-2-500-50.com"))) ; tm(2.6140955739368798e+2, to mastodonServer
+    from aliceMasClient : makeHttpRequest(getRequest, url(
+    "randimage:I-3-400-50.com"))) ; tm(2.6976019994829107e+2, to mastodonServer
+    from aliceMasClient : makeHttpRequest(postRequest, makeMediaFile(
+    "eimage:I-0-500-50:EF-0-400-0-4:FR-400-7-50", 500, encode(image(0, 500,
+    50), efrag(efile(0, 400, 0, 4), 400, 7, 50), 1, 1, 1/6)))) ; tm(
+    2.6976019994829107e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, "hashtag is #person", 33)) ; tm(
+    2.8336275290778093e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, makeMediaFile("image:I-1-400-50", 400, image(
+    1, 400, 50)))) ; tm(2.8336275290778093e+2, to mastodonServer from
+    aliceMasClient : makeHttpRequest(postRequest, "hashtag is #orange", 35)) ;
+    tm(2.9488823106436598e+2, to mastodonServer from aliceMasClient :
+    makeHttpRequest(postRequest, makeMediaFile("image:I-0-500-50", 500, image(
+    0, 500, 50)))) ; tm(2.9488823106436598e+2, to mastodonServer from
+    aliceMasClient : makeHttpRequest(postRequest, "hashtag is #purple", 37)) ;
+    tm(2.9722887209003477e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, makeTag("person"))) ; tm(2.9722887209003477e+2,
+    to mastodonServer from bobMasClient : makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-50-0-50.com"))) ; tm(
+    2.9722887209003477e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-100-1-50.com"))) ; tm(
+    2.9722887209003477e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-150-2-50.com"))) ; tm(
+    2.9722887209003477e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-200-3-50.com"))) ; tm(
+    2.9722887209003477e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-250-4-50.com"))) ; tm(
+    2.9722887209003477e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-300-5-50.com"))) ; tm(
+    2.9722887209003477e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-1-400-50:EF-0-400-0-4:FR-350-6-50.com"))) ; tm(
+    2.9722887209003477e+2, to mastodonServer from bobMasClient :
+    makeHttpRequest(getRequest, url(
+    "randeimage:I-0-500-50:EF-0-400-0-4:FR-400-7-50.com")))), canSeeS: mtObs,
+    canSeeR: pat(mastodonServer, "addr") > 
+< umDAddr : UM | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |->
+    "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |->
+    5.0e-1), "wait_single" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1)),
+    actions: ("batch" |-> jo(("num_to_resolve" |-> jo(("max" |-> jn(10), "min"
+    |-> jn(2), "random" |-> js("uniform"))), "type" |-> js(
+    "resolve_a_batch"))), "single" |-> jo(("start" |-> jb(true), "type" |-> js(
+    "resolve_a"))), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1),
+    "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait"))),
+    "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |->
+    js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait")))), curState:
+    "batch", nsteps: 72, actAddress: dnsTAddr, w4: (to umDAddr from umDAddr :
+    actionR("ok")), default: "single", mSum: ("batch" |-> 1.0, "single" |->
+    1.0, "wait_batch" |-> 1.0, "wait_single" |-> 1.0) >
+< dnsTAddr : DNSTgen | nameDb: ('www . 'internet.
+  'com . root
+  'www0 . 'internet . 'com . root
+  'www1 . 'internet . 'com . root
+  'www2 . 'internet . 'com . root), lenNameDB: 5, retryTO: 5.0, retryMax: 2,
+    dnsRsv: local-dns, nRetry: 2, numQ: 0, ctr: 39, w4: noQuery, replyTo: null
+    >
+< mtgA : MASTgen | replyTo: null, numBHashTags: 5, hashtagMap: (0 |-> "meow", 1
+    |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA,
+    w4c: null, imageL: (image(0, 500, 50) :: image(1, 500, 60)), numImages: 2 >
+.
+
+  op myMon : -> Actor .
+  eq myMon =
+< monAddr : WMonitor |
+  pktSent: (
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 1.7) ;
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 2.7) ;
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 3.7) ;
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 4.7) ;
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 5.7) ;
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 6.7) ;
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 7.7) ;
+    packetTimestamp(packet(iodineBob, iodineAlice, ackFile("OK", hashTag( "person")), 0, 41, true), 2.9722887209003477e+2) ;
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 300.0) 
+		),
+  pktRcvd: (
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 1.8630658052729672) ; 
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 2.8630658052729672) ; 
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 3.8630658052729672) ; 
+		packetTimestamp(packet(iodineAlice, iodineBob, ccFile(key(0, 4), hash(file(0, 400), 4), hashTag("person")), 0, 43, true), 4.8630658052729672) ; 
+		packetTimestamp(packet(iodineBob, iodineAlice, ackFile("OK", hashTag("person")), 0, 41, true), 2.1790838479826795e+2) ;
+		packetTimestamp(packet(iodineBob, iodineAlice, ackFile("OK", hashTag("person")), 0, 41, true), 2.2790838479826795e+2) ;
+		packetTimestamp(packet(iodineBob, iodineAlice, ackFile("OK", hashTag("person")), 0, 41, true), 2.3790838479826795e+2) ;
+		packetTimestamp(packet(iodineBob, iodineAlice, ackFile("OK", hashTag("person")), 0, 41, true), 2.4790838479826795e+2) ;
+		packetTimestamp(packet(iodineBob, iodineAlice, ackFile("OK", hashTag("person")), 0, 41, true), 2.5790838479826795e+2) ;
+		packetTimestamp(packet(iodineBob, iodineAlice, ackFile("OK", hashTag("person")), 0, 41, true), 2.9790838479826795e+2) ;
+		packetTimestamp(packet(iodineBob, iodineAlice, ackFile("BAD", hashTag("person")), 0, 41, true), 3.9790838479826795e+2)
+   ), 
+  querySent: nilQueryTimestamp,
+  queryRcvd: nilQueryTimestamp >
+.
+
+endm
+
+load smc
+set print attribute on .
+red getLatency(getMonitor(myIC)) == 2.9620838479826796e+2 .
+red getLatencyCP2(myMon) == 2.9620838479826796e+2 .
+
