@@ -202,40 +202,14 @@ op initState :
 
 eq initState (umADDR,dnsTADDR,dnsMA) =
 --- Initial configuration
-  --- Client start messages
-  --- Clients
-  --- Resolvers
   rCtr(1) 
-  < public-dns : Resolver |
-    cache: resolverCache,
-    nxdomainCache: nilNxdomainCache,
-    nodataCache: nilNodataCache,
-    sbelt: sb,
-    workBudget: emptyIN,
-    blockedQueries: eptQSS,
-    sentQueries: eptQSS >
+  --- Resolver
+  mkResolver(public-dns, resolverCache, sb)
   --- Nameservers
-  < root-dns : Nameserver |
-    db: (zone),
-    queue: nilQueue,
-    forwardonly: nullAddr,
-    queriesFwd: nilTAQL >
-  < tld-dns : Nameserver |
-    db: (zoneCom),
-    queue: nilQueue,
-    forwardonly: nullAddr,
-    queriesFwd: nilTAQL >
-  < internet-dns : Nameserver |
-    db: (zoneInternetCom),
-    queue: nilQueue,
-    forwardonly: nullAddr,
-    queriesFwd: nilTAQL >
-  < local-dns : Nameserver |
-    db: (zoneCorporateCom),
-    queue: nilQueue,
-***!!!    forwardonly: public-dns,
-    forwardonly: X(public-dns),
-    queriesFwd: nilTAQL >
+  mkNameServer(root-dns, zone, nullAddr)
+  mkNameServer(tld-dns, zoneCom, nullAddr)
+  mkNameServer(internet-dns, zoneInternetCom, nullAddr)
+  mkNameServer(local-dns, zoneCorporateCom, X(public-dns))
   --- tunnels
   ----- Iodine
   makeWClient(iodine-client, local-dns, 'pwnd . 'com . root, a, 0.0)
@@ -255,31 +229,10 @@ eq initState (umADDR,dnsTADDR,dnsMA) =
   makeTxApp(aliceapp, bobapp, iodineAlice, clientUserModel, clientContentMgr, file(0, 400))
   makeRxApp(bobapp, iodineBob, serverUserModel, serverContentMgr)
   ----- Iodine apps
-  < iodineAlice : SendApp |
-      fileDestAddr: iodineBob,
-      toAddr: (iodine-client),
-      queuePopulated: false,
-      queue: (mtpl),
-      numAdmittedPkts: 1,
-      iodineReady: true,
-      sent: mtpl,
-      rcvd: mtpl > 
-  < iodineBob : RcvApp |
-      rcvd: mtpl,
-      fileDestAddr: bobapp,
-      fileSrcAddr: iodineAlice,
-      toAddr: iodine-server,
-      queuePopulated: true,
-      queue: (mtpl),
-      numAdmittedPkts: 1,
-      iodineReady: true,
-      sent: mtpl >
+  mkSendApp(iodineAlice, iodineBob, iodine-client)
+  mkRcvApp(iodineBob, iodineAlice, bobapp, iodine-server)
   --- WMonitor
-  < monAddr : WMonitor |
-    querySent: nilQueryTimestamp,
-    queryRcvd: nilQueryTimestamp,
-    pktSent: nilPacketTimestamp,
-    pktRcvd: nilPacketTimestamp >
+  makeMonitor(monAddr)
 ***!!!
   mkRouter(router)    
   mkAdversary(adversary,ObsS,ObsR)

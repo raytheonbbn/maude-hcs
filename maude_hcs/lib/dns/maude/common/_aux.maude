@@ -308,6 +308,8 @@ mod IODINE_NODE is
   var downstreamdata : RData .
   var sTTL : Float .
   vars FILE : ByteSeq .
+  var rcache : Cache .
+  var sb : ZoneState .
 
 --------  Nesting/Meta configuration  attribute
   op conf:_ : Config -> Attribute [ctor] .
@@ -339,6 +341,20 @@ mod IODINE_NODE is
   op iodineReady:_ : Bool -> Attribute [ctor] .
   --- The per-packet overhead in bytes.
   op packetOverhead : -> Nat .
+
+  **** constructor for making send app actor
+  ----          sndActorAddr rcvActorAddr toAddr
+  op mkSendApp : Address Address Address -> Actor [ctor] .
+  eq mkSendApp(AliceAddr, ADDR, TO_ADDR) =
+    < AliceAddr : SendApp |
+      fileDestAddr: ADDR,
+      toAddr: TO_ADDR,
+      queuePopulated: false,
+      queue: mtpl,
+      numAdmittedPkts: 1,
+      iodineReady: true,
+      sent: mtpl,
+      rcvd: mtpl > .
 
   ---  Returns the address we're sending files to (typically the iodine client address)
   op getToAddr : AttributeSet -> Address .
@@ -403,9 +419,19 @@ mod IODINE_NODE is
   op iodineReady:_ : Bool -> Attribute [ctor] .
 
   **** constructor for making receiver app actor
-  op mkRcvApp : Address  -> Actor [ctor] .  
-  eq mkRcvApp(BobAddr) =
-    < BobAddr : RcvApp | rcvd: mtpl > .  
+  ----          rcvActorAddr sndActorAddr fileDestAddr iodineSrvrAddr
+  op mkRcvApp : Address Address Address Address -> Actor [ctor] .
+  eq mkRcvApp(BobAddr, ADDR, ADDR1, TO_ADDR) =
+    < BobAddr : RcvApp |
+      rcvd: mtpl,
+      fileDestAddr: ADDR1,
+      fileSrcAddr: ADDR,
+      toAddr: TO_ADDR,
+      queuePopulated: true,
+      queue: mtpl,
+      numAdmittedPkts: 1,
+      iodineReady: true,
+      sent: mtpl > .
 
   ----------------
   --- [WCLIENT] ---  Client wrapper  -- alternate view
@@ -687,16 +713,27 @@ mod IODINE_NODE is
         numAttempts: 0,
         lastFragment: false,
         severWResponseTTL: sTTL,
-        conf: mkNameServer(ADDR, db)
+        conf: mkNameServer(ADDR, db, nullAddr)
     > .
 
-  op mkNameServer : Address List{Record}  -> Actor [ctor] .  
-  eq mkNameServer(ADDR, db) =
+  op mkNameServer : Address List{Record} Address  -> Actor [ctor] .
+  eq mkNameServer(ADDR, db, ADDR1) =
     < ADDR : Nameserver |
       db: db,
       queue: nilQueue,
-      forwardonly: nullAddr,
+      forwardonly: ADDR1,
       queriesFwd: nilTAQL >  .
+
+  op mkResolver : Address Cache ZoneState -> Actor .
+  eq mkResolver(ADDR, rcache, sb) =
+      < ADDR : Resolver |
+        cache: rcache,
+        nxdomainCache: nilNxdomainCache,
+        nodataCache: nilNodataCache,
+        sbelt: sb,
+        workBudget: emptyIN,
+        blockedQueries: eptQSS,
+        sentQueries: eptQSS > .
 
   op isWeird : AttributeSet Msg -> Bool .
   ceq isWeird(wattrs, msg) = true
