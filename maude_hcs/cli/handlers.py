@@ -32,6 +32,7 @@ from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
 from maude_hcs.lib import GLOBALS
 from maude_hcs.parsers.configfactory import buildHCSConfig
+from maude_hcs.lib.common.markovJsonToMaudeParser import process_directories
 
 import logging
 from pathlib import Path
@@ -42,13 +43,15 @@ import maude
 
 logger = logging.getLogger(__name__)
 
+MARKOV_NAME = 'markov'
 GENERATE_NAME = 'generate'
 SCHECK_NAME = 'scheck'
 
 def handle_command(command, parser, args):
     handlers = {
         GENERATE_NAME: handle_generate,
-        SCHECK_NAME: handle_scheck
+        SCHECK_NAME: handle_scheck,
+        MARKOV_NAME: handle_markov
     }
 
     if command in handlers:
@@ -84,3 +87,7 @@ def handle_scheck(args, parser):
     maude.init(advise=args.advise)
     maude.load(args.test)
     result = scheck(args)
+
+def handle_markov(args, parser):
+    logger.debug("Handle maude markov")
+    process_directories(args.json-dir, args.maude-dir)

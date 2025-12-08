@@ -2,7 +2,7 @@ import pytest
 import os
 import sys
 from pathlib import Path
-from maude_hcs.lib.common.markovJsonToMaudeParser import JsonToMaudeParser
+from maude_hcs.lib.common.markovJsonToMaudeParser import JsonToMaudeParser, calculate_relative_load_path
 
 
 # ==========================================
@@ -136,7 +136,7 @@ def test_json_to_maude_generation():
     expected_maude = EXPECTED_MAUDE_STRING
 
     # Generate Output
-    parser = JsonToMaudeParser(model_name="dns")
+    parser = JsonToMaudeParser(model_name="dns", load_path="../../../common/maude/markov-action-model.maude")
     generated_maude = parser.generate(json_content)
 
     with open(EXAMPLE_FILE_PATH, 'w', encoding='utf-8') as f:
@@ -150,3 +150,13 @@ def test_json_to_maude_generation():
     mismatch_error = find_mismatch(gen_tokens, exp_tokens)
 
     assert mismatch_error is None, f"Generated Maude code does not match expected output.\n{mismatch_error}"
+
+def test_relative_path_calc():
+    load_path="lib/common/maude/markov-action-model.maude"
+    output_path = "/Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/mastodon/maude/probabilistic/file.maude"
+    rel = calculate_relative_load_path(output_path, load_path)
+    assert rel == "../../../common/maude/markov-action-model.maude", f"{rel} is incorrect"
+
+    output_path = "/Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/mastodon/maude/probabilistic/onemore/file.maude"
+    rel = calculate_relative_load_path(output_path, load_path)
+    assert rel == "../../../../common/maude/markov-action-model.maude", f"{rel} is incorrect"
