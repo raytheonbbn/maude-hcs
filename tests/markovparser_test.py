@@ -136,7 +136,7 @@ def test_json_to_maude_generation():
     expected_maude = EXPECTED_MAUDE_STRING
 
     # Generate Output
-    parser = JsonToMaudeParser(model_name="dns", load_path="../../../common/maude/markov-action-model.maude")
+    parser = JsonToMaudeParser(model_name="dns", stem="dns", load_path="../../../common/maude/markov-action-model.maude")
     generated_maude = parser.generate(json_content)
 
     with open(EXAMPLE_FILE_PATH, 'w', encoding='utf-8') as f:
