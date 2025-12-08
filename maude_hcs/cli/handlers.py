@@ -90,4 +90,4 @@ def handle_scheck(args, parser):
 
 def handle_markov(args, parser):
     logger.debug("Handle maude markov")
-    process_directories(args.json-dir, args.maude-dir)
+    process_directories(args, args.json_dir, args.maude_dir)

@@ -61,8 +61,6 @@ def init_logging(verbose):
 def is_valid_file(parser, arg):
     if not os.path.exists(arg):
         parser.error("The file {} does not exist".format(arg))
-    else:
-        return open(arg, 'r')
 
 def add_initial_data_args(parser):
   """Arguments for the basic input data of a model-checking problem"""
@@ -105,14 +103,19 @@ def add_initial_data_args(parser):
 def build_cli_parser():
     parser = argparse.ArgumentParser("maude-hcs")
     parser.add_argument('--verbose', action='store_true', help='turn on logging')
+    parser.add_argument('--protocol', dest='protocol', required=True,
+                 choices=GLOBALS.MODULES,
+                 default=GLOBALS.MODULES[0],
+                 help=f'Choose one of the following options: {", ".join(GLOBALS.MODULES)}. Default is {GLOBALS.MODULES[0]}.'
+                 )
 
     cmd_parser = parser.add_subparsers(title='command', dest='command')
     cmd_parser.required = True
 
     markov_parser = cmd_parser.add_parser('markov')
-    markov_parser.add_argument('--json-dir', dest='json-dir', type=lambda x: is_valid_file(parser, x),
+    markov_parser.add_argument('--json-dir', dest='json_dir',
                                  required=True, help=f'Directory containing all of the markov json files')
-    markov_parser.add_argument('--maude-dir', dest='maude-dir', type=lambda x: is_valid_file(parser, x),
+    markov_parser.add_argument('--maude-dir', dest='maude_dir',
                                required=True, help=f'Directory where the output maude files be be placed')
 
     generate_parser = cmd_parser.add_parser('generate')
@@ -130,11 +133,6 @@ def build_cli_parser():
             choices=GLOBALS.MODEL_TYPES,
             default=GLOBALS.MODEL_TYPES[0],
             help=f'Choose one of the following options: {", ".join(GLOBALS.MODEL_TYPES)}. Default is {GLOBALS.MODEL_TYPES[0]}.'
-    )
-    generate_parser.add_argument('--protocol', dest='protocol', required=False,
-            choices=GLOBALS.MODULES,
-            default=GLOBALS.MODULES[0],
-            help=f'Choose one of the following options: {", ".join(GLOBALS.MODULES)}. Default is {GLOBALS.MODULES[0]}.'
     )
 
     parser_scheck = cmd_parser.add_parser('scheck')

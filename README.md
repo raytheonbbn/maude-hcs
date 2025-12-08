@@ -89,6 +89,32 @@ cd ../../../
 pip install -e .
 ```
 
+# Auto generate user models
+
+User models are markov models intended to represent how users behave.
+These are given in json format. 
+The first step is to convert these to formal maude representations.
+
+To do so, specify the 
+ - protocol: dns or mastodon 
+ -  input directory containing all the json models that you want to convert
+ - output directory that will contain all the maude versions of the json models
+
+For example,
+```shell
+# convert dns tgen user models
+ maude-hcs --verbose \ 
+    --protocol=dns markov \
+    --json-dir=../pwnd-cp2/src/static/tgen_models/dns/ \ 
+    --maude-dir=./maude_hcs/lib/dns/maude/probabilistic/markov/
+    
+# convert mastodon tgen models
+maude-hcs --verbose \
+    --protocol=mastodon markov \
+    --json-dir=../pwnd-cp2/src/static/tgen_models/mastodon \
+    --maude-dir=./maude_hcs/lib/mastodon/maude/probabilistic/markov/
+```
+
 # Auto generate configurations
 
 For now we can generate initial configurations using `generate` command.
