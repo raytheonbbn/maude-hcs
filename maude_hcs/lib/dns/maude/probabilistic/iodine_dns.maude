@@ -28,16 +28,20 @@
 ---
 --- MAUDE_HCS: end
 
-load ../../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
-load wmonitor
-load parameters
+set show advisories off .
+
+sload ../../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
+sload wmonitor
+sload parameters
 
 --- DNS includes AUX + MSG + PARAMETERS .
 mod IODINE_DNS is
   inc DNS + WMONITOR + IODINE-PARAMETERS .
 
   vars ADDR ADDR1 ADDR2 NS RESOLVER ALICE BOB CLIENT : Address .
+  vars FROM_ADDR TO_ADDR : Address .
   var RCODE : Nat .
+  vars OUT_SEQNO P_LEN : Nat .
   vars ANS AUTH ADD : List{Record} .
   vars wattrs wattrs1 wattrs2 wattrsNext wattrsTrans wattrsTrans' appAttrs appAttrs1 appAttrsTrans appAttrsNext : AttributeSet .
   vars monAttrs : AttributeSet .
@@ -72,6 +76,7 @@ mod IODINE_DNS is
   vars IN_SEQNO IN_FRAGNO : Nat .
   vars DELAY DELAY2 : Float .
   var IS_PERIODIC : Bool .
+  vars LAST_PACKET : Bool .
 
   op fileSize : -> Nat .
   op packetSize : -> Nat .
@@ -79,6 +84,7 @@ mod IODINE_DNS is
   op pingInterval : -> Float .
   op initialPingDelay : -> Float .
   op receiveToPingDelay : -> Float .
+  
 
   --------------------------------
   --- [WNameserver] --- Weird/wrapped Nameserver Rules
@@ -334,14 +340,20 @@ crl [wnameserver-receive-query-weird]:
         [print "(" T ") SendApp start or nudge from wclient, send possible pkt " msgOut ", setting timeout if not null.  Has packets to send " appAttrsNext]
   .
 
+
   ---- Alice handling fully assembled packets from the client, sent by Bob
-  rl [send-app-rcv-packet]:
-    < ADDR : SendApp | rcvd: PACKETS, appAttrs >
+  crl [send-app-rcv-packet]:
+    < ADDR : SendApp | rcvd: PACKETS, fromAddr: ADDR2,  appAttrs >
     < MON : WMonitor | pktRcvd: PTL, monAttrs >
     {T, (to ADDR from ADDR1 : Pkt)}
   => 
-    < ADDR : SendApp | rcvd: (Pkt ; PACKETS), appAttrs >
+    < ADDR : SendApp | rcvd: (Pkt ; PACKETS), 
+                        fromAddr: ADDR2,  appAttrs >
     < MON : WMonitor | pktRcvd: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
+    [delayParamd(msg),msg,0]
+    if packet(FROM_ADDR, TO_ADDR, FILE, 
+              OUT_SEQNO, P_LEN, LAST_PACKET) := Pkt
+    /\ msg := (to ADDR2 from ADDR :  FILE)
     [print "(" T ") Alice received complete packet from Bob: " Pkt]
   .
 
@@ -371,11 +383,13 @@ crl [wnameserver-receive-query-weird]:
   --- Handle receiving a file to send over Iodine.
   --- ***
   rl [send-app-handle-file]:
-    < ALICE : SendApp | appAttrs, fileDestAddr: ADDR, queuePopulated: false >
+    < ALICE : SendApp | appAttrs, fileDestAddr: ADDR > 
+    **** , fileDestAddr: ADDR, queuePopulated: false 
     {T, (to ALICE from ADDR1 : FILE)}
   =>
-    < ALICE : SendApp | packetizeProb((appAttrs, fileDestAddr: ADDR, queuePopulated: true),
-                                      ALICE, ADDR, FILE, packetSize, maxPacketSize) >
+    < ALICE : SendApp | packetizeProb((appAttrs, fileDestAddr: ADDR),
+              ALICE, ADDR, FILE, packetSize, maxPacketSize) >
+    **** (appAttrs, fileDestAddr: ADDR, queuePopulated: true),
     [0., (to ALICE : start), 0]
     [print "(" T ") SendApp handling file " FILE ]
     .
