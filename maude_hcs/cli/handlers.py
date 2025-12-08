@@ -32,7 +32,7 @@ from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
 from maude_hcs.lib import GLOBALS
 from maude_hcs.parsers.configfactory import buildHCSConfig
-from maude_hcs.lib.common.markovJsonToMaudeParser import process_directories
+from maude_hcs.parsers.markovJsonToMaudeParser import process_directories
 
 import logging
 from pathlib import Path

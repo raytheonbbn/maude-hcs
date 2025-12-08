@@ -2,7 +2,7 @@ import pytest
 import os
 import sys
 from pathlib import Path
-from maude_hcs.lib.common.markovJsonToMaudeParser import JsonToMaudeParser, calculate_relative_load_path
+from maude_hcs.parsers.markovJsonToMaudeParser import JsonToMaudeParser, calculate_relative_load_path
 
 
 # ==========================================
