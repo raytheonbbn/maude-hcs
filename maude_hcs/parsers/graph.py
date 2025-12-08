@@ -31,6 +31,7 @@
 
 from dataclasses import dataclass, field
 import json
+import yaml
 from dataclasses_json import dataclass_json
 import networkx as nx
 import logging
@@ -114,7 +115,16 @@ class Topology:
           raise ValueError("Missing or malformatted information")
         links.append(Link(src_id=u_id, src_label=source_label, dst_id=v_id, dst_label=target_label, label=edge_data.get("label",''), latency=latency_value, jitter=jitter_value, loss=loss_value))
       return Topology(isDirected=False, nodes=nodes, links=links)
-    
+
+    @staticmethod
+    def from_yml(yml_path: str):
+        """
+        Creates a Topology object from a YAML setup file.
+        """
+        nodes, links = parse_setup_yml(yml_path)
+        # Assuming the YAML represents a directed graph based on src/dst structure
+        return Topology(isDirected=True, nodes=nodes, links=links)
+
     def save(self, full_path: str):
       formatted = json.dumps(self.to_dict(), indent=4)
       with open(full_path, 'w') as f:
@@ -216,6 +226,105 @@ def parse_shadow_gml(gml_path: str) -> nx.DiGraph:
         logging.error(f"An unexpected error occurred during GML parsing of '{gml_path}': {e}")
         raise # Re-raise any other exceptions
 
+
+def parse_setup_yml(yml_path: str):
+    """
+    Parses a YAML setup file to extract topology information.
+
+    Reads 'network_section' and 'weird_network_section' to create Node and Link objects.
+    Since the YAML does not explicitly define nodes with IDs/IPs, nodes are inferred
+    from link sources and destinations. Arbitrary IDs are assigned, and missing
+    attributes (IP, bandwidth) are set to defaults.
+
+    Args:
+        yml_path: Path to the .yml configuration file.
+
+    Returns:
+        tuple: (list[Node], list[Link])
+    """
+    logging.info(f"Attempting to parse YAML file: {yml_path}")
+
+    with open(yml_path, 'r') as f:
+        try:
+            data = yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            logging.error(f"Error parsing YAML: {exc}")
+            raise
+
+    nodes_map = {}  # Map label -> Node object
+    links = []
+
+    # Sections to parse
+    sections_to_parse = [
+        data.get('network_section', []),
+        data.get('weird_network_section', [])
+    ]
+
+    # Combine lists, filtering out None if a section is missing
+    all_link_entries = [entry for section in sections_to_parse if section for entry in section]
+
+    next_node_id = 0
+
+    def get_or_create_node(label):
+        nonlocal next_node_id
+        if label not in nodes_map:
+            # Create a new node with default values for missing fields
+            # The label is used for both label and address (replacing _ with -)
+            clean_address = label.replace('_', '-')
+            new_node = Node(
+                id=next_node_id,
+                label=label,
+                address=clean_address,
+                ip_address="",  # Default/Empty as not provided in YAML
+                host_bandwidth_up="1 Gbit",  # Default
+                host_bandwidth_down="1 Gbit"  # Default
+            )
+            nodes_map[label] = new_node
+            next_node_id += 1
+        return nodes_map[label]
+
+    for entry in all_link_entries:
+        src_label = entry.get('src')
+        dst_label = entry.get('dst')
+        net_params = entry.get('net_params', {})
+
+        if not src_label or not dst_label:
+            logging.warning(f"Skipping entry due to missing src or dst: {entry}")
+            continue
+
+        # Get or create nodes
+        src_node = get_or_create_node(src_label)
+        dst_node = get_or_create_node(dst_label)
+
+        # Parse Link params
+        latency_str = net_params.get('latency', "0ms")
+        jitter_str = net_params.get('jitter', "0ms")
+        loss_val = net_params.get('loss', 0.0)
+
+        try:
+            latency = parse_latency_str(latency_str)
+            jitter = parse_latency_str(jitter_str)
+            # Handle loss if it's a string or float
+            loss = parse_loss_str(str(loss_val))
+        except ValueError as e:
+            logging.error(f"Error parsing link params for {src_label}->{dst_label}: {e}")
+            continue
+
+        link_label = f"from {src_label} to {dst_label}"
+
+        links.append(Link(
+            src_id=src_node.id,
+            src_label=src_label,
+            dst_id=dst_node.id,
+            dst_label=dst_label,
+            label=link_label,
+            latency=latency,
+            jitter=jitter,
+            loss=loss
+        ))
+
+    logging.info(f"Successfully parsed YAML. Found {len(nodes_map)} nodes and {len(links)} links.")
+    return list(nodes_map.values()), links
 
 def get_node_names(graph: nx.DiGraph) -> list:
   """
