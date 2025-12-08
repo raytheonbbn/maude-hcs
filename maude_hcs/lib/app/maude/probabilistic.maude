@@ -30,6 +30,7 @@
 
 set show advisories off .
 
+<<<<<<< HEAD
 **** sload ../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
 sload ../../common/maude/_aux
 sload ../../common/maude/cp2-interfaces
@@ -40,6 +41,15 @@ sload ../../raceboat/rb-integration.maude
 mod CP2_APP is
 **** inc IODINE_DNS .
   inc WMONITOR .
+=======
+sload ../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
+sload ../../common/maude/_aux
+sload ../../raceboat/rb-integration
+sload ../../dns/maude/probabilistic/iodine_dns
+
+mod CP2_APP is
+  inc IODINE_DNS .
+>>>>>>> 3e0a135c (sendApp forwards ackfile, txApp sends next contract)
   inc CP2_NODE .
   inc CP2-COMMON .
   inc TGEN-INTERFACE .
@@ -47,14 +57,21 @@ mod CP2_APP is
   inc RB-CLIENT + RB-SERVER .
 
   vars aliceRbClient : Address .
+<<<<<<< HEAD
   vars attrs attrs0 attrsTemp attrsNext monAttrs : AttributeSet .
   vars aliceAddr bobAddr ALICE_ADDR BOB_ADDR CONTENT_MGR_ADDR USER_MODEL_ADDR MON  sndAppAddr rcvAppAddr : Address .
   vars umAddr icAddr cmAddr : Address .
   vars encryptedContract CC_FILE CONTRACT CONTRACT_HASHTAG  : ByteSeq .
+=======
+  vars attrs attrsTemp attrsNext monAttrs : AttributeSet .
+  vars aliceAddr bobAddr ALICE_ADDR BOB_ADDR CONTENT_MGR_ADDR USER_MODEL_ADDR MON  sndAppAddr : Address .
+  vars encryptedContract CC_FILE CONTRACT : ByteSeq .
+>>>>>>> 3e0a135c (sendApp forwards ackfile, txApp sends next contract)
   vars ackFile contract contractKey contractHash contractHashtag
        contractKey0 contractHash0 contractHashtag0
        CONTRACT_KEY CONTRACT_HASH : ByteSeq .
   vars CONTRACT_LIST : ByteSeqL .
+<<<<<<< HEAD
   vars T ddelay : Float . ---timestamps
   vars contractId j : Nat .
   vars txAct rxAct monAct : Actor . 
@@ -62,12 +79,19 @@ mod CP2_APP is
   vars msg0 msg1 msg2 msg : Msg .
   vars filetsl : ByteSeqTimestampList .
   vars b : Bool .
+=======
+  vars T : Float . ---timestamps
+  vars contractId : Nat .
+  vars txAct monAct : Actor .
+  vars str : String .
+>>>>>>> 3e0a135c (sendApp forwards ackfile, txApp sends next contract)
 
 op setDoneTrue : -> Content  [ctor] .
 **** op doneDelay:_ : Float -> Attribute [ctor] .
 
   -------------------
   --- Alice Rules ---
+<<<<<<< HEAD
  -------------------
 crl [alice-send-contract]:
     < ALICE_ADDR : TxApp | attrs, contractCount: contractId, queue: (CONTRACT :: CONTRACT_LIST), currentCcFile: bytes:ByteSeq >
@@ -78,6 +102,19 @@ crl [alice-send-contract]:
   < MON : WMonitor | logFileSent(monAttrs,T,CONTRACT) > 
   delayMsgs(msg0 msg1 msg2,null)
      if contractKey := key(contractId, 4)
+=======
+  -------------------
+  crl [alice-send-contract]:
+    < ALICE_ADDR : TxApp | attrs, contractCount: contractId, queue: (CONTRACT :: CONTRACT_LIST), currentCcFile: bytes:ByteSeq >
+    {T, (to ALICE_ADDR : start)}
+  =>
+    < ALICE_ADDR : TxApp | attrs, contractCount: s contractId, queue: CONTRACT_LIST, currentCcFile: ccFile(contractKey, contractHash, contractHashtag) >
+    startRbClient(0., getRbUserModelAddr(attrs))
+    [0.0002, (to getRbContentMgrAddr(attrs) from ALICE_ADDR : pkg(encryptedContract, contractHashtag)), 0] 
+    --- TODO: Send using the proper delays.
+    [0.2, (to getIodineAddr(attrs) from ALICE_ADDR : ccFile(contractKey, contractHash, contractHashtag)), 0]
+    if contractKey := key(contractId, 4)
+>>>>>>> 3e0a135c (sendApp forwards ackfile, txApp sends next contract)
       /\ contractHash := hash(CONTRACT, 4)
       /\ contractHashtag := hashTag(getContractHashtag(attrs, contractCount: contractId))
       /\ encryptedContract := encrypt(CONTRACT, contractKey)
@@ -111,6 +148,7 @@ crl [alice-send-contract]:
       = rCtr(j) txAct monAct 
  [owise print "(" T ")  Alice received unexpected ackFile"] .
 
+<<<<<<< HEAD
 
  ceq txAppRcvAck( 
    rCtr(j),
@@ -132,10 +170,40 @@ crl [alice-send-contract]:
                             contractHash  ,
                              contractHashtag) >                            
     delayMsgs(msg1 msg2, null)          
+=======
+ rl [alice-rcv-ack]:
+   < ALICE_ADDR : TxApp | attrs >
+   < MON : WMonitor | monAttrs >
+   {T, (to ALICE_ADDR  from sndAppAddr : ackFile)}
+   =>
+  txAppRcvAck( < ALICE_ADDR : TxApp | attrs >,
+               < MON : WMonitor | monAttrs >, T, ackFile)
+  .              
+ 
+  op txAppRcvAck : Actor Actor Float ByteSeq -> Config .
+ eq txAppRcvAck(txAct,monAct,T,ackFile) = txAct monAct 
+ [owise print "(" T ")  Alice received unexpected ackFile"] .
+
+ ceq txAppRcvAck( 
+    < ALICE_ADDR : TxApp | attrs, contractCount: contractId, 
+       queue: (CONTRACT :: CONTRACT_LIST), 
+       currentCcFile: ccFile(contractKey0, 
+                            contractHash0, contractHashtag0) >,
+      monAct, T, ackFile(str,contractHashtag0) )
+ =   monAct   
+    < ALICE_ADDR : TxApp | attrs, contractCount: s contractId, 
+       queue: CONTRACT_LIST, 
+       currentCcFile: ccFile(contractKey, 
+                            contractHash, contractHashtag) >
+   [0.0002, (to getRbContentMgrAddr(attrs) from ALICE_ADDR : 
+               pkg(encryptedContract, contractHashtag)), 0] 
+    [0.02, (to getIodineAddr(attrs) from ALICE_ADDR : ccFile(contractKey, contractHash, contractHashtag)), 0]
+>>>>>>> 3e0a135c (sendApp forwards ackfile, txApp sends next contract)
    if contractKey := key(contractId, 4)
    /\ contractHash := hash(CONTRACT, 4)
    /\ contractHashtag := hashTag(getContractHashtag(attrs, contractCount: contractId))
   /\ encryptedContract := encrypt(CONTRACT, contractKey)
+<<<<<<< HEAD
   /\ cmAddr := getRbContentMgrAddr(attrs) 
   /\ msg1 := (to cmAddr from ALICE_ADDR :
         pkg(encryptedContract, contractHashtag)) 
@@ -152,6 +220,15 @@ crl [alice-send-contract]:
        currentCcFile: ccFile(contractKey0, 
                             contractHash0, 
                             contractHashtag0) >,
+=======
+ [ print "(" T ") Alice received ackTile status: " str " hashtag " contractHashtag0 " sending contract # " contractId " with hashtag " contractHashtag ]
+ .
+
+ eq txAppRcvAck( 
+    < ALICE_ADDR : TxApp | attrs, queue: nilBS, 
+       currentCcFile: ccFile(contractKey0, 
+                            contractHash0, contractHashtag0) >,
+>>>>>>> 3e0a135c (sendApp forwards ackfile, txApp sends next contract)
      < MON : WMonitor | monAttrs >, 
       T, ackFile(str,contractHashtag0) )
  =    
@@ -160,6 +237,7 @@ crl [alice-send-contract]:
      < MON : WMonitor | setDoneFlag(monAttrs,true) > 
 [ print "(" T ") Alice received ackFile status: " str " hashtag " contractHashtag0 " setting doneFlag true." ]
  .
+<<<<<<< HEAD
 )
 
  eq txAppRcvAck( 
@@ -195,6 +273,18 @@ crl [alice-send-contract]:
    
 vars  bsl0 bsl1  SEEN_HASHTAGS : ByteSeqL .
 vars bytes : ByteSeq .
+=======
+ 
+ **** put these in wmonitor   file
+   op doneFlag:_ : Bool -> Attribute [ctor] .
+   op setDoneFlag : AttributeSet Bool -> AttributeSet .
+
+  eq setDoneFlag ((attrs, doneFlag: b0:Bool), b:Bool) 
+         = attrs, doneFlag: true .
+  eq setDoneFlag (attrs,b:Bool) = attrs, doneFlag: true [owise] .
+ 
+ 
+>>>>>>> 3e0a135c (sendApp forwards ackfile, txApp sends next contract)
    -----------------
   --- Bob Rules ---
   -----------------
