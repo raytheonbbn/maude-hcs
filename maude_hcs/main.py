@@ -105,32 +105,39 @@ def add_initial_data_args(parser):
 def build_cli_parser():
     parser = argparse.ArgumentParser("maude-hcs")
     parser.add_argument('--verbose', action='store_true', help='turn on logging')
-    parser.add_argument('--run-args-file', dest='run_args', type=lambda x: is_valid_file(parser, x),
+
+    cmd_parser = parser.add_subparsers(title='command', dest='command')
+    cmd_parser.required = True
+
+    markov_parser = cmd_parser.add_parser('markov')
+    markov_parser.add_argument('--json-dir', dest='json-dir', type=lambda x: is_valid_file(parser, x),
+                                 required=True, help=f'Directory containing all of the markov json files')
+    markov_parser.add_argument('--maude-dir', dest='maude-dir', type=lambda x: is_valid_file(parser, x),
+                               required=True, help=f'Directory where the output maude files be be placed')
+
+    generate_parser = cmd_parser.add_parser('generate')
+    generate_parser.add_argument('--run-args-file', dest='run_args', type=lambda x: is_valid_file(parser, x),
                         metavar='FILE', required=False, help=f'File containing all of the run arguments')
-    parser.add_argument("--shadow-filename",
-        dest="shadow_filename",        
+    generate_parser.add_argument("--shadow-filename",
+        dest="shadow_filename",
         type=lambda x: is_valid_file(parser, x),
         metavar='FILE',
         default=None,
         help="Name of the shadow yaml config file, which includes the topology gml file path and other params",
         required=False)
-    parser.add_argument('--filename', dest='filename', type=str, required=False, default=None, help=f'Name of output file')
-    parser.add_argument('--model', dest='model', required=False, 
+    generate_parser.add_argument('--filename', dest='filename', type=str, required=False, default=None, help=f'Name of output file')
+    generate_parser.add_argument('--model', dest='model', required=False,
             choices=GLOBALS.MODEL_TYPES,
             default=GLOBALS.MODEL_TYPES[0],
             help=f'Choose one of the following options: {", ".join(GLOBALS.MODEL_TYPES)}. Default is {GLOBALS.MODEL_TYPES[0]}.'
     )
-    parser.add_argument('--protocol', dest='protocol', required=False, 
+    generate_parser.add_argument('--protocol', dest='protocol', required=False,
             choices=GLOBALS.MODULES,
             default=GLOBALS.MODULES[0],
             help=f'Choose one of the following options: {", ".join(GLOBALS.MODULES)}. Default is {GLOBALS.MODULES[0]}.'
     )
-    cmd_parser = parser.add_subparsers(title='command', dest='command')    
-    cmd_parser.required = True
-    generate_parser = cmd_parser.add_parser('generate')
 
     parser_scheck = cmd_parser.add_parser('scheck')
-
     parser_scheck.add_argument(
         '--advise',
         help='do not suppress debug messages from Maude',
