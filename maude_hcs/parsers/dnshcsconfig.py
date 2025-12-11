@@ -35,11 +35,14 @@ from pathlib import Path
 from typing import List
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
+from numpy.ma.core import floor
 
 from maude_hcs.parsers.shadowconf import parse_shadow_config
+from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
 from .hcsconfig import Application, BackgroundTraffic, HCSConfig, NondeterministicParameters, Output, ProbabilisticParameters, UnderlyingNetwork, WeirdNetwork
 from . import load_yaml_to_dict
 from .ymlconf import YmlConf
+from maude_hcs import  PROJECT_TOPLEVEL_DIR
 
 QPS = {
     'low': 15,
@@ -89,6 +92,7 @@ class DNSNondeterministicParameters(NondeterministicParameters):
     maxMinimiseCount: int = 0
     maxFragmentLen: int = 1
     maxFragmentTx: int = 1
+    maxResponseLen: int = 1
 
 @dataclass_json
 @dataclass
@@ -111,7 +115,7 @@ class DNSBackgroundTraffic(BackgroundTraffic):
 
 @dataclass_json
 @dataclass
-class DNSBackgroundTrafficTgenClient(BackgroundTraffic):
+class DNSBackgroundTrafficTgenClient():
     """Dataclass for background traffic parameters."""
     client_name: str = ''
     client_retry_to: float = 0.0
@@ -156,8 +160,8 @@ class DuplexApplication(Application):
 class DNSHCSConfig(HCSConfig):
     underlying_network: DNSUnderlyingNetwork
     weird_network: DNSWeirdNetwork
-    application: Application
-    background_traffic: BackgroundTraffic
+    application: SimplexApplication
+    background_traffic: DNSBackgroundTraffic
     nondeterministic_parameters: DNSNondeterministicParameters
     probabilistic_parameters: DNSProbabilisticParameters
 
@@ -262,11 +266,25 @@ class DNSHCSConfig(HCSConfig):
                             nondeterministic_parameters=ndp,
                             probabilistic_parameters=pp)
 
+@dataclass_json
+@dataclass
+class DNSHCSConfig2(HCSConfig):
+    underlying_network: DNSUnderlyingNetwork
+    weird_network: DNSWeirdNetwork
+    application: DuplexApplication
+    background_traffic: DNSBackgroundTrafficTgen
+    nondeterministic_parameters: DNSNondeterministicParameters
+    probabilistic_parameters: DNSProbabilisticParameters
+
     @staticmethod
-    def from_yml(file_path: Path) -> 'DNSHCSConfig':
+    def from_yml(file_path: Path) -> 'DNSHCSConfig2':
         # First parse the yml config
         ymlconf = YmlConf(file_path)
-        alice = ymlconf.network.getNodebyLabel('user_alice').label
+        alice = ymlconf.network.getNodebyLabel('user_alice')
+        if alice is None:
+            alice = 'user_alice'
+        else:
+            alice = alice.label
         bob = ymlconf.network.getNodebyLabel('user_bob').label
         # Then create the HCS config one object at a time
         un = DNSUnderlyingNetwork()
@@ -274,11 +292,11 @@ class DNSHCSConfig(HCSConfig):
         un.root_name = ymlconf.network.getNodebyLabel('root').label
         un.tld_name = ymlconf.network.getNodebyLabel('tld').label
         un.tld_domain = 'com.' # TODO parse zome files??
-        un.resolver_name = ymlconf.network.getNodebyLabel('public-dns').label
-        un.corporate_name = ymlconf.network.getNodebyLabel('local-dns').label
+        un.resolver_name = ymlconf.network.getNodebyLabel('public_dns').label
+        un.corporate_name = ymlconf.network.getNodebyLabel('router').label
         un.corporate_domain = 'corporate.com.' # TODO parse zome files??
         # this is the auth server for pwnd.com also (and all other domains on internet)
-        un.everythingelse_name = ymlconf.network.getNodebyLabel('auth-dns').label
+        un.everythingelse_name = ymlconf.network.getNodebyLabel('auth_dns').label
         un.everythingelse_domain = 'internet.com.' # TODO parse zome files??
         un.everythingelse_num_records = 1
         #un.pwnd2_name = ymlconf.network.getNodebyLabel('application-server').label
@@ -312,41 +330,28 @@ class DNSHCSConfig(HCSConfig):
             if cnt == 0: continue
             if 'monitor' in type: continue
             if not type == 'dns': continue
-            C = DNSBackgroundTrafficTgenClient()
-            C.client_name = f'dns-tgen-client{i}'
-            # this converts it to an importable module name
-            C.client_markov_model_profile =  "dns-" + json_prof.replace(".json","").replace("_", "-")
-            i = i + 1
-            # TODO continue here >>>>>>>
-            # search for the json_prof file and grab the parameters dict
-            # use that to set the retry and lifetime
+            for j in range(cnt):
+                C = DNSBackgroundTrafficTgenClient()
+                C.client_name = f'dns-tgen-client-{(i+j)}'
+                # this converts it to an importable module name
+                C.client_markov_model_profile =  "dns-" + json_prof.replace(".json","").replace("_", "-")
+                # search for the json_prof file and grab the parameters dict
+                # use that to set the retry and lifetime
+                # we have already copied the json file to the right directory in maude_hcs, find it
+                data = find_and_load_json(PROJECT_TOPLEVEL_DIR, json_prof)
+                C.client_retry_to = float(data['parameters']['request_timeout'])
+                C.client_num_retry = floor(int(data['parameters']['request_lifetime']) / C.client_retry_to)
+                bg.clients.append(C)
+            i = i + j + 1
+        bg.num_clients = len(bg.clients)
 
-        # bg.num_clients = ymlconf.background_traffic. # can probably get this from yaml?
-        # bg.paced_client_name = 'dnsperf'
-        # bg.paced_client_Tlimit = int(shadowconf.hosts['dnsperf'].getProcessByPName('./dnsperf_profiles.sh').args[-1])
-        # bg.paced_client_MaxQPS = QPS[shadowconf.hosts['dnsperf'].getProcessByPName('./dnsperf_profiles.sh').args[-2]]
         # > nondeterministic params
         ndp = DNSNondeterministicParameters()
-        # args: "python3 src/cp1_client.py -f data/input/large.dat -l data/logs/ -c 1 -a application_profiles/medium_static.yaml -m 1024 -s 42"
-        def _fz(s:str):
-            if 'small' in s: return 100
-            if 'medium' in s: return 1000
-            if 'large' in s: return 10000
-        ndp.fileSize = _fz(shadowconf.hosts['application_client'].getProcessByPName('python3').args[3])
-        # > Read `packetSize` and `maxPacketSize` from `chunk_size_min` and `chunk_size_max`, applied as a percentage of the MTU size (passed by the `-m` argument on the Iodine command line) in the send application profile's yaml file.
-        # TODO path to app yaml file needs a consistent way to get to
-        print(f'>>>>>>>> {file_path}')
-        app_params = load_yaml_to_dict(file_path.parent.parent.parent.joinpath('application').joinpath(shadowconf.hosts['application_client'].getProcessByPName('python3').args[9]))
-        assert shadowconf.hosts['application_client'].getProcessByPName('python3').args[10] == "-m", 'expected -m instead'
-        mtu = int(shadowconf.hosts['application_client'].getProcessByPName('python3').args[11])
-        ndp.packetOverhead = 33
-        ndp.packetSize = int((app_params['chunk_size_min']/100)*mtu) - ndp.packetOverhead
-        assert ndp.packetSize > 0
-        # > Read the pacing timeout values from `chunk_spacing_min` and `chunk_spacing_max` in the send application profile's yaml file.
+        # TODO parse the file metadata Alice is sending, for each file its size in order
         ndp.maxMinimiseCount = 0
         # > Read the maximum fragment length from the maximum DNS request length limit (passed by the `-M` argument on the Iodine command line) and per-query overhead (currently unknown).
-        assert shadowconf.hosts['application_client'].getProcessByPName('iodine').args[2] == "-M"
-        ndp.maxFragmentLen = int(shadowconf.hosts['application_client'].getProcessByPName('iodine').args[3]) - 2
+        # TODO I dont recall why the -2?
+        ndp.maxFragmentLen = ymlconf.application.iodine.max_query_length - 2
         # Change this number if different codec is desired:
         # 18.72% for Base128
         # 37.22% for Base64
@@ -355,11 +360,12 @@ class DNSHCSConfig(HCSConfig):
         # Not all maxFragmentLen, specified by -M flag, is usable for the payload.  Based on current understanding of Iodine overhead (+3B) encoded + 12B non encoded:
         # Payload_size  = (hostname_len - 12 - 3 x (1 + 0.1872)) / (1 + 0.1872)
         ndp.maxFragmentLen = round((ndp.maxFragmentLen - 12 - 3 * (1 + codec_overhead)) / (1 + codec_overhead))
+        # iodine downstream has a -m option
+        # TODO Jiawei what is teh right value to put here?
+        ndp.maxResponseLen = ymlconf.application.iodine.max_response_size
+        # checked the patch is still applied to iodine src
         ndp.maxFragmentTx = 20
         pp = DNSProbabilisticParameters()
-        pp.maxPacketSize = int((app_params['chunk_size_max']/100)*mtu) - ndp.packetOverhead
-        pp.pacingTimeoutDelay = float(app_params['chunk_spacing_min'])
-        pp.pacingTimeoutDelayMax = float(app_params['chunk_spacing_max'])
         pp.ackTimeoutDelay = 1.0
         out = Output()
         out.force_save = True
@@ -368,8 +374,8 @@ class DNSHCSConfig(HCSConfig):
             "set print attribute off .",
             "set show advisories off ."
         ]
-        return DNSHCSConfig(name='corporate_iodine',
-                            topology=shadowconf.network,
+        return DNSHCSConfig2(name='corporate_iodine',
+                            topology=ymlconf.network,
                             output=out,
                             underlying_network=un,
                             weird_network=wn,
