@@ -49,6 +49,8 @@ mod SMC is
 
   var QTL QTL' : QueryTimestampList .
   var QUERY : Query .
+  var RESP : Response .
+  vars LR LR1 LR2 : List{Record} .
 
   var TML : TimeMsgList .
   var M : Msg .
@@ -95,14 +97,30 @@ mod SMC is
   eq exfilEndTime (nilPacketTimestamp) = 0.0 .
   eq exfilEndTime (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T)) = if isGoodAckFile(bytes) then T else exfilEndTime(PTL) fi .
 
+  --- Scenario Latency: Length of time to exfil entire directory of files, in seconds
+  --- Starts at “Preparing File 0…” line in application client log
+  --- Finishes at “Got File n ACK (GOOD)” line in application client log
   op getLatencyCP2 : Actor -> Float .
   eq getLatencyCP2 (< ADDR : WMonitor | pktSent: PTL, pktRcvd: PTL', attrs >) = exfilEndTime(PTL') - exfilStartTime(PTL) .
 
   op getLatency : Actor -> Float .
-  eq getLatency (A:Actor) = getLatencyCP2 (A) .
+  eq getLatency (A:Actor) = getLatencyCP2(A) .
+
+  op getGoodputCP1 : Actor -> Float .
+  eq getGoodputCP1 (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = float(8 * fileSize) / (T' - T) .
+
+  op ccFileNBytes : PacketTimestampList -> Float .
+  eq ccFileNBytes (nilPacketTimestamp) = 0.0 .
+  eq ccFileNBytes (packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL) = if isCCFile(bytes) then float(getSize(bytes)) + ccFileNBytes(PTL) else ccFileNBytes(PTL) fi .
+  eq ccFileNBytes (packetTimestamp(Pkt, T) ; PTL) = ccFileNBytes(PTL) [owise] .
+
+  --- Goodput: Total number of file exfil bits divided by scenario latency, in bits per second
+  op getGoodputCP2 : Actor -> Float .
+  --- eq getGoodputCP2 (< ADDR : WMonitor | pktRcvd: PTL, attrs >) = if getLatencyCP2(A) == 0.0 then 0.0 else float((ccFileNBytes(PTL) * 8.0) / getLatencyCP2(A)) fi .
+  eq getGoodputCP2 (A:Actor) = 100.0 .
 
   op getGoodput : Actor -> Float .
-  eq getGoodput (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = float(8 * fileSize) / (T' - T) .
+  eq getGoodput (A:Actor) = getGoodputCP2(A) .
 
   op getPTLLen : PacketTimestampList -> Nat .
   eq getPTLLen (nilPacketTimestamp) = 0 .
@@ -352,6 +370,9 @@ mod SMC is
   op getPerWindowQS : Config Float Float Float -> List{Float} .
   eq getPerWindowQS (C < ADDR : Adversary | sent: TML, attrs >, T, T', T'') = perWindowQS(TML, T, T', T'') . 
 
+  --- MA.3 Post-NAT Average DNS response size: Aggregate post-NAT HTTPS average DNS response size exceeds k × initial TGEN-only average response size for n consecutive time bins of width s.
+  --- MA.4 Post-NAT Average HTTPS upload rate: Aggregate post-NAT HTTPS upload rate (bits per second) to Mastodon exceeds k × initial TGEN-only average upload rate for n consecutive time bins of width s.
+
   op AliceQuery : Name -> Bool .
   eq AliceQuery (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = true .
   eq AliceQuery (NAME) = false [owise] .
@@ -359,20 +380,32 @@ mod SMC is
   op AliceQuery : Query -> Bool .
   eq AliceQuery (query(ID, NAME, RTYPE)) = AliceQuery(NAME) .
 
+  op PreNATQuery : Msg -> Bool .
+  eq PreNATQuery (to X(public-dns) from local-dns : QUERY) = true .
+  eq PreNATQuery (M) = false [owise] .
+
+  op PreNATAliceQuery : Msg -> Bool .
+  eq PreNATAliceQuery (to X(public-dns) from local-dns : QUERY) = AliceQuery(QUERY) .
+  eq PreNATAliceQuery (M) = false [owise] .
+
   op nthQueryTimePreNAT : TimeMsgList Nat -> Float .
   eq nthQueryTimePreNAT (TML, 0) = 0.0 .
-  eq nthQueryTimePreNAT (tm(T, M) ; TML, 1) = if AliceQuery(getQuery(M)) then T else nthQueryTimePreNAT (TML, 1) fi .
-  ceq nthQueryTimePreNAT (tm(T, M) ; TML, s N) = if AliceQuery(getQuery(M)) then nthQueryTimePreNAT(TML, N) else nthQueryTimePreNAT(TML, s N) fi if N > 0 .
+  eq nthQueryTimePreNAT (tm(T, M) ; TML, 1) = if PreNATAliceQuery(M) then T else nthQueryTimePreNAT (TML, 1) fi .
+  ceq nthQueryTimePreNAT (tm(T, M) ; TML, s N) = if PreNATAliceQuery(M) then nthQueryTimePreNAT(TML, N) else nthQueryTimePreNAT(TML, s N) fi if N > 0 .
   eq nthQueryTimePreNAT (nilTML, N) = 0.0 .
 
   --- C.1 Pre-NAT earliest time cumulative number of queries > N
   op getToDCumulativeNQueryPreNAT : Config Nat -> Float .
   eq getToDCumulativeNQueryPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthQueryTimePreNAT(TML, s N) .
 
+  op PostNATQuery : Msg -> Bool .
+  eq PostNATQuery (to public-dns from Z(N, local-dns) : QUERY) = true .
+  eq PostNATQuery (M) = false [owise] .
+
   op nthQueryTimePostNAT : TimeMsgList Nat -> Float .
   eq nthQueryTimePostNAT (TML, 0) = 0.0 .
-  eq nthQueryTimePostNAT (tm(T, M) ; TML, 1) = T .
-  ceq nthQueryTimePostNAT (tm(T, M) ; TML, s N) = nthQueryTimePostNAT(TML, N) if N > 0 .
+  eq nthQueryTimePostNAT (tm(T, M) ; TML, 1) = if PostNATQuery(M) then T else nthQueryTimePostNAT (TML, 1) fi . 
+  ceq nthQueryTimePostNAT (tm(T, M) ; TML, s N) = if PostNATQuery(M) then nthQueryTimePostNAT(TML, N) else nthQueryTimePostNAT(TML, s N) fi if N > 0 .
   eq nthQueryTimePostNAT (nilTML, N) = 0.0 .
 
   --- C.2 Post-NAT earliest time cumulative number of queries > N
@@ -381,26 +414,25 @@ mod SMC is
 
   op nByteQueryTimePreNAT : TimeMsgList Nat -> Float .
   eq nByteQueryTimePreNAT (TML, 0) = 0.0 .
-  eq nByteQueryTimePreNAT (tm(T, M) ; TML, N) = 
-    if AliceQuery(getQuery(M)) then	
-      (if size(getQuery(M)) > N then T else nByteQueryTimePreNAT(TML, N - size(getQuery(M))) fi) 
-    else 
-      nByteQueryTimePreNAT(TML, N) 
-    fi .
+  ceq nByteQueryTimePreNAT (tm(T, M) ; TML, N) = T if PreNATAliceQuery(M) and size(getQuery(M)) >= N and N > 0 . 
+  ceq nByteQueryTimePreNAT (tm(T, M) ; TML, N) = nByteQueryTimePreNAT(TML, N - size(getQuery(M))) if PreNATAliceQuery(M) and size(getQuery(M)) < N and N > 0 . 
+  ceq nByteQueryTimePreNAT (tm(T, M) ; TML, N) = nByteQueryTimePreNAT(TML, N) if (not PreNATAliceQuery(M)) and N > 0 . 
   eq nByteQueryTimePreNAT (nilTML, N) = 0.0 .
 
   --- C.3 Pre-NAT earliest time cumulative size of queries > N
   op getToDCumulativeQuerySizePreNAT : Config Nat -> Float .
-  eq getToDCumulativeQuerySizePreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteQueryTimePreNAT(TML, N) .
+  eq getToDCumulativeQuerySizePreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteQueryTimePreNAT(TML, s N) .
 
   op nByteQueryTimePostNAT : TimeMsgList Nat -> Float .
   eq nByteQueryTimePostNAT (TML, 0) = 0.0 .
-  eq nByteQueryTimePostNAT (tm(T, M) ; TML, N) = if size(getQuery(M)) > N then T else nByteQueryTimePostNAT(TML, N - size(getQuery(M))) fi .
+  ceq nByteQueryTimePostNAT (tm(T, M) ; TML, N) = T if PostNATQuery(M) and size(getQuery(M)) >= N and N > 0 .
+  ceq nByteQueryTimePostNAT (tm(T, M) ; TML, N) = nByteQueryTimePostNAT(TML, N - size(getQuery(M))) if PostNATQuery(M) and size(getQuery(M)) < N and N > 0 .
+  ceq nByteQueryTimePostNAT (tm(T, M) ; TML, N) = nByteQueryTimePostNAT(TML, N) if (not PostNATQuery(M)) and N > 0 .
   eq nByteQueryTimePostNAT (nilTML, N) = 0.0 .
 
   --- C.4 Post-NAT earliest time cumulative size of queries > N
   op getToDCumulativeQuerySizePostNAT : Config Nat -> Float .
-  eq getToDCumulativeQuerySizePostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteQueryTimePostNAT(TML, N) .
+  eq getToDCumulativeQuerySizePostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteQueryTimePostNAT(TML, s N) .
 
   op iByteQueryTime : TimeMsgList Nat -> Float .
   eq iByteQueryTime (TML, 0) = 0.0 .
@@ -411,4 +443,77 @@ mod SMC is
   op getToDQuerySize : Config Nat -> Float .
   eq getToDQuerySize (C < ADDR : Adversary | sent: TML, attrs >, N) = iByteQueryTime(TML, N) .
 
+  op PreNATResponse : Msg -> Bool .
+  eq PreNATResponse (to X(public-dns) from local-dns : RESP) = true .
+  eq PreNATResponse (M) = false [owise] .
+
+  op AliceResponse : Name -> Bool .
+  eq AliceResponse (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = true .
+  eq AliceResponse (NAME) = false [owise] .
+
+  op AliceResponse : Response -> Bool .
+  eq AliceResponse (response(ID, NAME, LR, LR1, LR2, N)) = AliceResponse(NAME) .
+
+  op PreNATAliceResponse : Msg -> Bool .
+  eq PreNATAliceResponse (to local-dns from X(public-dns) : RESP) = AliceResponse(RESP) .
+  eq PreNATAliceResponse (M) = false [owise] .
+
+  op nByteRespTimePreNAT : TimeMsgList Nat -> Float .
+  eq nByteRespTimePreNAT (TML, 0) = 0.0 .
+  ceq nByteRespTimePreNAT (tm(T, M) ; TML, N) = T if PreNATAliceResponse(M) and size(getResponse(M)) >= N and N > 0 . 
+  ceq nByteRespTimePreNAT (tm(T, M) ; TML, N) = nByteRespTimePreNAT(TML, N - size(getResponse(M))) if PreNATAliceResponse(M) and size(getResponse(M)) < N and N > 0 . 
+  ceq nByteRespTimePreNAT (tm(T, M) ; TML, N) = nByteRespTimePreNAT(TML, N) if (not PreNATAliceResponse(M)) and N > 0 . 
+  eq nByteRespTimePreNAT (nilTML, N) = 0.0 .
+
+  --- C.5 Pre-NAT DNS response byte count: Alice receives more than n bytes of DNS responses
+  op getToDCumulativeResponsePreNAT : Config Nat -> Float .
+  eq getToDCumulativeResponsePreNAT (C < ADDR : Adversary | rcvd: TML, attrs >, N) = nByteRespTimePreNAT(TML, s N) .
+
+  op PostNATResponse : Msg -> Bool .
+  eq PostNATResponse (to Z(N, local-dns) from public-dns : RESP) = true .
+  eq PostNATResponse (M) = false [owise] .
+
+  op size : Response -> Nat .
+  eq size (response(ID, NAME, LR, LR1, LR2, N)) = size(NAME) .
+
+  op nByteRespTimePostNAT : TimeMsgList Nat -> Float .
+  eq nByteRespTimePostNAT (TML, 0) = 0.0 .
+  ceq nByteRespTimePostNAT (tm(T, M) ; TML, N) = T if PostNATResponse(M) and size(getResponse(M)) >= N and N > 0 .
+  ceq nByteRespTimePostNAT (tm(T, M) ; TML, N) = nByteRespTimePostNAT(TML, N - size(getResponse(M))) if PostNATResponse(M) and size(getResponse(M)) < N and N > 0 .
+  ceq nByteRespTimePostNAT (tm(T, M) ; TML, N) = nByteRespTimePostNAT(TML, N) if (not PostNATResponse(M)) and N > 0 .
+  eq nByteRespTimePostNAT (nilTML, N) = 0.0 .
+
+
+  --- C.6 Post-NAT DNS response byte count: Aggregate post-NAT traffic includes more than n bytes of DNS responses
+  op getToDCumulativeResponsePostNAT : Config Nat -> Float .
+  eq getToDCumulativeResponsePostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteRespTimePostNAT(TML, s N) .
 endm
+eof
+
+  --- C.7 Pre-NAT HTTPS connection count: A host creates more than n HTTPS connections
+
+  op nthHttpReqPostNAT : TimeMsgList Nat -> Float .
+  eq nthHttpReqPostNAT (TML, 0) = 0.0 .
+  eq nthHttpReqPostNAT (tm(T, M) ; TML, 1) = if (getHttpRequest(M) :: HttpRequest) then T else nthHttpReqPostNAT (TML, 1) fi .
+  ceq nthHttpReqPostNAT (tm(T, M) ; TML, s N) = if (getHttpRequest(M) :: HttpRequest) then nthHttpReqPostNAT(TML, N) else nthHttpReqPostNAT(TML, s N) fi if N > 0 .
+  eq nthHttpReqPostNAT (nilTML, N) = 0.0 .
+
+  --- C.8 Post-NAT HTTPS connection count: Aggregate post-NAT traffic includes more than n HTTPS connections
+  op getToDCumulativeHttpConnectionPostNAT : Config Nat -> Float .
+  eq getToDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | rcvd: TML, attrs >, N) = nthHttpReqPostNAT(TML, s N) .
+
+  --- C.9 Pre-NAT HTTPS upload byte count: An individual host uploads more than n bytes via HTTPS
+
+  op nByteHttpUploadPostNAT : TimeMsgList Nat -> Float .
+  eq nByteHttpUploadPostNAT (TML, 0) = 0.0 .
+  eq nByteHttpUploadPostNAT (tm(T, M) ; TML, N) =
+    if (getHttpRequest(M) :: HttpRequest) then
+      (if size(getQuery(M)) > N then T else nByteHttpUploadPostNAT(TML, N - size(getQuery(M))) fi)
+    else
+      nByteHttpUploadPostNAT(TML, N)
+    fi .
+  eq nByteHttpUploadPostNAT (nilTML, N) = 0.0 .
+
+  --- C.10 Post-NAT HTTPS upload byte count: Aggregate post-NAT traffic uploads more than n bytes via HTTPS
+  op getToDCumulativeHttpUploadPostNAT : Config Nat -> Float .
+  eq getToDCumulativeHttpUploadPostNAT (C < ADDR : Adversary | rcvd: TML, attrs >, N) = nByteHttpUploadPostNAT(TML, s N) .
