@@ -141,20 +141,38 @@ Mastodon server is captured
   eq omatch(mtObs, rcvAddr,sndAddr) = false .
 
   op pmatch : OPat Address Address -> Bool .
+**** messages to external actor from corp actor preNat  
   eq pmatch(pat("X","addr"),X(addr0),addr) = true .
   eq pmatch(pat("X","addr"),addr0,addr) = false [owise] .
 
+**** messages to external actor from corp actor post Nat  
   eq pmatch(pat("addr","Z"),addr0,Z(j,addr)) = true .
   eq pmatch(pat("addr","Z"),addr0,addr) = false [owise] .
 
+*****NEW
+**** messages from external actor to corporate actor postNat
+  eq pmatch(pat("Z","addr"),Z(j,addr),addr0) = true .
+  eq pmatch(pat("Z","addr"),addr,addr0) = false [owise] .
+
+**** messages from external actor to corporate actor preNat
+  eq pmatch(pat("addr","X"),addr,X(addr0)) = true .
+  eq pmatch(pat("addr","X"),addr,addr0) = false [owise] .
+
+***** to catch unsupported patterns
+  eq pmatch(pat(toPat:String,fromPat:String),addr0,addr1) = false [owise] .
 
 **** not collecting external to corpRsv
-  eq pmatch(pat(addr,"addr"),addr0,addr1) 
-      = addr0 == addr  and notX(addr1) .
+****  eq pmatch(pat(addr,"addr"),addr0,addr1) = addr0 == addr  and notX(addr1) .
+***** revised
+  eq pmatch(pat(addr,"addr"),addr,addr1) = true .
+  eq pmatch(pat(addr,"addr"),addr0,addr1) = false [owise] .
 
   ----- adversary residing on this directional link 
   eq pmatch(pat(rcvAddr,sndAddr),rcvAddr,sndAddr) 
       = true .
+**** NEW
+  eq pmatch(pat(rcvAddr,sndAddr),addr0,addr1) 
+      = false [owise] .
 
   
 **** for more complex observation may need location attribute
@@ -231,7 +249,7 @@ mod TEST-ADVERSARY is
       = attrs:AttributeSet .
  endm
 
-
+eof
 
 red omatch(obsC,X(xAddr),iAddr) == true .
 red omatch(obsX,X(xAddr),iAddr) == false .
@@ -245,7 +263,7 @@ red omatch(obsM(masAddr),xAddr,Z(2,iAddr)) == false .
 
 red omatch(obsC,masAddr,Z(3,iAddr)) == false .
 red omatch(obsX,masAddr,Z(3,iAddr)) == true .
-red omatch(obsM(masAddr),masAddr,Z(3,iAddr)) == false .
+red omatch(obsM(masAddr),masAddr,Z(3,iAddr)) == true .
 **** f t t 
 
 red omatch(obsC,masAddr,xAddr) == false .
