@@ -1,43 +1,56 @@
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Any, Optional
 import math
+
+from dataclasses_json import dataclass_json
 import yaml
 import logging
+from pathlib import Path
+
+from maude_hcs import PROJECT_TOPLEVEL_DIR
 from maude_hcs.parsers.graph import Topology
+from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
 
 logger = logging.getLogger(__name__)
 
-
+@dataclass_json
 @dataclass
 class UnderlyingNetwork:
     server_fqdn: str
 
-
+@dataclass_json
 @dataclass
 class Alice:
     mastodon_user: str
     raceboat_prof_config: str
     raceboat_prof: str
 
-
+@dataclass_json
 @dataclass
 class Bob:
     mastodon_user: str
     raceboat_prof_config: str
     raceboat_prof: str
 
-
+@dataclass_json
 @dataclass
 class Iodine:
     max_query_length: int
     max_response_size: int
 
+@dataclass_json
+@dataclass
+class CoverImage:
+    name: str
+    capacity_bytes: int
+    size_bytes: int
 
+@dataclass_json
 @dataclass
 class Destini:
-    jpeg_covers: str
+    jpeg_covers: list[CoverImage] = field(default_factory=list)
 
-
+@dataclass_json
 @dataclass
 class Application:
     alice: Alice
@@ -45,7 +58,7 @@ class Application:
     iodine: Iodine
     destini: Destini
 
-
+@dataclass_json
 @dataclass
 class Adversary:
     baseline: Dict[str, Any]
@@ -129,7 +142,6 @@ class YmlConf:
             for p in calculated_profiles:
                 if p['count'] > 0:
                     tgen_configs.append((p['type'], p['json'], p['count']))
-
         return tgen_configs
 
     def _parse_underlying(self, data: dict) -> UnderlyingNetwork:
@@ -165,10 +177,8 @@ class YmlConf:
         )
 
         # Destini
-        destini_data = app_section.get('destini', {})
-        destini = Destini(
-            jpeg_covers=destini_data.get('jpeg_covers', '')
-        )
+        # These params are static/hardcoded
+        destini = self.load_destini_from_json()
 
         return Application(alice=alice, bob=bob, iodine=iodine, destini=destini)
 
@@ -180,3 +190,52 @@ class YmlConf:
         actual = data.get('adversary_phase1', {})
 
         return Adversary(baseline=baseline, actual=actual)
+
+    def load_destini_from_json(self) -> Destini:
+        """
+        Parses a JSON file and creates a Destini object.
+        """
+        json_content = find_and_load_json(PROJECT_TOPLEVEL_DIR, 'destini_covers.json')
+        # from_json() is provided by the @dataclass_json decorator
+        return Destini.from_dict(json_content)
+
+def parse_destini(input_directory: str) -> str:
+    """
+    Scans a directory for files, creates CoverImage objects, builds a Destini object,
+    and returns its JSON string representation.
+
+    Args:
+        input_directory (str): Path to the directory containing cover images.
+
+    Returns:
+        str: The JSON string representation of the Destini object.
+    """
+    input_path = Path(input_directory)
+    if not input_path.is_dir():
+        raise NotADirectoryError(f"The input path {input_directory} is not a valid directory.")
+
+    cover_images = []
+
+    # Iterate over all files in the directory
+    for file_path in input_path.iterdir():
+        if file_path.is_file():
+            # Create CoverImage object
+            # name is file stem (filename without extension)
+            # size is file size in bytes
+            # capacity is hardcoded to 3000 as requested
+            image = CoverImage(
+                name=file_path.stem,
+                capacity_bytes=3000,
+                size_bytes=file_path.stat().st_size
+            )
+            cover_images.append(image)
+
+    # Create Destini object
+    destini_obj = Destini(jpeg_covers=cover_images)
+
+    # Return JSON string
+    return destini_obj.to_json(indent=4)
+
+if __name__ == '__main__':
+    destini_obj = parse_destini('src/raceboat/destini/jpeg-covers')
+    print(destini_obj)

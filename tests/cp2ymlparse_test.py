@@ -29,7 +29,9 @@
 
 
 import pytest
-from maude_hcs.parsers.ymlconf import YmlConf
+
+from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig2
+from maude_hcs.parsers.ymlconf import YmlConf, CoverImage
 
 TEST_YAML_CONTENT = """
 self_path: /src/landing/testing_configs/cp2_setup_example.yml
@@ -236,7 +238,8 @@ def test_parse_yml_conf(yml_conf_file):
     assert conf.application.iodine.max_response_size == 512
 
     # 6. Verify Application - Destini
-    assert conf.application.destini.jpeg_covers == "jpeg-covers-25-jpg.tar"
+    assert len(conf.application.destini.jpeg_covers) == 30
+    assert conf.application.destini.jpeg_covers[0] == CoverImage(name='101502', capacity_bytes=3000, size_bytes=37794)
 
     # 7. Verify Adversary
     assert 'vantage_points' in conf.adversary.baseline
@@ -318,3 +321,6 @@ def test_topology_parsing(yml_conf_file):
             found = True
     assert found, 'expecting a link from 6 to 5'
 
+def test_hcsconfig2(yml_conf_file):
+    conf = DNSHCSConfig2.from_yml(yml_conf_file)
+    print(conf.to_json(indent=4))

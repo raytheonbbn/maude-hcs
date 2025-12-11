@@ -293,3 +293,36 @@ def process_directories(args, input_root, output_root):
                     logger.error(f"Error processing {full_input_path}: {e}")
 
     logger.info(f"Done. Processed {count} files.")
+
+
+def find_and_load_json(root_directory: str, json_filename: str) -> dict:
+    """
+    Recursively searches for a specific JSON file starting from a root directory,
+    loads its content, and returns it as a dictionary.
+
+    Args:
+        root_directory (str): The path to the root directory to search (e.g., "dir/").
+        json_filename (str): The name of the file to search for (e.g., "profile.json").
+
+    Returns:
+        dict: The parsed JSON content.
+
+    Raises:
+        FileNotFoundError: If the file is not found anywhere in the directory tree.
+        json.JSONDecodeError: If the file is found but contains invalid JSON.
+    """
+
+    # os.walk allows us to look into every subdirectory recursively
+    for current_root, dirs, files in os.walk(root_directory):
+        if json_filename in files:
+            # Construct the full, absolute or relative path to the file
+            full_path = os.path.join(current_root, json_filename)
+
+            # Open the file and parse the JSON
+            with open(full_path, 'r') as f:
+                data = json.load(f)
+
+            return data
+
+    # If we finish the loop without returning, the file was never found
+    raise FileNotFoundError(f"File '{json_filename}' was not found in '{root_directory}' or any of its subdirectories.")
