@@ -111,6 +111,24 @@ class DNSBackgroundTraffic(BackgroundTraffic):
 
 @dataclass_json
 @dataclass
+class DNSBackgroundTrafficTgenClient(BackgroundTraffic):
+    """Dataclass for background traffic parameters."""
+    client_name: str = ''
+    client_retry_to: float = 0.0
+    client_num_retry: int = 1
+    client_markov_model_profile: str = ''
+
+@dataclass_json
+@dataclass
+class DNSBackgroundTrafficTgen(BackgroundTraffic):
+    """Dataclass for background traffic parameters."""
+    module: str = 'dns'
+    num_clients: int = 1
+    clients: list[DNSBackgroundTrafficTgenClient] = field(default_factory=list)
+
+
+@dataclass_json
+@dataclass
 class SimplexApplication(Application):
     """Dataclass for the application layer configuration."""
     module: str = 'iodine'
@@ -138,8 +156,8 @@ class DuplexApplication(Application):
 class DNSHCSConfig(HCSConfig):
     underlying_network: DNSUnderlyingNetwork
     weird_network: DNSWeirdNetwork
-    application: SimplexApplication
-    background_traffic: DNSBackgroundTraffic
+    application: Application
+    background_traffic: BackgroundTraffic
     nondeterministic_parameters: DNSNondeterministicParameters
     probabilistic_parameters: DNSProbabilisticParameters
 
@@ -256,8 +274,8 @@ class DNSHCSConfig(HCSConfig):
         un.root_name = ymlconf.network.getNodebyLabel('root').label
         un.tld_name = ymlconf.network.getNodebyLabel('tld').label
         un.tld_domain = 'com.' # TODO parse zome files??
-        un.resolver_name = ymlconf..network.getNodebyLabel('public-dns').label
-        un.corporate_name = ymlconf..network.getNodebyLabel('local-dns').label
+        un.resolver_name = ymlconf.network.getNodebyLabel('public-dns').label
+        un.corporate_name = ymlconf.network.getNodebyLabel('local-dns').label
         un.corporate_domain = 'corporate.com.' # TODO parse zome files??
         # this is the auth server for pwnd.com also (and all other domains on internet)
         un.everythingelse_name = ymlconf.network.getNodebyLabel('auth-dns').label
@@ -288,11 +306,25 @@ class DNSHCSConfig(HCSConfig):
         app.sender_northbound_addr = alice
 
         # > bg
-        bg = DNSBackgroundTraffic()
-        bg.num_paced_clients = 1 # can probably get this from yaml?
-        bg.paced_client_name = 'dnsperf'
-        bg.paced_client_Tlimit = int(shadowconf.hosts['dnsperf'].getProcessByPName('./dnsperf_profiles.sh').args[-1])
-        bg.paced_client_MaxQPS = QPS[shadowconf.hosts['dnsperf'].getProcessByPName('./dnsperf_profiles.sh').args[-2]]
+        i = 0
+        bg = DNSBackgroundTrafficTgen()
+        for (type, json_prof, cnt) in ymlconf.background_traffic:
+            if cnt == 0: continue
+            if 'monitor' in type: continue
+            if not type == 'dns': continue
+            C = DNSBackgroundTrafficTgenClient()
+            C.client_name = f'dns-tgen-client{i}'
+            # this converts it to an importable module name
+            C.client_markov_model_profile =  "dns-" + json_prof.replace(".json","").replace("_", "-")
+            i = i + 1
+            # TODO continue here >>>>>>>
+            # search for the json_prof file and grab the parameters dict
+            # use that to set the retry and lifetime
+
+        # bg.num_clients = ymlconf.background_traffic. # can probably get this from yaml?
+        # bg.paced_client_name = 'dnsperf'
+        # bg.paced_client_Tlimit = int(shadowconf.hosts['dnsperf'].getProcessByPName('./dnsperf_profiles.sh').args[-1])
+        # bg.paced_client_MaxQPS = QPS[shadowconf.hosts['dnsperf'].getProcessByPName('./dnsperf_profiles.sh').args[-2]]
         # > nondeterministic params
         ndp = DNSNondeterministicParameters()
         # args: "python3 src/cp1_client.py -f data/input/large.dat -l data/logs/ -c 1 -a application_profiles/medium_static.yaml -m 1024 -s 42"

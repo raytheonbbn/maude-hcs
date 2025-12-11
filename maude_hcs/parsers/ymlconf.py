@@ -97,6 +97,7 @@ class YmlConf:
             # Iterate through profiles to calculate counts
             for profile_key, profile_data in profiles.items():
                 json_file = profile_data.get('profile')
+                # read json and get the params dictionary
                 percent = profile_data.get('percent', 0)
 
                 # Formula: ceil(percent * total / 100)

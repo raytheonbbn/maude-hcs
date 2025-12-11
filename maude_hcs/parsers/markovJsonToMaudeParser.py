@@ -262,6 +262,8 @@ def process_directories(args, input_root, output_root):
                 # Construct output file path
                 output_filename = f"{stem}.maude"
                 full_output_path = os.path.join(target_dir, output_filename)
+                output_filename_json = f"{stem}.json"
+                full_output_path_json = os.path.join(target_dir, output_filename_json)
 
                 # 2. Calculate the relative load path using the new anchor logic
                 rel_load_path = calculate_relative_load_path(full_output_path)
@@ -280,7 +282,11 @@ def process_directories(args, input_root, output_root):
                     with open(full_output_path, 'w') as f:
                         f.write(maude_content)
 
-                    logger.debug(f"Generated: {full_output_path}")
+                    # 4. Write json also (we need this to get properties later)
+                    with open(full_output_path_json, 'w') as f:
+                        f.write(json_content)
+
+                    logger.debug(f"Generated: {full_output_path} (and copied json)")
                     count += 1
 
                 except Exception as e:
