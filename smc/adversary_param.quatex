@@ -1,0 +1,61 @@
+//k – threshold multiplier
+//n – number of consecutive bins
+//s - duration of each bin
+//m – number of previous bins to compute average query rate over
+//w = s*m
+
+// MA.1 Aggregate post-NAT average DNS query rate exceeds k × initial TGEN-only average query rate for n consecutive time bins of width s.
+ToDAvgQPS() = if (s.rval("getToD(C,0.0,w,s,k,n)") == 0.0) then discard else s.rval("getToD(C,0.0,w,s,k,n)") fi;
+eval E[ToDAvgQPS()];
+
+// MA.2 Aggregate post-NAT average DNS query size exceeds k × initial TGEN-only average query size for n consecutive time bins of width s.
+ToDAvgQuerySize() = if (s.rval("getToDAvgQuerySize(C,0.0,w,s,k,n)") == 0.0) then discard else s.rval("getToDAvgQuerySize(C,0.0,w,s,k,n)") fi;
+eval E[ToDAvgQuerySize()];
+
+// MA.3 Post-NAT Average DNS response size: Aggregate post-NAT HTTPS average DNS response size exceeds k × initial TGEN-only average response size for n consecutive time bins of width s.
+ToDAvgResponseSize() = if (s.rval("getToDAvgResponseSize(C,0.0,w,s,k,n)") == 0.0) then discard else s.rval("getToDAvgResponseSize(C,0.0,w,s,k,n)") fi;
+eval E[ToDAvgResponseSize()];
+
+// MA.4 Post-NAT Average HTTPS upload rate: Aggregate post-NAT HTTPS upload rate (bits per second) to Mastodon exceeds k × initial TGEN-only average upload rate for n consecutive time bins of width s.
+ToDAvgUploadRate() = if (s.rval("getToDAvgUploadRate(C,0.0,w,s,k,n)") == 0.0) then discard else s.rval("getToDAvgUploadRate(C,0.0,w,s,k,n)") fi;
+eval E[ToDAvgUploadRate()];
+
+// C.1 Pre-NAT earliest time cumulative number of queries > N
+ToDCumulativeNQueryPreNAT() = if (s.rval("getToDCumulativeNQueryPreNAT(C,N)") == 0.0) then discard else s.rval("getToDCumulativeNQueryPreNAT(C,N)") fi;
+eval E[ToDCumulativeNQueryPreNAT()];
+
+// C.2 Post-NAT earliest time cumulative number of queries > N
+ToDCumulativeNQueryPostNAT() = if (s.rval("getToDCumulativeNQueryPostNAT(C,N)") == 0.0) then discard else s.rval("getToDCumulativeNQueryPostNAT(C,N)") fi;
+eval E[ToDCumulativeNQueryPostNAT()];
+
+// C.3 Pre-NAT earliest time cumulative size of queries > N
+ToDCumulativeQuerySizePreNAT() = if (s.rval("getToDCumulativeQuerySizePreNAT(C,N)") == 0.0) then discard else s.rval("getToDCumulativeQuerySizePreNAT(C,N)") fi;
+eval E[ToDCumulativeQuerySizePreNAT()];
+
+// C.4 Post-NAT earliest time cumulative size of queries > N
+ToDCumulativeQuerySizePostNAT() = if (s.rval("getToDCumulativeQuerySizePostNAT(C,N)") == 0.0) then discard else s.rval("getToDCumulativeQuerySizePostNAT(C,N)") fi;
+eval E[ToDCumulativeQuerySizePostNAT()];
+
+// C.5 Pre-NAT DNS response byte count: Alice receives more than n bytes of DNS responses
+ToDCumulativeResponsePreNAT() = if (s.rval("getToDCumulativeResponsePreNAT(C,N)") == 0.0) then discard else s.rval("getToDCumulativeResponsePreNAT(C,N)") fi; 
+eval E[ToDCumulativeResponsePreNAT(C,N)];
+
+// C.6 Post-NAT DNS response byte count: Aggregate post-NAT traffic includes more than n bytes of DNS responses
+ToDCumulativeResponsePostNAT(C,N) = if (s.rval("getToDCumulativeResponsePostNAT(C,N)") == 0.0) then discard else s.rval("getToDCumulativeResponsePostNAT(C,N)") fi;   
+eval E[ToDCumulativeResponsePostNAT(C,N)];   
+
+// C.7 Pre-NAT HTTPS connection count: A host creates more than n HTTPS connections
+ToDCumulativeHttpConnectionPreNAT(C,N) = if (s.rval("getToDCumulativeHttpConnectionPreNAT(C,N)") == 0.0) then discard else s.rval("getToDCumulativeHttpConnectionPreNAT(C,N)") fi;
+eval E[ToDCumulativeHttpConnectionPreNAT(C,N)];
+
+// C.8 Post-NAT HTTPS connection count: Aggregate post-NAT traffic includes more than n HTTPS connections
+ToDCumulativeHttpConnectionPostNAT(C,N) = if (s.rval("getToDCumulativeHttpConnectionPostNAT(C,N)") == 0.0) then discard else s.rval("getToDCumulativeHttpConnectionPostNAT(C,N)") fi;
+eval E[ToDCumulativeHttpConnectionPostNAT(C,N)];
+
+// C.9 Pre-NAT HTTPS upload byte count: An individual host uploads more than n bytes via HTTPS
+ToDCumulativeHttpUploadPreNAT(C,N) = if (s.rval("getToDCumulativeHttpUploadPreNAT(C,N)") == 0.0) then discard else s.rval("getToDCumulativeHttpUploadPreNAT(C,N)") fi;
+eval E[ToDCumulativeHttpUploadPreNAT(C,N)];
+
+// C.10 Post-NAT HTTPS upload byte count: Aggregate post-NAT traffic uploads more than n bytes via HTTPS
+ToDCumulativeHttpUploadPostNAT(C,N) = if (s.rval("getToDCumulativeHttpUploadPostNAT(C,N)") == 0.0) then discard else s.rval("getToDCumulativeHttpUploadPostNAT(C,N)") fi;
+eval E[ToDCumulativeHttpUploadPostNAT(C,N)];
