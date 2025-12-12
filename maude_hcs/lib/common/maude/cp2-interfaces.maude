@@ -186,7 +186,8 @@ mod MC-INTERFACE is
   op fetchR : ByteSeqL -> Content .
   op fetchR : ByteSeqL ByteSeq -> Content .
 
-  op tootQ : ByteSeq ByteSeq -> Content .
+  ---        Hashtag ImageList
+  op tootQ : ByteSeq ByteSeqL -> Content .
   op tootR : String -> Content .
 
 *****  MC perspective  
@@ -292,10 +293,19 @@ ceq image2mediafile(image) =
    if j := imageId(image)
 .
 
+op $images2MediaFiles : ByteSeqL MediaFileList -> MediaFileList .
+eq $images2MediaFiles((image :: imagel), mediaFileList)
+  = $images2MediaFiles(imagel, (mediaFileList :: image2mediafile(image))) .
+eq $images2MediaFiles(nilBS, mediaFileList) = mediaFileList .
+
 op translateTootQ : Content -> Content .
-eq translateTootQ(tootQ(hashtag,image))  =
+eq translateTootQ(tootQ(hashtag, image))  =
        PostStatus(hashtag2text(hashtag), 
                   image2mediafile(image)) .
+eq translateTootQ(tootQ(hashtag, imagel))
+  = PostStatus(hashtag2text(hashtag),
+               $images2MediaFiles(imagel, emptyMediaFileList))
+  .
                   
 endm
 
