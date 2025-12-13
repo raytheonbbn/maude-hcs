@@ -71,6 +71,8 @@ class DNSUnderlyingNetwork(UnderlyingNetwork):
     record_ttl_a: int                   = 0
     # TTL for all other records
     record_ttl: int                     = 3600
+    # router
+    router: str                         = 'router'
     
 @dataclass_json
 @dataclass
@@ -92,7 +94,6 @@ class DNSNondeterministicParameters(NondeterministicParameters):
     maxMinimiseCount: int = 0
     maxFragmentLen: int = 1
     maxFragmentTx: int = 1
-    maxResponseLen: int = 1
 
 @dataclass_json
 @dataclass
@@ -102,6 +103,23 @@ class DNSProbabilisticParameters(ProbabilisticParameters):
     pacingTimeoutDelay: float = 0.0
     pacingTimeoutDelayMax: float = 0.0
     ackTimeoutDelay: float = 0.0
+
+@dataclass_json
+@dataclass
+class DNSNondeterministicParameters2(NondeterministicParameters):
+    packetOverhead: int = 1
+    maxMinimiseCount: int = 0
+    maxFragmentLen: int = 1
+    maxFragmentTx: int = 1
+    maxResponseLen: int = 1
+
+@dataclass_json
+@dataclass
+class DNSProbabilisticParameters2(ProbabilisticParameters):
+    ackTimeoutDelay: float = 1.0
+    pingInterval: float = 1.0
+    initialPingDelay: float = 0.001
+    receiveToPingDelay: float = 0.001
 
 @dataclass_json
 @dataclass
@@ -121,6 +139,7 @@ class DNSBackgroundTrafficTgenClient():
     client_retry_to: float = 0.0
     client_num_retry: int = 1
     client_markov_model_profile: str = ''
+    start_time: float = 0.0
 
 @dataclass_json
 @dataclass
@@ -265,7 +284,9 @@ class DNSHCSConfig(HCSConfig):
                             background_traffic=bg,
                             nondeterministic_parameters=ndp,
                             probabilistic_parameters=pp)
-
+'''
+This is the configuration for CP2
+'''
 @dataclass_json
 @dataclass
 class DNSHCSConfig2(HCSConfig):
@@ -273,8 +294,14 @@ class DNSHCSConfig2(HCSConfig):
     weird_network: DNSWeirdNetwork
     application: DuplexApplication
     background_traffic: DNSBackgroundTrafficTgen
-    nondeterministic_parameters: DNSNondeterministicParameters
-    probabilistic_parameters: DNSProbabilisticParameters
+    nondeterministic_parameters: DNSNondeterministicParameters2
+    probabilistic_parameters: DNSProbabilisticParameters2
+
+    @staticmethod
+    def from_file(file_path: str) -> 'DNSHCSConfig2':
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+        return DNSHCSConfig2.from_dict(data)
 
     @staticmethod
     def from_yml(file_path: Path) -> 'DNSHCSConfig2':
@@ -293,7 +320,9 @@ class DNSHCSConfig2(HCSConfig):
         un.tld_name = ymlconf.network.getNodebyLabel('tld').label
         un.tld_domain = 'com.' # TODO parse zome files??
         un.resolver_name = ymlconf.network.getNodebyLabel('public_dns').label
-        un.corporate_name = ymlconf.network.getNodebyLabel('router').label
+        # the router and the corp dns domain
+        un.router = un.corporate_name = ymlconf.network.getNodebyLabel('router').label
+        un.corporate_name = 'corporate_dns'
         un.corporate_domain = 'corporate.com.' # TODO parse zome files??
         # this is the auth server for pwnd.com also (and all other domains on internet)
         un.everythingelse_name = ymlconf.network.getNodebyLabel('auth_dns').label
@@ -346,7 +375,7 @@ class DNSHCSConfig2(HCSConfig):
         bg.num_clients = len(bg.clients)
 
         # > nondeterministic params
-        ndp = DNSNondeterministicParameters()
+        ndp = DNSNondeterministicParameters2()
         # TODO parse the file metadata Alice is sending, for each file its size in order
         ndp.maxMinimiseCount = 0
         # > Read the maximum fragment length from the maximum DNS request length limit (passed by the `-M` argument on the Iodine command line) and per-query overhead (currently unknown).
@@ -362,11 +391,15 @@ class DNSHCSConfig2(HCSConfig):
         ndp.maxFragmentLen = round((ndp.maxFragmentLen - 12 - 3 * (1 + codec_overhead)) / (1 + codec_overhead))
         # iodine downstream has a -m option
         # TODO Jiawei what is teh right value to put here?
+        # Jiawei implemented on branch 48
+        # Change eq maxFragmentLen = x . to eq maxUpFragmentLen = y .\n eq maxDownFragmentLen = z .
+        #
         ndp.maxResponseLen = ymlconf.application.iodine.max_response_size
         # checked the patch is still applied to iodine src
         ndp.maxFragmentTx = 20
-        pp = DNSProbabilisticParameters()
+        pp = DNSProbabilisticParameters2()
         pp.ackTimeoutDelay = 1.0
+        pp.initialPingDelay = 1.0
         out = Output()
         out.force_save = True
         out.preamble = [
@@ -374,7 +407,7 @@ class DNSHCSConfig2(HCSConfig):
             "set print attribute off .",
             "set show advisories off ."
         ]
-        return DNSHCSConfig2(name='corporate_iodine',
+        return DNSHCSConfig2(name='corporate_iodine_mastodon',
                             topology=ymlconf.network,
                             output=out,
                             underlying_network=un,

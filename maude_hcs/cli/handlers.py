@@ -64,6 +64,8 @@ def handle_generate(args, parser):
     logger.debug("Handle maude generation")
     if args.run_args and args.shadow_filename:
         raise Exception('Either specify a json HCS config with --run-args OR a shadow config, but not both.')
+    if args.run_args and args.yml_filename:
+        raise Exception('Either specify a json HCS config with --run-args OR a yml config, but not both.')
     # get the configuration object    
     hcsconfig = buildHCSConfig(args)
     # instantiate the analysis and generate

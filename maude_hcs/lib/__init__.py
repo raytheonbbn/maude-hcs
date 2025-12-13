@@ -4,5 +4,5 @@ import os
 class GLOBALS:
     MODULE_NAME = 'HCS_TEST'
     MODEL_TYPES = ['nondet', 'prob']
-    MODULES = ['dns', 'mastodon']
+    MODULES = ['dns', 'dnsmastodon']
     TOPLEVELDIR = Path(os.path.dirname(__file__)).parent.parent

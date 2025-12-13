@@ -33,18 +33,37 @@ from Maude.attack_exploration.src.actors import Nameserver, Resolver
 from .utils import packetlist_to_maude
 from .cache import ResolverCache, CacheEntry
 
-class ReceiveApp:
-    def __init__(self, address):
+
+class Router:
+
+    def __init__(self, address) -> None:
         self.address = address
+
+    def __str__(self) -> str:
+        return f'< {self.address} : Router | Attrs >'
+
+    def to_maude(self) -> str:
+        return f'mkRouter({address_to_maude(self.address)})'
+
+class ReceiveApp:
+    def __init__(self, address, file_dest_address, toAddress, fromAddress):
+        self.address = address
+        self.file_dest_address = file_dest_address
+        self.toAddress = toAddress
+        self.fromAddress = fromAddress
 
     def __str__(self) -> str:
         return f'< {self.address} : RcvApp | Attrs >'
 
     def to_maude(self) -> str:
+        return f'mkRcvApp({address_to_maude(self.address)}, {address_to_maude(self.file_dest_address)}, {address_to_maude(self.fromAddress)}, {address_to_maude(self.toAddress)})'
+
+    def to_maude_full(self) -> str:
         res = f'< {address_to_maude(self.address)} : RcvApp |\n'
         res += f'    rcvd: mtpl,\n'
-        res += f'    fileDestAddr: Alice,\n'
-        res += f'    toAddr: (addr-application-server),\n'
+        res += f'    fileDestAddr: {address_to_maude(self.fromAddress)},\n'
+        res += f'    fileSrcAddr: {address_to_maude(self.file_dest_address)},\n'
+        res += f'    toAddr: {address_to_maude(self.toAddress)},\n'
         res += f'    queuePopulated: false,\n'
         res += f'    queue: (mtpl),\n'
         res += f'    numAdmittedPkts: 1,\n'
@@ -55,16 +74,20 @@ class ReceiveApp:
 
 class IodineServer:
 
-    def __init__(self, address, nameServer : Nameserver, severWResponseTTL: float) -> None:
+    def __init__(self, address, zones: list, severWResponseTTL: float) -> None:
         self.address = address        
-        self.nameServer = nameServer
+        self.zones = zones
         self.severWResponseTTL = severWResponseTTL
 
     def __str__(self) -> str:
         return f'< {self.address} : WNameserver | Attrs >'
 
-    def to_maude(self) -> str:        
-        strNS = "" if self.nameServer == None else self.nameServer.to_maude()
+    def to_maude(self) -> str:
+        return f'makeWNameServer({address_to_maude(self.address)}, {self.severWResponseTTL}, ({" ".join(list(map(lambda z: z.maude_name(), self.zones)))}))'
+
+    def to_maude_full(self) -> str:
+        NS = Nameserver(self.address, self.zones)
+        strNS = "" if not self.zones else NS.to_maude_ful()
         res = f'< {address_to_maude(self.address)} : WNameserver |\n'        
         res += f'    fragmentsReceived: mtfl,\n'
         res += f"    inSeqNo: 0,\n"
@@ -81,32 +104,35 @@ class IodineServer:
 
 
 class SendApp:
-    def __init__(self, address, file_dest_address, toAddress, packets_to_send, overwrite_queue : bool, start : float = -1):
+    #def __init__(self, address, file_dest_address, toAddress, fromAddress, packets_to_send, overwrite_queue : bool, start : float = -1):
+    def __init__(self, address, file_dest_address, toAddress, fromAddress):
         """
         Constructor, builds a SendApp.
 
         address:  The address of the send app.
         file_dest_address: The address of the file transfer's destination.
         toAddress: The address of the IodineClient or file transfer's destination.
-                   TODO: Figure out which one, when.
-        packets_to_send: The list of packets to send, unless it is to be overwritten.
-        overwrite_queue: The boolean to overwrite the packet list provided here.
-                         (Will be computed at Alice start time.)
+        fromAddress: alice app
         """
         self.address = address
         self.file_dest_address = file_dest_address
         self.toAddress = toAddress
-        self.overwrite_queue = overwrite_queue
-        self.packets = packets_to_send
-        self.start = start
+        self.fromAddress = fromAddress
+        # self.overwrite_queue = overwrite_queue
+        # self.packets = packets_to_send
+        # self.start = start
 
     def __str__(self) -> str:
         return f'< {self.address} : SendApp | Attrs >'
 
     def to_maude(self) -> str:
+        return f'mkSendApp({address_to_maude(self.address)}, {address_to_maude(self.file_dest_address)}, {address_to_maude(self.fromAddress)}, {address_to_maude(self.toAddress)})'
+
+    def to_maude_full(self) -> str:
         res = f'< {address_to_maude(self.address)} : SendApp |\n'
         res += f'    fileDestAddr: {address_to_maude(self.file_dest_address)},\n'
         res += f'    toAddr: ({address_to_maude(self.toAddress)}),\n'
+        res += f'    fromAddr: ({address_to_maude(self.fromAddress)}),\n'
         res += f'    queuePopulated: false,\n'
         res += f'    queue: ({packetlist_to_maude(self.packets)}),\n'
         res += '    numAdmittedPkts: 1,\n'
@@ -117,16 +143,20 @@ class SendApp:
 
 class IodineClient:
 
-    def __init__(self, address, wDomName, wQueryType, resolverAddress) -> None:
+    def __init__(self, address, wDomName, wQueryType, resolverAddress, wTTL:float=0.0) -> None:
         self.address = address
         self.wDomName = wDomName
         self.wQueryType = wQueryType
         self.resolverAddress = resolverAddress
+        self.wTTL = wTTL
 
     def __str__(self) -> str:
         return f'< {self.address} : WClient | Attrs >'
 
-    def to_maude(self) -> str:        
+    def to_maude(self) -> str:
+        return f'makeWClient({address_to_maude(self.address)}, {address_to_maude(self.resolverAddress)}, {name_to_maude(self.wDomName)}, {rtype_to_maude(self.wQueryType)}, {self.wTTL})'
+    
+    def to_maude_full(self) -> str:
         res = f'< {address_to_maude(self.address)} : WClient |\n'
         res += f'    resv: {address_to_maude(self.resolverAddress)},\n'
         res += f'    wDom: {name_to_maude(self.wDomName)},\n'
@@ -142,7 +172,7 @@ class IodineClient:
         res += f'    inSeqNo: 0,\n'
         res += f'    inFragNo: 0,\n'
         res += f'    lastFragment: false,\n'
-        res += f'    severWResponseTTL: 0.0 >'
+        res += f'    severWResponseTTL: {self.wTTL} >'
         return res
     
 '''
@@ -161,7 +191,10 @@ class WMonitor:
     def __str__(self) -> str:
         return f'< {self.address} : WMonitor | Attrs >'
 
-    def to_maude(self) -> str:        
+    def to_maude(self) -> str:
+        return f'makeMonitor({address_to_maude(self.address)})'
+
+    def to_maude_full(self) -> str:
         res = f'< {address_to_maude(self.address)} : WMonitor |\n'
         res += '    querySent: nilQueryTimestamp,\n'
         res += '    queryRcvd: nilQueryTimestamp,\n'
@@ -185,6 +218,33 @@ class PacedClient:
             res = f'mkPacedClient({self.address},{self.resolverAddress}, {name_to_maude(self.NAME)}, {self.N},{self.TOP},{self.TOQ})'
             return res
 
+class TGenClient:
+    def __init__(self, address : str, resolverAddress : str, nameDBSize : int, retryTO : float, numRetries : int, profile, startTime: float) -> None:
+        self.address = address
+        self.resolverAddress = resolverAddress
+        self.nameDBSize = nameDBSize
+        self.retryTO = retryTO
+        self.numRetries = numRetries
+        self.profile = profile
+        self.startTime = startTime
+
+    def to_maude(self) -> str:
+        # **** umActor
+        #   mkUMactor(umADDR,dnsMA,dnsTADDR)
+        # **** dnsTActor
+        #   mkDnsTgenA(dnsTADDR,local-dns,dnameDb, 5.0, 2)
+        #   [0.0, (to umADDR from umADDR : actionR("")), 0]
+        tgAddr = address_to_maude(self.address)
+        tgUMAddr = tgAddr + '-UM'
+        res  = f'mkDnsTgenA({tgAddr},{address_to_maude(self.resolverAddress)},{self.nameDBSize}, {self.retryTO}, {self.numRetries})\n'
+        res += f'mkUMactor({tgUMAddr},{address_to_maude(self.profile)},{tgAddr})\n'
+        res += f'[{self.startTime}, (to {tgUMAddr} from {tgUMAddr} : actionR("")), 0]'
+        return res
+
+
+
+
+
 class IResolver(Resolver):
 
     def __init__(self, address, cache : ResolverCache = None) -> None:
@@ -192,6 +252,12 @@ class IResolver(Resolver):
         super().__init__(address)
     
     def to_maude(self) -> str:
+        strCache = "nilCache"
+        if self.cache:
+            strCache = self.cache.name
+        return f'mkResolver({address_to_maude(self.address)}, {strCache}, sb)'
+
+    def to_maude_full(self) -> str:
         strCache = "nilCache"
         if self.cache:
             strCache = self.cache.name

@@ -31,12 +31,14 @@
 from maude_hcs.parsers.hcsconfig import HCSConfig
 from .corporate import corporate
 from .corporate_iodine import corporate_iodine
+from .corporate_iodine_mastodon import corporate_iodine_mastodon
 
 class KnownUNetworks:
     def __init__(self):        
         self.constructors = {
             'corporate_base': self._fixed_network(corporate),
-            'corporate_iodine': self._fixed_network(corporate_iodine)
+            'corporate_iodine': self._fixed_network(corporate_iodine),
+            'corporate_iodine_mastodon': self._fixed_network(corporate_iodine_mastodon)
         }
     
     def create(self, args, hcsconf:HCSConfig):        
