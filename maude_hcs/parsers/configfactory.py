@@ -31,23 +31,26 @@
 
 from enum import Enum
 from pathlib import Path
+from maude_hcs.lib import GLOBALS
 
-from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig
-
-class Protocol(Enum):
-    """An enumeration for network protocols."""
-    DNS = "DNS"
-    TCP = "TCP"
+from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig, DNSHCSConfig2
 
 def buildHCSConfig(args):
     protocol = args.protocol
-    if protocol.upper() == Protocol.DNS.value:        
+    if protocol.lower() == GLOBALS.MODULES[0]: # dns
         # build from run args
         if args.run_args:
             return DNSHCSConfig.from_file(Path(args.run_args.name))
         # build from shadow
         elif args.shadow_filename:
             return DNSHCSConfig.from_shadow(Path(args.shadow_filename.name))
+    elif protocol.lower() == GLOBALS.MODULES[1]: #dns+mastodon
+        # build from run args
+        if args.run_args:
+            return DNSHCSConfig2.from_file(Path(args.run_args.name))
+        # build from yml
+        elif args.yml_filename:
+            return DNSHCSConfig2.from_yml(Path(args.yml_filename))
     else:
         raise ValueError("Unsupported protocol")
 

@@ -123,11 +123,20 @@ def build_cli_parser():
                         metavar='FILE', required=False, help=f'File containing all of the run arguments')
     generate_parser.add_argument("--shadow-filename",
         dest="shadow_filename",
-        type=lambda x: is_valid_file(parser, x),
+        # type=lambda x: is_valid_file(parser, x),
         metavar='FILE',
         default=None,
         help="Name of the shadow yaml config file, which includes the topology gml file path and other params",
         required=False)
+
+    generate_parser.add_argument("--yml-filename",
+                                 dest="yml_filename",
+                                 # type=lambda x: is_valid_file(generate_parser, x),
+                                 metavar='FILE',
+                                 default=None,
+                                 help="Name of the global yml config file, which includes the topology, and actor information and params",
+                                 required=False)
+
     generate_parser.add_argument('--filename', dest='filename', type=str, required=False, default=None, help=f'Name of output file')
     generate_parser.add_argument('--model', dest='model', required=False,
             choices=GLOBALS.MODEL_TYPES,
