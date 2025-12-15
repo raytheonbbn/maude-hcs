@@ -46,11 +46,12 @@ class Router:
         return f'mkRouter({address_to_maude(self.address)})'
 
 class ReceiveApp:
-    def __init__(self, address, file_dest_address, toAddress, fromAddress):
+    def __init__(self, address, file_dest_address, toAddress, fromAddress, start:float = 0.0):
         self.address = address
         self.file_dest_address = file_dest_address
         self.toAddress = toAddress
         self.fromAddress = fromAddress
+        self.start = start
 
     def __str__(self) -> str:
         return f'< {self.address} : RcvApp | Attrs >'
@@ -87,7 +88,7 @@ class IodineServer:
 
     def to_maude_full(self) -> str:
         NS = Nameserver(self.address, self.zones)
-        strNS = "" if not self.zones else NS.to_maude_ful()
+        strNS = "" if not self.zones else NS.to_maude_full()
         res = f'< {address_to_maude(self.address)} : WNameserver |\n'        
         res += f'    fragmentsReceived: mtfl,\n'
         res += f"    inSeqNo: 0,\n"
@@ -105,7 +106,7 @@ class IodineServer:
 
 class SendApp:
     #def __init__(self, address, file_dest_address, toAddress, fromAddress, packets_to_send, overwrite_queue : bool, start : float = -1):
-    def __init__(self, address, file_dest_address, toAddress, fromAddress):
+    def __init__(self, address, file_dest_address, toAddress, fromAddress, start:float = 0.0):
         """
         Constructor, builds a SendApp.
 
@@ -120,7 +121,7 @@ class SendApp:
         self.fromAddress = fromAddress
         # self.overwrite_queue = overwrite_queue
         # self.packets = packets_to_send
-        # self.start = start
+        self.start = start
 
     def __str__(self) -> str:
         return f'< {self.address} : SendApp | Attrs >'
@@ -203,13 +204,14 @@ class WMonitor:
         return res
 
 class PacedClient:
-    def __init__(self, address, resolverAddress, NAME, N, TOP, TOQ) -> None:
+    def __init__(self, address, resolverAddress, NAME, N, TOP, TOQ, start = False) -> None:
         self.address = address
         self.resolverAddress = resolverAddress
         self.NAME = NAME
         self.N = N
         self.TOP = TOP
         self.TOQ = TOQ
+        self.start = start
 
     def __str__(self) -> str:
             return f'< {self.address} : PacedClient | Attrs >'
@@ -219,7 +221,7 @@ class PacedClient:
             return res
 
 class TGenClient:
-    def __init__(self, address : str, resolverAddress : str, nameDBSize : int, retryTO : float, numRetries : int, profile, startTime: float) -> None:
+    def __init__(self, address : str, resolverAddress : str, nameDBSize : int, retryTO : float, numRetries : int, profile, startTime: float, start = False) -> None:
         self.address = address
         self.resolverAddress = resolverAddress
         self.nameDBSize = nameDBSize
@@ -227,6 +229,7 @@ class TGenClient:
         self.numRetries = numRetries
         self.profile = profile
         self.startTime = startTime
+        self.start = start
 
     def to_maude(self) -> str:
         # **** umActor
