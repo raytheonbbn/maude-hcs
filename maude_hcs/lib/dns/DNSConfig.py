@@ -85,15 +85,29 @@ class DNSConfig(Config):
             if resolver.cache:
                 res += resolver.cache.to_maude() + '\n'
         return res
-   
-    # override update the modules imported
-    def to_maude_nondet(self, param_dict, path) -> str:
-        res = '\n'.join((
+
+    def _maude_loads(self, path, model):
+        if model == 'nondet':
+            return '\n'.join((
                 '--- This maude file has been created automatically from the Python representation ---\n',
                 f'load {self.weirdpath}/nondet/iodine_dns',
-                #f'load {path}src/nondet-model/dns',
+                # f'load {path}src/nondet-model/dns',
                 f'load {path}test/nondet-model/test_helpers'
-        ))
+            ))
+        elif model == 'prob':
+            res = '--- This maude file has been created automatically from the Python representation ---\n'
+            res += '\n'.join((
+                f'load {self.weirdpath}/probabilistic/iodine_dns',
+                f'load {self.weirdpath}/probabilistic/paced-client\n'
+                f'load {path}test/probabilistic-model/test_helpers\n',
+            ))
+            return res
+        return None
+
+
+    # override update the modules imported
+    def to_maude_nondet(self, param_dict, path) -> str:
+        res = self._maude_loads(path, 'nondet')
         # add preamble 
         res += '\n'
         res += '\n'.join([pr for pr in self.preamble])
@@ -122,12 +136,8 @@ class DNSConfig(Config):
         return res        
 
     def to_maude_prob(self, param_dict, path) -> str:
-        res = '--- This maude file has been created automatically from the Python representation ---\n'
-        res += '\n'.join((            
-                f'load {self.weirdpath}/probabilistic/iodine_dns',
-                f'load {self.weirdpath}/probabilistic/paced-client\n'
-                f'load {path}test/probabilistic-model/test_helpers\n',                
-				))
+        res = self._maude_loads(path, 'prob')
+        res += '\n'
 
         # add preamble 
         res += '\n'

@@ -50,7 +50,7 @@ class IodineDNSConfig(DNSConfig):
         for actor in self.tunnels:
             addresses.append(actor.address)
             if isinstance(actor, IodineServer):
-                addresses.append(actor.nameServer.address)
+                addresses.append(actor.address)
         return sorted(set(addresses))
     
     def _get_zones(self):        
@@ -61,9 +61,27 @@ class IodineDNSConfig(DNSConfig):
         """        
         for actor in self.tunnels:
             if isinstance(actor, IodineServer):
-                zones = zones.union(set(actor.nameServer.zones))
+                zones = zones.union(set(actor.zones))
         return zones
-    
+
+    # Override
+    def _maude_loads(self, path, model):
+        # sload ../../../common/maude/user-action-actor.maude
+        # sload ../../../dns/maude/probabilistic/dnsTgen-actor.maude
+        # sload ../../../common/maude/masTGen.maude
+        # sload ../../../common/maude/router
+        # sload ../../../common/maude/adversary-observer
+        # sload ../../../app/maude/probabilistic
+
+        if model == 'prob':
+            res = '--- This maude file has been created automatically from the Python representation ---\n'
+            res += '\n'.join((
+                f'load {self.weirdpath}/probabilistic/iodine_dns',
+                f'load {self.weirdpath}/probabilistic/paced-client\n'
+                f'load {path}test/probabilistic-model/test_helpers\n',
+            ))
+            return res
+
     # Override to add tunnels and applications to conf
     def _to_maude_actors(self) -> str:
         res = super()._to_maude_actors()        
@@ -82,7 +100,8 @@ class IodineDNSConfig(DNSConfig):
             res += '  ' + self.monitor.to_maude() + '\n'
             for client in self.paced_clients:
                 res += '  ' + client.to_maude() + '\n'
-                res += f'  [genRandom(0.0, 0.0001), to {address_to_maude(client.address)} : start, 0]\n'
+                if client.start:
+                    res += f'  [genRandom(0.0, 0.0001), to {address_to_maude(client.address)} : start, 0]\n'
             res += '  --- App start messages\n'
             for app in self.applications:
                 if isinstance(app, SendApp) and app.start >= 0:

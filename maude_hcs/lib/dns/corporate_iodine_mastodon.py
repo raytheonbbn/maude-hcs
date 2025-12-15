@@ -50,22 +50,31 @@ logger = logging.getLogger(__name__)
         run_args is the json configuration from use cases
 """
 def corporate_iodine_mastodon(_args, hcsconf :  DNSHCSConfig2) -> IodineDNSConfig:
-    def getTopologyNode(_name:str):
-        return hcsconf.topology.getNodebyLabel(_name)
+    def getOrAddTopologyNode(_name:str):
+        node = hcsconf.topology.getNodebyLabel(_name)
+        if node: return node
+        node = Node.from_label(hcsconf.topology.nextID(), _name)
+        hcsconf.topology.nodes.append(node)
+        return node
+
     addr_prefix   = hcsconf.underlying_network.addr_prefix    
-    root_node = getTopologyNode(hcsconf.underlying_network.root_name)
+    root_node = getOrAddTopologyNode(hcsconf.underlying_network.root_name)
     assert root_node, "Root node undefined"
-    tld_node = getTopologyNode(hcsconf.underlying_network.tld_name)
+    tld_node = getOrAddTopologyNode(hcsconf.underlying_network.tld_name)
     assert tld_node, "TLD node undefined"
-    ee_node = getTopologyNode(hcsconf.underlying_network.everythingelse_name)
+    ee_node = getOrAddTopologyNode(hcsconf.underlying_network.everythingelse_name)
     assert ee_node, "Everythingelse node undefined"
-    pwnd2_node = getTopologyNode(hcsconf.underlying_network.pwnd2_name)
+    # In this configuration, user alice contains the iodine client
+    #   and user bob contains the iodine server
+    # If these nodes dont exists, create them in the topology since
+    # we assume that nodes correspond to actors (roughly)
+    pwnd2_node = getOrAddTopologyNode(hcsconf.underlying_network.pwnd2_name)
     assert pwnd2_node, "PWND2 node undefined"
-    corp_node = getTopologyNode(hcsconf.underlying_network.corporate_name)
+    corp_node = getOrAddTopologyNode(hcsconf.underlying_network.corporate_name)
     assert corp_node, "Corp node undefined"
-    resolver_node = getTopologyNode(hcsconf.underlying_network.resolver_name)
+    resolver_node = getOrAddTopologyNode(hcsconf.underlying_network.resolver_name)
     assert resolver_node, "Resolver node undefined"
-    iodineCl_node = getTopologyNode(hcsconf.weird_network.client_name)
+    iodineCl_node = getOrAddTopologyNode(hcsconf.weird_network.client_name)
     assert iodineCl_node, "Iodine client node undefined"
     tld_domain = hcsconf.underlying_network.tld_domain
     corp_domain = hcsconf.underlying_network.corporate_domain
@@ -135,7 +144,7 @@ def corporate_iodine_mastodon(_args, hcsconf :  DNSHCSConfig2) -> IodineDNSConfi
     tgen_clients = []
     num_clients = hcsconf.background_traffic.num_clients
     for index,client in enumerate(hcsconf.background_traffic.clients):
-        tgen_clients.append(TGenClient(f'tgen-dns-{index}', resolver.address, 10000, client.client_retry_to, client.client_num_retry, client.client_markov_model_profile, client.start_time))
+        tgen_clients.append(TGenClient(f'tgen-dns-{index}', corp_node.address, 10000, client.client_retry_to, client.client_num_retry, client.client_markov_model_profile, client.start_time))
     C = IodineDNSConfig(monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     C.set_params(hcsconf.nondeterministic_parameters.to_dict(), hcsconf.probabilistic_parameters.to_dict())
     C.set_preamble(hcsconf.output.preamble)

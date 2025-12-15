@@ -66,12 +66,32 @@ class Node:
     host_bandwidth_up: str
     host_bandwidth_down: str
 
+    @staticmethod
+    def from_label(id, label):
+        clean_address = label.replace('_', '-')
+        return Node(
+            id=id,
+            label=label,
+            address=clean_address,
+            ip_address="",  # Default/Empty as not provided in YAML
+            host_bandwidth_up="1 Gbit",  # Default
+            host_bandwidth_down="1 Gbit"  # Default
+        )
+
+
 @dataclass_json
 @dataclass
 class Topology:
     isDirected: bool
     nodes: list[Node] = field(default_factory=list)
     links: list[Link] = field(default_factory=list)
+
+    def nextID(self):
+        next_id = 0
+        for node in self.nodes:
+            if node.id > next_id:
+                next_id = node.id
+        return next_id + 1
 
     def getNodebyId(self, id_):
        for node in self.nodes:
@@ -268,17 +288,7 @@ def parse_setup_yml(yml_path: str):
     def get_or_create_node(label):
         nonlocal next_node_id
         if label not in nodes_map:
-            # Create a new node with default values for missing fields
-            # The label is used for both label and address (replacing _ with -)
-            clean_address = label.replace('_', '-')
-            new_node = Node(
-                id=next_node_id,
-                label=label,
-                address=clean_address,
-                ip_address="",  # Default/Empty as not provided in YAML
-                host_bandwidth_up="1 Gbit",  # Default
-                host_bandwidth_down="1 Gbit"  # Default
-            )
+            new_node = Node.from_label(next_node_id, label)
             nodes_map[label] = new_node
             next_node_id += 1
         return nodes_map[label]
