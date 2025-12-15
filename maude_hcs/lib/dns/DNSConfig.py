@@ -104,6 +104,12 @@ class DNSConfig(Config):
             return res
         return None
 
+    def _maude_includes(self, param_dict, path, model) -> str:
+        if model == 'nondet':
+            return 'inc IODINE_DNS + TEST-HELPERS .\n\n'
+        elif model == 'prob':
+            return 'inc IODINE_DNS + PACED-CLIENT + TEST-HELPERS .\n\n'
+
 
     # override update the modules imported
     def to_maude_nondet(self, param_dict, path) -> str:
@@ -114,10 +120,9 @@ class DNSConfig(Config):
         res += '\n\n'
         
         # define module
-        res += '\n'.join((
-                f'mod {GLOBALS.MODULE_NAME} is\n',
-                'inc IODINE_DNS + TEST-HELPERS .\n\n'
-        ))
+        res += f'mod {GLOBALS.MODULE_NAME} is\n'
+        # define includes
+        res += self._maude_includes(param_dict, path, 'nondet')
 
         res += self._to_maude_common_definitions(param_dict)
         res += self._to_maude_caches()
@@ -144,10 +149,10 @@ class DNSConfig(Config):
         res += '\n'.join([pr for pr in self.preamble])
         res += '\n\n'
 
-        res += '\n'.join((
-                f'mod {GLOBALS.MODULE_NAME} is\n',
-                'inc IODINE_DNS + PACED-CLIENT + TEST-HELPERS .\n\n'
-        ))
+        # define module
+        res += f'mod {GLOBALS.MODULE_NAME} is\n'
+        # define includes
+        res += self._maude_includes(param_dict, path, 'prob')
 
         res += self._to_maude_common_definitions(param_dict)
         res += self._to_maude_caches()

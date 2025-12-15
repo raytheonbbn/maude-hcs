@@ -240,7 +240,7 @@ class TGenClient:
         tgAddr = address_to_maude(self.address)
         tgUMAddr = tgAddr + '-UM'
         res  = f'mkDnsTgenA({tgAddr},{address_to_maude(self.resolverAddress)},{self.nameDBSize}, {self.retryTO}, {self.numRetries})\n'
-        res += f'mkUMactor({tgUMAddr},{address_to_maude(self.profile)},{tgAddr})\n'
+        res += f'mkUMactor({tgUMAddr},{address_to_maude(self.profile)}-ma,{tgAddr})\n'
         res += f'[{self.startTime}, (to {tgUMAddr} from {tgUMAddr} : actionR("")), 0]'
         return res
 
