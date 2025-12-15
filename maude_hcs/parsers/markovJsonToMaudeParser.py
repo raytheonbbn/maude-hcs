@@ -326,3 +326,28 @@ def find_and_load_json(root_directory: str, json_filename: str) -> dict:
 
     # If we finish the loop without returning, the file was never found
     raise FileNotFoundError(f"File '{json_filename}' was not found in '{root_directory}' or any of its subdirectories.")
+
+def find_recursively(root_directory: str, filename: str) -> dict:
+    """
+    Recursively searches for a specific file starting from a root directory,
+    return path
+
+    Args:
+        root_directory (str): The path to the root directory to search (e.g., "dir/").
+        filename (str): The name of the file to search for (e.g., "profile.json").
+
+    Returns:
+        path to filename
+
+    Raises:
+        FileNotFoundError: If the file is not found anywhere in the directory tree.
+    """
+
+    # os.walk allows us to look into every subdirectory recursively
+    for current_root, dirs, files in os.walk(root_directory):
+        if filename in files:
+            # Construct the full, absolute or relative path to the file
+            return os.path.join(current_root, filename)
+
+    # If we finish the loop without returning, the file was never found
+    raise FileNotFoundError(f"File '{filename}' was not found in '{root_directory}' or any of its subdirectories.")

@@ -120,6 +120,7 @@ class DNSProbabilisticParameters2(ProbabilisticParameters):
     pingInterval: float = 1.0
     initialPingDelay: float = 0.001
     receiveToPingDelay: float = 0.001
+    limit: float = 100.0 # the simulation time limit
 
 @dataclass_json
 @dataclass
@@ -400,6 +401,7 @@ class DNSHCSConfig2(HCSConfig):
         pp = DNSProbabilisticParameters2()
         pp.ackTimeoutDelay = 1.0
         pp.initialPingDelay = 1.0
+        pp.limit = 300.0
         out = Output()
         out.force_save = True
         out.preamble = [

@@ -29,8 +29,15 @@
 # MAUDE_HCS: end
 
 from Maude.attack_exploration.src.conversion_utils import address_to_maude
+from numpy.f2py.cfuncs import includes
+
 from .DNSConfig import DNSConfig
-from .iodineActors import IodineServer, SendApp, PacedClient, ReceiveApp
+from .iodineActors import IodineServer, SendApp, PacedClient, ReceiveApp, TGenClient
+from pathlib import Path
+
+from .. import GLOBALS
+from ...parsers.markovJsonToMaudeParser import find_recursively
+
 
 class IodineDNSConfig(DNSConfig):
     def __init__(self, monitor, applications, weird_networks, clients, paced_clients, resolvers, nameservers, root_nameservers, network) -> None:
@@ -39,6 +46,7 @@ class IodineDNSConfig(DNSConfig):
         self.applications = applications
         self.tunnels = weird_networks
         super().__init__(clients, resolvers, nameservers, root_nameservers, network)
+        self.common_path = Path(self.weirdpath).parent.parent.joinpath('common').joinpath('maude')
 
     def _get_actor_addresses(self):
         addresses = super()._get_actor_addresses()
@@ -66,20 +74,59 @@ class IodineDNSConfig(DNSConfig):
 
     # Override
     def _maude_loads(self, path, model):
-        # sload ../../../common/maude/user-action-actor.maude
-        # sload ../../../dns/maude/probabilistic/dnsTgen-actor.maude
-        # sload ../../../common/maude/masTGen.maude
-        # sload ../../../common/maude/router
-        # sload ../../../common/maude/adversary-observer
+        # sload ../../../mastodon/maude/probabilistic/mastodon
         # sload ../../../app/maude/probabilistic
 
         if model == 'prob':
             res = '--- This maude file has been created automatically from the Python representation ---\n'
-            res += '\n'.join((
-                f'load {self.weirdpath}/probabilistic/iodine_dns',
-                f'load {self.weirdpath}/probabilistic/paced-client\n'
-                f'load {path}test/probabilistic-model/test_helpers\n',
-            ))
+            res += '\n'.join([
+                f'sload {self.weirdpath}/probabilistic/iodine_dns',
+                f'sload {self.weirdpath}/probabilistic/dnsTgen-actor\n'
+                f'sload {path}test/probabilistic-model/test_helpers',
+                f'sload {self.common_path}/user-action-actor\n'
+                f'sload {self.common_path}/masTGen.maude',
+                f'sload {self.common_path}/router',
+                f'sload {self.common_path}/adversary-observer'
+            ])
+            tgen_loads = set()
+            for tc in self.paced_clients:
+                if isinstance(tc, TGenClient):
+                    # we change the mmodel file when we create the maude name so change it back
+                    mod = '_'.join(tc.profile.replace('-', '_').split('_')[1:])
+                    file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude')
+                    tgen_loads.add(f'sload {file}')
+            if tgen_loads:
+                res += '\n ---- tgen models\n'
+                res += '\n'.join(tgen_loads)
+
+            return res
+
+    # override
+    def _maude_includes(self, params, path, model):
+        #           'inc MASTODON .',
+        #           'inc MAS-TGEN .',
+        #           'inc CP2_APP .',
+
+        includes = [
+          ' inc DNS .',
+          ' inc USER-ACTION-ACTOR .',
+          ' inc DNS-TGEN .',
+          ' inc IODINE_DNS . --- + TEST-HELPERS .',
+          ' inc ROUTER .',
+          ' inc ADVERSARY-OBSERVER .'
+        ]
+        if model == 'prob':
+
+            res = '\n'.join(includes)
+            tgen_incs = set()
+            for tc in self.paced_clients:
+                if isinstance(tc, TGenClient):
+                    tgen_incs.add(f' inc {tc.profile.upper()}-MAMODEL .')
+            if tgen_incs:
+                res += '\n ---- tgen includes\n'
+                res += '\n'.join(tgen_incs)
+                res += '\n'
+
             return res
 
     # Override to add tunnels and applications to conf
