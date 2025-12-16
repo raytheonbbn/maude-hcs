@@ -75,15 +75,22 @@ eq receiveToPingDelay = 0.000001 .
 
 --- This is needed so the rewrites don't freeze up when Bob receives Alice's file (normally this is handled by the other raceboat components)
 vars FILE : ByteSeq .
-vars BOB : Address .
+vars CLIENT, SERVER : Address .
 vars attrs : AttributeSet .
 vars T : Float .
 
-rl [dropOutputFiles]:
-    < BOB : RcvApp | attrs >
+rl [dropOutputFilesBob]:
+    < SERVER : RcvApp | attrs >
     {T, (to bob : FILE)}
     =>
-    < BOB : RcvApp | attrs >
+    < SERVER : RcvApp | attrs >
+.
+
+rl [dropOutputFilesAlice]:
+    < CLIENT : SendApp | attrs >
+    {T, (to alice from CLIENT : FILE)}
+    =>
+    < CLIENT : SendApp | attrs >
 .
 
 op zonePwnd2Com : -> List{Record} .
@@ -103,6 +110,7 @@ eq zonePwnd2Com =
 
   < iodineSendApp : SendApp |
       fileDestAddr: iodineRecvApp,
+      fromAddr: alice,
       toAddr: iodineClient,
       queuePopulated: true,
       queue: mtpl,
