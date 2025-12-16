@@ -112,9 +112,9 @@ class DNSProbabilisticParameters(ProbabilisticParameters):
 class DNSNondeterministicParameters2(NondeterministicParameters):
     packetOverhead: int = 1
     maxMinimiseCount: int = 0
-    maxFragmentLen: int = 1
+    maxUpFragmentLen: int = 1
     maxFragmentTx: int = 1
-    maxResponseLen: int = 1
+    maxDownFragmentLen: int = 1
 
 @dataclass_json
 @dataclass
@@ -393,7 +393,7 @@ class DNSHCSConfig2(HCSConfig):
         ndp.maxMinimiseCount = 0
         # > Read the maximum fragment length from the maximum DNS request length limit (passed by the `-M` argument on the Iodine command line) and per-query overhead (currently unknown).
         # TODO I dont recall why the -2?
-        ndp.maxFragmentLen = ymlconf.application.iodine.max_query_length - 2
+        ndp.maxUpFragmentLen = ymlconf.application.iodine.max_query_length - 2
         # Change this number if different codec is desired:
         # 18.72% for Base128
         # 37.22% for Base64
@@ -401,13 +401,10 @@ class DNSHCSConfig2(HCSConfig):
         codec_overhead = 0.1872
         # Not all maxFragmentLen, specified by -M flag, is usable for the payload.  Based on current understanding of Iodine overhead (+3B) encoded + 12B non encoded:
         # Payload_size  = (hostname_len - 12 - 3 x (1 + 0.1872)) / (1 + 0.1872)
-        ndp.maxFragmentLen = round((ndp.maxFragmentLen - 12 - 3 * (1 + codec_overhead)) / (1 + codec_overhead))
+        ndp.maxUpFragmentLen = round((ndp.maxUpFragmentLen - 12 - 3 * (1 + codec_overhead)) / (1 + codec_overhead))
         # iodine downstream has a -m option
         # TODO Jiawei what is teh right value to put here?
-        # Jiawei implemented on branch 48
-        # Change eq maxFragmentLen = x . to eq maxUpFragmentLen = y .\n eq maxDownFragmentLen = z .
-        #
-        ndp.maxResponseLen = ymlconf.application.iodine.max_response_size
+        ndp.maxDownFragmentLen = ymlconf.application.iodine.max_response_size
         # checked the patch is still applied to iodine src
         ndp.maxFragmentTx = 20
         pp = DNSProbabilisticParameters2()

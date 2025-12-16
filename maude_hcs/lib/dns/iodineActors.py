@@ -222,7 +222,8 @@ class PacedClient:
 
 class TGenClient:
     def __init__(self, address : str, resolverAddress : str, nameDBSize : int, retryTO : float, numRetries : int, profile, startTime: float, start = False) -> None:
-        self.address = address
+        self.address = address_to_maude(address)
+        self.address_um = self.address + '-UM'
         self.resolverAddress = resolverAddress
         self.nameDBSize = nameDBSize
         self.retryTO = retryTO
@@ -237,8 +238,8 @@ class TGenClient:
         # **** dnsTActor
         #   mkDnsTgenA(dnsTADDR,local-dns,dnameDb, 5.0, 2)
         #   [0.0, (to umADDR from umADDR : actionR("")), 0]
-        tgAddr = address_to_maude(self.address)
-        tgUMAddr = tgAddr + '-UM'
+        tgAddr = self.address
+        tgUMAddr = self.address_um
         res  = f'mkDnsTgenA({tgAddr},{address_to_maude(self.resolverAddress)},{self.nameDBSize}, {self.retryTO}, {self.numRetries})\n'
         res += f'mkUMactor({tgUMAddr},{address_to_maude(self.profile)}-ma,{tgAddr})\n'
         res += f'[{self.startTime}, (to {tgUMAddr} from {tgUMAddr} : actionR("")), 0]'

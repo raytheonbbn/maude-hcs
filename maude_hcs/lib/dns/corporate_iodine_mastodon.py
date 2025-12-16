@@ -145,7 +145,7 @@ def corporate_iodine_mastodon(_args, hcsconf :  DNSHCSConfig2) -> IodineDNSConfi
     num_clients = hcsconf.background_traffic.num_clients
     for index,client in enumerate(hcsconf.background_traffic.clients):
         tgen_clients.append(TGenClient(f'tgen-dns-{index}', corp_node.address, 10000, client.client_retry_to, client.client_num_retry, client.client_markov_model_profile, client.start_time))
-    C = IodineDNSConfig(monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
+    C = IodineDNSConfig([router], monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     C.set_params(hcsconf.nondeterministic_parameters.to_dict(), hcsconf.probabilistic_parameters.to_dict())
     C.set_preamble(hcsconf.output.preamble)
     C.set_model_type(_args.model)
