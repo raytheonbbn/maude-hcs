@@ -93,14 +93,14 @@ def corporate_iodine_mastodon(_args, hcsconf :  DNSHCSConfig2) -> IodineDNSConfi
     zoneRoot, ns_records = createRootZone(hcsconf, record_ttl)
     cacheRecords.extend(ns_records)
     # com zone
-    zoneCom, ns_records = createTLDZone(hcsconf, zoneRoot, record_ttl)
+    zoneCom, ns_records = createTLDZone(hcsconf, zoneRoot, record_ttl, inclPwnd=False)
     cacheRecords.extend(ns_records)
     # Auth zones
-    zoneEverythingelse, ns_records = createAuthZone(ee_domain, ee_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
+    zoneEverythingelse, ns_records = createAuthZone(hcsconf, ee_domain, ee_node.address, zoneCom, num_records, record_ttl, record_ttl_a, inclPwnd=True)
     cacheRecords.extend(ns_records)
-    zonepwnd2, ns_records = createAuthZone(pwnd_domain, pwnd2_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
+    zonepwnd2, ns_records = createAuthZone(hcsconf, pwnd_domain, pwnd2_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
     cacheRecords.extend(ns_records)
-    zonecorp, ns_records = createAuthZone(corp_domain, corp_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
+    zonecorp, ns_records = createAuthZone(hcsconf, corp_domain, corp_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
     cacheRecords.extend(ns_records)
 
     

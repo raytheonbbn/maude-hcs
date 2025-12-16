@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class UnderlyingNetwork:
     server_fqdn: str
+    server_address: str
 
 @dataclass_json
 @dataclass
@@ -145,9 +146,12 @@ class YmlConf:
         return tgen_configs
 
     def _parse_underlying(self, data: dict) -> UnderlyingNetwork:
-        mastodon_server = data.get('mastodon_server', {})
+        ADDR = 'mastodon_server'
+        mastodon_server = data.get(ADDR, {})
+        fqdn = mastodon_server.get('server_fqdn', '') + '.'
         return UnderlyingNetwork(
-            server_fqdn=mastodon_server.get('server_fqdn', '')
+            server_fqdn=fqdn,
+            server_address=ADDR
         )
 
     def _parse_application(self, data: dict) -> Application:
