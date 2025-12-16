@@ -40,7 +40,8 @@ from ...parsers.markovJsonToMaudeParser import find_recursively
 
 
 class IodineDNSConfig(DNSConfig):
-    def __init__(self, monitor, applications, weird_networks, clients, paced_clients, resolvers, nameservers, root_nameservers, network) -> None:
+    def __init__(self, routers, monitor, applications, weird_networks, clients, paced_clients, resolvers, nameservers, root_nameservers, network) -> None:
+        self.routers = routers
         self.monitor = monitor
         self.paced_clients = paced_clients
         self.applications = applications
@@ -51,8 +52,12 @@ class IodineDNSConfig(DNSConfig):
     def _get_actor_addresses(self):
         addresses = super()._get_actor_addresses()
         addresses.append(self.monitor.address)
-        for client in self.paced_clients:        
+        for router in self.routers:
+            addresses.append(router.address)
+        for client in self.paced_clients:
             addresses.append(client.address)
+            if isinstance(client, TGenClient):
+                addresses.append(client.address_um)
         for app in self.applications:
             addresses.append(app.address)
         for actor in self.tunnels:
@@ -131,7 +136,10 @@ class IodineDNSConfig(DNSConfig):
 
     # Override to add tunnels and applications to conf
     def _to_maude_actors(self) -> str:
-        res = super()._to_maude_actors()        
+        res = super()._to_maude_actors()
+        res += '  --- routers\n'
+        for router in self.routers:
+            res += '  ' + router.to_maude() + '\n'
         res += '  --- tunnels\n'
         for tunnel in self.tunnels:
             res += '  ' + tunnel.to_maude() + '\n'
@@ -145,6 +153,7 @@ class IodineDNSConfig(DNSConfig):
         if self.model_type == 'prob':
             res += '  --- WMonitor\n'
             res += '  ' + self.monitor.to_maude() + '\n'
+            res += '  --- tgens \n'
             for client in self.paced_clients:
                 res += '  ' + client.to_maude() + '\n'
                 if client.start:
