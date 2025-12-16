@@ -47,7 +47,7 @@ class Router:
 
 class ReceiveApp:
     def __init__(self, address, file_dest_address, toAddress, fromAddress, start:float = 0.0):
-        self.address = address
+        self.address = address_to_maude(address)
         self.file_dest_address = file_dest_address
         self.toAddress = toAddress
         self.fromAddress = fromAddress
@@ -57,10 +57,10 @@ class ReceiveApp:
         return f'< {self.address} : RcvApp | Attrs >'
 
     def to_maude(self) -> str:
-        return f'mkRcvApp({address_to_maude(self.address)}, {address_to_maude(self.file_dest_address)}, {address_to_maude(self.fromAddress)}, {address_to_maude(self.toAddress)})'
+        return f'mkRcvApp({self.address}, {address_to_maude(self.file_dest_address)}, {address_to_maude(self.fromAddress)}, {address_to_maude(self.toAddress)})'
 
     def to_maude_full(self) -> str:
-        res = f'< {address_to_maude(self.address)} : RcvApp |\n'
+        res = f'< {self.address} : RcvApp |\n'
         res += f'    rcvd: mtpl,\n'
         res += f'    fileDestAddr: {address_to_maude(self.fromAddress)},\n'
         res += f'    fileSrcAddr: {address_to_maude(self.file_dest_address)},\n'
@@ -76,7 +76,7 @@ class ReceiveApp:
 class IodineServer:
 
     def __init__(self, address, zones: list, severWResponseTTL: float) -> None:
-        self.address = address        
+        self.address = address_to_maude(address)
         self.zones = zones
         self.severWResponseTTL = severWResponseTTL
 
@@ -84,7 +84,7 @@ class IodineServer:
         return f'< {self.address} : WNameserver | Attrs >'
 
     def to_maude(self) -> str:
-        return f'makeWNameServer({address_to_maude(self.address)}, {self.severWResponseTTL}, ({" ".join(list(map(lambda z: z.maude_name(), self.zones)))}))'
+        return f'makeWNameServer({self.address}, {self.severWResponseTTL}, ({" ".join(list(map(lambda z: z.maude_name(), self.zones)))}))'
 
     def to_maude_full(self) -> str:
         NS = Nameserver(self.address, self.zones)
@@ -115,7 +115,7 @@ class SendApp:
         toAddress: The address of the IodineClient or file transfer's destination.
         fromAddress: alice app
         """
-        self.address = address
+        self.address = address_to_maude(address)
         self.file_dest_address = file_dest_address
         self.toAddress = toAddress
         self.fromAddress = fromAddress
@@ -127,10 +127,10 @@ class SendApp:
         return f'< {self.address} : SendApp | Attrs >'
 
     def to_maude(self) -> str:
-        return f'mkSendApp({address_to_maude(self.address)}, {address_to_maude(self.file_dest_address)}, {address_to_maude(self.fromAddress)}, {address_to_maude(self.toAddress)})'
+        return f'mkSendApp({self.address}, {address_to_maude(self.file_dest_address)}, {address_to_maude(self.fromAddress)}, {address_to_maude(self.toAddress)})'
 
     def to_maude_full(self) -> str:
-        res = f'< {address_to_maude(self.address)} : SendApp |\n'
+        res = f'< {self.address} : SendApp |\n'
         res += f'    fileDestAddr: {address_to_maude(self.file_dest_address)},\n'
         res += f'    toAddr: ({address_to_maude(self.toAddress)}),\n'
         res += f'    fromAddr: ({address_to_maude(self.fromAddress)}),\n'
@@ -145,7 +145,7 @@ class SendApp:
 class IodineClient:
 
     def __init__(self, address, wDomName, wQueryType, resolverAddress, wTTL:float=0.0) -> None:
-        self.address = address
+        self.address = address_to_maude(address)
         self.wDomName = wDomName
         self.wQueryType = wQueryType
         self.resolverAddress = resolverAddress
@@ -155,10 +155,10 @@ class IodineClient:
         return f'< {self.address} : WClient | Attrs >'
 
     def to_maude(self) -> str:
-        return f'makeWClient({address_to_maude(self.address)}, {address_to_maude(self.resolverAddress)}, {name_to_maude(self.wDomName)}, {rtype_to_maude(self.wQueryType)}, {self.wTTL})'
+        return f'makeWClient({self.address}, {address_to_maude(self.resolverAddress)}, {name_to_maude(self.wDomName)}, {rtype_to_maude(self.wQueryType)}, {self.wTTL})'
     
     def to_maude_full(self) -> str:
-        res = f'< {address_to_maude(self.address)} : WClient |\n'
+        res = f'< {self.address} : WClient |\n'
         res += f'    resv: {address_to_maude(self.resolverAddress)},\n'
         res += f'    wDom: {name_to_maude(self.wDomName)},\n'
         res += f'    weirdQType: {rtype_to_maude(self.wQueryType)},\n'
