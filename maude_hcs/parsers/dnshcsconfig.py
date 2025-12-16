@@ -73,6 +73,9 @@ class DNSUnderlyingNetwork(UnderlyingNetwork):
     record_ttl: int                     = 3600
     # router
     router: str                         = 'router'
+    # mastodon server fqdn (this is DNS related)
+    mastodon_fqdn: str = ''
+    mastodon_address: str = ''
     
 @dataclass_json
 @dataclass
@@ -333,10 +336,19 @@ class DNSHCSConfig2(HCSConfig):
         # this sits inside Bob
         # this is really t1.pwnd.com but unimportant details for our purposes
         un.pwnd2_name = f'{bob}-iodine-server'
-        un.pwnd2_domain = "pwnd.com."
+        un.pwnd2_domain = "t1.pwnd.com."
         un.populate_resolver_cache = True
         un.record_ttl_a = 0
         un.record_ttl = 3600
+        un.mastodon_fqdn = ymlconf.underlying_network.server_fqdn
+        un.mastodon_address = ymlconf.underlying_network.server_address
+        # verify mastodon address is in the nodes or use the latter
+        if not ymlconf.network.getNodebyLabel(un.mastodon_address):
+            # does there exist a node that starts with mastodon?
+            if ymlconf.network.getNodebyLabel('mastodon'):
+                un.mastodon_address = ymlconf.network.getNodebyLabel('mastodon').label
+            else:
+                raise Exception('mastodon server address not found in network')
         # > now the weird net
         wn = DNSWeirdNetwork()
         wn.module = 'dns'

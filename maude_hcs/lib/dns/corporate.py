@@ -47,19 +47,30 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def createAuthZone(domain_name: str, NAME:str, parent:Zone, num_records:int, TTL:int = 3600, TTL_A:int = 0) -> Tuple[Zone, List]:
-        DNS_GLOBALS.counter += 1
-        records = [Record(f'tmp{index}.{domain_name}', 'A', TTL_A, f'{DNS_GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
-        zone_records  = [Record(domain_name, 'SOA', TTL, f'{TTL}')]
-        ns_records = [    
-                Record(domain_name, 'NS', TTL, f'ns.{domain_name}'),
-                Record(f'ns.{domain_name}', 'A', TTL, NAME)
-            ]
-        zone_records.extend(ns_records)
-        zone_records.extend(records)
-        # Append wildcard name
-        zone_records.append(Record(f'*.{domain_name}', 'A', TTL_A, f'{DNS_GLOBALS.counter}.{num_records}.1.2'))
-        return Zone(domain_name, parent, zone_records), ns_records
+def createAuthZone(hcsconf:DNSHCSConfig, domain_name: str, NAME:str, parent:Zone, num_records:int, TTL:int = 3600, TTL_A:int = 0, inclPwnd:bool = False) -> Tuple[Zone, List]:
+    DNS_GLOBALS.counter += 1
+    records = [Record(f'tmp{index}.{domain_name}', 'A', TTL_A, f'{DNS_GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
+    zone_records  = [Record(domain_name, 'SOA', TTL, f'{TTL}')]
+    ns_records = [
+            Record(domain_name, 'NS', TTL, f'ns.{domain_name}'),
+            Record(f'ns.{domain_name}', 'A', TTL, NAME)
+        ]
+    if inclPwnd:
+        pwnd2_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.pwnd2_name)
+        pwnd_domain = hcsconf.underlying_network.pwnd2_domain
+        if pwnd_domain and pwnd2_node:
+            records.extend([
+                Record(pwnd_domain, 'NS', TTL, f'ns.{pwnd_domain}'),
+                Record(f'ns.{pwnd_domain}', 'A', TTL, pwnd2_node.address),
+            ])
+            records.append(
+                Record(f'{hcsconf.underlying_network.mastodon_fqdn}', 'A', TTL_A, hcsconf.underlying_network.mastodon_address)
+            )
+    zone_records.extend(ns_records)
+    zone_records.extend(records)
+    # Append wildcard name
+    zone_records.append(Record(f'*.{domain_name}', 'A', TTL_A, f'{DNS_GLOBALS.counter}.{num_records}.1.2'))
+    return Zone(domain_name, parent, zone_records), ns_records
 
 def createRootZone(hcsconf:DNSHCSConfig, TTL:int = 3600) -> Tuple[Zone, List]:
     # root zone    
@@ -83,7 +94,7 @@ def createRootZone(hcsconf:DNSHCSConfig, TTL:int = 3600) -> Tuple[Zone, List]:
         ])
     return Zone('', None, records), ns_records
 
-def createTLDZone(hcsconf:DNSHCSConfig, zoneRoot, TTL:int = 3600) -> Tuple[Zone, List]:    
+def createTLDZone(hcsconf:DNSHCSConfig, zoneRoot, TTL:int = 3600, inclPwnd:bool = True) -> Tuple[Zone, List]:
     root_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.root_name)
     assert root_node, "Root node undefined"   
     tld_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.tld_name)
@@ -105,13 +116,22 @@ def createTLDZone(hcsconf:DNSHCSConfig, zoneRoot, TTL:int = 3600) -> Tuple[Zone,
         Record(tld_domain, 'NS', TTL, f'ns.{tld_domain}'),
         Record(f'ns.{tld_domain}', 'A', TTL, tld_node.address)
     ]
+    if inclPwnd:
+        records.extend([
+            Record(pwnd_domain, 'NS', TTL, f'ns.{pwnd_domain}'),
+            Record(f'ns.{pwnd_domain}', 'A', TTL, pwnd2_node.address),
+        ])
+    else: # pwnd.com is also managed by auth ee (auth) instead
+        pwnd_parent_dom = pwnd_domain.replace(pwnd_domain.split('.')[0]+'.', '')
+        ns_records.extend([
+            Record(pwnd_parent_dom, 'NS', TTL, f'ns.{pwnd_parent_dom}'),
+            Record(f'ns.{pwnd_parent_dom}', 'A', TTL, ee_node.address),
+        ])
     records.extend(ns_records)
     # non auth - glue
     records.extend([
         Record(ee_domain, 'NS', TTL, f'ns.{ee_domain}'),
         Record(f'ns.{ee_domain}', 'A', TTL, ee_node.address),
-        Record(pwnd_domain, 'NS', TTL, f'ns.{pwnd_domain}'),
-        Record(f'ns.{pwnd_domain}', 'A', TTL, pwnd2_node.address),
         Record(corp_domain, 'NS', TTL, f'ns.{corp_domain}'),
         Record(f'ns.{corp_domain}', 'A', TTL, corp_node.address)        
     ])
