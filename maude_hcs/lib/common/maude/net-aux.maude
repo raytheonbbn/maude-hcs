@@ -60,8 +60,42 @@ mod NET-AUX is
   
   op toRouter : Msg -> Bool .
   eq toRouter(to X(addr) from addr0 : content) = true .
----  eq toRouter(to Z(j,addr) from addr0 : content) = true .
+ **** eq toRouter(to Z(j,addr) from addr0 : content) = true .
   eq toRouter(to addr from addr0 : content) = false [owise] .
   
+  op fromRouter : Msg -> Bool .
+  eq fromRouter(to addr from X(addr0) : content) = true .
+  eq fromRouter(to addr from addr0 : content) = false [owise] .
+  
+  
+endm
+
+
+mod TEST-NET-AUX is
+  inc NET-AUX .
+
+  ops a0 a1 : -> Address .
+  ops c0 c1 : -> Content .
+
+  ops msg0 msg1 msg2 msg3 msg4 : -> Msg .
+  
+  eq msg0 = (to X(a0) from a1 : c0)  .  *** rcv
+  eq msg1 = (to a0 from X(a1) : c0)  .  *** snd
+  eq msg2 = (to a0 from a1 : c0)  .   *** _
+  eq msg3 = (to Z(0,a0) from a1 : c0)  . *** rcv
+  eq msg4 = (to a0 from Z(0,a1) : c0)  . *** snd
+
 endm
 eof
+
+red toRouter(msg0) .   **** true
+red toRouter(msg1) .
+red toRouter(msg2) .
+red toRouter(msg3) .
+red toRouter(msg4) .
+
+red fromRouter(msg0) .
+red fromRouter(msg1) . **** true
+red fromRouter(msg2) .
+red fromRouter(msg3) .
+red fromRouter(msg4) .  **** true

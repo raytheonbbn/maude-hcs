@@ -192,8 +192,11 @@ Mastodon server is captured
 **** collected at send time
   op logSent : AttributeSet Float Msg -> AttributeSet .
  ceq logSent(attrs,GT,M1) =
-      (if omatch(obs,M1)
-      then addSent(attrs,tm(GT,M1))
+      (if omatch(obs,M1) **** if from Router addRcvd
+      then (if fromRouter(M1) **** laddr X(xaddr)
+            then addRcvd(attrs,tm(GT,M1))
+            else addSent(attrs,tm(GT,M1))   
+           fi)
       else attrs 
       fi)
    if attrs1, canSeeS: obs := attrs 
@@ -204,7 +207,7 @@ Mastodon server is captured
   op logRcvd : AttributeSet Float Msg -> AttributeSet .
  ceq logRcvd(attrs,GT,M1) =
       (if omatch(obs,M1)
-      then (if toRouter(M1)
+      then (if toRouter(M1) **** X(xaddr) laddr
             then addSent(attrs,tm(GT,M1)) 
             else addRcvd(attrs, tm(GT,M1))
             fi)
@@ -230,7 +233,6 @@ Mastodon server is captured
                           sent: nilTML, rcvd: nilTML > .
 endm
 
-eof
 
 mod TEST-ADVERSARY is
   inc ADVERSARY .
@@ -242,15 +244,84 @@ mod TEST-ADVERSARY is
   eq advC = mkAdversary(advAddr,mtObs,obsC)  .
   eq advX = mkAdversary(advAddr,obsX,mtObs)  .
   eq advM = mkAdversary(advAddr,mtObs,obsM(masAddr))  .
-  
+
+  ops advPre advPost : -> Actor .
+  eq advPre = mkAdversary(advAddr,
+                        pat("addr","X"),
+                        pat("X","addr") ) .
+  eq advPost = mkAdversary(advAddr, 
+                        pat("addr","Z"),
+                        pat("Z","addr")) .
+ 
   op getAttrs : Actor -> AttributeSet .
   eq getAttrs(< addr:Address : atype:ActorType |
                             attrs:AttributeSet >) 
       = attrs:AttributeSet .
+
+ops AAPre AAPost : -> AttributeSet .
+eq AAPre = getAttrs(advPre) . 
+eq AAPost = getAttrs(advPost) . 
+
+
+  ops a0 a1 : -> Address .
+  ops c0 c1 : -> Content .
+
+  ops msg0 msg1 msg2 msg3 msg4 : -> Msg .
+  
+  eq msg0 = (to X(xAddr) from iAddr : c0)  .  *** rcv
+  eq msg1 = (to iAddr from X(xAddr) : c0)  .      *** snd
+  eq msg2 = (to iAddr from xAddr : c0)  .      *** _
+  eq msg3 = (to Z(0,iAddr) from xAddr : c0)  . *** rcv
+  eq msg4 = (to xAddr from Z(0,iAddr) : c0)  . *** snd
+
  endm
 
 eof
 
+**** preNat  obsR pat("X","addr")   i->x
+****         obsS  pat("addr","X")   i<-x
+
+red logRcvd(AAPre,5.0,msg0) .
+**** sent: tm(5.0, to X(xAddr) from iAddr : c0),
+red logSent(AAPre,5.0,msg1) .
+****  rcvd: tm(5.0, to iAddr from X(xAddr)
+
+red logRcvd(AAPost,5.0,msg3) .
+****  rcvd: tm(5.0, to Z(0, iAddr) from xAddr : c0),
+red logSent(AAPost,5.0,msg4) .
+**** sent: tm(5.0, to xAddr from Z(0, iAddr) : c0),
+
+red omatch(pat("addr","X"),X(xAddr),iAddr) == false .
+red omatch(pat("X","addr"),X(xAddr),iAddr) == true .
+red omatch(pat("addr","Z"),X(xAddr),iAddr) == false .
+red omatch(pat("Z","addr"),X(xAddr),iAddr) == false .
+
+red omatch(pat("addr","X"),iAddr,X(xAddr)) == true .
+red omatch(pat("X","addr"),iAddr,X(xAddr)) == false .
+red omatch(pat("addr","Z"),iAddr,X(xAddr)) == false .
+red omatch(pat("Z","addr"),iAddr,X(xAddr)) == false .
+
+red omatch(pat("addr","X"),Z(0,iAddr),xAddr) == false .
+red omatch(pat("X","addr"),Z(0,iAddr),xAddr) == false .
+red omatch(pat("addr","Z"),Z(0,iAddr),xAddr) == false .
+red omatch(pat("Z","addr"),Z(0,iAddr),xAddr) == true .
+
+red omatch(pat("addr","X"),xAddr,Z(0,iAddr)) == false .
+red omatch(pat("X","addr"),xAddr,Z(0,iAddr)) == false .
+red omatch(pat("addr","Z"),xAddr,Z(0,iAddr)) == true .
+red omatch(pat("Z","addr"),xAddr,Z(0,iAddr)) == false .
+
+*****************************************************
+
+red logRcvd(adPre,5.0,
+
+
+
+
+
+
+********** first tests
+ 
 red omatch(obsC,X(xAddr),iAddr) == true .
 red omatch(obsX,X(xAddr),iAddr) == false .
 red omatch(obsM(masAddr),X(xAddr),iAddr) == false .
