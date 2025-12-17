@@ -293,10 +293,10 @@ class MASDNSHCSConfig(DNSHCSConfig):
         #   * For CNAME/A: ((maxDownFragmentLen - 6) / (1 + codec_overhead)) - 2
 
         # for A responses
-        ndp.maxDownFragmentLen = round((ndp.maxDownFragmentLen - 6) / (1 + codec_overhead))
+        # ndp.maxDownFragmentLen = round((ndp.maxDownFragmentLen - 6) / (1 + codec_overhead))
 
         # for NULL responses
-        # ndp.maxDownFragmentLen = ndp.maxDownFragmentLen - 2
+        ndp.maxDownFragmentLen = ndp.maxDownFragmentLen - 2
 
         # checked the patch is still applied to iodine src
         ndp.maxFragmentTx = 20
