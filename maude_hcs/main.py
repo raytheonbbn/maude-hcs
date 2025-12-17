@@ -118,6 +118,12 @@ def build_cli_parser():
     markov_parser.add_argument('--maude-dir', dest='maude_dir',
                                required=True, help=f'Directory where the output maude files be be placed')
 
+    image_mdata_parser = cmd_parser.add_parser('images')
+    image_mdata_parser.add_argument('--image-dir', dest='image_dir',
+                               required=True, help=f'Directory containing all of the image files to extract')
+    image_mdata_parser.add_argument('--image-out-dir', dest='image_out_dir',
+                                    required=True, help=f'Directory where to write the output')
+
     generate_parser = cmd_parser.add_parser('generate')
     generate_parser.add_argument('--run-args-file', dest='run_args', type=lambda x: is_valid_file(parser, x),
                         metavar='FILE', required=False, help=f'File containing all of the run arguments')

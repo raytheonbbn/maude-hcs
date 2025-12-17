@@ -323,6 +323,14 @@ Then run the unit tests
 python -m pytest
 ```
 
+## Other utilities
+
+To convert a directory of images to a json metadata file used in the experiment,
+
+For example to generate the images used by mastodon tgen client (similarly cover images for destini)
+```shell
+ maude-hcs --verbose --protocol dnsmastodon images --image-dir ../pwnd-cp2/src/static/images/ --image-out-dir results/
+```
 
 
 # References

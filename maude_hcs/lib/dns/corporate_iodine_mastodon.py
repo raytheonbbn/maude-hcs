@@ -33,14 +33,20 @@ from maude_hcs.lib.dns.IodineDNSConfig import IodineDNSConfig
 from Maude.attack_exploration.src.actors import Nameserver, Client
 from Maude.attack_exploration.src.query import Query
 from Maude.attack_exploration.src.network import *
-from maude_hcs.lib.dns.iodineActors import TGenClient, Router, IodineClient, IodineServer, SendApp, ReceiveApp, WMonitor, PacedClient, IResolver
+from maude_hcs.lib.dns.iodineActors import TGenClient, Router, IodineClient, IodineServer, SendApp, ReceiveApp, \
+    WMonitor, PacedClient, IResolver, DNSTGenClient, MASTGenClient
 from maude_hcs.lib.dns.utils import makePackets
-from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig2
+from maude_hcs.parsers.masdnshcsconfig import MASDNSHCSConfig, DNSBackgroundTrafficTgenClient, \
+    MASBackgroundTrafficTgenClient
 from .cache import CacheEntry, ResolverCache
 from .corporate import createAuthZone, createRootZone, createTLDZone
 from maude_hcs.parsers.graph import *
 from maude_hcs.parsers.shadowconf import *
 import logging
+
+from .. import GLOBALS
+from ...parsers.markovJsonToMaudeParser import find_and_load_json
+from ...parsers.ymlconf import Destini
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +55,7 @@ logger = logging.getLogger(__name__)
         _args is the command line args
         run_args is the json configuration from use cases
 """
-def corporate_iodine_mastodon(_args, hcsconf :  DNSHCSConfig2) -> IodineDNSConfig:
+def corporate_iodine_mastodon(_args, hcsconf :  MASDNSHCSConfig) -> IodineDNSConfig:
     def getOrAddTopologyNode(_name:str):
         node = hcsconf.topology.getNodebyLabel(_name)
         if node: return node
@@ -136,15 +142,34 @@ def corporate_iodine_mastodon(_args, hcsconf :  DNSHCSConfig2) -> IodineDNSConfi
     sndApp = SendApp(aliceAddr, bobAddr, hcsconf.application.sender_northbound_addr ,hcsconf.application.tunnel_client_addr)
     rcvApp = ReceiveApp(bobAddr, aliceAddr, hcsconf.application.receiver_northbound_addr, hcsconf.application.tunnel_server_addr)
 
+    # mastodon server
+    mastodon_server_address = hcsconf.underlying_network.mastodon_address
+
     # monitor
     monitor = WMonitor(monitorAddr)
     clients = []
 
+    def clean(s:str):
+        return s.strip().replace('/', '').replace('\\','').replace('_', '-') # what else to clean here
     # tgen client
     tgen_clients = []
     num_clients = hcsconf.background_traffic.num_clients
+    seen_images = []
     for index,client in enumerate(hcsconf.background_traffic.clients):
-        tgen_clients.append(TGenClient(f'tgen-dns-{index}', corp_node.address, 10000, client.client_retry_to, client.client_num_retry, client.client_markov_model_profile, client.start_time))
+        if isinstance(client, DNSBackgroundTrafficTgenClient):
+            tgen_clients.append(DNSTGenClient(f'tgen-dns-{index}', client.client_markov_model_profile, client.start_time, False, corp_node.address, 10000, client.client_retry_to, client.client_num_retry))
+        elif isinstance(client, MASBackgroundTrafficTgenClient):
+            # for now we are hardcoding images since neither the yml config nor the profile specify where these are
+            #  mastodon_images.json was extracted using the `maude-hcs images` utility, see README
+            # if tgens specify the same image dir we only gen image list once per unique dir (TODO test it)
+            images_id = clean(client.clients_images_dir)
+            destiniobj = None
+            if images_id not in seen_images:
+                seen_images.append(images_id)
+                images = find_and_load_json(GLOBALS.TOPLEVELDIR, 'mastodon_images.json')
+                destiniobj = Destini.from_dict(images)
+            # output this once
+            tgen_clients.append(MASTGenClient(f'tgen-mas-{index}', client.client_markov_model_profile, client.start_time, False, client.client_username, client.client_hashtags, destiniobj, images_id, mastodon_server_address, True))
     C = IodineDNSConfig([router], monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     C.set_params(hcsconf.nondeterministic_parameters.to_dict(), hcsconf.probabilistic_parameters.to_dict())
     C.set_preamble(hcsconf.output.preamble)

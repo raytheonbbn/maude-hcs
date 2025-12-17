@@ -27,6 +27,7 @@
 # contained herein. Refer to the provided NOTICE file.
 #
 # MAUDE_HCS: end
+import json
 
 from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
@@ -41,17 +42,21 @@ from umaudemc.command.scheck import scheck
 import importlib.util
 import maude
 
+from ..parsers.ymlconf import parse_destini
+
 logger = logging.getLogger(__name__)
 
 MARKOV_NAME = 'markov'
 GENERATE_NAME = 'generate'
 SCHECK_NAME = 'scheck'
+IMAGES_NAME = 'images'
 
 def handle_command(command, parser, args):
     handlers = {
         GENERATE_NAME: handle_generate,
         SCHECK_NAME: handle_scheck,
-        MARKOV_NAME: handle_markov
+        MARKOV_NAME: handle_markov,
+        IMAGES_NAME: handle_image_mdata
     }
 
     if command in handlers:
@@ -93,3 +98,12 @@ def handle_scheck(args, parser):
 def handle_markov(args, parser):
     logger.debug("Handle maude markov")
     process_directories(args, args.json_dir, args.maude_dir)
+
+def handle_image_mdata(args, parser):
+    logger.debug("Handle image metadata generation")
+    destini_obj = parse_destini(args.image_dir)
+    output_dir = args.image_out_dir
+    logger.debug(output_dir)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    result_file = Path(output_dir).joinpath('mastodon_images.json')
+    destini_obj.save(result_file)

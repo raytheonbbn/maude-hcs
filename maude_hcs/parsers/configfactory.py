@@ -29,11 +29,11 @@
 #
 # MAUDE_HCS: end
 
-from enum import Enum
 from pathlib import Path
 from maude_hcs.lib import GLOBALS
 
-from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig, DNSHCSConfig2
+from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig
+from maude_hcs.parsers.masdnshcsconfig import MASDNSHCSConfig
 
 def buildHCSConfig(args):
     protocol = args.protocol
@@ -47,10 +47,10 @@ def buildHCSConfig(args):
     elif protocol.lower() == GLOBALS.MODULES[1]: #dns+mastodon
         # build from run args
         if args.run_args:
-            return DNSHCSConfig2.from_file(Path(args.run_args.name))
+            return MASDNSHCSConfig.from_file(Path(args.run_args.name))
         # build from yml
         elif args.yml_filename:
-            return DNSHCSConfig2.from_yml(Path(args.yml_filename))
+            return MASDNSHCSConfig.from_yml(Path(args.yml_filename))
     else:
         raise ValueError("Unsupported protocol")
 
