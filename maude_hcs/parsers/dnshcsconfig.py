@@ -405,6 +405,27 @@ class DNSHCSConfig2(HCSConfig):
         # iodine downstream has a -m option
         # TODO Jiawei what is teh right value to put here?
         ndp.maxDownFragmentLen = ymlconf.application.iodine.max_response_size
+
+        # -m flag specifies maximum fragment size the client requests from the iodine server. 
+        # If unspecified, fragment size is probed during the handshake process. The client begins by requesting 768 bytes (iodine.c:2227)
+        # The server defaults to assuming the maximum downstream fragment size is 100 (iodined.c:828)
+        # Downstream data is a 2-byte header encoded the same way as the rest of the data.
+
+        # Note that downstream data in NULL responses are raw (no encoding just binary data) (iodined.c:2258)
+        # For CNAME/A records, header + data are encoded using the downstream codec set by the client, and some extra bytes are added (iodined.c:2135):
+        #   * 1B for the encoder type character
+        #   * 3B for topdomain and dot
+        #   * 2B for "safety"
+        # Thus the max fragment length is:
+        #   * For NULL: maxDownFragmentLen - 2
+        #   * For CNAME/A: ((maxDownFragmentLen - 6) / (1 + codec_overhead)) - 2
+
+        # for A responses
+        ndp.maxDownFragmentLen = round((ndp.maxDownFragmentLen - 6) / (1 + codec_overhead))
+
+        # for NULL responses
+        # ndp.maxDownFragmentLen = ndp.maxDownFragmentLen - 2
+
         # checked the patch is still applied to iodine src
         ndp.maxFragmentTx = 20
         pp = DNSProbabilisticParameters2()
