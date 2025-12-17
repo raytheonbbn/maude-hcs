@@ -32,6 +32,7 @@ from Maude.attack_exploration.src.conversion_utils import address_to_maude, name
 from Maude.attack_exploration.src.actors import Nameserver, Resolver
 from .utils import packetlist_to_maude
 from .cache import ResolverCache, CacheEntry
+from ...parsers.ymlconf import Destini
 
 
 class Router:
@@ -221,16 +222,20 @@ class PacedClient:
             return res
 
 class TGenClient:
-    def __init__(self, address : str, resolverAddress : str, nameDBSize : int, retryTO : float, numRetries : int, profile, startTime: float, start = False) -> None:
+    def __init__(self, address : str, profile, startTime: float, start) -> None:
         self.address = address_to_maude(address)
         self.address_um = self.address + '-UM'
+        self.profile = profile
+        self.startTime = startTime
+        self.start = start
+
+class DNSTGenClient(TGenClient):
+    def __init__(self, address : str, profile, startTime: float, start:bool, resolverAddress : str, nameDBSize : int, retryTO : float, numRetries : int) -> None:
+        super().__init__(address, profile,startTime, start)
         self.resolverAddress = resolverAddress
         self.nameDBSize = nameDBSize
         self.retryTO = retryTO
         self.numRetries = numRetries
-        self.profile = profile
-        self.startTime = startTime
-        self.start = start
 
     def to_maude(self) -> str:
         # **** umActor
@@ -245,16 +250,47 @@ class TGenClient:
         res += f'[{self.startTime}, (to {tgUMAddr} from {tgUMAddr} : actionR("")), 0]'
         return res
 
+class MASTGenClient(TGenClient):
+    def __init__(self, address : str, profile, startTime: float, start:bool, username:str, hashtags:list, images:Destini, images_id:str, mastodon_server: str, X:bool) -> None:
+        super().__init__(address, profile, startTime, start)
+        self.hashtags = hashtags
+        self.images = images
+        self.images_id = images_id
+        self.username = username
+        self.mastodon_server = mastodon_server
+        self.X = X
 
-
-
+    def to_maude(self) -> str:
+        # **** umActor for masTGEN
+        #   mkUMactor(umA,mas-ma,mtgA)
+        #   [0.0, (to umA from umA : actionR("")), 0]
+        # **** mc for masTgen
+        #   makeMastodonClient(mcA, X(mastodonServer), mtgA)
+        # **** masTActor
+        #   mkMasTGenActor(mtgA, mcA, IM0 :: IM1, mas-ma)
+        tgAddr = self.address
+        tgUMAddr = self.address_um
+        masClAddr = tgAddr + '-client'
+        toaddr = address_to_maude(self.mastodon_server)
+        if self.X:
+            toaddr = f'X({toaddr})'
+        res = ''
+        if self.images:
+            res += '---- defining the images list \n'
+            res += self.images.to_maude(self.images_id)
+            res += '\n'
+        res += f'makeMastodonClient({masClAddr}, {toaddr}, {tgAddr})\n'
+        res += f'mkMasTGenActor({tgAddr}, {masClAddr}, {self.images_id}, {address_to_maude(self.profile)}-ma)\n'
+        res += f'mkUMactor({tgUMAddr},{address_to_maude(self.profile)}-ma,{tgAddr})\n'
+        res += f'[{self.startTime}, (to {tgUMAddr} from {tgUMAddr} : actionR("")), 0]'
+        return res
 
 class IResolver(Resolver):
 
     def __init__(self, address, cache : ResolverCache = None) -> None:
         self.cache = cache
         super().__init__(address)
-    
+
     def to_maude(self) -> str:
         strCache = "nilCache"
         if self.cache:

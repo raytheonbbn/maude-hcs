@@ -30,7 +30,7 @@
 
 import pytest
 
-from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig2
+from maude_hcs.parsers.masdnshcsconfig import MASDNSHCSConfig
 from maude_hcs.parsers.ymlconf import YmlConf, CoverImage
 
 TEST_YAML_CONTENT = """
@@ -221,7 +221,7 @@ def test_parse_yml_conf(yml_conf_file):
     conf = YmlConf(yml_conf_file)
 
     # 2. Verify Underlying Network
-    assert conf.underlying_network.server_fqdn == "mastodon.pwnd.com"
+    assert conf.underlying_network.server_fqdn == "mastodon.pwnd.com."
 
     # 3. Verify Application - Alice
     assert conf.application.alice.mastodon_user == "alice"
@@ -322,5 +322,5 @@ def test_topology_parsing(yml_conf_file):
     assert found, 'expecting a link from 6 to 5'
 
 def test_hcsconfig2(yml_conf_file):
-    conf = DNSHCSConfig2.from_yml(yml_conf_file)
+    conf = MASDNSHCSConfig.from_yml(yml_conf_file)
     print(conf.to_json(indent=4))

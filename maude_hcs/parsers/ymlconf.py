@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Any, Optional
 import math
@@ -46,10 +47,91 @@ class CoverImage:
     capacity_bytes: int
     size_bytes: int
 
+    def to_maude(self, image_id: int) -> str:
+        """
+        Generates the Maude term for a single image.
+        Format: image(id, size_bytes, capacity_bytes)
+        """
+        return f"image({image_id}, {self.size_bytes}, {self.capacity_bytes})"
+
 @dataclass_json
 @dataclass
 class Destini:
     jpeg_covers: list[CoverImage] = field(default_factory=list)
+
+    def save(self, file_path: str):
+        """
+        Exports the dataclass instance to a JSON file.
+
+        Args:
+            file_path: The path where the JSON file will be saved.
+        """
+        with open(file_path, 'w') as f:
+            # Convert the dataclass to a dict, then handle the special key name
+            data = self.to_dict()
+            json.dump(data, f, indent=4)
+
+    @staticmethod
+    def from_file(file_path: str) -> 'Destini':
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+        return Destini.from_dict(data)
+
+    def to_maude(self, identifier) -> str:
+        """
+        Generates the Maude code for the list of images.
+
+        Process:
+        1. Creates a map (imageNameMap) from str to Nat to capture name-to-id mappings.
+        2. Generates the ByteSeqL string using the associative constructor '::'.
+        3. Returns the Maude op and eq definitions for both the map and the list.
+        """
+        image_name_map: Dict[str, int] = {}
+        maude_terms: List[str] = []
+        next_id = 1
+
+        for cover in self.jpeg_covers:
+            # 1. Create/Retrieve mapping from name to ID
+            if cover.name not in image_name_map:
+                image_name_map[cover.name] = next_id
+                next_id += 1
+
+            # Get the ID for this specific image name
+            current_id = image_name_map[cover.name]
+
+            # Generate the term: image(id, size, capacity)
+            maude_terms.append(cover.to_maude(current_id))
+
+        # 2. Generate the ByteSeqL
+        # Using the associative constructor '::'.
+        # If the list is empty, we default to 'nilBS' (the identity element).
+        if not maude_terms:
+            rhs = "nilBS"
+        else:
+            rhs = " :: ".join(maude_terms)
+
+        # 3. Generate the Map body
+        # Standard Maude Map syntax: "key" |-> value
+        map_parts = []
+        for name, pid in image_name_map.items():
+            map_parts.append(f'"{name}" |-> {pid}')
+
+        if not map_parts:
+            map_rhs = "empty"
+        else:
+            # Using comma as separator for standard Map{String, Nat}
+            map_rhs = "(" + ", ".join(map_parts) + ")"
+
+        # 4. Construct the final Maude code
+        lines = []
+        lines.append("op imageNameMap : -> Map{String, Nat} .")
+        lines.append(f"eq imageNameMap = {map_rhs} .")
+
+        lines.append("")
+        lines.append(f"op {identifier} : -> ByteSeqL .")
+        lines.append(f"eq {identifier} = {rhs} .")
+
+        return "\n".join(lines)
 
 @dataclass_json
 @dataclass
@@ -235,11 +317,4 @@ def parse_destini(input_directory: str) -> str:
             cover_images.append(image)
 
     # Create Destini object
-    destini_obj = Destini(jpeg_covers=cover_images)
-
-    # Return JSON string
-    return destini_obj.to_json(indent=4)
-
-if __name__ == '__main__':
-    destini_obj = parse_destini('src/raceboat/destini/jpeg-covers')
-    print(destini_obj)
+    return Destini(jpeg_covers=cover_images)
