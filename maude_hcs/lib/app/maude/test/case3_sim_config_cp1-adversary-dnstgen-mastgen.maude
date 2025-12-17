@@ -106,7 +106,8 @@ eq ObsR = mtObs [owise] .
 --- collects messages sent by router after NAT
 --- the sending time is essentially the time the internal
 --- source sent the message
-eq ObsS = obsX obsC obsM(mastodonServer) .
+--- eq ObsS = obsX obsC obsM(mastodonServer) .
+eq ObsS = pat("addr", "X") pat("addr", "Z") .
 
 
 ---- uncomment this to model an aversay that sees both side
@@ -116,7 +117,7 @@ eq ObsS = obsX obsC obsM(mastodonServer) .
 --- uncomment to model adversary observing receives by the 
 --- actor with address serverAddr (such as mastodon server)
 ---  collects msgs received by this server at receive time
-eq ObsR = pat("addr", "X") pat("Z", "addr") obsM(mastodonServer) .
+eq ObsR = pat("X", "addr") pat("Z", "addr") .
 
 --- "SBELT": fallback if there are no known name servers
 op sb : -> ZoneState .
@@ -240,12 +241,14 @@ eq initState (umADDR,dnsTADDR,dnsMA) =
   makeWClient(iodine-client, local-dns, 'pwnd . 'com . root, a, 0.0)
   makeWNameServer(iodine-server, 0.0, (zonePwndCom))
   ----- Mastodon
+***(
   makeMastodonClient(aliceMasClient,
                      mastodonServer,
                      clientContentMgr)
   makeMastodonClient(bobMasClient,
                      mastodonServer,
                      serverContentMgr)
+)
   makeMastodonServer(mastodonServer)
   makeRbClient(clientUserModel, clientContentMgr, clientDestini, aliceMasClient)
   makeRbServer(serverUserModel, serverContentMgr, serverDestini, bobMasClient, bobapp)
