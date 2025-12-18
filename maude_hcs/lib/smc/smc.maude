@@ -50,9 +50,10 @@ mod SMC is
   var QTL QTL' : QueryTimestampList .
   var QUERY : Query .
   var RESP : Response .
+  var HREQ : HttpRequest .
   vars LR LR1 LR2 : List{Record} .
 
-  var TML : TimeMsgList .
+  vars TML TML' : TimeMsgList .
   var M : Msg .
   var TH : Float .
   var GT : Float .
@@ -196,7 +197,16 @@ mod SMC is
   ----- the avg QPS in a time window of size T' starting at T
   ---                     startT window 
   op avgQPS : TimeMsgList Float Float -> Float .
-  eq avgQPS (TML, T, T') = float(lengthTimeWindow(TML, T, T + T')) / T' .
+  eq avgQPS (TML, T, T') = avgQPSPostNAT (TML, T, T') . 
+
+  op PostNATQueryTML : TimeMsgList -> TimeMsgList .
+  eq PostNATQueryTML (nilTML) = nilTML .
+  ceq PostNATQueryTML (tm(T, M) ; TML) = tm(T, M) ; PostNATQueryTML(TML) if PostNATQuery(M) .
+  eq PostNATQueryTML (tm(T, M) ; TML) = PostNATQueryTML(TML) [owise] .  
+
+  op avgQPSPostNAT : TimeMsgList Float Float -> Float .
+  ceq avgQPSPostNAT (TML, T, T') = float(lengthTimeWindow(PostNATQueryTML(TML), T, T + T')) / T' if T' =/= 0.0 .
+  eq avgQPSPostNAT (TML, T, T') = 0.0 [owise] .
 
   ---- the largest timestamp in the list
   op lastT : TimeMsgList -> Float .
@@ -303,14 +313,20 @@ mod SMC is
 
                             --- start window 
   op avgQuerySize : TimeMsgList Float Float -> Float .
-  eq avgQuerySize (TML, T, T') = if float(lengthTimeWindow(TML, T, T + T')) > 0.0 then float(sizeTimeWindow(TML, T, T + T')) / float(lengthTimeWindow(TML, T, T + T')) else 0.0 fi .
+  eq avgQuerySize (TML, T, T') = avgQuerySizePostNAT (TML, T, T') . --- if float(lengthTimeWindow(TML, T, T + T')) > 0.0 then float(sizeTimeWindow(TML, T, T + T')) / float(lengthTimeWindow(TML, T, T + T')) else 0.0 fi .
 
+  op avgQuerySizePostNAT : TimeMsgList Float Float -> Float .
+  ceq avgQuerySizePostNAT (TML, T, T') = if float(lengthTimeWindow(TML', T, T + T')) > 0.0 then float(sizeTimeWindow(TML', T, T + T')) / float(lengthTimeWindow(TML', T, T + T')) else 0.0 fi
+  if T' =/= 0.0 /\ TML' := PostNATQueryTML(TML) .
+  eq avgQuerySizePostNAT (TML, T, T') = 0.0 [owise] .
+
+***(FIX
   op getAvgQuerySize : Config -> Float .
   eq getAvgQuerySize (C < ADDR : Adversary | sent: TML, attrs >) = float(size(TML)) / float(length(TML)) .
 
   op getHcsQuerySize : Config Float -> Float .
   eq getHcsQuerySize (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQuerySize(TML, T, lastT(TML) - T) .  
-
+)
   ----- the average query size in window [T, T+T'] > th*(average query size in window [0, T'])
                         --- startT window threshold
   op highQuerySize : TimeMsgList Float Float Float -> Bool .
@@ -325,7 +341,7 @@ mod SMC is
   ---- More clearly, we check avgQPS over n consecutive windows each of size T', shifted by bin size T''
   ----                   startT window/m bin/s th/k consecutive/n
   op alarmQuerySize : TimeMsgList Float Float Float Float Int -> Bool .
-  ceq alarm (TML, T, T', T'', TH, I) =
+  ceq alarmQuerySize (TML, T, T', T'', TH, I) =
       if highQuerySize(TML, T + (float(I) * T''), T', TH)
       then alarmQuerySize(TML, T, T', T'', TH, I - 1)
       else false
@@ -371,7 +387,10 @@ mod SMC is
   eq getPerWindowQS (C < ADDR : Adversary | sent: TML, attrs >, T, T', T'') = perWindowQS(TML, T, T', T'') . 
 
   --- MA.3 Post-NAT Average DNS response size: Aggregate post-NAT HTTPS average DNS response size exceeds k × initial TGEN-only average response size for n consecutive time bins of width s.
+---  op getToDAvgResponseSize : Config Float Float Float Float Int -> Float .
+
   --- MA.4 Post-NAT Average HTTPS upload rate: Aggregate post-NAT HTTPS upload rate (bits per second) to Mastodon exceeds k × initial TGEN-only average upload rate for n consecutive time bins of width s.
+---  op getToDAvgUploadRate : Config Float Float Float Float Int -> Float .
 
   op AliceQuery : Name -> Bool .
   eq AliceQuery (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = true .
@@ -483,24 +502,43 @@ mod SMC is
   ceq nByteRespTimePostNAT (tm(T, M) ; TML, N) = nByteRespTimePostNAT(TML, N) if (not PostNATResponse(M)) and N > 0 .
   eq nByteRespTimePostNAT (nilTML, N) = 0.0 .
 
-
   --- C.6 Post-NAT DNS response byte count: Aggregate post-NAT traffic includes more than n bytes of DNS responses
   op getToDCumulativeResponsePostNAT : Config Nat -> Float .
   eq getToDCumulativeResponsePostNAT (C < ADDR : Adversary | rcvd: TML, attrs >, N) = nByteRespTimePostNAT(TML, s N) .
-endm
-eof
+
+  op PreNATHttpReq : Msg -> Bool .
+  eq PreNATHttpReq (to X(mastodonServer) from ADDR : HREQ) = true .
+  eq PreNATHttpReq (M) = false [owise] .
+
+  op PreNATAliceHttpReq : Msg -> Bool .
+  eq PreNATAliceHttpReq (to X(mastodonServer) from aliceMasClient : HREQ) = true .
+  eq PreNATAliceHttpReq (M) = false [owise] .
+
+  op nthHttpReqPreNAT : TimeMsgList Nat -> Float .
+  eq nthHttpReqPreNAT (TML, 0) = 0.0 .
+  eq nthHttpReqPreNAT (tm(T, M) ; TML, 1) = if PreNATAliceHttpReq(M) then T else nthHttpReqPreNAT (TML, 1) fi .
+  ceq nthHttpReqPreNAT (tm(T, M) ; TML, s N) = if PreNATAliceHttpReq(M) then nthHttpReqPreNAT(TML, N) else nthHttpReqPreNAT(TML, s N) fi if N > 0 .
+  eq nthHttpReqPreNAT (nilTML, N) = 0.0 .
 
   --- C.7 Pre-NAT HTTPS connection count: A host creates more than n HTTPS connections
+  op getToDCumulativeHttpConnectionPreNAT : Config Nat -> Float .
+  eq getToDCumulativeHttpConnectionPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthHttpReqPreNAT(TML, s N) .
+
+  op PostNATHttpReq : Msg -> Bool .
+  eq PostNATHttpReq (to mastodonServer from Z(I,ADDR) : HREQ) = true .
+  eq PostNATHttpReq (M) = false [owise] .
 
   op nthHttpReqPostNAT : TimeMsgList Nat -> Float .
   eq nthHttpReqPostNAT (TML, 0) = 0.0 .
-  eq nthHttpReqPostNAT (tm(T, M) ; TML, 1) = if (getHttpRequest(M) :: HttpRequest) then T else nthHttpReqPostNAT (TML, 1) fi .
-  ceq nthHttpReqPostNAT (tm(T, M) ; TML, s N) = if (getHttpRequest(M) :: HttpRequest) then nthHttpReqPostNAT(TML, N) else nthHttpReqPostNAT(TML, s N) fi if N > 0 .
+  eq nthHttpReqPostNAT (tm(T, M) ; TML, 1) = if PostNATHttpReq(M) then T else nthHttpReqPostNAT (TML, 1) fi .
+  ceq nthHttpReqPostNAT (tm(T, M) ; TML, s N) = if PostNATHttpReq(M) then nthHttpReqPostNAT(TML, N) else nthHttpReqPostNAT(TML, s N) fi if N > 0 .
   eq nthHttpReqPostNAT (nilTML, N) = 0.0 .
 
   --- C.8 Post-NAT HTTPS connection count: Aggregate post-NAT traffic includes more than n HTTPS connections
   op getToDCumulativeHttpConnectionPostNAT : Config Nat -> Float .
-  eq getToDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | rcvd: TML, attrs >, N) = nthHttpReqPostNAT(TML, s N) .
+  eq getToDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthHttpReqPostNAT(TML, s N) .
+endm
+eof
 
   --- C.9 Pre-NAT HTTPS upload byte count: An individual host uploads more than n bytes via HTTPS
 
@@ -516,4 +554,4 @@ eof
 
   --- C.10 Post-NAT HTTPS upload byte count: Aggregate post-NAT traffic uploads more than n bytes via HTTPS
   op getToDCumulativeHttpUploadPostNAT : Config Nat -> Float .
-  eq getToDCumulativeHttpUploadPostNAT (C < ADDR : Adversary | rcvd: TML, attrs >, N) = nByteHttpUploadPostNAT(TML, s N) .
+  eq getToDCumulativeHttpUploadPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteHttpUploadPostNAT(TML, s N) .
