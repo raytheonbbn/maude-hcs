@@ -142,8 +142,10 @@ mod SMC is
     = true   
     .
   eq isDone (C) = false [owise] .
-)
+
   eq stopCondition (C < ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL'), attrs >) = true .
+)
+  eq exeDone(C < ADDR : WMonitor | doneFlag: true, attrs >) = true .
 
   op getQuerySent : Actor -> QueryTimestampList . 
   eq getQuerySent (< ADDR : WMonitor | querySent: QTL, attrs >) = QTL . 
@@ -313,20 +315,16 @@ mod SMC is
 
                             --- start window 
   op avgQuerySize : TimeMsgList Float Float -> Float .
-  eq avgQuerySize (TML, T, T') = avgQuerySizePostNAT (TML, T, T') . --- if float(lengthTimeWindow(TML, T, T + T')) > 0.0 then float(sizeTimeWindow(TML, T, T + T')) / float(lengthTimeWindow(TML, T, T + T')) else 0.0 fi .
+  eq avgQuerySize (TML, T, T') = avgQuerySizePostNAT (TML, T, T') . 
 
   op avgQuerySizePostNAT : TimeMsgList Float Float -> Float .
   ceq avgQuerySizePostNAT (TML, T, T') = if float(lengthTimeWindow(TML', T, T + T')) > 0.0 then float(sizeTimeWindow(TML', T, T + T')) / float(lengthTimeWindow(TML', T, T + T')) else 0.0 fi
   if T' =/= 0.0 /\ TML' := PostNATQueryTML(TML) .
   eq avgQuerySizePostNAT (TML, T, T') = 0.0 [owise] .
 
-***(FIX
-  op getAvgQuerySize : Config -> Float .
-  eq getAvgQuerySize (C < ADDR : Adversary | sent: TML, attrs >) = float(size(TML)) / float(length(TML)) .
+  op getAvgQuerySize : Config Float Float -> Float .
+  eq getAvgQuerySize (C < ADDR : Adversary | sent: TML, attrs >, T, T') = avgQuerySize(TML, T, T') .
 
-  op getHcsQuerySize : Config Float -> Float .
-  eq getHcsQuerySize (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQuerySize(TML, T, lastT(TML) - T) .  
-)
   ----- the average query size in window [T, T+T'] > th*(average query size in window [0, T'])
                         --- startT window threshold
   op highQuerySize : TimeMsgList Float Float Float -> Bool .
@@ -337,8 +335,8 @@ mod SMC is
       fi .
   eq highQuerySize (nilTML, T, T', TH) = false .
 
-  ---- Aggregate average query rate exceeds k × initial average query rate for n consecutive time bins of width s
-  ---- More clearly, we check avgQPS over n consecutive windows each of size T', shifted by bin size T''
+  ---- Aggregate average query size exceeds k × initial average query size for n consecutive time bins of width s
+  ---- More clearly, we check avgQuerySize over n consecutive windows each of size T', shifted by bin size T''
   ----                   startT window/m bin/s th/k consecutive/n
   op alarmQuerySize : TimeMsgList Float Float Float Float Int -> Bool .
   ceq alarmQuerySize (TML, T, T', T'', TH, I) =
@@ -386,8 +384,84 @@ mod SMC is
   op getPerWindowQS : Config Float Float Float -> List{Float} .
   eq getPerWindowQS (C < ADDR : Adversary | sent: TML, attrs >, T, T', T'') = perWindowQS(TML, T, T', T'') . 
 
+  op PostNATRespTML : TimeMsgList -> TimeMsgList .
+  eq PostNATRespTML (nilTML) = nilTML .
+  ceq PostNATRespTML (tm(T, M) ; TML) = tm(T, M) ; PostNATRespTML(TML) if PostNATResponse(M) .
+  eq PostNATRespTML (tm(T, M) ; TML) = PostNATRespTML(TML) [owise] .
+
+  op rsizeTimeWindow : TimeMsgList Float Float -> Nat .
+  eq rsizeTimeWindow (nilTML, T', T'') = 0 .
+  eq rsizeTimeWindow (TML ; tm(T, M), T', T'') = if T > T' and T < T'' then size(getResponse(M)) + rsizeTimeWindow(TML, T', T'') else rsizeTimeWindow(TML, T', T'') fi .
+
+                            --- start window
+  op avgRespSize : TimeMsgList Float Float -> Float .
+  eq avgRespSize (TML, T, T') = avgRespSizePostNAT (TML, T, T') .
+
+  op avgRespSizePostNAT : TimeMsgList Float Float -> Float .
+  ceq avgRespSizePostNAT (TML, T, T') = if float(lengthTimeWindow(TML', T, T + T')) > 0.0 then float(rsizeTimeWindow(TML', T, T + T')) / float(lengthTimeWindow(TML', T, T + T')) else 0.0 fi
+  if T' =/= 0.0 /\ TML' := PostNATRespTML(TML) .
+  eq avgRespSizePostNAT (TML, T, T') = 0.0 [owise] .
+
+  op getAvgRespSize : Config Float Float -> Float .
+  eq getAvgRespSize (C < ADDR : Adversary | rcvd: TML, attrs >, T, T') = avgRespSize(TML, T, T') .
+
+  ----- the average response size in window [T, T+T'] > th*(average response size in window [0, T'])
+                        --- startT window threshold
+  op highRespSize : TimeMsgList Float Float Float -> Bool .
+  eq highRespSize (TML, T, T', TH) =
+      if avgRespSize (TML, T,  T') > avgRespSize (TML, 0.0, T') * TH
+      then true
+      else false
+      fi .
+  eq highRespSize (nilTML, T, T', TH) = false .
+
+  ---- Aggregate average response size exceeds k × initial average response size for n consecutive time bins of width s
+  ---- More clearly, we check avgRespSize over n consecutive windows each of size T', shifted by bin size T''
+  ----                   startT window/m bin/s th/k consecutive/n
+  op alarmRespSize : TimeMsgList Float Float Float Float Int -> Bool .
+  ceq alarmRespSize (TML, T, T', T'', TH, I) =
+      if highRespSize(TML, T + (float(I) * T''), T', TH)
+      then alarmRespSize(TML, T, T', T'', TH, I - 1)
+      else false
+      fi
+    if I > 0 .
+  eq alarmRespSize (TML, T, T', T'', TH, I) = true [owise].
+
+  ----                 startT window/m bin/s th/k consecutive/n
+  op todRespSize : TimeMsgList Float Float Float Float Int -> Float .
+  eq todRespSize (TML ; tm(Tmsg, M), T, T', T'', TH, I) =
+    if  T >= Tmsg --- passed the end
+      then 0.0
+      else
+        (if alarmRespSize(TML ; tm(Tmsg, M), T, T', T'', TH, I)
+          then alarmTime(T, T', T'', I)
+          else todRespSize(TML ; tm(Tmsg, M), T + T'', T', T'', TH, I)
+        fi)
+    fi
+            --- if lastT(TML ; tm(Tmsg, M)) > alarmTime(T, T', T'', I - 1)
+            --- [print "ToD [" T "," T' "] bin " T'' ]
+            .
+
   --- MA.3 Post-NAT Average DNS response size: Aggregate post-NAT HTTPS average DNS response size exceeds k × initial TGEN-only average response size for n consecutive time bins of width s.
----  op getToDAvgResponseSize : Config Float Float Float Float Int -> Float .
+  op getToDAvgResponseSize : Config Float Float Float Float Int -> Float .
+  eq getToDAvgResponseSize (C < ADDR : Adversary | rcvd: TML, attrs >, T'', T, T', TH, I) = todRespSize(TML, T'' - T, T, T', TH, I) .
+
+  ---- get the avg response size for each window
+  op perWindowRS : TimeMsgList Float Float Float -> List{Float} .
+  op $perWindowRS : TimeMsgList Float Float Float List{Float} -> List{Float} .
+  eq  perWindowRS(TML, T, T', T'') = $perWindowRS(TML, T, T', T'', nil) .
+  eq $perWindowRS(nilTML, T, T', T'', LF) = nil .
+  eq $perWindowRS(TML ; tm(Tmsg, M), T, T', T'', LF) = 
+    if T >= Tmsg --- passed the end
+      then LF
+      ---- append average of this window and go to next window
+      else $perWindowRS(TML ; tm(Tmsg, M), T + T'', T', T'', (LF avgRespSize(TML ; tm(Tmsg, M), T, T')))
+    fi
+    .
+  
+  ----                        startT window bin -> List of values one per window
+  op getPerWindowRS : Config Float Float Float -> List{Float} .
+  eq getPerWindowRS (C < ADDR : Adversary | rcvd: TML, attrs >, T, T', T'') = perWindowRS(TML, T, T', T'') . 
 
   --- MA.4 Post-NAT Average HTTPS upload rate: Aggregate post-NAT HTTPS upload rate (bits per second) to Mastodon exceeds k × initial TGEN-only average upload rate for n consecutive time bins of width s.
 ---  op getToDAvgUploadRate : Config Float Float Float Float Int -> Float .
