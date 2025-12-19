@@ -31,7 +31,7 @@
 sload ../common/maude/markov-action-model.maude
 sload ../common/maude/cp2-interfaces 
 sload cm-aux.maude
-sload ../../deps/dns_formalization/Maude/common/sampler
+sload ../common/maude/sampler-x
 
 ***(
 Alice - CM  
@@ -103,13 +103,13 @@ mod CONTENT-MANAGER-CLIENT is
   inc MC-INTERFACE  .
   inc ED-INTERFACE .
   inc TGEN-INTERFACE .
-  inc SAMPLER .
+  inc SAMPLER-X .
   
 vars attrs attrs0 attrs1 attrs2 attrsTrans attrsNext : AttributeSet .
 vars cmcAtts cmcAtts1 cmcAtts2 : AttributeSet .
 vars msg msg0 capacityMsg encodeMsg lastMsg : Msg .
 vars msgs msgs0 config config0 : Config .
-vars j j1 i k l n n0 n1 cap : Nat .
+vars j j1 i k l n n0 n1 cap randCtr randCtr' : Nat .
 vars tot remains remains0 ix  id : Nat .
 vars aAddr cmcAddr umAddr edAddr mcAddr mastodonClientAddr : Address .
 vars T : Float .
@@ -125,6 +125,10 @@ vars mediaFileList : MediaFileList .
 vars natstr : Map{Nat,String} .
 vars mamodel : MAModel .
 
+
+--- The maximum number of media attachments per toot.
+op MAXNUMMEDIAPERTOOT : -> Nat .
+eq MAXNUMMEDIAPERTOOT = 4 .
 
 ---             Destini ContentMgr NumHashtags  Model
 op mkCMCAttrs : Address Address    Nat          MAModel -> AttributeSet .
@@ -348,14 +352,17 @@ rl [rbc-rcv-file] :
 --- action requests  Action < Content
 
 crl [rbc-rcv-action] :
+rCtr(randCtr)
 {T,(to cmcAddr from umAddr :  actionQ(ract) )}
 < cmcAddr : CMClient | cmcAtts >
 =>
+rCtr(randCtr')
 < cmcAddr : CMClient | cmcAtts1 >
 delayMsgs(msgs,null)
-if {cmcAtts1,msgs} :=
+if {cmcAtts1,msgs, randCtr'} :=
   crcvActionQ(cmcAtts,getType(ract),
-             (to cmcAddr from umAddr : actionQ(ract) ))   
+              (to cmcAddr from umAddr : actionQ(ract) ),
+              randCtr)
  [print "(" T ") Raceboat client got action request " ract ", sending " msgs]
    .
 
@@ -363,18 +370,19 @@ if {cmcAtts1,msgs} :=
 --- msg = (to mcAddr from cmcAddr : fetchQ(ht))
 --- w4c: null >> w4c(msg)
 ---- drop msg if w4c, replyTo not null
-op crcvActionQ : AttributeSet String Msg -> AttributeSetMsgs . 
+op crcvActionQ : AttributeSet String Msg Nat -> AttributeSetMsgsNat . 
 **** eq crcvActionQ(attrs,str,msg) = {attrs,null} [owise] .
 
-ceq crcvActionQ(attrs,str,msg) = {attrs,msgs}
+ceq crcvActionQ(attrs, str, msg, randCtr) = {attrs,msgs, randCtr}
 if (to cmcAddr from umAddr : actionQ(ract)) := msg
 /\ msgs := (to umAddr from cmcAddr : actionR("notRecognized"))
  [owise print "Raceboat client failing to match action " attrs ] .
 **** Do we need to check replyTo null to reply failure?
 
 ceq crcvActionQ(attrs,"download",
-              (to cmcAddr from umAddr : actionQ(ract)))
-     = {attrs2,msg}
+                (to cmcAddr from umAddr : actionQ(ract)),
+                randCtr)
+     = {attrs2, msg, randCtr}
 if attrs0, (w4c: null), (replyTo: null), (bHashTagCtr: j)
             := attrs
 ---- /\ attrs1, mcAddress: mcAddr, (numBHashTags: k), model: benignModel := attrs
@@ -393,13 +401,14 @@ ceq crcvActionQ((attrs,
                   (encodedImages: IMAGES),
                   (replyTo: null)),
                 "media",
-                (to cmcAddr from umAddr : actionQ(ract)))
-  = requestMediaEncode(attrsTrans, cmcAddr)
-    if n0 := 2 ---sampleUniWithInt(4)
+                (to cmcAddr from umAddr : actionQ(ract)),
+                randCtr)
+  = concatenate(requestMediaEncode(attrsTrans, cmcAddr), s randCtr)
+    if n0 := 1 + sampleUniWithIntX(randCtr, MAXNUMMEDIAPERTOOT)
       /\ attrsTrans := getNextEncodedFrag(attrs),
-                    (numPendingImages: n0),
-                    (encodedImages: nilBS),
-                    (replyTo: (to cmcAddr from umAddr : actionQ(ract)))
+                        (numPendingImages: n0),
+                        (encodedImages: nilBS),
+                        (replyTo: (to cmcAddr from umAddr : actionQ(ract)))
     [ print "Raceboat client getting media action for " n0 " pending images." ]
   .
 
