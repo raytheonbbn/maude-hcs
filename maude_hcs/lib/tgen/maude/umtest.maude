@@ -1,0 +1,237 @@
+
+sload ../../common/maude/markov-action-model.maude
+sload ../../common/maude/cp2-interfaces 
+
+mod UM-TEST-ACTOR is
+  inc CP2-COMMON .
+  inc MARKOV-ACTION-MODEL .
+  inc TGEN-INTERFACE .
+
+vars attrs attrs1 : AttributeSet .
+vars T : Float .
+vars umTAddr umAddr : Address .
+vars ract : Map{String,JV} .
+vars msg : Msg .
+vars tactl : TimeActL .
+
+sorts TimeAct TimeActL .
+subsort TimeAct < TimeActL .
+op nilTimeAct : -> TimeActL [ctor] .
+op ta : Float Map{String,JV} -> TimeAct 
+         [ctor format(n d)] .
+op _;_ : TimeActL TimeActL -> TimeActL 
+           [ctor assoc id: nilTimeAct] .
+
+
+op UMTest : -> ActorType .
+op tacts:_ : TimeActL -> Attribute [ctor] .
+
+
+op mkUMTestA : Address -> Actor .
+eq mkUMTestA(umTAddr) =
+    < umTAddr : UMTest | tacts: nilTimeAct > .
+
+crl [umT-rcv-action] :
+{T,(to umTAddr from umAddr :  actionQ(ract) )}
+< umTAddr : UMTest | attrs >
+=>
+< umTAddr : UMTest | attrs1 >
+delayMsgs(msg,null)
+if attrs1 := addTimeAct(attrs,T,ract)
+/\ msg := (to umAddr from umTAddr : actionR("ok"))
+
+ [print "(" T ") UMTest " umTAddr " got action request " ract]
+   .
+ 
+op addTimeAct : AttributeSet Float Map{String,JV}
+                 -> AttributeSet .
+eq addTimeAct((attrs,tacts: tactl),T,ract)  
+    = attrs, tacts: (tactl ; ta(T,ract) ) .
+    
+eq addTimeAct(attrs,T,ract)  
+    = attrs, (tacts: ta(T,ract) ) [owise] .
+    
+ 
+endm
+
+sload mas-mamodel
+sload dns-mamodel
+
+mod TEST-UM-TEST-AUX is
+   inc UM-TEST-ACTOR .
+   inc DNS-MAMODEL .
+   inc MAS-MAMODEL .
+   
+ ops umtA umAD umAM : -> Actor .
+ ops umtAddr umAddr : -> Address .
+
+ eq umtA =  mkUMTestA(umtAddr) .
+   
+ ops iCD iCM : Nat -> Config .
+ eq iCD(n:Nat) = rCtr(n:Nat) umtA umAD 
+       {0.1,(to umAddr from umAddr : actionR("ok"))} .
+
+ eq iCM(n:Nat)  = rCtr(n:Nat) umtA umAM
+      {0.1,(to umAddr from umAddr : actionR("ok"))} .
+
+endm
+
+sload user-action-actor-sj
+
+ mod TEST-UM-TEST-SJ is
+   inc TEST-UM-TEST-AUX .
+   inc USER-ACTION-ACTOR-SJ .
+
+ eq umAD = mkUMactor(umAddr,dns-ma,umtAddr) .
+ eq umAM = mkUMactor(umAddr,mas-ma,umtAddr) .
+
+endm
+
+sload user-action-actor-clt
+
+ mod TEST-UM-TEST-CLT is
+   inc TEST-UM-TEST-AUX .
+   inc USER-ACTION-ACTOR-CLT  .
+
+ eq umAD = mkUMactor(umAddr,dns-ma,umtAddr) .
+ eq umAM = mkUMactor(umAddr,mas-ma,umtAddr) .
+
+endm
+
+eof
+
+select TEST-UM-TEST-JS .
+
+
+rew [50] run({0.1 | nil} iCD(0),100.0) .
+ta(1.0000548813502305e-1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(1.9744686573925865e+1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(3.762778437279016e+1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(5.6489962172443121e+1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(7.7234299017274779e+1, ("num_to_resolve" |-> jn(9), "type" |-> js("resolve_a_batch")))  ;
+ta(9.4826998652278206e+1, ("num_to_resolve" |-> jn(8), "type" |-> js("resolve_a_batch")))) 
+
+
+--------------------------------
+rew [50] run({0.1 | nil} iCD(100),100.0) .
+ta(1.0000570196775953e-1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(1.7720984734416497e+1, ("num_to_resolve" |-> jn(9), "type" |-> js("resolve_a_batch")))   ;
+ta(3.6661619003673657e+1, ("num_to_resolve" |-> jn(7), "type" |-> js("resolve_a_batch")))  ;
+ta(5.5605883061290854e+1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(7.3190559259171664e+1, ("num_to_resolve" |-> jn(3), "type" |-> js("resolve_a_batch")))  ;
+ta(9.1643408066238067e+1, ("num_to_resolve" |-> jn(7), "type" |-> js("resolve_a_batch"))))
+
+---------------------------------------
+rew [50] run({0.1 | nil} iCM(0),100.0) .
+ta(1.0000548813502305e-1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(1.5501049277475854e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(2.2974974544447281e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(3.4854759327333234e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(5.5204272496170077e+1, "type" |-> js("download")) ;
+ta(6.2937943248677733e+1, "type" |-> js("download")) ;
+ta(6.9946732539245218e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(9.0106105949687844e+1, "type" |-> js("download"))) >
+
+--------------------------------
+rew [50] run({0.1 | nil} iCM(100),100.0) .
+ta(1.0000570196775953e-1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(6.3943780790082894, "type" |-> js("download")) ;
+ta(3.8804165303266217e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(6.4896252013208354e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(8.1587808125536185e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(9.9116838307618877e+1, "type" |-> js("download"))) >
+
+--------------------------------
+rew [150] run({0.1 | nil} iCD(100),200.0) .
+ta(1.0000570196775953e-1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(1.7720984734416497e+1, ("num_to_resolve" |-> jn(9), "type" |-> js("resolve_a_batch")))    ;
+ta(3.6661619003673657e+1, ("num_to_resolve" |-> jn(7), "type" |-> js("resolve_a_batch")))    ;
+ta(5.5605883061290854e+1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(7.3190559259171664e+1, ("num_to_resolve" |-> jn(3), "type" |-> js("resolve_a_batch")))    ;
+ta(9.1643408066238067e+1, ("num_to_resolve" |-> jn(7), "type" |-> js("resolve_a_batch")))    ;
+ta(1.1421464321552523e+2, ("num_to_resolve" |-> jn(3), "type" |-> js("resolve_a_batch")))     ;
+ta(1.3326666721401443e+2, ("num_to_resolve" |-> jn(2), "type" |-> js("resolve_a_batch")))    ;
+ta(1.5389090553098137e+2, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(1.7432269413506938e+2, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(1.9475179632187556e+2, ("start" |-> jb(true), "type" |-> js("resolve_a")))) 
+
+-----------------------------------------------
+rew [150] run({0.1 | nil} iCM(100),200.0) .
+ta(1.0000570196775953e-1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(6.3943780790082894, "type" |-> js("download")) ;
+ta(3.8804165303266217e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(6.4896252013208354e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(8.1587808125536185e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(9.9116838307618877e+1, "type" |-> js("download")) ;
+ta(1.3064738489255393e+2, "type" |-> js("download")) ;
+ta(1.592179022994724e+2, "type" |-> js("download")) ;
+ta(1.6758956966079049e+2, ("start" |-> jb(true), "type" |-> js("media")))) >
+
+****************************************************
+select TEST-UM-TEST-CLT .
+
+rew [50] run({0.1 | nil} iCD(0),100.0) .
+ta(1.0000592844616389e-1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(2.0749685963890876e+1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(3.8424324698953868e+1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(5.7508000838286883e+1, ("num_to_resolve" |-> jn(9), "type" |-> js("resolve_a_batch")))    ;
+ta(7.5100699984112822e+1, ("num_to_resolve" |-> jn(6), "type" |-> js("resolve_a_batch")))    ;
+ta(9.2963778267488721e+1, ("start" |-> jb(true), "type" |-> js("resolve_a")))) 
+
+--------------------------------------------
+rew [50] run({0.1 | nil} iCD(100),100.0) .
+ta(1.0000038425425534e-1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(1.8831407702026336e+1, ("num_to_resolve" |-> jn(2), "type" |-> js("resolve_a_batch")))    ;
+ta(3.757157495342895e+1, ("num_to_resolve" |-> jn(7), "type" |-> js("resolve_a_batch")))    ;
+ta(5.5291857425876763e+1, ("num_to_resolve" |-> jn(3), "type" |-> js("resolve_a_batch")))    ;
+ta(7.374470284166469e+1, ("num_to_resolve" |-> jn(7), "type" |-> js("resolve_a_batch")))    ;
+ta(9.3995544206714598e+1, ("num_to_resolve" |-> jn(4), "type" |-> js("resolve_a_batch")))) >
+
+--------------------------------------------
+rew [50] run({0.1 | nil} iCM(0),100.0) .
+ta(1.0000592844616389e-1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(2.0023547017036158e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(2.6559407871459811e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(3.9435947865552748e+1, "type" |-> js("download")) ;
+ta(4.7169618822497334e+1, "type" |-> js("download")) ;
+ta(5.3351191600926178e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(8.9021821001552183e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(9.7416245581560062e+1, "type" |-> js("download"))) >
+
+--------------------------------------------
+rew [50] run({0.1 | nil} iCM(100),100.0) .
+ta(1.0000038425425534e-1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(1.1391304959112333e+1, "type" |-> js("download")) ;
+ta(3.2461169103016715e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(4.130633157931107e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(5.8835363551774059e+1, "type" |-> js("download")) ;
+ta(7.2199978122112825e+1, "type" |-> js("download")) ;
+ta(9.454670741569457e+1, ("start" |-> jb(true), "type" |-> js("media")))) >
+
+
+--------------------------------------------
+rew [150] run({0.1 | nil} iCD(100),200.0) .
+ta(1.0000038425425534e-1, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(1.8831407702026336e+1, ("num_to_resolve" |-> jn(2), "type" |-> js("resolve_a_batch")))    ;
+ta(3.757157495342895e+1, ("num_to_resolve" |-> jn(7), "type" |-> js("resolve_a_batch")))    ;
+ta(5.5291857425876763e+1, ("num_to_resolve" |-> jn(3), "type" |-> js("resolve_a_batch")))    ;
+ta(7.374470284166469e+1, ("num_to_resolve" |-> jn(7), "type" |-> js("resolve_a_batch")))     ;
+ta(9.3995544206714598e+1, ("num_to_resolve" |-> jn(4), "type" |-> js("resolve_a_batch")))    ;
+ta(1.1983923820028755e+2, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(1.4340268840818274e+2, ("start" |-> jb(true), "type" |-> js("resolve_a"))) ;
+ta(1.6108472940956622e+2, ("num_to_resolve" |-> jn(6), "type" |-> js("resolve_a_batch")))    ;
+ta(1.8663541042372856e+2, ("start" |-> jb(true), "type" |-> js("resolve_a")))) >
+
+--------------------------------------------
+rew [150] run({0.1 | nil} iCM(100),200.0) .
+ta(1.0000038425425534e-1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(1.1391304959112333e+1, "type" |-> js("download")) ;
+ta(3.2461169103016715e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(4.130633157931107e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(5.8835363551774059e+1, "type" |-> js("download")) ;
+ta(7.2199978122112825e+1, "type" |-> js("download")) ;
+ta(9.454670741569457e+1, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(1.3784330105870109e+2, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(1.7087879625745802e+2, ("start" |-> jb(true), "type" |-> js("media"))) ;
+ta(1.7744796650997426e+2, "type" |-> js("download")) ;
+ta(1.9397640407079967e+2, "type" |-> js("download")))

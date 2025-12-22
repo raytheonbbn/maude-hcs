@@ -1,0 +1,87 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../../../deps/dns_formalization/Maude/dns/common/prelim.maude
+
+sload ../../common/maude/cp2-interfaces
+sload ../../common/maude/sampler-x
+
+mod FAKE-RSV is
+ inc MSG .
+ inc CP2-COMMON .
+ inc SAMPLER-X .
+ 
+
+op fakeRSV : -> ActorType .
+vars i rj j : Nat .
+vars T : Float .
+vars rAddr addr : Address .
+vars name : Name .
+vars qtype : RType .
+
+
+rl[fakeRsp]:
+rCtr(rj)
+{T, to rAddr from addr : query(i,name,qtype)}
+< rAddr : fakeRSV | noneAS > 
+=>
+< rAddr : fakeRSV | noneAS > 
+rCtr(s rj)
+[defaultDelay + genRandomX(rj, 0.0, 0.0001), 
+ (to addr from rAddr : response(i,name,nil,nil,nil,0)),
+ 0]
+[print "(" T ") FakeRsv responds to Id " i]
+.
+
+op mkFakeRSV : Address -> Actor .
+eq mkFakeRSV(rAddr) = < rAddr : fakeRSV | noneAS > .
+
+op fakeRSV : Address -> Actor .
+eq fakeRSV(rAddr) = mkFakeRSV(rAddr) .
+
+endm
+
+
+mod TEST-FAKE-RSV is
+  inc FAKE-RSV  .
+
+op fakeA : -> Address .
+op frAct : -> Actor .
+eq frAct = mkFakeRSV(fakeA)  .
+
+endm  
+eof
+
+rew rCtr(0) frAct {1.0, (to fakeA from fakeA : query(0,root,a))} .
+>>
+Config: rCtr(1)
+< fakeA : fakeRSV | noneAS > [defaultDelay + 5.4881350230425599e-5, to fakeA from fakeA :
+    response(0, root, nil, nil, nil, 0), 0]
+    
