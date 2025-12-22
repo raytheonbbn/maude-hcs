@@ -166,13 +166,16 @@ crl [wnameserver-receive-query-weird]:
   >
   < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
   --- Message back to Alice
-  (if isLastFrag then [lastFragDelay + delayParamd(msgOut), msgOut, dropParamd(msgOut)] else [delayParamd(msgOut), msgOut, dropParamd(msgOut)] fi)
+  --- [0., msgOut, 0]
+  (if isLastFrag then [lastFragDelay + DELAY, msgOut, dropParamd(msgOut)] else [DELAY, msgOut, dropParamd(msgOut)] fi)
   --- The message to send to Bob if packet is fully assembled
   (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
   (if msgOutExt == nullMsg then null else [0.0, msgOutExt, 0] fi)
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 1 and step 2
   /\ {wattrsTrans, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  /\ DELAY := delayParamd(msgOut)---float(random(1) / 4294967296) * (noiseMax(msgOut) - noiseMin(msgOut)) + noiseMin(msgOut)
+  --- /\  DELAYTYPE := delayType(msgOut)
   --- step 2.5: Check if this is for the last fragment, delay send
   /\ isLastFrag := isLastFragment(QNAME)
   --- step 3
@@ -184,7 +187,7 @@ crl [wnameserver-receive-query-weird]:
       then (to getToAddr(query(ID, QNAME, QTYPE)) : start)
       else nullMsg
     fi
-  [print "(" T ") WServer receving query " ID ", sending " msgOut ]
+  [print "(" T ") WServer receving query " QNAME ", sending " msgOut "\n to Bob: " appMsgOut "\nattrs before extract:" wattrs "\nattrs before updateRcvApp: " wattrsTrans "\nDelay:" DELAY]
   .
 
   --- TODO remove when done testing
@@ -410,13 +413,14 @@ crl [wnameserver-receive-query-weird]:
     =>
     < ADDR : WClient | wattrsNext >
     < MON : WMonitor | querySent: (QTL ; queryTimestamp(getQuery(msgOut), T)), pktSent: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
-    [delayParamd(msgOut), msgOut, dropParamd(msgOut)]
+    [DELAY, msgOut, dropParamd(msgOut)]
     [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0]
     --- TODO: Modify rule to drop incoming message if >= 2, continue on with current.
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
+       /\ DELAY := delayParamd(msgOut)
        /\ sentFragment := grabCurrentFragment(wattrsNext)
-    [print "(" T ") iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout"]
+    [print "(" T ") iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout; delay=" DELAY]
     .
 
   --- Handle a response from the resolver to WClient.
@@ -466,7 +470,7 @@ crl [wnameserver-receive-query-weird]:
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
       /\ {wattrs2, appMsgOut} := updateRcvAppAlice(wattrsNext, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)))
-      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt downstreamdata] 
+      [print "(" T ") WClient got response " downstreamdata ": sending possible fragment " msgOutExt downstreamdata] 
     .
 
   --- Handle a response from the resolver to WClient that is for a past Fragment.
