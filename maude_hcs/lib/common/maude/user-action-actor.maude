@@ -33,7 +33,7 @@ set show advisories off .
 sload markov-action-model.maude
 sload cp2-interfaces
 --- load dns-mamodel
-sload ./_aux
+sload ./_aux  ---- CP2_SORTS  attrsmsgs ....
 sload ../../../deps/dns_formalization/Maude/common/actor.maude
 sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
 
@@ -53,16 +53,19 @@ model_step?
 
 )
 
-mod USER-ACTION-ACTOR is
+
+mod USER-ACTION-ACTOR-CLT is
   inc MARKOV-ACTION-MODEL .
   inc CP2-COMMON .
-       **** ACTOR-MODEL SCHEDULER PARAMETERS
+       **** ACTOR-MODEL SCHEDULER PARAMETERS, rCtr
   inc TGEN-INTERFACE .
   inc CP2_SORTS .
   inc MAP{String,Float} .
-  inc MAP{String,Nat} .
-
-
+***  inc MAP{String,Nat} .
+  inc LIST{String} .
+  inc LIST{Float} .
+  inc MAP{String,JV} .
+ 
 vars umAddr aAddr addr : Address .
 vars mm : Map{String,Map{String,Float}} .
 vars ma : MAModel .
@@ -78,6 +81,8 @@ vars T sleepT noiseD fl fl0 wsum wt : Float .
 vars ac : Content . --- action content
 vars b : Bool .
 
+vars weightl statel : JVL .   **** floats, strings
+vars str2strl str2wtl : Map{String,JV} .  **** str
 
 ---- A UM actor executes an MM. 
 op UM : -> ActorType .
@@ -91,10 +96,15 @@ op nsteps:_ : Nat -> Attribute [ctor] . --- remaining
 op actAddress:_ : Address -> Attribute [ctor] .
 op w4:_ : Config -> Attribute [ctor] .
 
-**** op mSum:_ : Map{String,Float} -> Attribute [ctor] .
 op default:_ : String -> Attribute [ctor] . --- probably the start state
 
 op mSum:_ : Map{String,Float} -> Attribute [ctor] .
+
+op stateL:_ : JVL -> Attribute [ctor] .
+op weightL:_ : JVL -> Attribute [ctor] .
+op stateLM:_ : Map{String,JV}  -> Attribute [ctor] .
+op weightLM:_ : Map{String,JV} -> Attribute [ctor] .
+
 
 op getMarkovA : AttributeSet ->  
                 Map{String,Map{String,Float}} .
@@ -116,7 +126,8 @@ eq getDefault((attrs, default: str)) = str .
 op markov2msum : Map{String,Map{String,Float}} -> 
                    Map{String,Float} .
 op markov2msumX : Map{String,Map{String,Float}}  
-                  Map{String,Float}  -> Map{String,Float} .
+                  Map{String,Float}  
+      -> Map{String,Float} .
 
 eq markov2msum(mm) = markov2msumX(mm,empty) .
 
@@ -127,6 +138,56 @@ eq markov2msumX(((str |-> wmap), mm), msum)  =
  op mapSum : Map{String,Float} Float -> Float .
  eq mapSum(empty,fl) = fl .
  eq mapSum(((str |-> fl0), wmap),fl) = mapSum(wmap,fl + fl0)  .
+ 
+************* NEW
+
+****** WtMap to stateL: jvl(str), weightL: jbl(float) 
+op wtMap2Attrs : Map{String,Float} -> AttributeSet .
+op wtMap2AttrsX : Map{String,Float}  AttributeSet 
+                  -> AttributeSet .
+eq wtMap2Attrs(wmap) 
+    = wtMap2AttrsX(wmap, 
+                  (stateL: nilJV, weightL: nilJV)) 
+  .
+eq wtMap2AttrsX(((str |-> wt), wmap), attrs)
+       = wtMap2AttrsX(wmap, addStrWt(attrs,str,wt)) .
+eq wtMap2AttrsX(empty,attrs) = attrs .
+
+op addStrWt : AttributeSet String Float -> AttributeSet .
+eq addStrWt( (stateL: nilJV, weightL: nilJV), str,wt) 
+    = (stateL: js(str), weightL: jf(wt)) .
+eq addStrWt( (stateL: statel, 
+              weightL: (weightl ; jf(wsum))), str,wt) 
+    =  stateL: (statel ; js(str)),
+       weightL: (weightl ; jf(wsum) ; jf(wsum + wt))  .
+
+eq addStrWt( attrs, str,wt) = attrs [owise] .
+
+****** mm to stateLM: str :-> jv(jvl(str))
+*****        weightLM: str :-> jv(j jbl(float))
+op markov2StrWt : Map{String,Map{String,Float}} -> 
+                 AttributeSet .
+op markov2StrWtX : Map{String,Map{String,Float}}
+                   AttributeSet ->  AttributeSet .       
+eq markov2StrWt (mm) 
+ = markov2StrWtX(mm,(stateLM: empty, weightLM: empty)) .
+
+eq markov2StrWtX(empty,attrs) = attrs .
+ceq markov2StrWtX(((str |-> wmap),mm), attrs)
+   = markov2StrWtX(mm,attrs1)
+  if attrs0 := wtMap2Attrs(wmap)  
+  /\ attrs1 := addStrWtAttrs(attrs,str,attrs0)
+  . 
+  
+op addStrWtAttrs : AttributeSet String AttributeSet
+     -> AttributeSet .
+eq addStrWtAttrs((stateLM: str2strl, weightLM: str2wtl),
+        str, (stateL: statel, weightL: weightl))
+  =  (stateLM: (str2strl, (str |-> jl(statel))),
+      weightLM: (str2wtl,  (str |-> jl(weightl)))) .
+eq addStrWtAttrs(attrs0,str,attrs1) = attrs0 [owise] .             
+
+************** EMEW   
  
 
 op mkUMactor : Address MAModel Address -> Actor .
@@ -139,13 +200,15 @@ ceq mkUMactor (umAddr,ma,aAddr) =
                   actAddress: aAddr,
                   nsteps: maxSteps ,
                   w4: (to umAddr from umAddr :
-                        actionQ(empty)) >
-                  
+                        actionQ(empty)),
+                  attrs0
+                         >                  
 if mm := getMarkov(ma)    
 /\ msum := markov2msum(mm) 
 /\ acts := getActions(ma)             
 /\ init := getStart(ma)
 /\ maxSteps := getMaxSteps(ma)
+/\ attrs0 := markov2StrWt(mm)
 .
 
 rl [rcvStatusEnd] :
@@ -155,6 +218,7 @@ rl [rcvStatusEnd] :
 < umAddr : UM | attrs, nsteps: 0 >
 [ print "(" T ") User Model receiving action " str " with nsteps 0."]
 .
+
 
 
 crl [umRcvStatusNext] :
@@ -172,7 +236,8 @@ if {attrs1, msgs, j1} :=
 [ print "(" T ") User Model " umAddr " receiving action status " str]
 .
 
-op umRcvStatus : AttributeSet Msg Nat -> AttributeSetMsgsNat .
+op umRcvStatus : AttributeSet Msg Nat ->
+                 AttributeSetMsgsNat .
 eq umRcvStatus(attrs, msg, j) = {attrs,null,j} [owise] .
 
 ceq umRcvStatus(attrs, msg0, j) =
@@ -181,9 +246,12 @@ ceq umRcvStatus(attrs, msg0, j) =
   /\ attrs1, w4: (to addr from umAddr : ac),
             curState: sid, nsteps: (s n)  := attrs 
   /\ attrs0, markov: mm, mSum: msum,  default: default,
-             actions: acts, actAddress: aAddr := attrs        
-  /\ (sid1 |-> j0) := chooseNextState(mm[sid],msum[sid],j,default) 
-  /\ {ract,j1} := realizeParams(acts[sid],j0) 
+             actions: acts, actAddress: aAddr,
+             stateLM: str2strl, weightLM: str2wtl
+              := attrs        
+  /\ sid1 := chooseNextState(str2strl[sid],
+                str2wtl[sid], msum[sid],j,default) 
+  /\ {ract,j1} := realizeParams(acts[sid],s j) 
   /\ b := isWaitType(ract)
   /\ msg := 
       (if b
@@ -195,31 +263,49 @@ ceq umRcvStatus(attrs, msg0, j) =
   /\ dmsg := (if b and sleepT > 0.0 
               then [sleepT, msg, 0] 
               else [noiseD, msg, 0] fi)
-  /\ attrs2 := attrs1, w4: msg, curState: sid1, nsteps:  n
-
+  /\ attrs2 := attrs1, w4: msg, curState: sid1, nsteps: n
   .                       
 
+op chooseNextState : JV JV Float  Nat String -> String .
+
+ceq chooseNextState(jl(statel), jl(weightl), 
+                    wsum, j,default)
+   = chooseSW(statel,weightl,fl,default) 
+if fl := genRandomX(j,0.0, wsum)  .
+
+op chooseSW : JVL JVL Float String -> String .
+eq chooseSW(js(str) ; statel, jf(wt) ;  weightl, 
+            fl,default) 
+  = if fl < wt 
+    then str
+    else chooseSW(statel, weightl,fl,default) 
+    fi .
+eq chooseSW(statel,weightl,fl,default) 
+   = default [owise] .
+
+
+***(
 op chooseNextState : Map{String,Float} Float Nat String
                 -> Map{String,Nat} .
 eq chooseNextState(((str |-> wt), wmap), wsum,j,default)
    = (if wmap == empty
      then (str |-> j)
-     else (if genRandomX(j,0.0, wsum) < wt
-           then (str |-> j)
+     else (if genRandomX(j,0.0, wsum) <= wt
+           then (str |-> s j)
            else chooseNextState(wmap, (wsum + (- wt)),s j,default)
            fi)
     fi) .
 eq chooseNextState( wmap, wsum,j,default) 
            = (default |-> j) [owise] .
-
+)
 
 endm  
 
 sload ../../raceboat/mas-mamodel
 sload ../../dns/maude/probabilistic/dns-mamodel.maude
 
-mod UM-UNIT-TEST is
-  inc USER-ACTION-ACTOR .
+mod UM-UNIT-TEST-CLT is
+  inc USER-ACTION-ACTOR-CLT .
   inc DNS-MAMODEL . ---- dns-ma
   inc MAS-MAMODEL . ---- mas-ma
   
@@ -233,26 +319,104 @@ eq umActM = mkUMactor (ummA,mas-ma,masA) .
 
 ops umActDa  umActMa : -> Actor .
 
-**** rew umActD rCtr(0) {1.0, (to umdA from umdA : actionR("ok"))}.
+ops dns-mm mas-mm : -> Map{String,Map{String,Float}} .
+eq dns-mm = getMarkov(dns-ma)  .
+eq mas-mm = getMarkov(mas-ma)  .
+
+ops sLMD wLMD sLMM wLMM : -> Map{String,JV} .
+eq sLMD = ("batch" |-> jl(js("wait_batch")), "single" |-> jl(js("wait_single")), "wait_batch" |-> jl(js( "batch") ; js("single")), "wait_single" |-> jl(js("batch") ; js("single"))) .
+
+eq wLMD = ("batch" |-> jl(jf(1.0)), "single" |-> jl(jf(1.0)), "wait_batch" |-> jl(jf( 5.0e-1) ; jf(1.0)), "wait_single" |-> jl(jf(5.0e-1) ; jf(1.0))) .
+
+eq sLMM = ("download" |-> jl(js("wait_download")), "media" |-> jl(js("wait_media")), "wait_download" |-> jl(js("download") ; js("media")), "wait_media" |-> jl(js("download") ; js("media"))) .
+    
+eq wLMM = ("download" |-> jl(jf( 1.0)), "media" |-> jl(jf(1.0)), "wait_download" |-> jl(jf(5.0e-1) ; jf(1.0)), "wait_media" |-> jl(jf(5.0e-1) ; jf(1.0))) .
+ 
+***( 
+red chooseNextState(sLMD["batch"],wLMD["batch"], 1.0, 100,"") .
+red chooseNextState(sLMD["wait_batch"],wLMD["wait_batch"], 1.0, 100,"") .
+
+red chooseNextState(sLMM["download"],wLMM["download"], 1.0, 100,"") .
+red chooseNextState(sLMM["wait_download"],wLMM["wait_download"], 1.0, 100,"") .
+
+red chooseNextState(sLMM["media"],wLMM["media"], 1.0, 100,"") .
+red chooseNextState(sLMM["wait_media"],wLMM["wait_media"], 1.0, 100,"") .
+
+)                    
+**** rew umActD rCtr(100) {1.0, (to umdA from umdA : actionR("ok"))} .
+*** rCtr(102)
 eq umActDa =
-**** rCtr(1)
-< umdA : UM | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ( "batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(("num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js("uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo(("start" |-> jb(true), "type" |-> js( "resolve_a"))), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait"))), "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf( 2.0))), "type" |-> js("wait")))), curState: "wait_single", nsteps: 99, actAddress: dnsA, w4: (to dnsA from umdA : actionQ(("start" |-> jb(true), "type" |-> js( "resolve_a")))), default: "single", mSum: ("batch" |-> 1.0, "single" |-> 1.0, "wait_batch" |-> 1.0, "wait_single" |-> 1.0) > 
+< umdA : UM | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ( "batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(("num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js("uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo(("start" |-> jb(true), "type" |-> js( "resolve_a"))), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait"))), "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf( 2.0))), "type" |-> js("wait")))), curState: "wait_single", nsteps: 99, actAddress: dnsA, w4: (to dnsA from umdA : actionQ(("start" |-> jb(true), "type" |-> js( "resolve_a")))), default: "single", mSum: ("batch" |-> 1.0, "single" |-> 1.0, "wait_batch" |-> 1.0, "wait_single" |-> 1.0), stateLM: ("batch" |-> jl(js( "wait_batch")), "single" |-> jl(js("wait_single")), "wait_batch" |-> jl(js("batch") ; js("single")), "wait_single" |-> jl(js("batch") ; js("single"))), weightLM: ("batch" |-> jl(jf(1.0)), "single" |-> jl(jf(1.0)), "wait_batch" |-> jl(jf(5.0e-1) ; jf(1.0)), "wait_single" |-> jl(jf(5.0e-1) ; jf(1.0))) > .
+
+
+**** [3.8425425533205274e-7, to dnsA from umdA : actionQ(("start" |-> jb(true), "type" |-> js("resolve_a"))), 0]  curState
+
+**** rew umActDa rCtr(102) {1.0, to umdA from dnsA : actionR("ok")} .
+
+**** rCtr(105) 
+**** < umdA : UM | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ( "batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(("num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js("uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo(("start" |-> jb(true), "type" |-> js( "resolve_a"))), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait"))), "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf( 2.0))), "type" |-> js("wait")))), curState: "batch", nsteps: 98, actAddress: dnsA, w4: (to umdA from umdA : actionR("ok")), default: "single", mSum: ("batch" |-> 1.0, "single" |-> 1.0, "wait_batch" |-> 1.0, "wait_single" |-> 1.0), stateLM: ("batch" |-> jl(js("wait_batch")), "single" |-> jl(js("wait_single")), "wait_batch" |-> jl(js( "batch") ; js("single")), "wait_single" |-> jl(js("batch") ; js("single"))), weightLM: ("batch" |-> jl(jf(1.0)), "single" |-> jl(jf(1.0)), "wait_batch" |-> jl(jf( 5.0e-1) ; jf(1.0)), "wait_single" |-> jl(jf(5.0e-1) ; jf(1.0))) > 
+ 
+**** [ 1.8731400789868893e+1, to umdA from umdA : actionR("ok"), 0]
+
+****rew umActM rCtr(100) {1.0, (to ummA from ummA : actionR("ok"))} .
+eq umActMa = 
+**** rCtr(102) 
+< ummA : UM | markov: ("download" |-> "wait_download" |-> 1.0, "media" |-> "wait_media" |-> 1.0, "wait_download" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1), "wait_media" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1)), actions: ("download" |-> jo("type" |-> js("download")), "media" |-> jo(("start" |-> jb(true), "type" |-> js("media"))), "wait_download" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait"))), "wait_media" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js( "gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait")))), curState: "wait_media", nsteps: 99, actAddress: masA, w4: (to masA from ummA : actionQ(("start" |-> jb(true), "type" |-> js("media")))), default: "media", mSum: ("download" |-> 1.0, "media" |-> 1.0, "wait_download" |-> 1.0, "wait_media" |-> 1.0), stateLM: ("download" |-> jl(js( "wait_download")), "media" |-> jl(js("wait_media")), "wait_download" |-> jl(js( "download") ; js("media")), "wait_media" |-> jl(js("download") ; js("media"))), weightLM: ("download" |-> jl(jf(1.0)), "media" |-> jl(jf(1.0)), "wait_download" |-> jl(jf(5.0e-1) ; jf(1.0)), "wait_media" |-> jl(jf(5.0e-1) ; jf(1.0))) > 
 .
 
-**** [5.4881350230425597e-6, to dnsA from umdA : actionQ(("start" |-> jb(true), "type" |-> js("resolve_a"))), 0]
+**** [ 3.8425425533205274e-7, to masA from ummA : actionQ(("start" |-> jb(true), "type" |-> js("media"))), 0] 
 
-****rew umActM rCtr(0) {1.0, (to ummA from ummA : actionR("ok"))} .
-eq umActMa =
-**** rCtr(1)
-< ummA : UM | markov: ("download" |-> "wait_download" |-> 1.0, "media" |-> "wait_media" |-> 1.0, "wait_download" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1), "wait_media" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1)), actions: ("download" |-> jo("type" |-> js("download")), "media" |-> jo(("start" |-> jb(true), "type" |-> js("media"))), "wait_download" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait"))), "wait_media" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js( "gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait")))), curState: "wait_media", nsteps: 99, actAddress: masA, w4: (to masA from ummA : actionQ(("start" |-> jb(true), "type" |-> js("media")))), default: "media", mSum: ("download" |-> 1.0, "media" |-> 1.0, "wait_download" |-> 1.0, "wait_media" |-> 1.0) > 
+
+**** rew umActMa rCtr(102) {1.0, to ummA from masA : actionR("ok")} .
+
+**** rCtr(105) < ummA : UM | markov: ("download" |-> "wait_download" |-> 1.0, "media" |-> "wait_media" |-> 1.0, "wait_download" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1), "wait_media" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1)), actions: ("download" |-> jo("type" |-> js("download")), "media" |-> jo(("start" |-> jb(true), "type" |-> js("media"))), "wait_download" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait"))), "wait_media" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js( "gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait")))), curState: "download", nsteps: 98, actAddress: masA, w4: (to ummA from ummA : actionR("ok")), default: "media", mSum: ("download" |-> 1.0, "media" |-> 1.0, "wait_download" |-> 1.0, "wait_media" |-> 1.0), stateLM: ("download" |-> jl(js("wait_download")), "media" |-> jl(js("wait_media")), "wait_download" |-> jl(js("download") ; js("media")), "wait_media" |-> jl(js("download") ; js("media"))), weightLM: ("download" |-> jl(jf( 1.0)), "media" |-> jl(jf(1.0)), "wait_download" |-> jl(jf(5.0e-1) ; jf(1.0)), "wait_media" |-> jl(jf(5.0e-1) ; jf(1.0))) > 
+
+**** [1.129130355441001e+1, to ummA from ummA : actionR("ok"), 0]
+
+
+vars Min Max : Float .
+vars j j1 n : Nat .
+vars fl : Float .
+vars jvl jvl1 : JVL .
+
+  op genRandX : Nat Float Float -> [Float] .
+  eq genRandX(j,Min, Max) = Min +
+      (float(random(j) / 4294967296) * (Max  + (- Min)))  .
+ 
+op testRand : Nat -> Bool .
+eq testRand(0) = true .
+ceq testRand(s j) = testRand(j) 
+if fl := genRandX(j,0.,1.)
+[print "ix " j " choice " fl]
 .
 
-**** [5.4881350230425597e-6, to masA from ummA : actionQ(("start" |-> jb(true), "type" |-> js("media"))), 0]
+op testR : Nat Nat Nat -> Nat .
+eq testR(j,j,n) = n .
+ceq testR(j, s j1,n) =
+ testR(j, j1, if (fl < .5) then s n else n fi)
+if j1 >= j
+/\ fl := genRandX(j1,0.,1.)
+.
+eq testR(j,j1,n) = 0  [owise] .
 
+
+***(
+ 10  1
+ 50 19
+100 45
+150 69
+)
 
 endm  
 
 eof
+red genRandomX(0,0.0, 1.0)  .
+
+j in 0,7 result > .5
+j = 8,11 result < 5
+
+red genRandX(0,0.0, 1.0)  . *** same as random
+
 
 rew umActD rCtr(0) {1.0, (to umdA from umdA : actionR("ok")) } .
 rew umActDa rCtr(1) {2.0, (to umdA from dnsA : actionR("ok"))} .
