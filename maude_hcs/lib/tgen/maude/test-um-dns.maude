@@ -1,0 +1,100 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set show advisories off .
+sload user-action-actor-sj.maude
+sload user-action-actor-clt.maude
+sload dnsTgen-actor.maude
+sload fake-rsv.maude
+
+mod DNS-TGEN-SCENARIO is
+  inc USER-ACTION-ACTOR-SJ .
+  inc DNS-TGEN .
+  inc DNS-MAMODEL .
+  inc FAKE-RSV .
+
+
+  eq defaultDelay = 1.5 .
+  ops umA dnsTGA frsvA : -> Address .
+
+  op dnsTGenA : -> Actor .
+  eq dnsTGenA =  mkDnsTgenA(dnsTGA,frsvA,1000, 5.0, 2) .
+****  mkDnsTgenA(addr,rsvAddr,namel,retryTo,retryMx ) 
+
+  op frsvAct : -> Actor .
+  eq frsvAct = mkFakeRSV(frsvA) .
+
+  op startMsg : -> ActiveMsg .
+  eq startMsg  = {0.0, to umA from umA : actionR("")} .
+
+endm  
+
+mod DNS-TGEN-SCENARIO-SJ is
+  inc DNS-TGEN-SCENARIO .
+  inc USER-ACTION-ACTOR-SJ .
+  
+  op umAct : -> Actor .
+  eq umAct = mkUMactor(umA,dns-ma,dnsTGA) .
+
+  op iC : -> Config .
+  eq iC = rCtr(0) umAct dnsTGenA frsvAct .
+
+endm  
+
+mod DNS-TGEN-SCENARIO-CLT is
+  inc DNS-TGEN-SCENARIO .
+  inc USER-ACTION-ACTOR-CLT .
+  
+  op umAct : -> Actor .
+  eq umAct = mkUMactor(umA,dns-ma,dnsTGA) .
+
+  op iC : -> Config .
+  eq iC = rCtr(0) umAct dnsTGenA frsvAct .
+
+endm  
+
+eof
+
+red iC. 
+red startMsg .
+
+rew iC startMsg .
+set print attribute on .
+
+
+rew  run({0.0 | nil} iC startMsg, 400. ) .   
+
+select DNS-TGEN-SCENARIO-SJ .
+rew  run({0.0 | nil} iC startMsg, 400. ) .   
+
+rew  run({0.0 | nil} rCtr(100) umAct dnsTGenA frsvAct startMsg, 400. ) .   
+
+see TGenTests for output
+
