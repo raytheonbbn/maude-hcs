@@ -34,19 +34,21 @@ from Maude.attack_exploration.src.actors import Nameserver, Client
 from Maude.attack_exploration.src.query import Query
 from Maude.attack_exploration.src.network import *
 from maude_hcs.lib.dns.iodineActors import TGenClient, Router, IodineClient, IodineServer, SendApp, ReceiveApp, \
-    WMonitor, PacedClient, IResolver, DNSTGenClient
-from maude_hcs.parsers.masdnshcsconfig import MASDNSHCSConfig, DNSBackgroundTrafficTgenClient, \
-    MASBackgroundTrafficTgenClient, DNSUnderlyingNetwork, MASUnderlyingNetwork, DNSWeirdNetwork, MASWeirdNetwork
+    WMonitor, IResolver, DNSTGenClient
+from maude_hcs.parsers.masdnshcsconfig import MASHCSProtocolConfig, \
+    MASBackgroundTrafficTgenClient, MASUnderlyingNetwork, MASWeirdNetwork
 from .cache import CacheEntry, ResolverCache
 from .corporate import createAuthZone, createRootZone, createTLDZone
-from maude_hcs.parsers.graph import *
-from maude_hcs.parsers.shadowconf import *
 import logging
 
-from .. import GLOBALS
+from .. import GLOBALS, Protocol
 from ..mastodon.mastodonActors import MastodonServer, MastodonClient, MASTGenClient
+from ...deps.dns_formalization.Maude.attack_exploration.src.zone import Record
+from ...parsers.dnshcsconfig import DNSUnderlyingNetwork, DNSWeirdNetwork, DNSBackgroundTrafficTgenClient
+from ...parsers.hcsconfig import HCSConfig
 from ...parsers.markovJsonToMaudeParser import find_and_load_json
 from ...parsers.ymlconf import Destini
+from ...parsers.graph import Node
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +57,7 @@ logger = logging.getLogger(__name__)
         _args is the command line args
         run_args is the json configuration from use cases
 """
-def corporate_iodine_mastodon(_args, hcsconf :  MASDNSHCSConfig) -> IodineDNSConfig:
+def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     def getOrAddTopologyNode(_name:str):
         node = hcsconf.topology.getNodebyLabel(_name)
         if node: return node
@@ -69,15 +71,10 @@ def corporate_iodine_mastodon(_args, hcsconf :  MASDNSHCSConfig) -> IodineDNSCon
     parameterized_network = ParameterizedTopo(hcsconf.topology)
 
     # find the DNS underlying network conf
-    underlying_network = None
-    mas_underlying_network = None
-    for un in hcsconf.underlying_network:
-        if isinstance(un, DNSUnderlyingNetwork):
-            underlying_network = un
-        elif isinstance(un, MASUnderlyingNetwork):
-            mas_underlying_network = un
-    assert underlying_network, "Underlying network undefined"
-    assert mas_underlying_network, "Mastodon underlying network undefined"
+    assert Protocol.DESTINI_MASTODON.value in hcsconf.protocols, "Destini Mastodon underlying network undefined"
+    assert Protocol.IODINE_DNS.value in hcsconf.protocols, "Iodine DNS underlying network undefined"
+    underlying_network = hcsconf.protocols[Protocol.IODINE_DNS.value].underlying_network
+    mas_underlying_network = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].underlying_network
     addr_prefix   = underlying_network.addr_prefix
     root_node = getOrAddTopologyNode(underlying_network.root_name)
     assert root_node, "Root node undefined"
@@ -109,17 +106,20 @@ def corporate_iodine_mastodon(_args, hcsconf :  MASDNSHCSConfig) -> IodineDNSCon
     
     cacheRecords = []
     # root zone
-    zoneRoot, ns_records = createRootZone(hcsconf, record_ttl)
+    zoneRoot, ns_records = createRootZone(hcsconf, Protocol.IODINE_DNS.value,  record_ttl)
     cacheRecords.extend(ns_records)
     # com zone
-    zoneCom, ns_records = createTLDZone(hcsconf, zoneRoot, record_ttl, inclPwnd=False)
+    zoneCom, ns_records = createTLDZone(hcsconf, Protocol.IODINE_DNS.value, zoneRoot, record_ttl, inclPwnd=False)
     cacheRecords.extend(ns_records)
     # Auth zones
-    zoneEverythingelse, ns_records = createAuthZone(hcsconf, ee_domain, ee_node.address, zoneCom, num_records, record_ttl, record_ttl_a, inclPwnd=True)
+
+    # the internet (auth) name server is authoritatie for zone pwnd.com and the A record for mastodon.pwnd.com
+    mastodon_a_record = Record(hcsconf.protocols[Protocol.DESTINI_MASTODON.value].underlying_network.mastodon_fqdn, 'A', record_ttl_a, hcsconf.protocols[Protocol.DESTINI_MASTODON.value].underlying_network.mastodon_address)
+    zoneEverythingelse, ns_records = createAuthZone(hcsconf, Protocol.IODINE_DNS.value, ee_domain, ee_node.address, zoneCom, num_records, record_ttl, record_ttl_a, True, [mastodon_a_record])
     cacheRecords.extend(ns_records)
-    zonepwnd2, ns_records = createAuthZone(hcsconf, pwnd_domain, pwnd2_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
+    zonepwnd2, ns_records = createAuthZone(hcsconf, Protocol.IODINE_DNS.value, pwnd_domain, pwnd2_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
     cacheRecords.extend(ns_records)
-    zonecorp, ns_records = createAuthZone(hcsconf, corp_domain, corp_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
+    zonecorp, ns_records = createAuthZone(hcsconf, Protocol.IODINE_DNS.value, corp_domain, corp_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
     cacheRecords.extend(ns_records)
 
     resolver = IResolver(resolver_node.address)
@@ -138,15 +138,8 @@ def corporate_iodine_mastodon(_args, hcsconf :  MASDNSHCSConfig) -> IodineDNSCon
     root_nameservers = {'a.root-servers.net.': root_node.address}
 
     # tunnels (weird networks)
-    weird_network = None
-    mas_weird_network = None
-    for wn in hcsconf.weird_network:
-        if isinstance(wn, DNSWeirdNetwork):
-            weird_network = wn
-        elif isinstance(un, MASWeirdNetwork):
-            mas_weird_network = wn
-    assert weird_network, "Weird network undefined"
-    assert mas_weird_network, "Mas weird network undefined"
+    weird_network = hcsconf.protocols[Protocol.IODINE_DNS.value].weird_network
+    mas_weird_network = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].weird_network
     # In this configuration, user alice contains the iodine client
     #   and user bob contains the iodine server
     # If these nodes dont exists, create them in the topology since we assume that nodes correspond to actors (roughly)
@@ -180,25 +173,32 @@ def corporate_iodine_mastodon(_args, hcsconf :  MASDNSHCSConfig) -> IodineDNSCon
         return s.strip().replace('/', '').replace('\\','').replace('_', '-') # what else to clean here
     # tgen client
     tgen_clients = []
-    num_clients = hcsconf.background_traffic.num_clients
     seen_images = []
-    for index,client in enumerate(hcsconf.background_traffic.clients):
-        if isinstance(client, DNSBackgroundTrafficTgenClient):
-            tgen_clients.append(DNSTGenClient(f'tgen-dns-{index}', client.client_markov_model_profile, client.start_time, False, corp_node.address, 10000, client.client_retry_to, client.client_num_retry))
-        elif isinstance(client, MASBackgroundTrafficTgenClient):
-            # for now we are hardcoding images since neither the yml config nor the profile specify where these are
-            #  mastodon_images.json was extracted using the `maude-hcs images` utility, see README
-            # if tgens specify the same image dir we only gen image list once per unique dir (TODO test it)
-            images_id = clean(client.clients_images_dir)
-            destiniobj = None
-            if images_id not in seen_images:
-                seen_images.append(images_id)
-                images = find_and_load_json(GLOBALS.TOPLEVELDIR, 'mastodon_images.json')
-                destiniobj = Destini.from_dict(images)
-            # output this once
-            tgen_clients.append(MASTGenClient(f'tgen-mas-{index}', client.client_markov_model_profile, client.start_time, False, client.client_username, client.client_hashtags, destiniobj, images_id, mastodon_server_address, True))
+    for index,client in enumerate(hcsconf.protocols[Protocol.IODINE_DNS.value].background_traffic.clients):
+        assert isinstance(client, DNSBackgroundTrafficTgenClient)
+        tgen_clients.append(DNSTGenClient(f'tgen-dns-{index}', client.client_markov_model_profile, client.start_time, False, corp_node.address, 10000, client.client_retry_to, client.client_num_retry))
+    for index, client in enumerate(hcsconf.protocols[Protocol.DESTINI_MASTODON.value].background_traffic.clients):
+        assert isinstance(client, MASBackgroundTrafficTgenClient)
+        # for now we are hardcoding images since neither the yml config nor the profile specify where these are
+        #  mastodon_images.json was extracted using the `maude-hcs images` utility, see README
+        # if tgens specify the same image dir we only gen image list once per unique dir (TODO test it)
+        images_id = clean(client.clients_images_dir)
+        destiniobj = None
+        if images_id not in seen_images:
+            seen_images.append(images_id)
+            images = find_and_load_json(GLOBALS.TOPLEVELDIR, 'mastodon_images.json')
+            destiniobj = Destini.from_dict(images)
+        # output this once
+        tgen_clients.append(MASTGenClient(f'tgen-mas-{index}', client.client_markov_model_profile, client.start_time, False, client.client_username, client.client_hashtags, destiniobj, images_id, mastodon_server_address, True))
     C = IodineDNSConfig([router], monitor, [sndApp, rcvApp], [iodineCl, iodineSvr, masServer], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
-    C.set_params(hcsconf.nondeterministic_parameters.to_dict(), hcsconf.probabilistic_parameters.to_dict())
+    ndp = {}
+    pp = {}
+    for pname,protocol in hcsconf.protocols.items():
+        if protocol.nondeterministic_parameters:
+            ndp |= protocol.nondeterministic_parameters.to_dict()
+        if protocol.probabilistic_parameters:
+            pp |= protocol.probabilistic_parameters.to_dict()
+    C.set_params(ndp, pp)
     C.set_preamble(hcsconf.output.preamble)
     C.set_model_type(_args.model)
     return C

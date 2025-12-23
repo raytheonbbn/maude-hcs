@@ -30,7 +30,6 @@
 # MAUDE_HCS: end
 
 import json
-import os
 from pathlib import Path
 from typing import List
 from dataclasses import dataclass, field
@@ -39,11 +38,12 @@ from numpy.ma.core import floor
 from maude_hcs import  PROJECT_TOPLEVEL_DIR
 from maude_hcs.parsers.shadowconf import parse_shadow_config
 from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
-from .hcsconfig import Application, BackgroundTraffic, HCSConfig, NondeterministicParameters, Output, \
-    ProbabilisticParameters, UnderlyingNetwork, WeirdNetwork, BackgroundTrafficTgen, BackgroundTrafficTgenClient, \
+from .protocolconfig import Application, BackgroundTraffic, NondeterministicParameters, \
+    ProbabilisticParameters, UnderlyingNetwork, BackgroundTrafficTgen, BackgroundTrafficTgenClient, \
     Tunnel, DuplexApplication, HCSProtocolConfig
 from . import load_yaml_to_dict
 from .ymlconf import YmlConf
+from ..lib import Protocol
 
 QPS = {
     'low': 15,
@@ -243,23 +243,14 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
         pp.pacingTimeoutDelay = float(app_params['chunk_spacing_min'])
         pp.pacingTimeoutDelayMax = float(app_params['chunk_spacing_max'])
         pp.ackTimeoutDelay = 1.0
-        out = Output()
-        out.force_save = True
-        out.preamble = [
-            "set clear rules off .",
-            "set print attribute off .",
-            "set show advisories off ."
-        ]
-        return DNSHCSProtocolConfig(name='corporate_iodine',
-                            topology=shadowconf.network,
-                            output=out,
+
+        return DNSHCSProtocolConfig(name=Protocol.IODINE_DNS.value,
                             underlying_network=un,
                             weird_network=wn,
                             application=app,
                             background_traffic=bg,
                             nondeterministic_parameters=ndp,
-                            probabilistic_parameters=pp,
-                            monitor_address='monAddr')
+                            probabilistic_parameters=pp)
 
     @staticmethod
     def from_yml(file_path: Path) -> 'DNSHCSProtocolConfig':
@@ -377,20 +368,11 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
         pp.ackTimeoutDelay = 1.0
         pp.initialPingDelay = 1.0
         pp.limit = 300.0
-        out = Output()
-        out.force_save = True
-        out.preamble = [
-            "set clear rules off .",
-            "set print attribute off .",
-            "set show advisories off ."
-        ]
-        return DNSHCSConfig(name='corporate_iodine_mastodon',
-                               topology=ymlconf.network,
-                               output=out,
+
+        return DNSHCSProtocolConfig(name=Protocol.IODINE_DNS.value,
                                underlying_network=un,
                                weird_network=wn,
                                application=app,
                                background_traffic=bg,
                                nondeterministic_parameters=ndp,
-                               probabilistic_parameters=pp,
-                               monitor_address='monAddr')
+                               probabilistic_parameters=pp)

@@ -33,13 +33,12 @@ import json
 from pathlib import Path
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
-from numpy.ma.core import floor
+from ..lib import Protocol
 
 from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
-from .dnshcsconfig import DNSHCSConfig
-from .hcsconfig import Application, BackgroundTraffic, HCSConfig, NondeterministicParameters, Output, \
-    ProbabilisticParameters, UnderlyingNetwork, WeirdNetwork, BackgroundTrafficTgen, BackgroundTrafficTgenClient, \
-    Tunnel, DuplexApplication
+from .protocolconfig import NondeterministicParameters, \
+    ProbabilisticParameters, UnderlyingNetwork, BackgroundTrafficTgen, BackgroundTrafficTgenClient, \
+    Tunnel, DuplexApplication, HCSProtocolConfig
 from .ymlconf import YmlConf
 from maude_hcs import  PROJECT_TOPLEVEL_DIR
 
@@ -84,8 +83,8 @@ This is the configuration for CP2
 '''
 @dataclass_json
 @dataclass
-class MASHCSConfig(HCSConfig):
-    underlying_network: UnderlyingNetwork
+class MASHCSProtocolConfig(HCSProtocolConfig):
+    underlying_network: MASUnderlyingNetwork
     weird_network: MASWeirdNetwork
     application: DuplexApplication
     background_traffic: BackgroundTrafficTgen
@@ -93,13 +92,13 @@ class MASHCSConfig(HCSConfig):
     probabilistic_parameters: ProbabilisticParameters
 
     @staticmethod
-    def from_file(file_path: str) -> 'MASHCSConfig':
+    def from_file(file_path: str) -> 'MASHCSProtocolConfig':
         with open(file_path, 'r') as f:
             data = json.load(f)
-        return MASHCSConfig.from_dict(data)
+        return MASHCSProtocolConfig.from_dict(data)
 
     @staticmethod
-    def from_yml(file_path: Path) -> 'MASHCSConfig':
+    def from_yml(file_path: Path) -> 'MASHCSProtocolConfig':
         # First parse the yml config
         ymlconf = YmlConf(file_path)
         alice = ymlconf.network.getNodebyLabel('user_alice')
@@ -161,20 +160,10 @@ class MASHCSConfig(HCSConfig):
             i = i + j + 1
         bg.num_clients = len(bg.clients)
 
-        out = Output()
-        out.force_save = True
-        out.preamble = [
-            "set clear rules off .",
-            "set print attribute off .",
-            "set show advisories off ."
-        ]
-        return MASDNSHCSConfig(name='corporate_iodine_mastodon',
-                            topology=ymlconf.network,
-                            output=out,
+        return MASHCSProtocolConfig(name=Protocol.DESTINI_MASTODON.value,
                             underlying_network=m_un,
                             weird_network=mas_wn,
                             application=app,
                             background_traffic=bg,
-                            nondeterministic_parameters=ndp,
-                            probabilistic_parameters=pp,
-                            monitor_address = 'monAddr')
+                            nondeterministic_parameters=None,
+                            probabilistic_parameters=None)

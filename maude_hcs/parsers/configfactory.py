@@ -32,26 +32,16 @@
 from pathlib import Path
 from maude_hcs.lib import GLOBALS
 
-from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig
-from maude_hcs.parsers.masdnshcsconfig import MASDNSHCSConfig
+from maude_hcs.parsers.hcsconfig import HCSConfig
 
 def buildHCSConfig(args):
     protocol = args.protocol
-    if protocol.lower() == GLOBALS.MODULES[0]: # dns
-        # build from run args
-        if args.run_args:
-            return DNSHCSConfig.from_file(Path(args.run_args.name))
-        # build from shadow
-        elif args.shadow_filename:
-            return DNSHCSConfig.from_shadow(Path(args.shadow_filename.name))
-    elif protocol.lower() == GLOBALS.MODULES[1]: #dns+mastodon
-        # build from run args
-        if args.run_args:
-            return MASDNSHCSConfig.from_file(Path(args.run_args.name))
-        # build from yml
-        elif args.yml_filename:
-            return MASDNSHCSConfig.from_yml(Path(args.yml_filename))
+    if args.run_args:
+        return HCSConfig.from_file(Path(args.run_args.name))
+    elif args.shadow_filename:
+        return HCSConfig.from_shadow(Path(args.shadow_filename))
+    # build from yml
+    elif args.yml_filename:
+        return HCSConfig.from_yml(Path(args.yml_filename))
     else:
-        raise ValueError("Unsupported protocol")
-
-
+        raise ValueError("Unsupported input. Specify run_args or yml_filename or shadow_filename.")
