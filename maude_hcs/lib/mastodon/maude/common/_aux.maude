@@ -151,7 +151,7 @@ mod MASTODON_NODE is
   eq POST-STATUS-W-MEDIA-OP = "post_status_w_media" .
   
   --- Variables ---
-  vars fromAddr toAddr FROM-ADDR TO-ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
+  vars fromAddr toAddr FROM-ADDR TO-ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR DNS-ADDR : Address .
   vars masClAttrs masClAttrsNext masClAttrsTrans msgAttrs : AttributeSet .
   vars masClAttrsMsg : AttributeSetMsgs .
   vars postId POST_ID : MasId .
@@ -199,11 +199,24 @@ mod MASTODON_NODE is
   op gettingTag:_ : Tag -> Attribute [ctor] .
   --- The list of posts to get (usually from a hashtag search).
   op gettingPosts:_ : MasIdList -> Attribute [ctor] .
+  
+  op gotFirstDNSResp:_ : Bool -> Attribute [ctor] .
+
+  op timeOfLastDNSResp:_ : Float -> Attribute [ctor] .
+  
+  op DNSRespLifetime:_ : Float -> Attribute [ctor] .
+
+  op DNSReqIDToSend:_ : Nat -> Attribute [ctor] .
+  
+  op DNSReqIDRecvd:_ : Nat -> Attribute [ctor] .
+
+  op DNSAddr:_ : Address -> Attribute [ctor] .
+
 
   --- Make a MasClient:   its_addr srver_addr requester_addr
-  op makeMastodonClient : Address  Address    Address -> Actor .
+  op makeMastodonClient : Address  Address    Address  Address -> Actor .
   ---   requester addr is addr of Raceboat / TGEN.
-  eq makeMastodonClient(MAS_CLIENT_ADDR, MAS_SERVER_ADDR, FROM-ADDR) =
+  eq makeMastodonClient(MAS_CLIENT_ADDR, MAS_SERVER_ADDR, FROM-ADDR, DNS-ADDR) =
     < MAS_CLIENT_ADDR : MasClient |
         thisAddr: MAS_CLIENT_ADDR,
         masServerAddr: MAS_SERVER_ADDR,
@@ -215,7 +228,13 @@ mod MASTODON_NODE is
         gettingMediaUrls: emptyUrlList,
         gettingMedias: emptyMediaFileList,
         gettingTag: nilTag,
-        gettingPosts: emptyMasIdList
+        gettingPosts: emptyMasIdList,
+        gotFirstDNSResp: false,
+        timeOfLastDNSResp: 0.,
+        DNSRespLifetime: 0.,
+        DNSReqIDToSend: 0,
+        DNSReqIDRecvd: 0,
+        DNSAddr: DNS-ADDR
     >
     .
 
