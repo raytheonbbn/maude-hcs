@@ -32,10 +32,12 @@
 import json
 from dataclasses import dataclass, field
 from typing import List
-
+from pathlib import Path
 from dataclasses_json import dataclass_json
 
 from maude_hcs.parsers.graph import Topology
+from maude_hcs.parsers.shadowconf import parse_shadow_config
+
 
 # By using `default_factory=dict`, we ensure that a new dictionary is created
 # for each instance, preventing mutable default argument issues.
@@ -90,17 +92,75 @@ class Output:
 
 @dataclass_json
 @dataclass
+class BackgroundTrafficTgenClient():
+    """Dataclass for background traffic parameters."""
+    client_name: str = ''
+    client_markov_model_profile: str = ''
+    start_time: float = 0.0
+
+@dataclass_json
+@dataclass
+class BackgroundTrafficTgen(BackgroundTraffic):
+    """Dataclass for background traffic parameters."""
+    module: str = 'dns'
+    num_clients: int = 1
+    clients: list[BackgroundTrafficTgenClient] = field(default_factory=list)
+
+@dataclass_json
+@dataclass
+class Tunnel(WeirdNetwork):
+    module: str = 'NA'
+    send_app_address: str   = ''
+    rcv_app_address: str    = ''
+    tunnel_client_addr: str = ''
+    tunnel_server_addr: str = ''
+    sender_northbound_addr: str = '' # who does sndapp get info from
+    receiver_northbound_addr: str = '' # who does rcvApp send info to
+
+@dataclass_json
+@dataclass
+class DuplexApplication(Application):
+    module: str = 'NA'
+    alice_address: str = ''
+    bob_address: str = ''
+
+@dataclass_json
+@dataclass
+class HCSProtocolConfig:
+    """
+    Dataclass for HCS protocol configuration
+    """
+    name: str
+    underlying_network: UnderlyingNetwork
+    weird_network: WeirdNetwork
+    application: Application
+    background_traffic: BackgroundTraffic
+    nondeterministic_parameters: NondeterministicParameters
+    probabilistic_parameters: ProbabilisticParameters
+
+@dataclass_json
+@dataclass
 class HCSConfig:
-    """Main dataclass to represent the entire JSON configuration."""
+    """
+    An HCS config comprising a set of protocol configurations.
+    """
     name: str    
     topology: Topology
     output: Output
+    monitor_address: str
+    protocols: dict[str, HCSProtocolConfig] # each protocol is keyed by name
 
     @staticmethod
     def from_file(file_path: str) -> 'HCSConfig':
         with open(file_path, 'r') as f:
             data = json.load(f)
         return HCSConfig.from_dict(data)
+
+    @staticmethod
+    def from_shadow(file_path: Path) -> 'DNSHCSConfig':
+        # First parse the shadow config
+        shadowconf = parse_shadow_config(file_path)
+
 
     def save(self, file_path: str):
         """
