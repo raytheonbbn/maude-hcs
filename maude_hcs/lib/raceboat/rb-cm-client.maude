@@ -31,6 +31,7 @@
 sload ../common/maude/markov-action-model.maude
 sload ../common/maude/cp2-interfaces 
 sload cm-aux.maude
+sload ../common/maude/sampler-x
 
 ***(
 Alice - CM  
@@ -102,18 +103,19 @@ mod CONTENT-MANAGER-CLIENT is
   inc MC-INTERFACE  .
   inc ED-INTERFACE .
   inc TGEN-INTERFACE .
+  inc SAMPLER-X .
   
-vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+vars attrs attrs0 attrs1 attrs2 attrsTrans attrsNext : AttributeSet .
 vars cmcAtts cmcAtts1 cmcAtts2 : AttributeSet .
-vars msg msg0 : Msg .
+vars msg msg0 capacityMsg encodeMsg lastMsg : Msg .
 vars msgs msgs0 config config0 : Config .
-vars j j1 i k l n n0 n1 cap : Nat .
+vars j j1 i k l n n0 n1 cap randCtr randCtr' : Nat .
 vars tot remains remains0 ix  id : Nat .
-vars aAddr cmcAddr umAddr edAddr mcAddr : Address .
+vars aAddr cmcAddr umAddr edAddr mcAddr mastodonClientAddr : Address .
 vars T : Float .
 vars mcResponse : Content .
-vars efile efrag efrag0 efrag1 image ht hashtag bytes : ByteSeq .
-vars efilel efragl hashtagl : ByteSeqL .
+vars efile efrag efrag0 efrag1 image ht hashtag bytes EFRAG : ByteSeq .
+vars efilel efragl hashtagl images FILES IMAGES : ByteSeqL .
 vars str : String .
 vars ract : Map{String,JV} .
 vars benignModel : MAModel .
@@ -124,16 +126,24 @@ vars natstr : Map{Nat,String} .
 vars mamodel : MAModel .
 
 
+--- The maximum number of media attachments per toot.
+op MAXNUMMEDIAPERTOOT : -> Nat .
+eq MAXNUMMEDIAPERTOOT = 4 .
+
 ---             Destini ContentMgr NumHashtags  Model
 op mkCMCAttrs : Address Address    Nat          MAModel -> AttributeSet .
 eq mkCMCAttrs(edAddr, mcAddr, l, mamodel) =
      bHashTagCtr: 0,
-****     numBHashTags: l,
      numBHashTags: ma2HashstrLen(mamodel),
 ****     model: mamodel,
      hashtagMap: ma2HashstrMap(mamodel),
      pendingHashTags: nilBS,
      pendingFiles: nilBS,
+     --- The number of images to send via media post.
+     --- If 0: done.
+     numPendingImages: 0,
+     --- The accumulating encoded images to batch send to Mastodon.
+     encodedImages: nilBS,
      currentFrags: nilBS,
      edAddress: edAddr,
      mcAddress: mcAddr,
@@ -141,10 +151,142 @@ eq mkCMCAttrs(edAddr, mcAddr, l, mamodel) =
      replyTo: null
 .
 
+--- Get the capacity need the current fragment.
+op getEncodingSizeNeed : AttributeSet -> Nat .
+eq getEncodingSizeNeed(attrs, currentFrags: efrag(efile(id, n, j, k), tot, ix, n0)) = n0 .
+eq getEncodingSizeNeed(attrs) = 0 [owise] .
+
+--- Get the next encoded fragment to send.
+op getNextEncodedFrag : AttributeSet -> AttributeSet .
+eq getNextEncodedFrag(attrs,
+                      (pendingFiles: (efile(id, n, j, k) :: efilel)),
+                      (currentFrags: nilBS))
+  = attrs,
+    pendingFiles: (efile(id, n, j, k) :: efilel),
+    currentFrags: efrag(efile(id, n, j, k), 0, 0, n)
+  .
+eq getNextEncodedFrag(attrs) = attrs [owise] .
+
 ---             This   Destini MastodonC NumHashtags Model
 op mkCMClient : Address Address Address    Nat         MAModel -> Actor .
 eq mkCMClient(cmcAddr, edAddr, mcAddr, l, mamodel) =
 < cmcAddr : CMClient | mkCMCAttrs(edAddr, mcAddr, l, mamodel) > .
+
+--- Get ready for the next action, move hashtag.
+op moveToNextFrag : AttributeSet -> AttributeSet .
+
+--- Default, which also includes A WEIRD TRANSMISSION that is NOT FINISHED.
+eq moveToNextFrag(attrs) = attrs [owise] .
+
+--- Move hashtag for benign case (no pending weird transmission).
+ceq moveToNextFrag(attrs, (bHashTagCtr: j))
+  = attrs, bHashTagCtr: j1
+  if (attrsTrans,
+      numBHashTags: k,
+      pendingHashTags: nilBS,
+      currentFrags: nilBS,
+      pendingFiles: nilBS,
+      hashtagMap: natstr) := attrs
+    --- Then move the hashtag index (mod k).
+    /\ j1 := (if s j >= k then 0 else s j fi)     
+  .
+
+--- Move at end of current file for weird case.
+eq moveToNextFrag(attrs,
+                   pendingHashTags: (hashtag :: hashtagl),
+                   --- Only if frags are done (note: 0):
+                   currentFrags: efrag(efile, tot, ix, 0),
+                   pendingFiles: (efile :: efilel))
+  = attrs,
+    pendingHashTags: (hashtagl),
+    currentFrags: nilBS,
+    pendingFiles: (efilel)
+  . 
+
+--- Reset the transmit state of the client.
+op resetTxState : AttributeSet -> AttributeSet .
+eq resetTxState(attrs) = attrs [owise] .
+--- Clear fields related to sending one batch of images.
+eq resetTxState(attrs,
+                (numPendingImages: n),
+                (encodedImages: images),
+                (w4c: msg),
+                (replyTo: msg0))
+  = attrs,
+    (numPendingImages: 0),
+    (encodedImages: nilBS),
+    (w4c: null),
+    (replyTo: null)
+  .
+
+--- Send a request to encode media with bytes.
+op requestMediaEncode : AttributeSet Address -> AttributeSetMsgs .
+
+--- Benign case.
+ceq requestMediaEncode((attrs, w4c: null, pendingFiles: nilBS), cmcAddr)
+  = {attrsNext, msg}
+  if (attrsTrans, edAddress: edAddr) := attrs
+    /\ msg := (to edAddr from cmcAddr : encQ(noBytes))
+    /\ attrsNext := (attrs, w4c: msg, pendingFiles: nilBS)
+  [ print "Raceboat client has no weird bytes, encoding directly." ]
+  .
+--- Weird case.
+ceq requestMediaEncode((attrs, w4c: null, pendingFiles: (efile(id, n, j, k) :: efilel)), cmcAddr)
+  = {attrsNext, msg}
+  if (attrsTrans, edAddress: edAddr) := attrs
+    /\ msg := (to edAddr from cmcAddr : capQ(getEncodingSizeNeed(attrs)))
+    /\ attrsNext := (attrs, w4c: msg, pendingFiles: (efile(id, n, j, k) :: efilel))
+  [ print "Raceboat client has weird bytes ready to encode, requesting capacity." ]
+  .
+
+--- Get the next hashtag, whether a weird hashtag (from pending hashtags) or 
+--- from the map of benign hashtags.
+op getNextHashtag : AttributeSet -> ByteSeq .
+--- From the map of benign hashtags.
+eq getNextHashtag(attrs, (currentFrags: nilBS), (pendingFiles: nilBS), (bHashTagCtr: j), (hashtagMap: natstr))
+  = hashTag(natstr[j])
+  .
+--- From the one provided by Alice.
+eq getNextHashtag(attrs, pendingHashTags: (hashtag :: hashtagl)) = hashtag .
+eq getNextHashtag(attrs) = hashTag("tagError") [owise] .
+
+--- Send a batched post request to Mastodon Client.
+op sendPostRequest : AttributeSet Address -> AttributeSetMsgs .
+eq sendPostRequest(attrs, cmcAddr) = {attrs, null}
+  [owise print "Error: Raceboat client found no send match" attrs ]
+  .
+ceq sendPostRequest((attrs, (w4c: null)), cmcAddr)
+  = {attrs, (w4c: (to mastodonClientAddr from cmcAddr : tootQ(hashtag, IMAGES))),
+     (to mastodonClientAddr from cmcAddr : translateTootQ(tootQ(hashtag, IMAGES)))}
+  if hashtag := getNextHashtag(attrs, (w4c: null))
+    /\ attrsTrans, mcAddress: mastodonClientAddr, (encodedImages: IMAGES) := attrs
+  [ print "Raceboat client sending post request." ]
+  .
+
+--- Handle an encoding response.
+op handleFragEncoding : AttributeSet Msg -> AttributeSetMsgs .
+--- Handle an encoding response, no match.
+eq handleFragEncoding(attrs, (to cmcAddr from edAddr : encR(image)))
+  = {attrs, null}
+  [owise print "Error: Raceboat client did not expect message." ]
+  .
+ceq handleFragEncoding((attrs,
+                          numPendingImages: s n,
+                          encodedImages: IMAGES,
+                          w4c: (to edAddr from cmcAddr : encQ(efrag))),
+                        (to cmcAddr from edAddr : encR(image)))
+  = (if n == 0
+      then sendPostRequest(attrsTrans, cmcAddr)
+      else requestMediaEncode(attrsTrans, cmcAddr)
+    fi)
+  if n0 := n
+    /\ attrsTrans := (attrs,
+                    numPendingImages: n0,
+                    encodedImages: (IMAGES :: image),
+                    w4c: null)
+  [ print "Raceboat client handling fragment encoding, " n0 " left." ]
+  .
+
 
 ------------ Client rules --------------------------
 
@@ -171,15 +313,15 @@ op crcvMCResponse : AttributeSet  Msg ->
 eq crcvMCResponse(attrs, msg) = {attrs,null} [owise] .
 
 ---- waiting for tootQ/Post ack
-ceq crcvMCResponse(attrs,
-            (to cmcAddr from mcAddr : mkRequestResponse(str) ))
-  = {attrs1,msg}
-if attrs0, (w4c: (to mcAddr from cmcAddr : tootQ(ht,bytes))),
-          (replyTo: (to cmcAddr from umAddr : c1:Content))
-   := attrs
-/\ attrs1 := attrs0, (w4c: null), (replyTo: null)
-/\ msg := (to umAddr from cmcAddr : actionR("ok"))
-.
+--- Clear context.
+eq crcvMCResponse((attrs,
+                    (w4c: (to mcAddr from cmcAddr : tootQ(ht, IMAGES))),
+                    (replyTo: (to cmcAddr from umAddr : c1:Content))),
+                   (to cmcAddr from mastodonClientAddr : mkRequestResponse(str)))
+  = { moveToNextFrag(resetTxState(attrs, (w4c: null), (replyTo: null))),
+      (to umAddr from cmcAddr : actionR("ok")) }
+  [ print "Raceboat client handling response, ready for next action." ]
+  .
 
 ---- waiting for fetch/get results
 ceq crcvMCResponse(attrs,
@@ -210,14 +352,17 @@ rl [rbc-rcv-file] :
 --- action requests  Action < Content
 
 crl [rbc-rcv-action] :
+rCtr(randCtr)
 {T,(to cmcAddr from umAddr :  actionQ(ract) )}
 < cmcAddr : CMClient | cmcAtts >
 =>
+rCtr(randCtr')
 < cmcAddr : CMClient | cmcAtts1 >
 delayMsgs(msgs,null)
-if {cmcAtts1,msgs} :=
+if {cmcAtts1,msgs, randCtr'} :=
   crcvActionQ(cmcAtts,getType(ract),
-             (to cmcAddr from umAddr : actionQ(ract) ))   
+              (to cmcAddr from umAddr : actionQ(ract) ),
+              randCtr)
  [print "(" T ") Raceboat client got action request " ract ", sending " msgs]
    .
 
@@ -225,25 +370,24 @@ if {cmcAtts1,msgs} :=
 --- msg = (to mcAddr from cmcAddr : fetchQ(ht))
 --- w4c: null >> w4c(msg)
 ---- drop msg if w4c, replyTo not null
-op crcvActionQ : AttributeSet String Msg -> AttributeSetMsgs . 
+op crcvActionQ : AttributeSet String Msg Nat -> AttributeSetMsgsNat . 
 **** eq crcvActionQ(attrs,str,msg) = {attrs,null} [owise] .
 
-ceq crcvActionQ(attrs,str,msg) = {attrs,msgs}
+ceq crcvActionQ(attrs, str, msg, randCtr) = {attrs,msgs, randCtr}
 if (to cmcAddr from umAddr : actionQ(ract)) := msg
 /\ msgs := (to umAddr from cmcAddr : actionR("notRecognized"))
- [owise] .
+ [owise print "Raceboat client failing to match action " attrs ] .
 **** Do we need to check replyTo null to reply failure?
 
 ceq crcvActionQ(attrs,"download",
-              (to cmcAddr from umAddr : actionQ(ract)))
-     = {attrs2,msg}
+                (to cmcAddr from umAddr : actionQ(ract)),
+                randCtr)
+     = {attrs2, msg, randCtr}
 if attrs0, (w4c: null), (replyTo: null), (bHashTagCtr: j)
             := attrs
 ---- /\ attrs1, mcAddress: mcAddr, (numBHashTags: k), model: benignModel := attrs
 /\ attrs1, mcAddress: mcAddr, (numBHashTags: k), hashtagMap: natstr := attrs
----/\ ht := bHashTag(j)
 /\ ht := hashTag(natstr[j])
-***** /\ j1 := (if  j >= k then 0 else s j fi)
 /\ j1 := (if s j >= k then 0 else s j fi)
 /\ msg0 := (to mcAddr from cmcAddr : fetchQ(ht) )
 /\ msg := (to mcAddr from cmcAddr : 
@@ -252,42 +396,21 @@ if attrs0, (w4c: null), (replyTo: null), (bHashTagCtr: j)
          replyTo: (to cmcAddr from umAddr : actionQ(ract))
 .
 
----- no weird input
-ceq crcvActionQ(attrs,"media",
-             (to cmcAddr from umAddr : actionQ(ract)) )
-     = {attrs2,msg}
-if attrs0, (w4c: null), (replyTo: null) := attrs
-/\ attrs1, edAddress: edAddr, (pendingFiles: nilBS) := attrs
-/\ msg := (to edAddr from cmcAddr : encQ(noBytes))
-/\ attrs2 := attrs0, w4c: msg, 
-           replyTo: (to cmcAddr from umAddr : actionQ(ract))
-.
-
----- no file in progress
-ceq crcvActionQ(attrs,"media", msg)
-**** (to cmcAddr from umAddr : actionQ(ract)) := msg
-     = crcvActionQ(attrs2,"media",msg)
-if attrs0, (w4c: null), (replyTo: null),
-           (pendingFiles: (efile(id,n,j,k) :: efilel)),
-           (pendingHashTags: (hashtag :: hashtagl)) := attrs
-/\ attrs1, (currentFrags: nilBS) := attrs
-/\  attrs2 := attrs1 ,
-            (currentFrags: efrag(efile(id,n,j,k),0,0,n))     .    
-
----- file in progress
-ceq crcvActionQ(attrs,"media", msg0)
-     = {attrs2,msg}
-if attrs0, (w4c: null), (replyTo: null) := attrs
-/\ attrs1, (pendingFiles: (efile(id,n,j,k) :: efilel)),
-           (pendingHashTags: (hashtag :: hashtagl)),
-           (currentFrags: efrag) ,
-           (edAddress: edAddr) 
-           := attrs
-/\ efrag(efile(id,n,j,k),tot,ix,n0) := efrag
-/\ (to cmcAddr from umAddr : actionQ(ract)) := msg0
-/\ msg := (to edAddr from cmcAddr : capQ(n0))
-/\ attrs2 := attrs0, (w4c: msg), (replyTo: msg0) 
-.         
+ceq crcvActionQ((attrs,
+                  (numPendingImages: n),
+                  (encodedImages: IMAGES),
+                  (replyTo: null)),
+                "media",
+                (to cmcAddr from umAddr : actionQ(ract)),
+                randCtr)
+  = concatenate(requestMediaEncode(attrsTrans, cmcAddr), s randCtr)
+    if n0 := 1 + sampleUniWithIntX(randCtr, MAXNUMMEDIAPERTOOT)
+      /\ attrsTrans := getNextEncodedFrag(attrs),
+                        (numPendingImages: n0),
+                        (encodedImages: nilBS),
+                        (replyTo: (to cmcAddr from umAddr : actionQ(ract)))
+    [ print "Raceboat client getting media action for " n0 " pending images." ]
+  .
 
 
 crl [rbc-rcv-capR] :
@@ -325,8 +448,8 @@ if w4c: (to edAddr from cmcAddr : capQ(n0)),
         pendingFiles: (efile :: efilel) ,
         currentFrags: efrag1
 .        
-  
-       
+
+
 crl [rbc-rcv-encR] :
 {T,(to cmcAddr from edAddr :  encR(image) )}
 < cmcAddr : CMClient | cmcAtts >
@@ -335,60 +458,15 @@ crl [rbc-rcv-encR] :
 delayMsgs(msgs,null)
 if {cmcAtts1,msgs} := 
   crcvEncR(cmcAtts,(to cmcAddr from edAddr : encR(image)))
-[print "(" T ") Raceboat client got encoded " image " from Destini, sending POST." ].
+[print "(" T ") Raceboat client got encoded " image " from Destini, POST operation." ].
 
 op crcvEncR : AttributeSet Msg -> AttributeSetMsgs .
 
-eq crcvEncR(attrs,msg) = {attrs,null} [owise] .
+eq crcvEncR(attrs,msg) = {attrs,null}
+  [owise print "Error: Raceboat client did not expect msg " msg ]
+  .
 
------ weird image
-ceq crcvEncR(attrs,
-             (to cmcAddr from edAddr : encR(image))) 
-       = {attrs2,msg}
-if w4c: (to edAddr from cmcAddr : encQ(efrag)),
-         pendingHashTags: (hashtag :: hashtagl),
-         currentFrags: efrag(efile,tot,ix,n0),  
-         pendingFiles: (efile :: efilel), 
-         attrs0 := attrs
-/\ mcAddress: mcAddr, attrs1 := attrs 
-/\ msg0  := (to mcAddr from cmcAddr : tootQ(hashtag,image)) 
-/\ msg := (to mcAddr from cmcAddr : 
-             translateTootQ(tootQ(hashtag,image)) )
-/\ attrs2 := w4c: msg0, 
-    (if n0 == 0
-     then pendingHashTags: hashtagl, currentFrags: nilBS,
-          pendingFiles: efilel, attrs0
-     else pendingHashTags: (hashtag :: hashtagl),  
-          currentFrags: efrag(efile,tot,ix,n0),
-          pendingFiles: (efile :: efilel), 
-          attrs0
-     fi )
-.
-
----- benign image
-ceq crcvEncR(attrs,
-             (to cmcAddr from edAddr : encR(image))) 
-       = {attrs2,msg}
-if  attrs0, w4c: (to edAddr from cmcAddr : encQ(efrag)),
-         bHashTagCtr: j  := attrs
-/\ attrs1, numBHashTags: l,
-         mcAddress: mcAddr,
-         pendingHashTags: nilBS,
-         currentFrags: nilBS,
-         pendingFiles: nilBS,
-****         model: maModel:MAModel 
-         hashtagMap: natstr
-         := attrs
----/\ ht := bHashTag(j)    
-**** /\ ht := hashTag(realizeHashTag(maModel:MAModel, j))
-/\ ht := hashTag(natstr[j])
-/\ j1 := (if s j >= l then 0 else s j fi)     
-/\ msg0  := (to mcAddr from cmcAddr : tootQ(ht,image)) 
-/\ msg  := (to mcAddr from cmcAddr : 
-            translateTootQ(tootQ(ht,image)) )
-/\ attrs2 := attrs0, w4c: msg0, bHashTagCtr: j1
-.
-
+eq crcvEncR(attrs, msg) = handleFragEncoding(attrs, msg) .
 
 endm  
 
@@ -465,7 +543,19 @@ eq Mfile = {0.1, (to cmcA from aA :  pkg(EF0,wHT0) )} .
 
 ---- rew CMC Mfile .
 eq CMCf =
-< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: nilBS, pendingHashTags: hashTag("man"), numBHashTags: 5, edAddress: edA, mcAddress: mcA, w4c: null, replyTo: null, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") >
+< cmcA : CMClient |
+    bHashTagCtr: 0,
+    pendingFiles: efile(0, 20, 0, 20),
+    currentFrags: nilBS,
+    numPendingImages: 0,
+    encodedImages: nilBS,
+    pendingHashTags: hashTag("man"),
+    numBHashTags: 5,
+    edAddress: edA,
+    mcAddress: mcA,
+    w4c: null,
+    replyTo: null,
+    hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") >
 .
 
 
@@ -478,7 +568,19 @@ eq Mmedia =
  
 ---- rew CMC Mmedia .
 eq CMCm =
-< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 5, edAddress: edA, mcAddress: mcA, w4c: (to edA from cmcA : encQ(noBytes)), replyTo: (to cmcA from umA : actionQ("type" |-> js( "media"))), hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
+< cmcA : CMClient |
+    bHashTagCtr: 0,
+    pendingFiles: nilBS,
+    currentFrags: nilBS,
+    pendingHashTags: nilBS,
+    numPendingImages: 1,
+    encodedImages: nilBS,
+    numBHashTags: 5,
+    edAddress: edA,
+    mcAddress: mcA,
+    w4c: (to edA from cmcA : encQ(noBytes)),
+    replyTo: (to cmcA from umA : actionQ("type" |-> js( "media"))),
+    hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
 .
 **** [0.0, to edA from cmcA : encQ(noBytes), 0]
  
@@ -489,13 +591,37 @@ eq Mdown =
 
 ---- rew CMC Mdown . #
 eq CMCd =
-< cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 5, edAddress: edA, mcAddress: mcA, w4c: (to mcA from cmcA : fetchQ(hashTag("meow"))), replyTo: (to cmcA from umA : actionQ("type" |-> js("download"))), hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
+< cmcA : CMClient |
+  bHashTagCtr: 1,
+  pendingFiles: nilBS,
+  currentFrags: nilBS,
+  pendingHashTags: nilBS,
+  numPendingImages: 0,
+  encodedImages: nilBS,
+  numBHashTags: 5,
+  edAddress: edA,
+  mcAddress: mcA,
+  w4c: (to mcA from cmcA : fetchQ(hashTag("meow"))),
+  replyTo: (to cmcA from umA : actionQ("type" |-> js("download"))),
+  hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
 .
 **** [0.0, to mcA from cmcA : GetMediaHashtag(makeTag( "meow")), 0]
 
 
 ---- rew CMCf Mmedia .
-eq CMCfm = < cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: efrag(efile(0, 20, 0, 20), 0, 0, 20), pendingHashTags: hashTag("man"), numBHashTags: 5, edAddress: edA, mcAddress: mcA, w4c: (to edA from cmcA : capQ(20)), replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))), hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
+eq CMCfm = < cmcA : CMClient |
+  bHashTagCtr: 0,
+  pendingFiles: efile(0, 20, 0, 20),
+  currentFrags: efrag(efile(0, 20, 0, 20), 0, 0, 20),
+  pendingHashTags: hashTag("man"),
+  numPendingImages: 1,
+  encodedImages: nilBS,
+  numBHashTags: 5,
+  edAddress: edA,
+  mcAddress: mcA,
+  w4c: (to edA from cmcA : capQ(20)),
+  replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))),
+  hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
 .
 
 **** [0.0, to edA from cmcA : capQ( 20), 0]
@@ -533,14 +659,38 @@ eq MencR0 = {3.0,(to cmcA from edA :  encR(IM00) )} .
 
 ---- rew CMCfm McapR .   #
 eq CMCfmc = 
-< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: efile(0, 20, 0, 20), currentFrags: efrag(efile(0, 20, 0, 20), 20, 1, 0), pendingHashTags: hashTag("man"), numBHashTags: 5, edAddress: edA, mcAddress: mcA, w4c: (to edA from cmcA : encQ(efrag(efile(0, 20, 0, 20), 20, 0, 20))), replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))), hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
+< cmcA : CMClient |
+    bHashTagCtr: 0,
+    pendingFiles: efile(0, 20, 0, 20),
+    currentFrags: efrag(efile(0, 20, 0, 20), 20, 1, 0),
+    pendingHashTags: hashTag("man"),
+    numPendingImages: 1,
+    encodedImages: nilBS,
+    numBHashTags: 5,
+    edAddress: edA,
+    mcAddress: mcA,
+    w4c: (to edA from cmcA : encQ(efrag(efile(0, 20, 0, 20), 20, 0, 20))),
+    replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))),
+    hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
 .
 **** [0.0, to edA from cmcA : encQ(efrag(efile(0, 20, 0, 20), 20, 0, 20)), 0]
 
 
 ---- rew CMCfmc MencR0 .   #   --- old parameters
 eq CMCfmce =
-< cmcA : CMClient | bHashTagCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 5, edAddress: edA, mcAddress: mcA, w4c: (to mcA from cmcA : tootQ(hashTag("man"), encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))), replyTo: (to cmcA from umA : actionQ("type" |-> js( "media"))), hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
+< cmcA : CMClient |
+  bHashTagCtr: 0,
+  pendingFiles: nilBS,
+  currentFrags: nilBS,
+  pendingHashTags: nilBS,
+    numPendingImages: 1,
+    encodedImages: nilBS,
+  numBHashTags: 5,
+  edAddress: edA,
+  mcAddress: mcA,
+  w4c: (to mcA from cmcA : tootQ(hashTag("man"), encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))),
+  replyTo: (to cmcA from umA : actionQ("type" |-> js( "media"))),
+  hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
 .
 
 **** [0.0, to mcA from cmcA : PostStatus("hashtag is #man", makeMediaFile( makeMediaFilename(encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10)), 500, encode(image(0, 500, 50), efrag(efile(0, 20, 0, 20), 20, 0, 20), 1, 4, 1/10))), 0]
@@ -557,7 +707,19 @@ eq MencR = {3.0,(to cmcA from edA :  encR(IM0) )} .
 
 ---- rew CMCm  MencR .  --> CMCme   #
 eq CMCme =
-< cmcA : CMClient | bHashTagCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, pendingHashTags: nilBS, numBHashTags: 5, edAddress: edA, mcAddress: mcA, w4c: (to mcA from cmcA : tootQ(hashTag("meow"), image(0, 500, 50))), replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))), hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
+< cmcA : CMClient |
+  bHashTagCtr: 1,
+  pendingFiles: nilBS,
+  currentFrags: nilBS,
+  pendingHashTags: nilBS,
+  numPendingImages: 1,
+  encodedImages: image(0, 500, 50),
+  numBHashTags: 5,
+  edAddress: edA,
+  mcAddress: mcA,
+  w4c: (to mcA from cmcA : tootQ(hashTag("meow"), image(0, 500, 50))),
+  replyTo: (to cmcA from umA : actionQ("type" |-> js("media"))),
+  hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") > 
 .
 
 **** [0.0, to mcA from cmcA : PostStatus( "hashtag is #meow", makeMediaFile(makeMediaFilename(image(0, 500, 50)), 500, image(0, 500, 50))), 0]
