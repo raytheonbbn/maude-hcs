@@ -33,7 +33,7 @@ import json
 import os
 
 # Assume the code from the Canvas is saved in a file named 'config_loader.py'
-from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig
+from maude_hcs.parsers.hcsconfig import HCSConfig
 
 # --- Pytest Test Case Definition ---
 FILENAME = '../use-cases/corporate-iodine-conf.json'

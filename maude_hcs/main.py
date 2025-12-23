@@ -39,7 +39,7 @@ from pathlib import Path
 import argcomplete
 import argparse
 from maude_hcs.cli import handle_command
-from maude_hcs.lib import GLOBALS
+from maude_hcs.lib import GLOBALS, Protocol
 
 from Maude.attack_exploration.src.zone import Record
 
@@ -103,10 +103,10 @@ def add_initial_data_args(parser):
 def build_cli_parser():
     parser = argparse.ArgumentParser("maude-hcs")
     parser.add_argument('--verbose', action='store_true', help='turn on logging')
-    parser.add_argument('--protocol', dest='protocol', required=True,
-                 choices=GLOBALS.MODULES,
-                 default=GLOBALS.MODULES[0],
-                 help=f'Choose one of the following options: {", ".join(GLOBALS.MODULES)}. Default is {GLOBALS.MODULES[0]}.'
+    parser.add_argument('--protocol', dest='protocol', required=False,
+                 choices=[p.value for p in Protocol],
+                 default=Protocol.DNS.value,
+                 help=f'Choose one of the following options: {", ".join([p.value for p in Protocol])}. Default is {Protocol.DNS.value}.'
                  )
 
     cmd_parser = parser.add_subparsers(title='command', dest='command')

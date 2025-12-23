@@ -35,108 +35,13 @@ from typing import List
 from pathlib import Path
 from dataclasses_json import dataclass_json
 
+from maude_hcs.lib import GLOBALS
+from maude_hcs.parsers.dnshcsconfig import DNSHCSProtocolConfig
 from maude_hcs.parsers.graph import Topology
+from maude_hcs.parsers.masdnshcsconfig import MASHCSProtocolConfig
 from maude_hcs.parsers.shadowconf import parse_shadow_config
-
-
-# By using `default_factory=dict`, we ensure that a new dictionary is created
-# for each instance, preventing mutable default argument issues.
-
-@dataclass_json
-@dataclass
-class NondeterministicParameters:
-    """Dataclass for nondeterministic simulation parameters."""
-    pass
-
-@dataclass_json
-@dataclass
-class ProbabilisticParameters:
-    """Dataclass for probabilistic simulation parameters."""
-    pass
-
-@dataclass_json
-@dataclass
-class UnderlyingNetwork:
-    """Dataclass for the underlying network configuration."""
-    module: str
-
-
-@dataclass_json
-@dataclass
-class WeirdNetwork:
-    """Dataclass for the 'weird' (covert) network configuration."""
-    module: str
-
-@dataclass_json
-@dataclass
-class BackgroundTraffic:
-    """Dataclass for background traffic parameters."""
-    module: str
-
-@dataclass_json
-@dataclass
-class Application:
-    """Dataclass for the application layer configuration."""
-    module: str
-
-@dataclass_json
-@dataclass
-class Output:
-    """Dataclass for output and reporting settings."""
-    directory: str = "./results"
-    result_format: str = "maude"
-    save_output: bool = True
-    force_save: bool = False
-    visualize: bool = False
-    preamble: List[str]     = field(default_factory=list)
-
-@dataclass_json
-@dataclass
-class BackgroundTrafficTgenClient():
-    """Dataclass for background traffic parameters."""
-    client_name: str = ''
-    client_markov_model_profile: str = ''
-    start_time: float = 0.0
-
-@dataclass_json
-@dataclass
-class BackgroundTrafficTgen(BackgroundTraffic):
-    """Dataclass for background traffic parameters."""
-    module: str = 'dns'
-    num_clients: int = 1
-    clients: list[BackgroundTrafficTgenClient] = field(default_factory=list)
-
-@dataclass_json
-@dataclass
-class Tunnel(WeirdNetwork):
-    module: str = 'NA'
-    send_app_address: str   = ''
-    rcv_app_address: str    = ''
-    tunnel_client_addr: str = ''
-    tunnel_server_addr: str = ''
-    sender_northbound_addr: str = '' # who does sndapp get info from
-    receiver_northbound_addr: str = '' # who does rcvApp send info to
-
-@dataclass_json
-@dataclass
-class DuplexApplication(Application):
-    module: str = 'NA'
-    alice_address: str = ''
-    bob_address: str = ''
-
-@dataclass_json
-@dataclass
-class HCSProtocolConfig:
-    """
-    Dataclass for HCS protocol configuration
-    """
-    name: str
-    underlying_network: UnderlyingNetwork
-    weird_network: WeirdNetwork
-    application: Application
-    background_traffic: BackgroundTraffic
-    nondeterministic_parameters: NondeterministicParameters
-    probabilistic_parameters: ProbabilisticParameters
+from maude_hcs.parsers.ymlconf import YmlConf
+from .protocolconfig import HCSProtocolConfig, Output
 
 @dataclass_json
 @dataclass
@@ -151,16 +56,46 @@ class HCSConfig:
     protocols: dict[str, HCSProtocolConfig] # each protocol is keyed by name
 
     @staticmethod
+    def from_shadow(file_path: Path) -> 'DNSHCSConfig':
+        """
+            TODO: FIXME! (test)
+        """
+        # First parse the shadow config
+        shadowconf = parse_shadow_config(file_path)
+        protocols = {}
+        dnsconf = DNSHCSProtocolConfig.from_shadow(file_path)
+        protocols[dnsconf.name] = dnsconf
+        return HCSConfig(name='_'.join(sorted(protocols.keys())),
+                        topology=shadowconf.network,
+                        output=Output.generic(),
+                        monitor_address=GLOBALS.MONITOR_ADDRESS,
+                       protocols=protocols)
+
+    @staticmethod
+    def from_yml(file_path: Path) -> 'HCSConfig':
+        # First parse the yml config
+        ymlconf = YmlConf(file_path)
+        protocols = {}
+        if ymlconf.application.iodine:
+            # parse the iodine protocol config
+            dnsconf = DNSHCSProtocolConfig.from_yml(file_path)
+            protocols[dnsconf.name] = dnsconf
+        if ymlconf.application.destini:
+            masconf = MASHCSProtocolConfig.from_yml(file_path)
+            protocols[masconf.name] = masconf
+
+        return HCSConfig(name='_'.join(sorted(protocols.keys())),
+                         topology=ymlconf.network,
+                         output=Output.generic(),
+                         monitor_address=GLOBALS.MONITOR_ADDRESS,
+                         protocols=protocols)
+
+
+    @staticmethod
     def from_file(file_path: str) -> 'HCSConfig':
         with open(file_path, 'r') as f:
             data = json.load(f)
         return HCSConfig.from_dict(data)
-
-    @staticmethod
-    def from_shadow(file_path: Path) -> 'DNSHCSConfig':
-        # First parse the shadow config
-        shadowconf = parse_shadow_config(file_path)
-
 
     def save(self, file_path: str):
         """

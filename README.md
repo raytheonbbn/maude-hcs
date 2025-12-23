@@ -136,6 +136,15 @@ See example [corporate-iodine-conf.json](./use-cases/corporate-iodine-conf.json)
 Note that probabilistic model will combine the nondeterministic params as well as the 
 probabilistic params (whic override the nondeterministic ones).
 
+## Using a YML configuraiton
+
+A YML configuration contains the full config of the tunnels and undelying networks.
+We can generate an HCS config directly from it.
+```shell
+ maude-hcs --verbose  generate --yml-filename=../pwnd-cp2/src/landing/testing_configs/cp2_setup_example.yml \
+    --model=prob --filename=generated_test_yml
+```
+
 ## Using Shadow yaml configuration
 The network configuration can be specified using a shadow file instead of our HCS config json
 (See [Shadow](https://github.com/shadow/shadow) simulator for more info on shadow specifications).
@@ -148,9 +157,8 @@ The shadow yaml file specifies the network, host, and process configurations.
 
 Assuming the shadow network config is located in directory `../pwnd-cp1`, run
 ```shell
-maude-hcs --verbose --shadow-filename=../pwnd-cp1/shadow_files/examples/cp1_sim_config.yaml --model=prob --protocol=dns --filename=generated_test_shadow generate
+maude-hcs --verbose --protocol=dns generate --shadow-filename=../pwnd-cp1/shadow_files/examples/cp1_sim_config.yaml --model=prob --filename=generated_test_shadow
 ```
-
 # Run configurations
 
 ## Standalone run with Maude
