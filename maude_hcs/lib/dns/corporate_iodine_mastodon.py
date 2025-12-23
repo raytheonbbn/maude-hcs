@@ -34,10 +34,9 @@ from Maude.attack_exploration.src.actors import Nameserver, Client
 from Maude.attack_exploration.src.query import Query
 from Maude.attack_exploration.src.network import *
 from maude_hcs.lib.dns.iodineActors import TGenClient, Router, IodineClient, IodineServer, SendApp, ReceiveApp, \
-    WMonitor, PacedClient, IResolver, DNSTGenClient, MASTGenClient
-from maude_hcs.lib.dns.utils import makePackets
+    WMonitor, PacedClient, IResolver, DNSTGenClient
 from maude_hcs.parsers.masdnshcsconfig import MASDNSHCSConfig, DNSBackgroundTrafficTgenClient, \
-    MASBackgroundTrafficTgenClient
+    MASBackgroundTrafficTgenClient, DNSUnderlyingNetwork, MASUnderlyingNetwork, DNSWeirdNetwork, MASWeirdNetwork
 from .cache import CacheEntry, ResolverCache
 from .corporate import createAuthZone, createRootZone, createTLDZone
 from maude_hcs.parsers.graph import *
@@ -45,6 +44,7 @@ from maude_hcs.parsers.shadowconf import *
 import logging
 
 from .. import GLOBALS
+from ..mastodon.mastodonActors import MastodonServer, MastodonClient, MASTGenClient
 from ...parsers.markovJsonToMaudeParser import find_and_load_json
 from ...parsers.ymlconf import Destini
 
@@ -63,36 +63,49 @@ def corporate_iodine_mastodon(_args, hcsconf :  MASDNSHCSConfig) -> IodineDNSCon
         hcsconf.topology.nodes.append(node)
         return node
 
-    addr_prefix   = hcsconf.underlying_network.addr_prefix    
-    root_node = getOrAddTopologyNode(hcsconf.underlying_network.root_name)
-    assert root_node, "Root node undefined"
-    tld_node = getOrAddTopologyNode(hcsconf.underlying_network.tld_name)
-    assert tld_node, "TLD node undefined"
-    ee_node = getOrAddTopologyNode(hcsconf.underlying_network.everythingelse_name)
-    assert ee_node, "Everythingelse node undefined"
-    # In this configuration, user alice contains the iodine client
-    #   and user bob contains the iodine server
-    # If these nodes dont exists, create them in the topology since
-    # we assume that nodes correspond to actors (roughly)
-    pwnd2_node = getOrAddTopologyNode(hcsconf.underlying_network.pwnd2_name)
-    assert pwnd2_node, "PWND2 node undefined"
-    corp_node = getOrAddTopologyNode(hcsconf.underlying_network.corporate_name)
-    assert corp_node, "Corp node undefined"
-    resolver_node = getOrAddTopologyNode(hcsconf.underlying_network.resolver_name)
-    assert resolver_node, "Resolver node undefined"
-    iodineCl_node = getOrAddTopologyNode(hcsconf.weird_network.client_name)
-    assert iodineCl_node, "Iodine client node undefined"
-    tld_domain = hcsconf.underlying_network.tld_domain
-    corp_domain = hcsconf.underlying_network.corporate_domain
-    ee_domain = hcsconf.underlying_network.everythingelse_domain
-    pwnd_domain = hcsconf.underlying_network.pwnd2_domain
-    num_records   = hcsconf.underlying_network.everythingelse_num_records
-    populateCache = hcsconf.underlying_network.populate_resolver_cache
-    record_ttl    = hcsconf.underlying_network.record_ttl
-    record_ttl_a    = hcsconf.underlying_network.record_ttl_a    
-    
+    monitorAddr = hcsconf.monitor_address
+
     # These links contain link characteristics and have now the proper names.
     parameterized_network = ParameterizedTopo(hcsconf.topology)
+
+    # find the DNS underlying network conf
+    underlying_network = None
+    mas_underlying_network = None
+    for un in hcsconf.underlying_network:
+        if isinstance(un, DNSUnderlyingNetwork):
+            underlying_network = un
+        elif isinstance(un, MASUnderlyingNetwork):
+            mas_underlying_network = un
+    assert underlying_network, "Underlying network undefined"
+    assert mas_underlying_network, "Mastodon underlying network undefined"
+    addr_prefix   = underlying_network.addr_prefix
+    root_node = getOrAddTopologyNode(underlying_network.root_name)
+    assert root_node, "Root node undefined"
+    tld_node = getOrAddTopologyNode(underlying_network.tld_name)
+    assert tld_node, "TLD node undefined"
+    ee_node = getOrAddTopologyNode(underlying_network.everythingelse_name)
+    assert ee_node, "Everythingelse node undefined"
+    pwnd2_node = getOrAddTopologyNode(underlying_network.pwnd2_name)
+    assert pwnd2_node, "PWND2 node undefined"
+    corp_node = getOrAddTopologyNode(underlying_network.corporate_name)
+    assert corp_node, "Corp node undefined"
+    resolver_node = getOrAddTopologyNode(underlying_network.resolver_name)
+    assert resolver_node, "Resolver node undefined"
+    tld_domain = underlying_network.tld_domain
+    corp_domain = underlying_network.corporate_domain
+    ee_domain = underlying_network.everythingelse_domain
+    pwnd_domain = underlying_network.pwnd2_domain
+    num_records   = underlying_network.everythingelse_num_records
+    populateCache = underlying_network.populate_resolver_cache
+    record_ttl    = underlying_network.record_ttl
+    record_ttl_a    = underlying_network.record_ttl_a
+    # router
+    router = Router(underlying_network.router)
+
+    # locate the mastodon underlying network
+    # mastodon server
+    mastodon_server_address = mas_underlying_network.mastodon_address
+    masServer = MastodonServer(mastodon_server_address)
     
     cacheRecords = []
     # root zone
@@ -109,7 +122,6 @@ def corporate_iodine_mastodon(_args, hcsconf :  MASDNSHCSConfig) -> IodineDNSCon
     zonecorp, ns_records = createAuthZone(hcsconf, corp_domain, corp_node.address, zoneCom, num_records, record_ttl, record_ttl_a)
     cacheRecords.extend(ns_records)
 
-    
     resolver = IResolver(resolver_node.address)
     cacheEntries = []
     for rec in cacheRecords:
@@ -118,32 +130,47 @@ def corporate_iodine_mastodon(_args, hcsconf :  MASDNSHCSConfig) -> IodineDNSCon
     if populateCache:
         resolver.cache = ResolverCache('resolverCache', cacheEntries)
 
-
     nameserverRoot = Nameserver(root_node.address, [zoneRoot])
     nameserverCom = Nameserver(tld_node.address, [zoneCom])
     nameserverEE = Nameserver(ee_node.address, [zoneEverythingelse])
     nameserverCORP = Nameserver(corp_node.address, [zonecorp], forwardonly=resolver.address)
     #nameserverPWND2 = Nameserver(pwnd2_node.address, [zonepwnd2])
-
-    
     root_nameservers = {'a.root-servers.net.': root_node.address}
 
-    # router
-    router = Router(hcsconf.underlying_network.router)
+    # tunnels (weird networks)
+    weird_network = None
+    mas_weird_network = None
+    for wn in hcsconf.weird_network:
+        if isinstance(wn, DNSWeirdNetwork):
+            weird_network = wn
+        elif isinstance(un, MASWeirdNetwork):
+            mas_weird_network = wn
+    assert weird_network, "Weird network undefined"
+    assert mas_weird_network, "Mas weird network undefined"
+    # In this configuration, user alice contains the iodine client
+    #   and user bob contains the iodine server
+    # If these nodes dont exists, create them in the topology since we assume that nodes correspond to actors (roughly)
+    # iodine tunnel
+    iodineCl_node = getOrAddTopologyNode(weird_network.tunnel_client_addr)
+    assert iodineCl_node, "Iodine client node undefined"
+    iodineCl = IodineClient(iodineCl_node.address, pwnd_domain, weird_network.client_weird_qtype, nameserverCORP.address)
+    iodineSvr = IodineServer(weird_network.tunnel_server_addr, [zonepwnd2], weird_network.severWResponseTTL)
+    sndApp = SendApp(weird_network.send_app_address,
+                     weird_network.rcv_app_address,
+                     weird_network.sender_northbound_addr,
+                     weird_network.tunnel_client_addr)
+    rcvApp = ReceiveApp(weird_network.rcv_app_address,
+                        weird_network.send_app_address,
+                        weird_network.receiver_northbound_addr,
+                        weird_network.tunnel_server_addr)
 
-    # tunnels     
-    qtype = hcsconf.weird_network.client_weird_qtype
-    iodineCl = IodineClient(iodineCl_node.address, pwnd_domain, qtype, nameserverCORP.address)
-    iodineSvr = IodineServer(pwnd2_node.address, [zonepwnd2], hcsconf.weird_network.severWResponseTTL)
-    monitorAddr = hcsconf.weird_network.monitor_address
+    ## raceboat tunnel client and server with
+    rb_images = find_and_load_json(GLOBALS.TOPLEVELDIR, 'destini_covers.json')
+    rb_destiniobj = Destini.from_dict(rb_images)
+
+
     # applications
-    aliceAddr = hcsconf.application.send_app_address
-    bobAddr = hcsconf.application.rcv_app_address
-    sndApp = SendApp(aliceAddr, bobAddr, hcsconf.application.sender_northbound_addr ,hcsconf.application.tunnel_client_addr)
-    rcvApp = ReceiveApp(bobAddr, aliceAddr, hcsconf.application.receiver_northbound_addr, hcsconf.application.tunnel_server_addr)
-
-    # mastodon server
-    mastodon_server_address = hcsconf.underlying_network.mastodon_address
+    # TODO
 
     # monitor
     monitor = WMonitor(monitorAddr)
@@ -170,7 +197,7 @@ def corporate_iodine_mastodon(_args, hcsconf :  MASDNSHCSConfig) -> IodineDNSCon
                 destiniobj = Destini.from_dict(images)
             # output this once
             tgen_clients.append(MASTGenClient(f'tgen-mas-{index}', client.client_markov_model_profile, client.start_time, False, client.client_username, client.client_hashtags, destiniobj, images_id, mastodon_server_address, True))
-    C = IodineDNSConfig([router], monitor, [sndApp, rcvApp], [iodineCl, iodineSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
+    C = IodineDNSConfig([router], monitor, [sndApp, rcvApp], [iodineCl, iodineSvr, masServer], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     C.set_params(hcsconf.nondeterministic_parameters.to_dict(), hcsconf.probabilistic_parameters.to_dict())
     C.set_preamble(hcsconf.output.preamble)
     C.set_model_type(_args.model)

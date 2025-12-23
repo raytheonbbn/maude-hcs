@@ -73,7 +73,8 @@ def createAuthZone(hcsconf:DNSHCSConfig, domain_name: str, NAME:str, parent:Zone
     return Zone(domain_name, parent, zone_records), ns_records
 
 def createRootZone(hcsconf:DNSHCSConfig, TTL:int = 3600) -> Tuple[Zone, List]:
-    # root zone    
+
+    # root zone
     root_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.root_name)
     assert root_node, "Root node undefined"   
     tld_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.tld_name)
