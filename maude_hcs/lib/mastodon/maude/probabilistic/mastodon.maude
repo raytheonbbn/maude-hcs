@@ -28,13 +28,13 @@
 ---
 --- MAUDE_HCS: end
 
-*** load ../../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
+load ../../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
 load ../common/_mas_aux
 
 mod MASTODON is
   inc CP2-COMMON .
   inc MASAUX .
- *** inc DNS .
+  inc DNS .
   
   vars raceboatCl ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
   vars attrs attrsNext : AttributeSet .
@@ -51,6 +51,11 @@ mod MASTODON is
   vars T : Float . ---timestamp
   vars URL : Url .
 
+  vars DNS-ADDR : Address .
+  vars ID : Nat .
+  vars NAME : Name .
+  vars ANS AUTH ADD : List{Record} .
+  vars RCODE : Nat .
   -------------------------------
   --- [Mastodon Client] --- Rules
   -------------------------------
@@ -67,6 +72,14 @@ mod MASTODON is
   [print "(" T ") Mastodon Client handling HTTP Response from Server, sending " msgOut " | OPS: " opStack:OpStack ]
   .
 
+  rl [mascl-receive-dns-resp]:
+  < MAS_CLIENT_ADDR : MasClient | attrs >
+    {T, (to MAS_CLIENT_ADDR from DNS-ADDR : response(ID, NAME, ANS, AUTH, ADD, RCODE))}
+  =>
+  < MAS_CLIENT_ADDR : MasClient | attrs >
+  [ print "(" T ") Mastodon Client received DNS response ID " ID ]
+  .
+
   --- Receive Command from Raceboat or TGEN.
   crl [mascl-receive-requester-req]:
   < MAS_CLIENT_ADDR : MasClient | attrs >
@@ -81,7 +94,7 @@ mod MASTODON is
   [ print "(" T ") Mastodon Client handling command " raceboatReq " from Raceboat, sending " msgOut " | OPS: " opStack:OpStack ]
   .  
 
-
+  
   -------------------------------
   --- [Mastodon Server] --- Rules
   -------------------------------
