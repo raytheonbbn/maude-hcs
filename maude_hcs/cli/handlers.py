@@ -32,7 +32,6 @@ import json
 from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
 from maude_hcs.lib import GLOBALS
-from maude_hcs.parsers.configfactory import buildHCSConfig
 from maude_hcs.parsers.markovJsonToMaudeParser import process_directories
 
 import logging
@@ -42,6 +41,7 @@ from umaudemc.command.scheck import scheck
 import importlib.util
 import maude
 
+from ..parsers.hcsconfig import HCSConfig
 from ..parsers.ymlconf import parse_destini
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,18 @@ MARKOV_NAME = 'markov'
 GENERATE_NAME = 'generate'
 SCHECK_NAME = 'scheck'
 IMAGES_NAME = 'images'
+
+def buildHCSConfig(args):
+    protocol = args.protocol
+    if args.run_args:
+        return HCSConfig.from_file(Path(args.run_args.name))
+    elif args.shadow_filename:
+        return HCSConfig.from_shadow(Path(args.shadow_filename))
+    # build from yml
+    elif args.yml_filename:
+        return HCSConfig.from_yml(Path(args.yml_filename))
+    else:
+        raise ValueError("Unsupported input. Specify run_args or yml_filename or shadow_filename.")
 
 def handle_command(command, parser, args):
     handlers = {
