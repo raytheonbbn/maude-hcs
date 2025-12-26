@@ -30,49 +30,100 @@
 
 set show advisories off .
 
-sload ../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
+**** sload ../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
 sload ../../common/maude/_aux
-sload ../../raceboat/rb-integration
-sload ../../dns/maude/probabilistic/iodine_dns
+sload ../../common/maude/cp2-interfaces
+**** sload ../../dns/maude/probabilistic/iodine_dns
+sload ../../dns/maude/probabilistic/wmonitor
 
 mod CP2_APP is
-  inc IODINE_DNS .
+**** inc IODINE_DNS .
+  inc WMONITOR .
   inc CP2_NODE .
-  inc RB-CLIENT + RB-SERVER .
+  inc CP2-COMMON .
+  inc TGEN-INTERFACE .
+  inc RB-INTERFACE .
+***  inc RB-CLIENT + RB-SERVER .
 
   vars aliceRbClient : Address .
-  vars attrs attrsTemp attrsNext monAttrs : AttributeSet .
-  vars aliceAddr bobAddr ALICE_ADDR BOB_ADDR CONTENT_MGR_ADDR USER_MODEL_ADDR MON  sndAppAddr : Address .
-  vars encryptedContract CC_FILE CONTRACT : ByteSeq .
+  vars attrs attrs0 attrsTemp attrsNext monAttrs : AttributeSet .
+  vars aliceAddr bobAddr ALICE_ADDR BOB_ADDR CONTENT_MGR_ADDR USER_MODEL_ADDR MON  sndAppAddr rcvAppAddr : Address .
+  vars umAddr icAddr cmAddr : Address .
+  vars encryptedContract CC_FILE CONTRACT CONTRACT_HASHTAG  : ByteSeq .
   vars ackFile contract contractKey contractHash contractHashtag
        contractKey0 contractHash0 contractHashtag0
        CONTRACT_KEY CONTRACT_HASH : ByteSeq .
   vars CONTRACT_LIST : ByteSeqL .
   vars T : Float . ---timestamps
   vars contractId : Nat .
-  vars txAct monAct : Actor .
+  vars txAct rxAct monAct : Actor . 
   vars str : String .
+  vars msg0 msg1 msg2 msg : Msg .
+  vars filetsl : ByteSeqTimestampList .
+  vars b : Bool .
 
+ **** put these in wmonitor   file
+   op doneFlag:_ : Bool -> Attribute [ctor] .
+   op setDoneFlag : AttributeSet Bool -> AttributeSet .
+
+  eq setDoneFlag ((attrs, doneFlag: b0:Bool), b:Bool) 
+         = attrs, doneFlag: true .
+  eq setDoneFlag (attrs,b:Bool) = attrs, doneFlag: true [owise] .
+ 
+ sorts ByteSeqTimestamp ByteSeqTimestampList .
+ subsort ByteSeqTimestamp < ByteSeqTimestampList .
+ op fileTimeStamp : ByteSeq Float -> ByteSeqTimestamp .
+ op nilByteSeqTimestamp : -> ByteSeqTimestampList [ctor] .
+ op _;_ : ByteSeqTimestampList ByteSeqTimestampList
+         -> ByteSeqTimestampList 
+         [ctor assoc id: nilByteSeqTimestamp] .
+ 
+ ops fileSent:_  fileRcvd:_ : ByteSeqTimestampList 
+                 -> Attribute [ctor] .
+
+ op logFileSent : AttributeSet Float ByteSeq 
+                  -> AttributeSet .
+ eq logFileSent((attrs, fileSent: filetsl), T, contract)
+   = attrs, 
+     fileSent: (filetsl ; fileTimeStamp(contract,T)) .
+ eq logFileSent(attrs, T, contract)
+   = attrs, fileSent: fileTimeStamp(contract,T) .     
+
+ op logFileRcvd : AttributeSet Float ByteSeq 
+                  -> AttributeSet .
+ eq logFileRcvd((attrs, fileRcvd: filetsl), T, contract)
+   = attrs, 
+     fileRcvd: (filetsl ; fileTimeStamp(contract,T)) .
+ eq logFileRcvd(attrs, T, contract)
+   = attrs, fileRcvd: fileTimeStamp(contract,T) .     
 
   -------------------
   --- Alice Rules ---
-  -------------------
-  crl [alice-send-contract]:
+ -------------------
+crl [alice-send-contract]:
     < ALICE_ADDR : TxApp | attrs, contractCount: contractId, queue: (CONTRACT :: CONTRACT_LIST), currentCcFile: bytes:ByteSeq >
+    < MON : WMonitor | monAttrs >
     {T, (to ALICE_ADDR : start)}
   =>
     < ALICE_ADDR : TxApp | attrs, contractCount: s contractId, queue: CONTRACT_LIST, currentCcFile: ccFile(contractKey, contractHash, contractHashtag) >
-    startRbClient(0., getRbUserModelAddr(attrs))
-    [0.0002, (to getRbContentMgrAddr(attrs) from ALICE_ADDR : pkg(encryptedContract, contractHashtag)), 0] 
-    --- TODO: Send using the proper delays.
-    [0.2, (to getIodineAddr(attrs) from ALICE_ADDR : ccFile(contractKey, contractHash, contractHashtag)), 0]
-    if contractKey := key(contractId, 4)
+  < MON : WMonitor | logFileSent(monAttrs,T,CONTRACT) > 
+  delayMsgs(msg0 msg1 msg2,null)
+     if contractKey := key(contractId, 4)
       /\ contractHash := hash(CONTRACT, 4)
       /\ contractHashtag := hashTag(getContractHashtag(attrs, contractCount: contractId))
       /\ encryptedContract := encrypt(CONTRACT, contractKey)
+      /\ umAddr := getRbUserModelAddr(attrs)
+      /\ msg0 := (to umAddr from umAddr : actionR(""))
+      /\ cmAddr := getRbContentMgrAddr(attrs) 
+      /\ msg1 := (to cmAddr from ALICE_ADDR :
+              pkg(encryptedContract, contractHashtag)) 
+      /\ icAddr := getIodineAddr(attrs)
+      /\ msg2 := (to icAddr from ALICE_ADDR :
+           ccFile(contractKey, contractHash,
+                  contractHashtag))
+      
   [ print "(" T ") Alice start, sending contract #" contractId " <<<< " CONTRACT " >>>> with hashtag " contractHashtag ]
   .
-
 
  rl [alice-rcv-ack]:
    < ALICE_ADDR : TxApp | attrs >
@@ -80,38 +131,54 @@ mod CP2_APP is
    {T, (to ALICE_ADDR  from sndAppAddr : ackFile)}
    =>
   txAppRcvAck( < ALICE_ADDR : TxApp | attrs >,
-               < MON : WMonitor | monAttrs >, T, ackFile)
+               < MON : WMonitor | monAttrs >, 
+               T, ackFile)
   .              
  
   op txAppRcvAck : Actor Actor Float ByteSeq -> Config .
  eq txAppRcvAck(txAct,monAct,T,ackFile) = txAct monAct 
  [owise print "(" T ")  Alice received unexpected ackFile"] .
 
+
  ceq txAppRcvAck( 
     < ALICE_ADDR : TxApp | attrs, contractCount: contractId, 
        queue: (CONTRACT :: CONTRACT_LIST), 
        currentCcFile: ccFile(contractKey0, 
-                            contractHash0, contractHashtag0) >,
-      monAct, T, ackFile(str,contractHashtag0) )
- =   monAct   
-    < ALICE_ADDR : TxApp | attrs, contractCount: s contractId, 
+                            contractHash0, 
+                            contractHashtag0) >,
+  < MON : WMonitor | monAttrs >, 
+         T, ackFile(str,contractHashtag0) )
+ =  
+  < MON : WMonitor | 
+        logFileSent(monAttrs,T,CONTRACT) >
+  < ALICE_ADDR : TxApp | attrs,
+       contractCount: s contractId, 
        queue: CONTRACT_LIST, 
        currentCcFile: ccFile(contractKey, 
-                            contractHash, contractHashtag) >
-   [0.0002, (to getRbContentMgrAddr(attrs) from ALICE_ADDR : 
-               pkg(encryptedContract, contractHashtag)), 0] 
-    [0.02, (to getIodineAddr(attrs) from ALICE_ADDR : ccFile(contractKey, contractHash, contractHashtag)), 0]
+                            contractHash  ,
+                             contractHashtag) >
+                            
+    delayMsgs(msg1 msg2, null)          
    if contractKey := key(contractId, 4)
    /\ contractHash := hash(CONTRACT, 4)
    /\ contractHashtag := hashTag(getContractHashtag(attrs, contractCount: contractId))
   /\ encryptedContract := encrypt(CONTRACT, contractKey)
+  /\ cmAddr := getRbContentMgrAddr(attrs) 
+  /\ msg1 := (to cmAddr from ALICE_ADDR :
+        pkg(encryptedContract, contractHashtag)) 
+  /\ icAddr := getIodineAddr(attrs)
+  /\ msg2 := (to icAddr from ALICE_ADDR :
+           ccFile(contractKey, contractHash,
+                  contractHashtag))
+
  [ print "(" T ") Alice received ackTile status: " str " hashtag " contractHashtag0 " sending contract # " contractId " with hashtag " contractHashtag ]
  .
 
  eq txAppRcvAck( 
     < ALICE_ADDR : TxApp | attrs, queue: nilBS, 
        currentCcFile: ccFile(contractKey0, 
-                            contractHash0, contractHashtag0) >,
+                            contractHash0, 
+                            contractHashtag0) >,
      < MON : WMonitor | monAttrs >, 
       T, ackFile(str,contractHashtag0) )
  =    
@@ -121,51 +188,231 @@ mod CP2_APP is
 [ print "(" T ") Alice received ackFile status: " str " hashtag " contractHashtag0 " setting doneFlag true." ]
  .
  
- **** put these in wmonitor   file
-   op doneFlag:_ : Bool -> Attribute [ctor] .
-   op setDoneFlag : AttributeSet Bool -> AttributeSet .
-
-  eq setDoneFlag ((attrs, doneFlag: b0:Bool), b:Bool) 
-         = attrs, doneFlag: true .
-  eq setDoneFlag (attrs,b:Bool) = attrs, doneFlag: true [owise] .
- 
  
    -----------------
   --- Bob Rules ---
   -----------------
-  rl [bob-recv-cc-file]:
-    < BOB_ADDR : RxApp | (attrs,
+ crl [bob-recv-cc-file]:
+    < BOB_ADDR : RxApp |  attrs,
                           currentKey: CONTRACT_KEY,
-                          currentHash: CONTRACT_HASH) >
-    {T, (to BOB_ADDR : CC_FILE)}
+                          currentHash: CONTRACT_HASH,
+                      currentHashTag: CONTRACT_HASHTAG 
+   >
+    {T, (to BOB_ADDR : ccFile(contractKey, contractHash,
+                  contractHashtag))}
   =>
-    < BOB_ADDR : RxApp | (attrs,
-                          currentKey: readKey(CC_FILE),
-                          currentHash: readHash(CC_FILE)) >
-    [0.0, (to getRbContentMgrAddr(attrs) from BOB_ADDR : pkg(getHashtagAsByteSeq(CC_FILE))), 0]
-  [ print "(" T ") Bob received CC file " CC_FILE ]
+    < BOB_ADDR : RxApp | attrs,
+                        currentKey: contractKey,
+                        currentHash: contractHash,
+                      currentHashTag: contractHashtag >
+   delayMsgs(msg,null)
+ if cmAddr := getRbContentMgrAddr(attrs) 
+ /\ msg := (to cmAddr from BOB_ADDR :
+             pkg(contractHashtag) )
+[ print "(" T ") Bob received CC file " contractKey " " contractHash " " contractHashtag]
   .
 
-  rl [bob-start]:
+ crl [bob-recv-cc-file-from]:
+    < BOB_ADDR : RxApp |  attrs,
+                          currentKey: CONTRACT_KEY,
+                          currentHash: CONTRACT_HASH,
+                      currentHashTag: CONTRACT_HASHTAG 
+   >
+    {T, (to BOB_ADDR from rcvAppAddr :     
+           ccFile(contractKey, contractHash,    
+                  contractHashtag))}
+  =>
+    < BOB_ADDR : RxApp | attrs,
+                        currentKey: contractKey,
+                        currentHash: contractHash,
+                      currentHashTag: contractHashtag >
+   delayMsgs(msg,null)
+ if cmAddr := getRbContentMgrAddr(attrs) 
+ /\ msg := (to cmAddr from BOB_ADDR :
+             pkg(contractHashtag) )
+[ print "(" T ") Bob received CC file " contractKey " " contractHash " " contractHashtag]
+  .
+
+ 
+  crl [bob-start]:
     < BOB_ADDR : RxApp | attrs >
     {T, (to BOB_ADDR : start)}
   =>
     < BOB_ADDR : RxApp | attrs >
-    startRbServer(0., getRbUserModelAddr(attrs))
+  delayMsgs(msg,null)
+ if umAddr := getRbUserModelAddr(attrs)
+ /\ msg := (to umAddr from umAddr : actionR(""))
   [ print "(" T ") Bob start." ]
   .
 
-  crl [bob-recv-encr-file]:
+  rl [bob-recv-encr-file]:
     < BOB_ADDR : RxApp | attrs >
+    < MON : WMonitor | monAttrs >
     {T, (to BOB_ADDR from CONTENT_MGR_ADDR : pkg(encryptedContract, contractHashtag))}
   =>
+  rxAppRcvEncFile(
+     < BOB_ADDR : RxApp | attrs >,
+    < MON : WMonitor | monAttrs >, 
+    T,encryptedContract, contractHashtag)
+    .
+    
+
+**** ADDTO BYTESEQ
+eq decrypt(bytes, key(j,k)) = noBytes [owise] .
+
+  op rxAppRcvEncFile : Actor Actor Float ByteSeq  ByteSeq -> Config .
+
+ eq rxAppRcvEncFile(rxAct,monAct,T,encryptedContract, contractHashtag) = rxAct monAct 
+ [owise print "(" T ")  Bob received unexpected encryptedFile"] .
+
+ ceq rxAppRcvEncFile( 
+    < BOB_ADDR : RxApp | attrs >,
+    < MON : WMonitor | monAttrs >, 
+     T, encryptedContract, contractHashtag)
+ =  
+ ***** Should bob log the file even if failed?
+  < MON : WMonitor | 
+     (if b 
+      then
+        logFileRcvd(monAttrs,T,contract)
+      else monAttrs fi)
+   >
     < BOB_ADDR : RxApp | attrs >
-    [0.0, outMsg:Msg, 0]
-    if contract := decrypt(encryptedContract, getCurrentKey(attrs))
-      /\ ack:ByteSeq := ackFile("OK", contractHashtag)
-      /\ outMsg:Msg := (to getIodineAddr(attrs) from BOB_ADDR : ack:ByteSeq)
-  [ print "(" T ") Bob received encrypted file, decrypted with key >>>> " contract " <<<<, ACK " outMsg:Msg ]
-  .
+   delayMsgs(msg,null)
+ if attrs0, 
+    currentKey: contractKey,
+    currentHash: contractHash,
+    currentHashTag: contractHashtag := attrs
+ /\ contract := decrypt(encryptedContract,
+                         getCurrentKey(attrs))
+----- this will fail if decrypt failed or if bad hash match
+ /\ b := contractHash == hash(contract,4) 
+ /\ ack:ByteSeq := 
+        ackFile((if b then "OK" else "FAILED" fi),
+                contractHashtag)
+ /\ msg := (to getIodineAddr(attrs) from BOB_ADDR 
+             : ack:ByteSeq)
+ [ print "(" T ") Bob received encrypted file, decrypted to " contract ", sending " msg ]
+ .
+ endm
+ 
+ eof
 
-endm
+ mod TEST-ALICE-BOB is
+   inc CP2_APP .
+   
+ops alice bob iSendApp iRecvApp wmon
+   clientUM clientCM serverUM serverCM : -> Address .
 
+op aAct : ByteSeqL -> Actor .
+eq aAct(fList:ByteSeqL) =  
+ makeTxApp(alice, bob, iSendApp, clientUM, clientCM,
+            fList:ByteSeqL) .
+
+op aAct0 : -> Actor .
+eq aAct0 = aAct(file(0,100)) .  
+
+op aAct1 : -> Actor .
+eq aAct1 = aAct(file(0,100) :: file(1,200)) .  
+
+op bAct : -> Actor .
+eq bAct = makeRxApp(bob, iRecvApp, serverUM,serverCM) .
+
+op wmAct : -> Actor .
+eq wmAct = 
+   < wmon : WMonitor | fileSent: nilByteSeqTimestamp, 
+                       fileRcvd: nilByteSeqTimestamp > .
+   
+ops aStart bStart encF0  ccF0 ackF0 : -> ActiveMsg .
+
+eq aStart = {0.0, (to alice : start)} .
+eq bStart = {0.001, (to bob : start)} .
+eq ccF0 = {0.1, (to bob : 
+             ccFile(key(0, 4),
+                    hash( file(0, 100), 4),
+                    hashTag("person")) )} .
+
+op aAct1 : -> Config .
+eq aAct1 = < alice : TxApp | queue: nilBS, destAddr: bob, iodineAddr: iSendApp, rbUserModelAddr: clientUM, rbContentMgrAddr: clientCM, contractCount: 1, currentCcFile: ccFile(key(0, 4), hash(file(0, 100), 4), hashTag("person")) > 
+.
+
+op wmAct1 : -> Actor .
+eq wmAct1 = < wmon : WMonitor | fileSent: fileTimeStamp(file(0, 100), 0.0), fileRcvd:  nilByteSeqTimestamp >
+.
+
+op bAct1 : -> Actor .
+eq bAct1 =
+< bob : RxApp | rcvd: emptyFileList, iodineAddr: iRecvApp, rbUserModelAddr: serverUM, rbContentMgrAddr: serverCM, currentKey: key(0, 4), currentHash: hash(file(0, 100), 4), currentHashTag: hashTag("person") >
+.
+
+op wmAct2 : -> Actor .
+eq wmAct2 = < wmon : WMonitor | fileSent: fileTimeStamp(file(0, 100), 0.0), fileRcvd:  fileTimeStamp(file(0, 100), 0.2) >
+.
+
+eq encF0 = {0.2,(to bob from serverCM : 
+     pkg(efile(0, 100, 0, 4), hashTag("person")) )} .
+ 
+***(
+
+{T, (to alice from iSndApp : ackFile)}
+
+)
+ 
+   
+endm   
+eof
+
+red aAct .
+rew aAct(file(0,100)) wmAct aStart .
+
+< alice : TxApp | queue: nilBS, destAddr: bob, iodineAddr: iSendApp, rbUserModelAddr: clientUM, rbContentMgrAddr: clientCM, contractCount: 1, currentCcFile: ccFile(key(0, 4), hash(file(0, 100), 4), hashTag("person")) >
+< wmon : WMonitor | fileSent: fileTimeStamp(file(0, 100), 0.0), fileRcvd: nilByteSeqTimestamp >
+
+[0.0, to iSendApp from alice : ccFile(key(0, 4), hash( file(0, 100), 4), hashTag("person")), 0] 
+
+[0.0, to clientUM from clientUM : actionR(""), 0] 
+[0.0, to clientCM from alice : pkg(efile(0, 100, 0, 4),
+    hashTag("person")), 0]
+   
+----------------------------------------------
+rew bAct  bStart .
+
+< bob : RxApp | rcvd: emptyFileList, iodineAddr: iRecvApp, rbUserModelAddr: serverUM, rbContentMgrAddr: serverCM, currentKey: nilBytes, currentHash: nilBytes, currentHashTag: nilBytes >
+    
+[0.0, to serverUM from serverUM : actionR(""), 0]
+
+---------------------------------------------------
+rew bAct  aCF1 ccF0 .
+
+< alice : TxApp | queue: nilBS, destAddr: bob, iodineAddr: iSendApp, rbUserModelAddr: clientUM, rbContentMgrAddr: clientCM, contractCount: 1, currentCcFile: ccFile(key(0, 4), hash(file(0, 100), 4), hashTag("person")) >
+
+< bob : RxApp | rcvd: emptyFileList, iodineAddr: iRecvApp, rbUserModelAddr: serverUM, rbContentMgrAddr: serverCM, currentKey: key(0, 4), currentHash: hash(file(0, 100), 4), currentHashTag: hashTag("person") >
+
+< wmon : WMonitor | fileSent: fileTimeStamp(file(0, 100), 0.0), fileRcvd: nilByteSeqTimestamp >
+    
+[0.0, to serverCM from bob : pkg(hashTag("person")), 0]
+
+----------------------------------------------------   
+rew bAct1 aCF1 encF0 .
+
+< alice : TxApp | queue: nilBS, destAddr: bob, iodineAddr: iSendApp, rbUserModelAddr: clientUM, rbContentMgrAddr: clientCM, contractCount: 1, currentCcFile: ccFile(key(0, 4), hash(file(0, 100), 4), hashTag("person")) >
+
+< bob : RxApp | rcvd: emptyFileList, iodineAddr: iRecvApp, rbUserModelAddr: serverUM, rbContentMgrAddr: serverCM, currentKey: key(0, 4), currentHash: hash(file(0, 100), 4), currentHashTag: hashTag("person") >
+
+< wmon : WMonitor | fileSent: fileTimeStamp(file(0, 100), 0.0), fileRcvd: fileTimeStamp(file(0, 100), 2.0000000000000001e-1) >
+
+[0.0, to iRecvApp from  bob : ackFile("OK", hashTag("person")), 0]
+
+--------------------  try bas hashtag
+
+rew bAct1 aCF1 {0.2,(to bob from serverCM : pkg(efile(0, 100, 0, 4), hashTag("man")) )} .
+--- bob ignores
+  
+--------------------  try broken efiles
+ rew bAct1 aCF1 {0.2,(to bob from serverCM : pkg(efile(0, 100, 1, 4), hashTag("person")) )} .
+
+[0.0, to iRecvApp from bob : ackFile("FAILED", hashTag(
+    "person")), 0]
+   
+
+   
