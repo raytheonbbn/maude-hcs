@@ -97,7 +97,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     record_ttl    = underlying_network.record_ttl
     record_ttl_a    = underlying_network.record_ttl_a
     # router
-    router = Router(underlying_network.router)
+    router = Router(mas_underlying_network.router)
 
     # locate the mastodon underlying network
     # mastodon server

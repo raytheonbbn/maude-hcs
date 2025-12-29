@@ -125,8 +125,13 @@ def build_cli_parser():
                                     required=True, help=f'Directory where to write the output')
 
     generate_parser = cmd_parser.add_parser('generate')
-    generate_parser.add_argument('--run-args-file', dest='run_args', type=lambda x: is_valid_file(parser, x),
-                        metavar='FILE', required=False, help=f'File containing all of the run arguments')
+    generate_parser.add_argument('--run-args-file',
+                                 dest='run_args_filename',
+                                 #type=lambda x: is_valid_file(parser, x),
+                                metavar='FILE',
+                                 default=None,
+                                 required=False,
+                                 help=f'File containing all of the run arguments')
     generate_parser.add_argument("--shadow-filename",
         dest="shadow_filename",
         # type=lambda x: is_valid_file(parser, x),

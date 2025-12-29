@@ -30,7 +30,9 @@
 
 import pytest
 
-from maude_hcs.parsers.masdnshcsconfig import MASDNSHCSConfig
+from maude_hcs.parsers.dnshcsconfig import DNSHCSProtocolConfig
+from maude_hcs.parsers.hcsconfig import HCSConfig
+from maude_hcs.parsers.masdnshcsconfig import MASHCSProtocolConfig
 from maude_hcs.parsers.ymlconf import YmlConf, CoverImage
 
 TEST_YAML_CONTENT = """
@@ -322,5 +324,31 @@ def test_topology_parsing(yml_conf_file):
     assert found, 'expecting a link from 6 to 5'
 
 def test_hcsconfig2(yml_conf_file):
-    conf = MASDNSHCSConfig.from_yml(yml_conf_file)
-    print(conf.to_json(indent=4))
+    conf = MASHCSProtocolConfig.from_yml(yml_conf_file)
+    assert conf, 'failed to parse MASHCSProtocolConfig'
+
+
+def test_hcsconfig3(yml_conf_file):
+    conf = DNSHCSProtocolConfig.from_yml(yml_conf_file)
+    assert conf, 'failed to parse DNSHCSProtocolConfig'
+
+def test_hcsconfig_ymltofile_roundtrip(yml_conf_file, tmp_path):
+    """
+    gen a config from yml
+    write it to a file
+    load the file to generate a config json
+    load the json into a config
+    compare the two to ensure nothing is lost in translation
+    """
+    conf = HCSConfig.from_yml(yml_conf_file)
+    assert conf, 'failed to parse HCSConfig'
+    roundtrip_path = tmp_path / "roundtrip_config.json"
+    conf.save(roundtrip_path)
+
+    # Load the newly created file
+    config_roundtrip = HCSConfig.from_file(roundtrip_path)
+    roundtrip_path = tmp_path / "roundtrip_config_file.json"
+    config_roundtrip.save(roundtrip_path)
+
+    # 4. Compare the original loaded object with the round-tripped one
+    assert conf == config_roundtrip

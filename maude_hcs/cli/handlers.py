@@ -53,8 +53,8 @@ IMAGES_NAME = 'images'
 
 def buildHCSConfig(args):
     protocol = args.protocol
-    if args.run_args:
-        return HCSConfig.from_file(Path(args.run_args.name))
+    if args.run_args_filename:
+        return HCSConfig.from_file(Path(args.run_args_filename))
     elif args.shadow_filename:
         return HCSConfig.from_shadow(Path(args.shadow_filename))
     # build from yml
@@ -79,9 +79,9 @@ def handle_command(command, parser, args):
 
 def handle_generate(args, parser):
     logger.debug("Handle maude generation")
-    if args.run_args and args.shadow_filename:
+    if args.run_args_filename and args.shadow_filename:
         raise Exception('Either specify a json HCS config with --run-args OR a shadow config, but not both.')
-    if args.run_args and args.yml_filename:
+    if args.run_args_filename and args.yml_filename:
         raise Exception('Either specify a json HCS config with --run-args OR a yml config, but not both.')
     # get the configuration object    
     hcsconfig = buildHCSConfig(args)
