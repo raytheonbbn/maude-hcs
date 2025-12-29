@@ -40,7 +40,7 @@ from maude_hcs.parsers.shadowconf import parse_shadow_config
 from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
 from .protocolconfig import Application, BackgroundTraffic, NondeterministicParameters, \
     ProbabilisticParameters, UnderlyingNetwork, BackgroundTrafficTgen, BackgroundTrafficTgenClient, \
-    Tunnel, DuplexApplication, HCSProtocolConfig
+    Tunnel, DuplexApplication, HCSProtocolConfig, DNSBackgroundTrafficTgenClient
 from . import load_yaml_to_dict
 from .ymlconf import YmlConf
 from ..lib import Protocol
@@ -122,12 +122,7 @@ class SimplexApplication(Application):
     rcv_app_address: str    = ''
     include_dns_client: bool    = False
 
-@dataclass_json
-@dataclass
-class DNSBackgroundTrafficTgenClient(BackgroundTrafficTgenClient):
-    """Dataclass for background traffic parameters."""
-    client_retry_to: float = 0.0
-    client_num_retry: int = 1
+
 
 @dataclass_json
 @dataclass
@@ -148,15 +143,15 @@ class DNSWeirdNetwork(Tunnel):
             receiver_northbound_addr=tunnel.receiver_northbound_addr
         )
 
-@dataclass_json
 @dataclass
 class DNSHCSProtocolConfig(HCSProtocolConfig):
-    underlying_network: DNSUnderlyingNetwork
-    weird_network: DNSWeirdNetwork
-    application: SimplexApplication
-    background_traffic: DNSBackgroundTraffic
-    nondeterministic_parameters: DNSNondeterministicParameters
-    probabilistic_parameters: DNSProbabilisticParameters
+    name = Protocol.IODINE_DNS.value
+    underlying_network: DNSUnderlyingNetwork = None
+    weird_network: DNSWeirdNetwork = None
+    application: DuplexApplication  = None
+    background_traffic: BackgroundTrafficTgen = None
+    nondeterministic_parameters: DNSNondeterministicParameters = None
+    probabilistic_parameters: DNSProbabilisticParameters = None
 
     @staticmethod
     def from_file(file_path: str) -> 'DNSHCSProtocolConfig':
@@ -305,7 +300,7 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
 
         # > bg
         i = 0
-        bg = BackgroundTrafficTgen()
+        bg = BackgroundTrafficTgen(module=Protocol.DNS.value, num_clients=0, clients=[])
         for (type, json_prof, cnt) in ymlconf.background_traffic:
             if cnt == 0: continue
             if 'monitor' in type: continue
@@ -320,7 +315,7 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
                     # we have already copied the json file to the right directory in maude_hcs, find it
                     data = find_and_load_json(PROJECT_TOPLEVEL_DIR, json_prof)
                     C.client_retry_to = float(data['parameters']['request_timeout'])
-                    C.client_num_retry = floor(int(data['parameters']['request_lifetime']) / C.client_retry_to)
+                    C.client_num_retry = int(floor(data['parameters']['request_lifetime'] / C.client_retry_to))
                     bg.clients.append(C)
             i = i + j + 1
         bg.num_clients = len(bg.clients)

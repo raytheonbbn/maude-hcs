@@ -35,7 +35,7 @@ from typing import List
 from pathlib import Path
 from dataclasses_json import dataclass_json
 
-from maude_hcs.lib import GLOBALS
+from maude_hcs.lib import GLOBALS, Protocol
 from maude_hcs.parsers.dnshcsconfig import DNSHCSProtocolConfig
 from maude_hcs.parsers.graph import Topology
 from maude_hcs.parsers.masdnshcsconfig import MASHCSProtocolConfig
@@ -95,7 +95,12 @@ class HCSConfig:
     def from_file(file_path: str) -> 'HCSConfig':
         with open(file_path, 'r') as f:
             data = json.load(f)
-        return HCSConfig.from_dict(data)
+        hcsconf = HCSConfig.from_dict(data)
+        # parse the protocols one at a time
+        for k,v in data['protocols'].items():
+            hcsconf.protocols[k] = HCSProtocolConfig.load_from_dict(v)
+        return hcsconf
+
 
     def save(self, file_path: str):
         """

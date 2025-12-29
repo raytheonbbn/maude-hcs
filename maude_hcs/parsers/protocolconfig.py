@@ -33,6 +33,8 @@ import json
 from dataclasses import dataclass, field
 from typing import List
 from dataclasses_json import dataclass_json
+from dataclasses_json import DataClassJsonMixin
+from maude_hcs.lib import Protocol
 
 
 # By using `default_factory=dict`, we ensure that a new dictionary is created
@@ -63,9 +65,8 @@ class WeirdNetwork:
     """Dataclass for the 'weird' (covert) network configuration."""
     module: str
 
-@dataclass_json
 @dataclass
-class BackgroundTraffic:
+class BackgroundTraffic(DataClassJsonMixin):
     """Dataclass for background traffic parameters."""
     module: str
 
@@ -97,21 +98,49 @@ class Output:
         ]
         return out
 
-@dataclass_json
 @dataclass
-class BackgroundTrafficTgenClient():
+class BackgroundTrafficTgenClient(DataClassJsonMixin):
     """Dataclass for background traffic parameters."""
     client_name: str = ''
     client_markov_model_profile: str = ''
     start_time: float = 0.0
 
-@dataclass_json
 @dataclass
-class BackgroundTrafficTgen(BackgroundTraffic):
+class DNSBackgroundTrafficTgenClient(BackgroundTrafficTgenClient):
     """Dataclass for background traffic parameters."""
-    module: str = 'dns'
-    num_clients: int = 1
-    clients: list[BackgroundTrafficTgenClient] = field(default_factory=list)
+    client_retry_to: float = 0.0
+    client_num_retry: int = 1
+
+@dataclass
+class MASBackgroundTrafficTgenClient(BackgroundTrafficTgenClient):
+    """Dataclass for background traffic parameters."""
+    client_username: str = ''
+    clients_images_dir: str = ''
+    client_hashtags: list[str] = field(default_factory=list)
+
+@dataclass
+class BackgroundTrafficTgen(DataClassJsonMixin):
+    """Dataclass for background traffic parameters."""
+    module: str
+    num_clients: int
+    clients: list[BackgroundTrafficTgenClient]
+
+    @classmethod
+    def from_dict(cls, kvs, **kwargs):
+        # 1. Extract the discriminator
+        proto = kvs['module']
+        CLS = []
+        for client in kvs['clients']:
+            if proto == Protocol.DNS.value:
+                CLS.append(DNSBackgroundTrafficTgenClient.from_dict(client, **kwargs))
+            elif proto == Protocol.MASTODON.value:
+                CLS.append(MASBackgroundTrafficTgenClient.from_dict(client, **kwargs))
+        bg = super().from_dict(kvs, **kwargs)
+        bg.clients = CLS
+        return bg
+
+
+
 
 @dataclass_json
 @dataclass
@@ -131,16 +160,42 @@ class DuplexApplication(Application):
     alice_address: str = ''
     bob_address: str = ''
 
-@dataclass_json
 @dataclass
-class HCSProtocolConfig:
+class HCSProtocolConfig(DataClassJsonMixin):
     """
     Dataclass for HCS protocol configuration
     """
-    name: str
-    underlying_network: UnderlyingNetwork
-    weird_network: WeirdNetwork
-    application: Application
-    background_traffic: BackgroundTraffic
-    nondeterministic_parameters: NondeterministicParameters
-    probabilistic_parameters: ProbabilisticParameters
+    name: str = Protocol.NA.value
+    underlying_network: UnderlyingNetwork = None
+    weird_network: WeirdNetwork = None
+    application: Application = None
+    background_traffic: BackgroundTrafficTgen = None
+    nondeterministic_parameters: NondeterministicParameters = field(default_factory=dict)
+    probabilistic_parameters: ProbabilisticParameters = field(default_factory=dict)
+
+    @classmethod
+    def load_from_dict(cls, kvs, **kwargs):
+        """
+        Override to detect the protocol_type and delegate
+        to the specific subclass.
+        """
+        # Standard behavior for leaf classes or if no discriminator found
+        if cls is HCSProtocolConfig:
+            # Check if we are calling this specifically on the Base class
+            #    and if the dictionary has our discriminator field.
+            #
+            target_type = kvs['name']
+
+            # 2. Search all known subclasses for a match
+            for subclass in HCSProtocolConfig.__subclasses__():
+                if subclass.name == target_type:
+                    # 3. Delegate to the subclass's from_dict (standard behavior)
+                    CLS = subclass.from_dict(kvs, **kwargs)
+                    bgT = BackgroundTrafficTgen.from_dict(kvs['background_traffic'], **kwargs)
+                    CLS.background_traffic = bgT
+                    return CLS
+
+            # Optional: Raise error if type is unknown
+            raise ValueError(f"Unknown protocol_type: {target_type}, no subclass matching {target_type} in {HCSProtocolConfig.__subclasses__()}")
+
+        return super().from_dict(kvs, **kwargs)

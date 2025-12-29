@@ -9,6 +9,7 @@ class Protocol(Enum):
     # FTP = "FTP"
     # SSH = "SSH"
     # SMTP = "SMTP"
+    NA = "NA"
     DNS = "DNS"
     MASTODON = "MASTODON"
     DESTINI_MASTODON = "DESTINI_MASTODON"

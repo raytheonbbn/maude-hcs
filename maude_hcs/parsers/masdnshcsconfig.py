@@ -38,7 +38,7 @@ from ..lib import Protocol
 from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
 from .protocolconfig import NondeterministicParameters, \
     ProbabilisticParameters, UnderlyingNetwork, BackgroundTrafficTgen, BackgroundTrafficTgenClient, \
-    Tunnel, DuplexApplication, HCSProtocolConfig
+    Tunnel, DuplexApplication, HCSProtocolConfig, MASBackgroundTrafficTgenClient
 from .ymlconf import YmlConf
 from maude_hcs import  PROJECT_TOPLEVEL_DIR
 
@@ -52,14 +52,16 @@ class MASUnderlyingNetwork(UnderlyingNetwork):
     # router
     router: str                         = 'router'
 
+@dataclass_json
+@dataclass
+class MASNondeterministicParameters(NondeterministicParameters):
+    pass
 
 @dataclass_json
 @dataclass
-class MASBackgroundTrafficTgenClient(BackgroundTrafficTgenClient):
-    """Dataclass for background traffic parameters."""
-    client_username: str = ''
-    clients_images_dir: str = ''
-    client_hashtags: list[str] = field(default_factory=list)
+class MASProbabilisticParameters(ProbabilisticParameters):
+    pass
+
 
 @dataclass_json
 @dataclass
@@ -81,15 +83,15 @@ class MASWeirdNetwork(Tunnel):
 '''
 This is the configuration for CP2
 '''
-@dataclass_json
 @dataclass
 class MASHCSProtocolConfig(HCSProtocolConfig):
-    underlying_network: MASUnderlyingNetwork
-    weird_network: MASWeirdNetwork
-    application: DuplexApplication
-    background_traffic: BackgroundTrafficTgen
-    nondeterministic_parameters: NondeterministicParameters
-    probabilistic_parameters: ProbabilisticParameters
+    name: str = Protocol.DESTINI_MASTODON.value
+    underlying_network: MASUnderlyingNetwork = None
+    weird_network: MASWeirdNetwork = None
+    application: DuplexApplication = None
+    background_traffic: BackgroundTrafficTgen = None
+    nondeterministic_parameters: dict = field(default_factory=dict)
+    probabilistic_parameters: dict = field(default_factory=dict)
 
     @staticmethod
     def from_file(file_path: str) -> 'MASHCSProtocolConfig':
@@ -139,7 +141,7 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
 
         # > bg
         i = 0
-        bg = BackgroundTrafficTgen()
+        bg = BackgroundTrafficTgen(module=Protocol.MASTODON.value, num_clients=0, clients=[])
         for (type, json_prof, cnt) in ymlconf.background_traffic:
             if cnt == 0: continue
             if 'monitor' in type: continue
@@ -160,10 +162,10 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
             i = i + j + 1
         bg.num_clients = len(bg.clients)
 
+        # TODO Nondet and prob parameters
+
         return MASHCSProtocolConfig(name=Protocol.DESTINI_MASTODON.value,
                             underlying_network=m_un,
                             weird_network=mas_wn,
                             application=app,
-                            background_traffic=bg,
-                            nondeterministic_parameters=None,
-                            probabilistic_parameters=None)
+                            background_traffic=bg)
