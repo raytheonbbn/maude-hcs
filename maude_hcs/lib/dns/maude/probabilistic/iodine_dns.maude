@@ -33,10 +33,12 @@ set show advisories off .
 sload ../../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
 sload wmonitor
 sload parameters
+sload ../../../common/maude/cp2-interfaces
 
 --- DNS includes AUX + MSG + PARAMETERS .
 mod IODINE_DNS is
   inc DNS + WMONITOR + IODINE-PARAMETERS .
+  inc CP2-COMMON .
 
   vars ADDR ADDR1 ADDR2 NS RESOLVER ALICE BOB CLIENT : Address .
   vars FROM_ADDR TO_ADDR : Address .
@@ -168,8 +170,10 @@ crl [wnameserver-receive-query-weird]:
   --- Message back to Alice
   (if isLastFrag then [lastFragDelay + delayParamd(msgOut), msgOut, dropParamd(msgOut)] else [delayParamd(msgOut), msgOut, dropParamd(msgOut)] fi)
   --- The message to send to Bob if packet is fully assembled
-  (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
-  (if msgOutExt == nullMsg then null else [0.0, msgOutExt, 0] fi)
+  (if appMsgOut == nullMsg then null else delayMsgs(appMsgOut,null) fi)
+***   [0., appMsgOut, 0]
+  (if msgOutExt == nullMsg then null else delayMsgs(msgOutExt,null) fi)
+***  [0.0, msgOutExt, 0] 
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 1 and step 2
   /\ {wattrsTrans, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
@@ -215,7 +219,8 @@ crl [wnameserver-receive-query-weird]:
   => 
     < BOB : RcvApp | appAttrsNext > 
     --- If going to, send packets to WNameServer
-    (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
+    (if msgOut == nullMsg then null else delayMsgs(msgOut,null) fi)
+***    [0.0, msgOut, 0] 
     (if msgOut == nullMsg then null else [sampleUniform(pacingTimeoutDelay, pacingTimeoutDelayMax), (to BOB : pktTimeout(getPkt(msgOut))), 0] fi)
     if appAttrsTrans := (if queueSet == true
                      then (appAttrs, fileDestAddr: ADDR)
@@ -239,7 +244,8 @@ crl [wnameserver-receive-query-weird]:
     {T, (to BOB : pktTimeout(Pkt'))}
   =>
     < BOB : RcvApp | appAttrsNext >
-    (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
+    (if msgOut == nullMsg then null else delayMsgs(msgOut,null) fi)
+***    [0.0, msgOut, 0] 
     (if msgOut == nullMsg then null else [sampleUniform(pacingTimeoutDelay, pacingTimeoutDelayMax), (to BOB : pktTimeout(getPkt(msgOut))), 0] fi)
     if appAttrs1 := (appAttrs, numAdmittedPkts: s N)
       /\ {appAttrsNext, msgOut} :=
@@ -257,7 +263,8 @@ crl [wnameserver-receive-query-weird]:
   => 
     < ADDR : RcvApp | appAttrsNext >
     < MON : WMonitor | pktRcvd: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
-    (if msgOut == nullMsg then null else [0., msgOut, 0] fi)
+    (if msgOut == nullMsg then null else delayMsgs(msgOut,null) fi)
+***    [0., msgOut, 0] 
     if (appAttrsTrans, fileDestAddr: ADDR2, rcvd: PACKETS) := appAttrs
       /\ txComplete := isLastPacket(Pkt)
       /\ appAttrsNext := (appAttrsTrans, fileDestAddr: ADDR2, rcvd: (PACKETS ; Pkt))
@@ -278,7 +285,7 @@ crl [wnameserver-receive-query-weird]:
   =>
     < BOB : RcvApp | packetizeProb((appAttrs, fileSrcAddr: ADDR, queuePopulated: true),
                                    BOB, ADDR, FILE, packetSize, maxPacketSize) >
-    [0., (to BOB : start), 0]
+    delayMsgs((to BOB : start),null)
     [print "(" T ") RcvApp handling file " FILE ]
     .
 
@@ -318,9 +325,10 @@ crl [wnameserver-receive-query-weird]:
     {T, (to ALICE : start)}
   =>
     < ALICE : SendApp | appAttrsNext >
-    (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
+    (if msgOut == nullMsg then null else delayMsgs(msgOut,null) fi)
+***    [0.0, msgOut, 0] 
     (if msgOut == nullMsg then null else [sampleUniform(pacingTimeoutDelay, pacingTimeoutDelayMax), (to ALICE : pktTimeout(getPkt(msgOut))), 0] fi)
-    [0.0, (to getToAddr(appAttrs) : startPeriodicPings(ALICE, ADDR)), 0]
+    delayMsgs(msg:Msg,null)
     *** Start means that the client is ready.
     *** Check if the packet queue needs to be filled.
     *** If so, packetize the file.
@@ -337,6 +345,7 @@ crl [wnameserver-receive-query-weird]:
           *** Otherwise, it is not time yet.  Leave wclient marked as ready and done nothing else.
           else {appAttrs1, nullMsg}
         fi
+  /\ msg:Msg := (to getToAddr(appAttrs) : startPeriodicPings(ALICE, ADDR))    
         [print "(" T ") SendApp start or nudge from wclient, send possible pkt " msgOut ", setting timeout if not null." ]
   .
 
@@ -350,7 +359,7 @@ crl [wnameserver-receive-query-weird]:
     < ADDR : SendApp | rcvd: (Pkt ; PACKETS), 
                         fromAddr: ADDR2,  appAttrs >
     < MON : WMonitor | pktRcvd: (PTL ; packetTimestamp(Pkt, T)), monAttrs >
-    [delayParamd(msg),msg,0]
+    [delayParamd(msg),msg,dropParamd(msg)]
     if packet(FROM_ADDR, TO_ADDR, FILE, 
               OUT_SEQNO, P_LEN, LAST_PACKET) := Pkt
     /\ msg := (to ADDR2 from ADDR :  FILE)
@@ -365,7 +374,8 @@ crl [wnameserver-receive-query-weird]:
     {T, (to ALICE : pktTimeout(Pkt'))}
   =>
     < ALICE : SendApp | appAttrsNext >
-    (if msgOut == nullMsg then null else [0.0, msgOut, 0] fi)
+    (if msgOut == nullMsg then null else delayMsgs(msgOut,null) fi)
+***    [0.0, msgOut, 0] 
     (if msgOut == nullMsg then null else [sampleUniform(pacingTimeoutDelay, pacingTimeoutDelayMax), (to ALICE : pktTimeout(getPkt(msgOut))), 0] fi)
     *** Timeout means it is OK to send a packet now.
     if appAttrs1 := (appAttrs, numAdmittedPkts: s N)
@@ -390,7 +400,8 @@ crl [wnameserver-receive-query-weird]:
     < ALICE : SendApp | packetizeProb((appAttrs, fileDestAddr: ADDR),
               ALICE, ADDR, FILE, packetSize, maxPacketSize) >
     **** (appAttrs, fileDestAddr: ADDR, queuePopulated: true),
-    [0., (to ALICE : start), 0]
+***    [0., (to ALICE : start), 0]
+    delayMsgs((to ALICE : start),null)
     [print "(" T ") SendApp handling file " FILE ]
     .
 
@@ -436,20 +447,24 @@ crl [wnameserver-receive-query-weird]:
     --- Therefore two scenarios are possible: either we've encountered the last packet or we're receiving a dataless packet. 
     --- Ping after 5ms if server sent down the last fragment (client.c:1009)
     --- Otherwise fall back to the select loop to ping (likely client.c:1155)
-    
+****BeginMsgs
     (if msgOutExt == nullMsg then 
       schedulePing(wattrs2, ADDR, getFromAddr(F), getToAddr(F), 
         (if isLastFragment(F) then 0.005 else pingInterval fi), 
       receiveToPingDelay) else null fi)
     --- If the server ACKed the last fragment of our packet, ping some time later (iodine defaults to 20ms) (client.c:1053)
     (if isTxComplete(wattrs2) and isAckMatch(wattrs, F) then schedulePing(wattrs2, ADDR, getFromAddr(F), getToAddr(F), lastFragDelay, receiveToPingDelay) else null fi)
+
     (if msgOutExt == nullMsg 
-     then [0.0, (to getFromAddr(response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)) : start), 0]
+     then 
+     delayMsgs((to getFromAddr(response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)) : start),null)
      else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
     (if msgOutExt == nullMsg then 
      null 
      else [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
-    (if appMsgOut == nullMsg then null else [0., appMsgOut, 0] fi)
+  (if appMsgOut == nullMsg then null else delayMsgs(appMsgOut,null) fi)
+***     [0., appMsgOut, 0] 
+***** endMsgs
     if wattrsTrans := extract((resv: RESOLVER, fragmentsReceived: FRAGMENT_LIST, timeLastRecvd: T, wattrs), response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE))
       /\ nm(F) := downstreamdata
       /\ txComplete := isTxComplete(wattrsTrans)
@@ -488,7 +503,10 @@ crl [wnameserver-receive-query-weird]:
   ---               wattrs       client  sendapp recvapp delay_seconds extra_delay
   op schedulePing : AttributeSet Address Address Address Float Float -> Msg .
   --- Small extra delay added to the ping delay, because a ping scheduled immediately after receiving a packet will check, exactly DELAY seconds later if it's received another packet. However, the last packet also arrived (approximately) DELAY seconds ago and sometimes causes the ping to fail to fire.
-  eq schedulePing((wattrs, inSeqNo: IN_SEQNO, inFragNo: IN_FRAGNO), ADDR, ALICE, BOB, DELAY, DELAY2) = [DELAY + DELAY2, (to ADDR : pingTimeout(fragment(ALICE, BOB, file(0), 0, 0, IN_SEQNO, IN_FRAGNO, 0, false, false), DELAY)), 0] 
+  eq schedulePing((wattrs, inSeqNo: IN_SEQNO, inFragNo: IN_FRAGNO), ADDR, ALICE, BOB, DELAY, DELAY2) = 
+**** added noise
+[DELAY + DELAY2 + sampleUniform(0.0,0.0001), 
+(to ADDR : pingTimeout(fragment(ALICE, BOB, file(0), 0, 0, IN_SEQNO, IN_FRAGNO, 0, false, false), DELAY)), 0] 
   [print "Scheduling ping for " DELAY " seconds from now"]
   .
 
@@ -532,7 +550,8 @@ crl [wnameserver-receive-query-weird]:
     < MON : WMonitor | querySent: if msgOutExt == nullMsg then QTL else (QTL ; queryTimestamp(getQuery(msgOutExt), T)) fi, monAttrs >
     --- Either ask for the next packet when the current one is being dropped, or send fragment out.
     (if msgOutExt == nullMsg 
-     then [0.0, (to getFromAddr(FRAGMENT) : start), 0] 
+     then delayMsgs((to getFromAddr(FRAGMENT) : start),null)
+****     [0.0, (to getFromAddr(FRAGMENT) : start), 0] 
      else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
     (if msgOutExt == nullMsg then null else [ackTimeoutDelay + genRandom(0.0, 0.00001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
     if isSending(wattrs)
