@@ -46,7 +46,7 @@ fmod MARKOV-ACTION-MODEL is
   vars weights : Map{String,Float} .
   vars actions params mj mj0 mj1 : Map{String,JV} .
   vars n j j1 j2 min max : Nat .
-  vars fl mean std minf maxf : Float .
+  vars fl fl0 fl1 mean std minf maxf : Float .
   vars jv : JV .
 
   sort JObjNat .
@@ -184,24 +184,29 @@ ceq realizeRand(str,"gaussian",
       (("mean" |-> jf(mean) ), ("std" |-> jf(std) ), mj), 
        j )
  = {(str |-> jf(fl)), s j}
-if fl :=  sampleNormalWithMeanSdX(mean, std, j) 
+if fl :=  ensureFloor(sampleNormalWithMeanSdX(mean, std, j),mj)
       .
 
 ceq realizeRand(str,"uniform",
       (("min" |-> jn(min) ), ("max" |-> jn(max) ), mj),
       j )
  = {(str |-> jn(rat(floor(fl)))), s j}
-if fl :=  genRandomX(j, float(min), float(max))   .
+if fl :=  ensureFloor(genRandomX(j, float(min), float(max)),mj)   .
 
 ceq realizeRand(str,"uniform",
       (("min" |-> jf(minf) ), ("max" |-> jf(maxf) ), mj),
       j )
  = {(str |-> jf(fl)), s j}
-if fl :=  genRandomX(j, minf, maxf)   .
+if fl :=  ensureFloor(genRandomX(j, minf, maxf),mj)   .
 
 eq realizeRand(str,str1,mj,j) 
        = {(str |-> nullJV),j} [owise] .
         
+
+op ensureFloor : Float Map{String,JV} -> Float .
+eq ensureFloor(fl0, (mj, ("floor" |-> jf(fl1) )) ) = max(fl1,fl0) .
+eq ensureFloor(fl0, mj) = fl0 [owise] .
+
 endfm  
 
 eof
