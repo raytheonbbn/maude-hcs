@@ -22,22 +22,23 @@ vars j j1 i k k1 l l1 n n0 n1 : Nat .
 vars mtgAddr umAddr mcAddr : Address .
 vars T : Float .
 vars mcResponse : Content .
-vars image image0 ht bytes : ByteSeq .
-vars imagel imagel0 bytesl : ByteSeqL .
+vars image image0 image1 ht bytes bs : ByteSeq .
+vars imagel imagel0 imagel1 bytesl bsl bsl0 bsl1 : ByteSeqL .
 vars str : String .
-vars ract : Map{String,JV} .
+vars ract mj : Map{String,JV} .
 vars tag : Tag .
 vars mediaFileList : MediaFileList .
 vars natstr : Map{Nat,String} .
 vars mamodel : MAModel .
 
+***(
 ***** belongs in byteseq
 op getNthBS : ByteSeqL Nat -> ByteSeq .
 eq getNthBS(bytes :: bytesl,0) = bytes .
 eq getNthBS(bytes :: bytesl, s n) 
       =  getNthBS(bytesl, n) .
 eq getNthBS(bytesl,n) = noBytes [owise] .
-
+)
 op MASTgen : -> ActorType . 
 
 
@@ -50,6 +51,8 @@ op mcAddress:_ : Address -> Attribute [ctor] .
 op w4c:_ : Config -> Attribute [ctor] .
 op replyTo:_ : Config  -> Attribute [ctor] .
 
+op ctr:_ : Nat -> Attribute [ctor] .
+op iml2send:_ : ByteSeqL -> Attribute [ctor] .
 
 ---                  mc     
 op mkMasTGenAttrs : Address ByteSeqL MAModel -> AttributeSet .
@@ -116,6 +119,7 @@ if attrs0, (w4c: (to mcAddr from mtgAddr : fetchQ(ht))),
 /\ msg := (to umAddr from mtgAddr : actionR("ok"))
 .
 
+----- "num_to_post" |-> jn(2),
 
 --- action requests  Action < Content
 
@@ -149,7 +153,9 @@ if attrs0, (w4c: null), (replyTo: null) := attrs
 /\ attrs1, mcAddress: mcAddr, 
            (numBHashTags: l), hashtagMap: natstr
             := attrs
-/\ k := rat(floor(genRandomX(j,0.0, float(l))))
+--- Get a random nat between in [0, n-1].
+**** /\ k := rat(floor(genRandomX(j,0.0, float(l))))
+/\ k := sampleUniWithIntX(j, l)
 /\ ht := hashTag(natstr[k])
 /\ msg0 := (to mcAddr from mtgAddr : fetchQ(ht) )
 /\ msg := (to mcAddr from mtgAddr : 
@@ -167,26 +173,65 @@ if attrs0, (w4c: null), (replyTo: null) := attrs
            (numBHashTags: l), hashtagMap: natstr,
            imageL: imagel, numImages: l1           
             := attrs
-/\ k := rat(floor(genRandomX(j,0., float(l))))
+---- /\ k := rat(floor(genRandomX(j,0., float(l))))
+/\ k := sampleUniWithIntX(j, l)
 /\ ht := hashTag(natstr[k])
-/\ k1 := rat(floor(genRandomX(s j,0., float(l1))))
-/\ image := getNthBS(imagel,k1)
-/\ msg0 := (to mcAddr from mtgAddr : tootQ(ht,image))
+---/\ k1 := rat(floor(genRandomX(s j,0., float(l1))))
+/\ n := getNumToPost(ract)
+/\ (iml2send: imagel0, ctr: j1) 
+          := chooseImages(imagel,l1,n,s j)
+/\ msg0 := (to mcAddr from mtgAddr : tootQ(ht,imagel0))
 /\ msg := (to mcAddr from mtgAddr : 
-                 translateTootQ(tootQ(ht,image)) )
+                 translateTootQ(tootQ(ht,imagel0)) )
 /\ attrs2 := attrs0, w4c: msg0, 
            replyTo: (to mtgAddr from umAddr : actionQ(ract))
 .
 
+op getNumToPost :  Map{String,JV} ->  Nat .
+eq getNumToPost((("num_to_post" |-> jn(n)),mj)) = n .
+eq getNumToPost(mj) = 1 [owise]  .
+
+op chooseImages : ByteSeqL Nat Nat Nat ->  AttributeSet .
+op chooseImagesX : ByteSeqL  Nat Nat Nat ByteSeqL
+     -> AttributeSet .
+eq chooseImages(imagel,l,0,j) = (iml2send: nilBS, ctr: j) .
+eq chooseImages(imagel,l,s n,j) =
+    chooseImagesX(imagel,l,s n,j, nilBS) .
+
+eq chooseImagesX(imagel,l,0,j, imagel1) =
+      (iml2send: imagel1, ctr: j) .
+eq chooseImagesX(nilBS,l,n,j, imagel1) =
+      (iml2send: imagel1, ctr: j) .
+    
+ceq chooseImagesX(image :: imagel,s l,s n,j, imagel1) =
+   chooseImagesX(imagel0,l, n,s j, imagel1 :: image0)
+if k := sampleUniWithIntX(j,s l)
+/\ image0 := getNthBS(image :: imagel,k)
+/\ imagel0 := removeByteSeq(image :: imagel,image0) .
+
+***(
+***** move to ByteSeq
+op removeByteSeq : ByteSeqL ByteSeq -> ByteSeqL .
+eq removeByteSeq(bsl0 :: bs :: bsl1, bs) = bsl0 :: bsl1 .
+eq removeByteSeq(bsl0, bs) = bsl0 [owise] .
+)
 
 endm  
-eof
+
+
+sload mas-mamodel
+sload mastodonprofiles/markov/config_influencer_4 
+
 mod MAS-TGEN-TEST is
   inc MAS-TGEN . 
+  inc MAS-MAMODEL .
+  inc MASTODON-CONFIG-INFLUENCER-4-MAMODEL .
 
 ops mtgA mcA  umA : -> Address .
 op MTG : -> Actor .
 eq MTG = mkMasTGenActor(mtgA, mcA, IM0 :: IM1, mas-ma) .
+op MTGi : -> Actor .
+eq MTGi = mkMasTGenActor(mtgA, mcA, IM0 :: IM1 :: IM2 :: IM3, mas-ma) .
 
 
 eq encOH(fsize:Nat,ksize:Nat)  = 
@@ -195,11 +240,30 @@ eq encOH(fsize:Nat,ksize:Nat)  =
      else ksize:Nat + (- fsize:Nat) fi) .
      
 ops IM0 IM1 IM2 IM3 : -> ByteSeq .
-eq IM0 = image(1,500,50)  .
-eq IM1 = image(2,250,50)  .
-eq IM0 = image(3,1500,50)  .
+eq IM1 = image(1,500,50)  .
+eq IM2 = image(2,250,50)  .
+eq IM3 = image(3,1500,50)  .
 eq IM0 = image(0,100,50)  .
 
+ops aq0 aq1 aq2 : -> Map{String,JV} .
+
+eq aq0 = ("type" |->  js("media")),  ("start" |-> jb(true)) .
+
+---mastodon-config-influencer-actions
+***(
+eq aq1 = ("sleep" |-> jf(7.6918023510308968)), 
+          ("type" |-> js("media"))  .
+)          
+
+eq aq1 = ("num_to_post" |-> jn(2)), ("type" |-> js("media")) .
+
+--- mastodon-config-influencer-4-actions =
+eq aq2 = ("num_to_post" |-> jn(4)), ("type" |-> js("media")) .
+
+***(
+red getNumToPost(aq0) .
+red chooseImages(IM0 :: IM1 :: IM2 :: IM3,4,2,100) .
+)
 
 
 ops MF0 MF1 : -> MediaFile .
@@ -209,20 +273,39 @@ eq MF1 = image2mediafile(IM1) .
 ops MTGm MTGd   : -> Actor .
 
 ops  Mmedia Mdown  MfetchR MrequestR  : -> ActiveMsg .
-   
+op  Mmq : Map{String,JV} -> ActiveMsg .
 
 ---- crl [mtgen-rcv-action] :
 eq Mmedia =
   {0.2,(to mtgA from umA : 
            actionQ(("type" |->  js("media")) ) )} .
  
+**** aq0 aq1 aq2 
+vars ract : Map{String,JV} .
+eq Mmq(ract) = 
+  {0.2,(to mtgA from umA : actionQ(ract) )}  .
+  
 ---- rew rCtr(0) MTG Mmedia .
 eq MTGm = 
 **** rCtr(2)
-< mtgA : MASTgen | numBHashTags: 5, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA, w4c: (to mcA from mtgA : tootQ( hashTag("meow"), image(2, 250, 50))), replyTo: (to mtgA from umA : actionQ("type" |-> js("media"))), imageL: (image(1, 500, 50) :: image(2, 250, 50)), numImages: 2 > 
+< mtgA : MASTgen | numBHashTags: 5, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA, w4c: (to mcA from mtgA : tootQ( hashTag("purple"), image(0, 100, 50))), replyTo: (to mtgA from umA : actionQ("type" |-> js("media"))), imageL: (image(0, 100, 50) :: image(1, 500, 50)), numImages: 2 >
 .
+**** [ 0.0, to mcA from mtgA : PostStatus("hashtag is #purple", makeMediaFile( "image:I-0-100-50", 100, image(0, 100, 50))), 0]
 
-****[0.0, to mcA from mtgA : PostStatus("hashtag is #meow", makeMediaFile("image:I-2-250-50", 250, image(2, 250, 50))), 0]
+---- rew rCtr(0) MTGi Mmq(aq1) .
+***( rCtr(2)
+< mtgA : MASTgen | numBHashTags: 5, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA, w4c: (to mcA from mtgA : tootQ( hashTag("purple"), image(0, 100, 50) :: image(2, 250, 50))), replyTo: (to mtgA from umA : actionQ(("num_to_post" |-> jn(2), "type" |-> js("media")))), imageL: (image(0, 100, 50) :: image(1, 500, 50) :: image(2, 250, 50) :: image(3, 1500, 50)), numImages: 4 > 
+)
+
+**** [0.0, to mcA from mtgA : PostStatus("hashtag is #purple", makeMediaFile( "image:I-0-100-50", 100, image(0, 100, 50)) :: makeMediaFile("image:I-2-250-50", 250, image(2, 250, 50))), 0]
+
+---- rew rCtr(0) MTGi Mmq(aq2) .
+***(
+rCtr(2) 
+< mtgA : MASTgen | numBHashTags: 5, hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple"), mcAddress: mcA, w4c: (to mcA from mtgA : tootQ( hashTag("purple"), image(3, 1500, 50) :: image(2, 250, 50) :: image(0, 100, 50) :: image(1, 500, 50))), replyTo: (to mtgA from umA : actionQ(("num_to_post" |-> jn(4), "type" |-> js("media")))), imageL: (image(0, 100, 50) :: image(1, 500, 50) :: image( 2, 250, 50) :: image(3, 1500, 50)), numImages: 4 > 
+[0.0, to mcA from mtgA : PostStatus("hashtag is #purple", makeMediaFile("image:I-3-1500-50", 1500, image(3, 1500, 50)) :: makeMediaFile("image:I-2-250-50", 250, image(2, 250, 50)) :: makeMediaFile("image:I-0-100-50", 100, image(0, 100, 50)) :: makeMediaFile( "image:I-1-500-50", 500, image(1, 500, 50))), 0] 
+)
+ 
  
 eq Mdown = 
   {0.2,(to mtgA from umA : 
