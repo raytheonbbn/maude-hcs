@@ -192,7 +192,7 @@ class WMonitor:
         return f'< {self.address} : WMonitor | Attrs >'
 
     def to_maude(self) -> str:
-        return f'makeMonitor({address_to_maude(self.address)})'
+        return f'mkWMonitor({address_to_maude(self.address)})'
 
     def to_maude_full(self) -> str:
         res = f'< {address_to_maude(self.address)} : WMonitor |\n'
