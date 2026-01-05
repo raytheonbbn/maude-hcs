@@ -67,7 +67,7 @@ mod MASTODON is
   --- [Mastodon Client] --- Rules
   -------------------------------
 
-  op pendingHttpReq : Config Nat -> Config .
+  op pendingHttpReq : Config Nat -> Content .
 
   --- Receive HTTP Response from server.
   crl [mascl-receive-http-resp]:
@@ -97,8 +97,8 @@ mod MASTODON is
   => 
   < MAS_CLIENT_ADDR : MasClient | attrsNext, timeOfLastDNSResp: T_DNSLAST, DNSRespLifetime: DNS_LIFETIME, gotFirstDNSResp: B, DNSReqIDToSend: N2, DNSAddr: addr-nameserver >
     --- TODO: Figure out what the correct delay should be.
-    (if ((not B) or (T - T_DNSLAST) > DNS_LIFETIME) then [0., pendingHttpReq(msgOut, N2), 0] else delayMsgs(msgOut, null) fi)
-    (if ((not B) or (T - T_DNSLAST) > DNS_LIFETIME) then [0., (to addr-nameserver from MAS_CLIENT_ADDR : query(N2, 'pwnd2 . 'com, a)), 0] else nil fi)
+    (if ((not B) or (T - T_DNSLAST) > DNS_LIFETIME) then [99., (to MAS_CLIENT_ADDR : pendingHttpReq(msgOut, N2)), 0] else delayMsgs(msgOut, null) fi)
+    (if ((not B) or (T - T_DNSLAST) > DNS_LIFETIME) then [0., (to addr-nameserver from MAS_CLIENT_ADDR : query(N2, 'pwnd2 . 'com, a)), 0] else nullMsg fi)
     [0., (to raceboatCl from MAS_CLIENT_ADDR : mkRequestResponse("ACCEPTED")), 0]
   if { attrsNext, msgOut } := dispatchRaceboatCommand(attrs, raceboatReq)
     /\ opStack:OpStack := getOpStack(attrsNext)
