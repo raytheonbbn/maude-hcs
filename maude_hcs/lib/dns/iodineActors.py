@@ -33,6 +33,14 @@ from Maude.attack_exploration.src.actors import Nameserver, Resolver
 from .utils import packetlist_to_maude
 from .cache import ResolverCache
 
+class Ctr:
+    def __init__(self, seed) -> None:
+        self.seed = seed
+        self.address = None
+
+    def to_maude(self) -> str:
+        return f'rCtr({self.seed})'
+
 class Router:
 
     def __init__(self, address) -> None:
