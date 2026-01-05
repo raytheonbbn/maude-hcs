@@ -25,21 +25,40 @@ class RaceboatClient:
     eq makeDestiniActor(destiniAddr, coverImages:ByteSeqL) =
     < destiniAddr : ED |
     """
-    def __init__(self, userModelAddress, profile:str, contentManagerAddress, masClientAddress, destiniAddress, destiniObj:Destini) -> None:
-        self.userModelAddress = userModelAddress
+
+    def __init__(self, addressPrefix:str, profile: str, destiniObj: Destini, images_identifier:str, mastodon_server: str, X:bool) -> None:
+        self.userModelAddress = address_to_maude(f'{addressPrefix}-UM')
         self.profile = profile
-        self.contentManagerAddress = contentManagerAddress
-        self.destiniAddress = destiniAddress
+        self.contentManagerAddress = address_to_maude(f'{addressPrefix}-content-manager')
+        self.destiniAddress = address_to_maude(f'{addressPrefix}-destini')
         self.destiniObj = destiniObj
-        self.masClientAddress = masClientAddress
+        self.masClientAddress = address_to_maude(f'{addressPrefix}-mas-client')
+        self.mastodon_server = mastodon_server
+        self.images_identifier = images_identifier
+        self.X = X
+        self.address = self.contentManagerAddress # DO NOT MODIFY
+
+    def to_maude_defs(self):
+        s = self.destiniObj.to_maude(self.images_identifier)
+        return s
 
     def to_maude_usermodel(self):
-        return f'mkUMactor({address_to_maude(self.userModelAddress)},{address_to_maude(self.profile)}-ma, {address_to_maude(self.contentManagerAddress)})\n'
+        return f'mkUMactor({address_to_maude(self.userModelAddress)},{address_to_maude(self.profile)}-ma, {address_to_maude(self.contentManagerAddress)})'
+
+    def to_maude_mas_client(self):
+        pass
+
+    def to_maude_destini(self):
+        s = f'makeDestiniActor({self.destiniAddress}, {self.images_identifier})\n'
+        return s
+
+    def to_maude_content_manager(self):
+        pass
 
     def to_maude(self) -> str:
         str = '---- raceboat client ----\n'
-        str += self.to_maude_usermodel()
-        str += self.to_maude_content_manager()
-        str += self.make_destini()
-        str += self.to_maude_mas_cleint()
+        str += f'{self.to_maude_usermodel()}\n'
+        str += f'{self.to_maude_content_manager()}\n'
+        str += f'{self.to_maude_destini()}\n'
+        str += f'{self.to_maude_mas_client()}\n'
         return str

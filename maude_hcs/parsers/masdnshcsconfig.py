@@ -126,6 +126,8 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
             else:
                 raise Exception('mastodon server address not found in network')
 
+        def profilify(s:str)->str:
+            return "mas-" + s.replace(".json", "").replace("_", "-")
         # > now the weird nets
         tun = Tunnel()
         tun.receiver_northbound_addr = app.bob_address
@@ -136,8 +138,8 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
         mas_wn.rcv_app_address = f'{bob}-mas-rcv-app'
         mas_wn.tunnel_client_addr = f'{app.alice_address}-raceboat-client'
         mas_wn.tunnel_server_addr = f'{app.alice_address}-raceboat-server'
-        mas_wn.alice_raceboat_profife = ymlconf.application.alice.raceboat_prof
-        mas_wn.bob_raceboat_profife = ymlconf.application.bob.raceboat_prof
+        mas_wn.alice_raceboat_profile = profilify(ymlconf.application.alice.raceboat_prof_config)
+        mas_wn.bob_raceboat_profile = profilify(ymlconf.application.bob.raceboat_prof_config)
 
         # > bg
         i = 0
@@ -150,7 +152,7 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
                     C = MASBackgroundTrafficTgenClient()
                     C.client_name = f'mas-tgen-client-{(i+j)}'
                     # this converts it to an importable module name
-                    C.client_markov_model_profile =  "mas-" + json_prof.replace(".json","").replace("_", "-")
+                    C.client_markov_model_profile =  profilify(json_prof)
                     # search for the json_prof file and grab the parameters dict
                     # use that to set the retry and lifetime
                     # we have already copied the json file to the right directory in maude_hcs, find it

@@ -41,6 +41,14 @@ class MASTGenClient(TGenClient):
         self.mastodon_server = mastodon_server
         self.X = X
 
+    def to_maude_defs(self):
+        res = ''
+        if self.images:
+            res += '---- defining the images list \n'
+            res += self.images.to_maude(self.images_id)
+            res += '\n'
+        return res
+
     def to_maude(self) -> str:
         # **** umActor for masTGEN
         #   mkUMactor(umA,mas-ma,mtgA)
@@ -56,11 +64,8 @@ class MASTGenClient(TGenClient):
         if self.X:
             toaddr = f'X({toaddr})'
         res = ''
-        if self.images:
-            res += '---- defining the images list \n'
-            res += self.images.to_maude(self.images_id)
-            res += '\n'
-        res += f'makeMastodonClient({masClAddr}, {toaddr}, {tgAddr})\n'
+        mastodonClient = MastodonClient(masClAddr, toaddr, tgAddr)
+        res += f'{mastodonClient.to_maude()}\n'
         res += f'mkMasTGenActor({tgAddr}, {masClAddr}, {self.images_id}, {address_to_maude(self.profile)}-ma)\n'
         res += f'mkUMactor({tgUMAddr},{address_to_maude(self.profile)}-ma,{tgAddr})\n'
         res += f'[{self.startTime}, (to {tgUMAddr} from {tgUMAddr} : actionR("")), 0]'

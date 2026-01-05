@@ -36,6 +36,8 @@ from .iodineActors import IodineServer, SendApp, PacedClient, ReceiveApp, TGenCl
 from pathlib import Path
 
 from .. import GLOBALS
+from ..mastodon.mastodonActors import MASTGenClient
+from ..raceboat.raceboatActors import RaceboatClient
 from ...parsers.markovJsonToMaudeParser import find_recursively
 
 
@@ -62,8 +64,11 @@ class IodineDNSConfig(DNSConfig):
             addresses.append(app.address)
         for actor in self.tunnels:
             addresses.append(actor.address)
-            if isinstance(actor, IodineServer):
-                addresses.append(actor.address)
+            if isinstance(actor, RaceboatClient):
+                addresses.append(actor.userModelAddress)
+                addresses.append(actor.contentManagerAddress)
+                addresses.append(actor.destiniAddress)
+                addresses.append(actor.masClientAddress)
         return sorted(set(addresses))
     
     def _get_zones(self):        
@@ -76,6 +81,21 @@ class IodineDNSConfig(DNSConfig):
             if isinstance(actor, IodineServer):
                 zones = zones.union(set(actor.zones))
         return zones
+
+    def _to_maude_common_definitions(self, param_dict) -> str:
+        defs = super()._to_maude_common_definitions(param_dict)
+        # Tgen actors and raceboat/destini have image list defs, include here
+        for client in self.paced_clients:
+            if isinstance(client, MASTGenClient):
+                _d = client.to_maude_defs()
+                if _d.strip():
+                    defs += _d + '\n'
+        for tun in self.tunnels:
+            if isinstance(tun, RaceboatClient):
+                _d += tun.to_maude_defs()
+                if _d.strip():
+                    defs += _d + '\n'
+        return defs
 
     # Override
     def _maude_loads(self, path, model):
