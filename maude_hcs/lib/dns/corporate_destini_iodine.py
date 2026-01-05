@@ -43,7 +43,7 @@ import logging
 
 from .. import GLOBALS, Protocol
 from ..mastodon.mastodonActors import MastodonServer, MastodonClient, MASTGenClient
-from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer
+from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp, RbRcvApp
 from ...deps.dns_formalization.Maude.attack_exploration.src.zone import Record
 from ...parsers.dnshcsconfig import DNSUnderlyingNetwork, DNSWeirdNetwork, DNSBackgroundTrafficTgenClient
 from ...parsers.hcsconfig import HCSConfig
@@ -167,8 +167,10 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
                                 mastodon_server_address, False)
 
     # applications
-
-
+    app = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].application
+    mainSndApp = RbSendApp(app.alice_address, app.bob_address, sndApp.address, raceboatCl.userModelAddress, raceboatCl.contentManagerAddress, app.xfiles)
+    mainRcvApp = RbRcvApp(app.bob_address, app.alice_address, rcvApp.address, raceboatSvr.userModelAddress,
+                           raceboatSvr.contentManagerAddress)
     # adversary
     # TODO
 
@@ -197,7 +199,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
             destiniobj = Destini.from_dict(images)
         # output this once
         tgen_clients.append(MASTGenClient(f'tgen-mas-{index}', client.client_markov_model_profile, client.start_time, False, client.client_username, client.client_hashtags, destiniobj, images_id, mastodon_server_address, True))
-    C = IodineDNSConfig([Ctr(hcsconf.seed), router], monitor, [sndApp, rcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
+    C = IodineDNSConfig([Ctr(hcsconf.seed), router], monitor, [sndApp, rcvApp, mainSndApp, mainRcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     ndp = {}
     pp = {}
     for pname,protocol in hcsconf.protocols.items():

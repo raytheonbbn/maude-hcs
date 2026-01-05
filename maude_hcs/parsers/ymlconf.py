@@ -11,6 +11,7 @@ from pathlib import Path
 from maude_hcs import PROJECT_TOPLEVEL_DIR
 from maude_hcs.parsers.graph import Topology
 from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
+from maude_hcs.parsers.protocolconfig import XFile
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ class Alice:
     mastodon_user: str
     raceboat_prof_config: str
     raceboat_prof: str
+    xfiles: List[XFile]
 
 @dataclass_json
 @dataclass
@@ -245,7 +247,8 @@ class YmlConf:
         alice = Alice(
             mastodon_user=alice_data.get('mastodon_user', ''),
             raceboat_prof_config=alice_data.get('raceboat_prof_config', ''),
-            raceboat_prof=alice_data.get('raceboat_prof', '')
+            raceboat_prof=alice_data.get('raceboat_prof', ''),
+            xfiles=[XFile(0, 50)] # TODO fix when in yml conf
         )
 
         # Bob

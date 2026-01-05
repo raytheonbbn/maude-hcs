@@ -113,6 +113,7 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
         app = DuplexApplication()
         app.alice_address = alice
         app.bob_address = bob
+        app.xfiles = ymlconf.application.alice.xfiles
 
         m_un = MASUnderlyingNetwork()
         m_un.module = 'mastodon'
