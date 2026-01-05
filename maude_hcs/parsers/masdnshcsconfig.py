@@ -127,7 +127,7 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
                 raise Exception('mastodon server address not found in network')
 
         def profilify(s:str)->str:
-            return "mas-" + s.replace(".json", "").replace("_", "-")
+            return f"{Protocol.MASTODON.value}-" + s.replace(".json", "").replace("_", "-")
         # > now the weird nets
         tun = Tunnel()
         tun.receiver_northbound_addr = app.bob_address

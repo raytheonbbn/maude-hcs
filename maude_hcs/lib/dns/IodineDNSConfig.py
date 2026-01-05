@@ -120,9 +120,18 @@ class IodineDNSConfig(DNSConfig):
                     mod = '_'.join(tc.profile.replace('-', '_').split('_')[1:])
                     file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude')
                     tgen_loads.add(f'sload {file}')
+            rb_loads = set()
+            for actor in self.tunnels:
+                if isinstance(actor, RaceboatClient):
+                    mod = '_'.join(actor.profile.replace('-', '_').split('_')[1:])
+                    file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude')
+                    rb_loads.add(f'sload {file}')
             if tgen_loads:
                 res += '\n ---- tgen models\n'
-                res += '\n'.join(tgen_loads)
+                res += '\n'.join(sorted(tgen_loads))
+            if rb_loads:
+                res += '\n ---- raceboat models\n'
+                res += '\n'.join(sorted(rb_loads))
 
             return res
 
@@ -141,17 +150,25 @@ class IodineDNSConfig(DNSConfig):
           ' inc ADVERSARY-OBSERVER .'
         ]
         if model == 'prob':
-
             res = '\n'.join(includes)
+            # TGEN models
             tgen_incs = set()
             for tc in self.paced_clients:
                 if isinstance(tc, TGenClient):
                     tgen_incs.add(f' inc {tc.profile.upper()}-MAMODEL .')
             if tgen_incs:
-                res += '\n ---- tgen includes\n'
-                res += '\n'.join(tgen_incs)
+                res += '\n ---- tgen model includes\n'
+                res += '\n'.join(sorted(tgen_incs))
+                # res += '\n'
+            # Raceboat models
+            rb_incs = set()
+            for actor in self.tunnels:
+                if isinstance(actor, RaceboatClient):
+                    rb_incs.add(f' inc {actor.profile.upper()}-MAMODEL .')
+            if rb_incs:
+                res += '\n ---- raceboat model includes\n'
+                res += '\n'.join(sorted(rb_incs))
                 res += '\n'
-
             return res
 
     # Override to add tunnels and applications to conf
