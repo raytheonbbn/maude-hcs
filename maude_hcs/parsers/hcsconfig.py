@@ -49,10 +49,11 @@ class HCSConfig:
     """
     An HCS config comprising a set of protocol configurations.
     """
-    name: str    
+    name: str
     topology: Topology
     output: Output
     monitor_address: str
+    seed: int
     protocols: dict[str, HCSProtocolConfig] # each protocol is keyed by name
 
     @staticmethod
@@ -69,6 +70,7 @@ class HCSConfig:
                         topology=shadowconf.network,
                         output=Output.generic(),
                         monitor_address=GLOBALS.MONITOR_ADDRESS,
+                         seed=1,
                        protocols=protocols)
 
     @staticmethod
@@ -88,6 +90,7 @@ class HCSConfig:
                          topology=ymlconf.network,
                          output=Output.generic(),
                          monitor_address=GLOBALS.MONITOR_ADDRESS,
+                         seed=1,
                          protocols=protocols)
 
 

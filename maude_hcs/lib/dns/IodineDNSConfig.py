@@ -42,8 +42,8 @@ from ...parsers.markovJsonToMaudeParser import find_recursively
 
 
 class IodineDNSConfig(DNSConfig):
-    def __init__(self, routers, monitor, applications, weird_networks, clients, paced_clients, resolvers, nameservers, root_nameservers, network) -> None:
-        self.routers = routers
+    def __init__(self, standaloneActors, monitor, applications, weird_networks, clients, paced_clients, resolvers, nameservers, root_nameservers, network) -> None:
+        self.standaloneActors = standaloneActors
         self.monitor = monitor
         self.paced_clients = paced_clients
         self.applications = applications
@@ -54,8 +54,9 @@ class IodineDNSConfig(DNSConfig):
     def _get_actor_addresses(self):
         addresses = super()._get_actor_addresses()
         addresses.append(self.monitor.address)
-        for router in self.routers:
-            addresses.append(router.address)
+        for router in self.standaloneActors:
+            if router.address:
+                addresses.append(router.address)
         for client in self.paced_clients:
             addresses.append(client.address)
             if isinstance(client, TGenClient):
@@ -175,7 +176,7 @@ class IodineDNSConfig(DNSConfig):
     def _to_maude_actors(self) -> str:
         res = super()._to_maude_actors()
         res += '  --- routers\n'
-        for router in self.routers:
+        for router in self.standaloneActors:
             res += '  ' + router.to_maude() + '\n'
         res += '  --- tunnels\n'
         for tunnel in self.tunnels:

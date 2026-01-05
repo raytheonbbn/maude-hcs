@@ -34,7 +34,7 @@ from Maude.attack_exploration.src.actors import Nameserver, Client
 from Maude.attack_exploration.src.query import Query
 from Maude.attack_exploration.src.network import *
 from maude_hcs.lib.dns.iodineActors import TGenClient, Router, IodineClient, IodineServer, SendApp, ReceiveApp, \
-    WMonitor, IResolver, DNSTGenClient
+    WMonitor, IResolver, DNSTGenClient, Ctr
 from maude_hcs.parsers.masdnshcsconfig import MASHCSProtocolConfig, \
     MASBackgroundTrafficTgenClient, MASUnderlyingNetwork, MASWeirdNetwork
 from .cache import CacheEntry, ResolverCache
@@ -167,6 +167,9 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
                                 mastodon_server_address, False)
 
     # applications
+
+
+    # adversary
     # TODO
 
     # monitor
@@ -194,7 +197,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
             destiniobj = Destini.from_dict(images)
         # output this once
         tgen_clients.append(MASTGenClient(f'tgen-mas-{index}', client.client_markov_model_profile, client.start_time, False, client.client_username, client.client_hashtags, destiniobj, images_id, mastodon_server_address, True))
-    C = IodineDNSConfig([router], monitor, [sndApp, rcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
+    C = IodineDNSConfig([Ctr(hcsconf.seed), router], monitor, [sndApp, rcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     ndp = {}
     pp = {}
     for pname,protocol in hcsconf.protocols.items():
