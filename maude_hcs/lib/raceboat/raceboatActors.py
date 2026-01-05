@@ -1,3 +1,4 @@
+from maude_hcs.lib.mastodon.mastodonActors import MastodonClient
 from maude_hcs.parsers.ymlconf import Destini
 from Maude.attack_exploration.src.conversion_utils import address_to_maude, name_to_maude, rtype_to_maude
 
@@ -46,19 +47,20 @@ class RaceboatClient:
         return f'mkUMactor({address_to_maude(self.userModelAddress)},{address_to_maude(self.profile)}-ma, {address_to_maude(self.contentManagerAddress)})'
 
     def to_maude_mas_client(self):
-        pass
+        mc = MastodonClient(self.masClientAddress, self.mastodon_server, self.contentManagerAddress)
+        return mc.to_maude()
 
     def to_maude_destini(self):
         s = f'makeDestiniActor({self.destiniAddress}, {self.images_identifier})\n'
         return s
 
     def to_maude_content_manager(self):
-        pass
+        return f'mkCMClient({address_to_maude(self.contentManagerAddress)}, {address_to_maude(self.destiniAddress)}, {address_to_maude(self.masClientAddress)}, 3, {address_to_maude(self.profile)}-ma)\n'
 
     def to_maude(self) -> str:
         str = '---- raceboat client ----\n'
         str += f'{self.to_maude_usermodel()}\n'
-        str += f'{self.to_maude_content_manager()}\n'
-        str += f'{self.to_maude_destini()}\n'
-        str += f'{self.to_maude_mas_client()}\n'
+        str += f'{self.to_maude_content_manager()}'
+        str += f'{self.to_maude_destini()}'
+        str += f'{self.to_maude_mas_client()}'
         return str
