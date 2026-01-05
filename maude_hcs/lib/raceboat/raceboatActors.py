@@ -27,8 +27,9 @@ class RaceboatClient:
     < destiniAddr : ED |
     """
 
-    def __init__(self, addressPrefix:str, profile: str, destiniObj: Destini, images_identifier:str, mastodon_server: str, X:bool) -> None:
+    def __init__(self, addressPrefix:str, northbound_address:str, profile: str, destiniObj: Destini, images_identifier:str, mastodon_server: str, X:bool) -> None:
         self.userModelAddress = address_to_maude(f'{addressPrefix}-UM')
+        self.northbound_address = northbound_address
         self.profile = profile
         self.contentManagerAddress = address_to_maude(f'{addressPrefix}-content-manager')
         self.destiniAddress = address_to_maude(f'{addressPrefix}-destini')
@@ -38,6 +39,7 @@ class RaceboatClient:
         self.images_identifier = images_identifier
         self.X = X
         self.address = self.contentManagerAddress # DO NOT MODIFY
+        self.type = 'Client'  # DO NOT MODIFY
 
     def to_maude_defs(self):
         s = self.destiniObj.to_maude(self.images_identifier)
@@ -47,7 +49,7 @@ class RaceboatClient:
         return f'mkUMactor({address_to_maude(self.userModelAddress)},{address_to_maude(self.profile)}-ma, {address_to_maude(self.contentManagerAddress)})'
 
     def to_maude_mas_client(self):
-        mc = MastodonClient(self.masClientAddress, self.mastodon_server, self.contentManagerAddress)
+        mc = MastodonClient(self.masClientAddress, self.mastodon_server, self.contentManagerAddress, self.X)
         return mc.to_maude()
 
     def to_maude_destini(self):
@@ -55,12 +57,37 @@ class RaceboatClient:
         return s
 
     def to_maude_content_manager(self):
-        return f'mkCMClient({address_to_maude(self.contentManagerAddress)}, {address_to_maude(self.destiniAddress)}, {address_to_maude(self.masClientAddress)}, 3, {address_to_maude(self.profile)}-ma)\n'
+        if self.type == 'Client':
+            return f'mkCMClient({address_to_maude(self.contentManagerAddress)}, {address_to_maude(self.destiniAddress)}, {address_to_maude(self.masClientAddress)}, 3, {address_to_maude(self.profile)}-ma)\n'
+        return f'mkCMServer({address_to_maude(self.contentManagerAddress)}, {address_to_maude(self.destiniAddress)}, {address_to_maude(self.masClientAddress)}, {address_to_maude(self.northbound_address)}, 3, {address_to_maude(self.profile)}-ma)\n'
 
     def to_maude(self) -> str:
-        str = '---- raceboat client ----\n'
-        str += f'{self.to_maude_usermodel()}\n'
-        str += f'{self.to_maude_content_manager()}'
-        str += f'{self.to_maude_destini()}'
-        str += f'{self.to_maude_mas_client()}'
+        str = f'---- raceboat {self.type} ----\n'
+        str += f'  {self.to_maude_usermodel()}\n'
+        str += f'  {self.to_maude_content_manager()}'
+        str += f'  {self.to_maude_destini()}'
+        str += f'  {self.to_maude_mas_client()}'
         return str
+
+class RaceboatServer(RaceboatClient):
+    """
+    makeRbServer(serverUserModel, serverContentMgr, serverDestini, bobMasClient, bob)
+    makeMastodonClient(bobMasClient,
+                     mastodon-server,
+                     serverContentMgr)
+    --- where
+    op makeRbServer : Address Address Address Address Address -> Config .
+    eq makeRbServer(userModel:Address,
+                    contentMgr:Address,
+                    destini:Address,
+                    masClient:Address,
+                    bob:Address) =
+      mkUMactor(userModel:Address, mas-ma, contentMgr:Address)
+      mkCMServer(contentMgr:Address, destini:Address, masClient:Address, bob:Address, 3, mas-ma)
+      makeDestiniActor(destini:Address, Imls)
+    """
+
+    def __init__(self, addressPrefix: str, northbound_address:str, profile: str, destiniObj: Destini, images_identifier: str,
+                 mastodon_server: str, X: bool):
+        super().__init__(addressPrefix, northbound_address, profile, destiniObj, images_identifier, mastodon_server, X)
+        self.type = 'Server'
