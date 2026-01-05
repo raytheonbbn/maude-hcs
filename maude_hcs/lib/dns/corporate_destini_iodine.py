@@ -43,7 +43,7 @@ import logging
 
 from .. import GLOBALS, Protocol
 from ..mastodon.mastodonActors import MastodonServer, MastodonClient, MASTGenClient
-from ..raceboat.raceboatActors import RaceboatClient
+from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer
 from ...deps.dns_formalization.Maude.attack_exploration.src.zone import Record
 from ...parsers.dnshcsconfig import DNSUnderlyingNetwork, DNSWeirdNetwork, DNSBackgroundTrafficTgenClient
 from ...parsers.hcsconfig import HCSConfig
@@ -161,7 +161,10 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     ## raceboat tunnel client and server with
     rb_images = find_and_load_json(GLOBALS.TOPLEVELDIR, 'destini_covers.json')
     rb_destiniobj = Destini.from_dict(rb_images)
-    raceboatCl = RaceboatClient(mas_weird_network.tunnel_client_addr, mas_weird_network.alice_raceboat_profile, rb_destiniobj, 'destini-covers', mastodon_server_address, True)
+    raceboatCl = RaceboatClient(mas_weird_network.tunnel_client_addr, mas_weird_network.sender_northbound_addr, mas_weird_network.alice_raceboat_profile, rb_destiniobj, 'destini-covers', mastodon_server_address, True)
+    raceboatSvr = RaceboatServer(mas_weird_network.tunnel_server_addr, mas_weird_network.receiver_northbound_addr,
+                                mas_weird_network.bob_raceboat_profile, rb_destiniobj, 'destini-covers',
+                                mastodon_server_address, False)
 
     # applications
     # TODO
@@ -191,7 +194,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
             destiniobj = Destini.from_dict(images)
         # output this once
         tgen_clients.append(MASTGenClient(f'tgen-mas-{index}', client.client_markov_model_profile, client.start_time, False, client.client_username, client.client_hashtags, destiniobj, images_id, mastodon_server_address, True))
-    C = IodineDNSConfig([router], monitor, [sndApp, rcvApp], [iodineCl, iodineSvr, masServer, raceboatCl], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
+    C = IodineDNSConfig([router], monitor, [sndApp, rcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     ndp = {}
     pp = {}
     for pname,protocol in hcsconf.protocols.items():

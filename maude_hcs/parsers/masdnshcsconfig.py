@@ -137,7 +137,7 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
         mas_wn.send_app_address = f'{app.alice_address}-mas-snd-app'
         mas_wn.rcv_app_address = f'{bob}-mas-rcv-app'
         mas_wn.tunnel_client_addr = f'{app.alice_address}-raceboat-client'
-        mas_wn.tunnel_server_addr = f'{app.alice_address}-raceboat-server'
+        mas_wn.tunnel_server_addr = f'{app.bob_address}-raceboat-server'
         mas_wn.alice_raceboat_profile = profilify(ymlconf.application.alice.raceboat_prof_config)
         mas_wn.bob_raceboat_profile = profilify(ymlconf.application.bob.raceboat_prof_config)
 

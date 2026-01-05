@@ -37,7 +37,7 @@ from pathlib import Path
 
 from .. import GLOBALS
 from ..mastodon.mastodonActors import MASTGenClient
-from ..raceboat.raceboatActors import RaceboatClient
+from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer
 from ...parsers.markovJsonToMaudeParser import find_recursively
 
 
@@ -64,7 +64,7 @@ class IodineDNSConfig(DNSConfig):
             addresses.append(app.address)
         for actor in self.tunnels:
             addresses.append(actor.address)
-            if isinstance(actor, RaceboatClient):
+            if isinstance(actor, RaceboatClient) or isinstance(actor, RaceboatServer):
                 addresses.append(actor.userModelAddress)
                 addresses.append(actor.contentManagerAddress)
                 addresses.append(actor.destiniAddress)
@@ -85,12 +85,12 @@ class IodineDNSConfig(DNSConfig):
     def _to_maude_common_definitions(self, param_dict) -> str:
         defs = super()._to_maude_common_definitions(param_dict)
         # Tgen actors and raceboat/destini have image list defs, include here
-        for client in self.paced_clients:
+        for client in sorted(self.paced_clients, key=lambda x: x.address):
             if isinstance(client, MASTGenClient):
                 _d = client.to_maude_defs()
                 if _d.strip():
                     defs += _d + '\n'
-        for tun in self.tunnels:
+        for tun in sorted(self.tunnels, key=lambda x: x.address):
             if isinstance(tun, RaceboatClient):
                 _d += tun.to_maude_defs()
                 if _d.strip():
@@ -122,7 +122,7 @@ class IodineDNSConfig(DNSConfig):
                     tgen_loads.add(f'sload {file}')
             rb_loads = set()
             for actor in self.tunnels:
-                if isinstance(actor, RaceboatClient):
+                if isinstance(actor, RaceboatClient) or isinstance(actor, RaceboatServer):
                     mod = '_'.join(actor.profile.replace('-', '_').split('_')[1:])
                     file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude')
                     rb_loads.add(f'sload {file}')
@@ -163,7 +163,7 @@ class IodineDNSConfig(DNSConfig):
             # Raceboat models
             rb_incs = set()
             for actor in self.tunnels:
-                if isinstance(actor, RaceboatClient):
+                if isinstance(actor, RaceboatClient) or isinstance(actor, RaceboatServer):
                     rb_incs.add(f' inc {actor.profile.upper()}-MAMODEL .')
             if rb_incs:
                 res += '\n ---- raceboat model includes\n'
