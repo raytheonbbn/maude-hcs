@@ -139,9 +139,6 @@ class BackgroundTrafficTgen(DataClassJsonMixin):
         bg.clients = CLS
         return bg
 
-
-
-
 @dataclass_json
 @dataclass
 class Tunnel(WeirdNetwork):
@@ -155,10 +152,23 @@ class Tunnel(WeirdNetwork):
 
 @dataclass_json
 @dataclass
+class XFile:
+    id: int = 0
+    size_bytes : int = 1
+
+    def to_maude(self):
+        return f'file({self.id}, {self.size_bytes})'
+
+def files_to_maude(files:list[XFile]):
+    return ' :: '.join(x.to_maude() for x in files)
+
+@dataclass_json
+@dataclass
 class DuplexApplication(Application):
-    module: str = 'NA'
+    module: str = 'duplex'
     alice_address: str = ''
     bob_address: str = ''
+    xfiles : list[XFile] = field(default_factory=list)
 
 @dataclass
 class HCSProtocolConfig(DataClassJsonMixin):

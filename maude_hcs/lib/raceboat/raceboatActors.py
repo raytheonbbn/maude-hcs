@@ -1,4 +1,5 @@
 from maude_hcs.lib.mastodon.mastodonActors import MastodonClient
+from maude_hcs.parsers.protocolconfig import XFile, files_to_maude
 from maude_hcs.parsers.ymlconf import Destini
 from Maude.attack_exploration.src.conversion_utils import address_to_maude, name_to_maude, rtype_to_maude
 
@@ -91,3 +92,62 @@ class RaceboatServer(RaceboatClient):
                  mastodon_server: str, X: bool):
         super().__init__(addressPrefix, northbound_address, profile, destiniObj, images_identifier, mastodon_server, X)
         self.type = 'Server'
+
+class RbSendApp:
+    """
+        makeTxApp(alice, bob, iodineSendApp, clientUserModel, clientContentMgr, file(0, 50) :: file(1,50))
+        ---            This    Dest    Iodine  UserModel ContentMgr Contracts
+        op makeTxApp : Address Address Address Address   Address    ByteSeqL -> Actor [ctor] .
+        eq makeTxApp(AliceAddr:Address,
+                   BobAddr:Address,
+                   iodine:Address,
+                   userModel:Address,
+                   contentMgr:Address,
+                   contracts:ByteSeqL) =
+        < AliceAddr:Address : TxApp |
+            destAddr: BobAddr:Address,
+            iodineAddr: iodine:Address,
+            rbUserModelAddr: userModel:Address,
+            rbContentMgrAddr: contentMgr:Address,
+            contractCount: 0,
+            queue: contracts:ByteSeqL,
+            currentCcFile: nilBytes
+        > .
+    """
+    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, xfiles: list[XFile]):
+        self.address = address_to_maude(address)
+        self.toAddress = toAddress
+        self.iodineTunAddress = iodineTunAddress
+        self.rbUMAddress = rbUMAddress
+        self.rbCMAddress = rbCMAddress
+        self.xfiles = xfiles
+
+    def to_maude(self):
+        return f'makeTxApp({address_to_maude(self.address)}, {address_to_maude(self.toAddress)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)}, {files_to_maude(self.xfiles)})'
+
+
+class RbRcvApp:
+    """
+        makeRxApp(bobapp, iodineBob, serverUserModel, serverContentMgr)
+          ---            This    Iodine    UserModel ContentMgr
+          op makeRxApp : Address Address   Address   Address -> Actor [ctor] .
+          eq makeRxApp(BobAddr:Address, Iodine:Address, rbUserModel:Address, rbContentMgr:Address) =
+            < BobAddr:Address : RxApp |
+                iodineAddr: Iodine:Address,
+                rbUserModelAddr: rbUserModel:Address,
+                rbContentMgrAddr: rbContentMgr:Address,
+                currentKey: nilBytes,
+                currentHash: nilBytes,
+                currentHashTag: nilBytes,
+                rcvd: emptyFileList
+            > .
+    """
+    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str):
+        self.address = address_to_maude(address)
+        self.toAddress = toAddress
+        self.iodineTunAddress = iodineTunAddress
+        self.rbUMAddress = rbUMAddress
+        self.rbCMAddress = rbCMAddress
+
+    def to_maude(self):
+        return f'makeRxApp({address_to_maude(self.address)}, {address_to_maude(self.toAddress)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)})'
