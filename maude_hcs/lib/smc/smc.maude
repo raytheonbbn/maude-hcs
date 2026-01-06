@@ -48,6 +48,7 @@ mod SMC is
   var ADDR AppAddrFrom AppAddrTo : Address .
 
   var QTL QTL' : QueryTimestampList .
+  vars BTL BTL' : ByteSeqTimestampList .
   var QUERY : Query .
   var RESP : Response .
   var HREQ : HttpRequest .
@@ -98,11 +99,19 @@ mod SMC is
   eq exfilEndTime (nilPacketTimestamp) = 0.0 .
   eq exfilEndTime (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T)) = if isGoodAckFile(bytes) then T else exfilEndTime(PTL) fi .
 
+  op exfilStartTime : ByteSeqTimestampList -> Float .
+  eq exfilStartTime (nilByteSeqTimestamp) = 0.0 .
+  eq exfilStartTime (fileTimeStamp(file(id, len), T) ; BTL) = T .
+
+  op exfilEndTime : ByteSeqTimestampList -> Float .
+  eq exfilEndTime (nilByteSeqTimestamp) = 0.0 .
+  eq exfilEndTime (BTL ; fileTimeStamp(file(id, len), T)) = T .
+
   --- Scenario Latency: Length of time to exfil entire directory of files, in seconds
   --- Starts at “Preparing File 0…” line in application client log
   --- Finishes at “Got File n ACK (GOOD)” line in application client log
   op getLatencyCP2 : Actor -> Float .
-  eq getLatencyCP2 (< ADDR : WMonitor | pktSent: PTL, pktRcvd: PTL', attrs >) = exfilEndTime(PTL') - exfilStartTime(PTL) .
+  eq getLatencyCP2 (< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) = exfilEndTime(BTL') - exfilStartTime(BTL) .
 
   op getLatency : Actor -> Float .
   eq getLatency (A:Actor) = getLatencyCP2(A) .
@@ -115,9 +124,13 @@ mod SMC is
   eq ccFileNBytes (packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL) = if isCCFile(bytes) then float(getSize(bytes)) + ccFileNBytes(PTL) else ccFileNBytes(PTL) fi .
   eq ccFileNBytes (packetTimestamp(Pkt, T) ; PTL) = ccFileNBytes(PTL) [owise] .
 
+  op exfilNBytes : ByteSeqTimestampList -> Nat .
+  eq exfilNBytes (nilByteSeqTimestamp) = 0 .
+  eq exfilNBytes (fileTimeStamp(file(id, len), T) ; BTL) = len + exfilNBytes(BTL) .
+
   --- Goodput: Total number of file exfil bits divided by scenario latency, in bits per second
   op getGoodputCP2 : Actor -> Float .
-  --- eq getGoodputCP2 (< ADDR : WMonitor | pktRcvd: PTL, attrs >) = if getLatencyCP2(A) == 0.0 then 0.0 else float((ccFileNBytes(PTL) * 8.0) / getLatencyCP2(A)) fi .
+  eq getGoodputCP2 (< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) = if getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) == 0.0 then 0.0 else (float(exfilNBytes(BTL')) * 8.0 / getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >)) fi .
   eq getGoodputCP2 (A:Actor) = 100.0 .
 
   op getGoodput : Actor -> Float .
@@ -142,10 +155,8 @@ mod SMC is
     = true   
     .
   eq isDone (C) = false [owise] .
-
-  eq stopCondition (C < ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL'), attrs >) = true .
 )
-  eq exeDone(C < ADDR : WMonitor | doneFlag: true, attrs >) = true .
+  eq stopCondition (C < ADDR : WMonitor | doneFlag: true, attrs >) = true .
 
   op getQuerySent : Actor -> QueryTimestampList . 
   eq getQuerySent (< ADDR : WMonitor | querySent: QTL, attrs >) = QTL . 
