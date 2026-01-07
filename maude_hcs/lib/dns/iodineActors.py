@@ -235,6 +235,9 @@ class TGenClient:
         self.startTime = startTime
         self.start = start
 
+    def getAddresses(self):
+        return [address_to_maude(self.address), address_to_maude(self.address_um)]
+
 class DNSTGenClient(TGenClient):
     def __init__(self, address : str, profile, startTime: float, start:bool, resolverAddress : str, nameDBSize : int, retryTO : float, numRetries : int) -> None:
         super().__init__(address, profile,startTime, start)

@@ -60,8 +60,7 @@ class IodineDNSConfig(DNSConfig):
         for client in self.paced_clients:
             addresses.append(client.address)
             if isinstance(client, TGenClient):
-                addresses.append(client.address_um)
-                addresses.append(client.address)
+                addresses += client.getAddresses()
         for app in self.applications:
             addresses.append(app.address)
         for actor in self.tunnels:
@@ -152,6 +151,7 @@ class IodineDNSConfig(DNSConfig):
           ' inc IODINE_DNS . --- + TEST-HELPERS .',
           ' inc ROUTER .',
           ' inc MASTODON .',
+          ' inc MAS-TGEN .',
           ' inc ADVERSARY-OBSERVER .',
           ' inc CP2_APP .'
         ]
