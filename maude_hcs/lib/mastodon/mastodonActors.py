@@ -42,6 +42,12 @@ class MASTGenClient(TGenClient):
         self.username = username
         self.mastodon_server = mastodon_server
         self.X = X
+        self.address_client =  self.address_um + '-client'
+
+    def getAddresses(self):
+        addr = super().getAddresses()
+        addr.append(self.address_client)
+        return addr
 
     def to_maude_defs(self):
         res = ''
@@ -61,7 +67,7 @@ class MASTGenClient(TGenClient):
         #   mkMasTGenActor(mtgA, mcA, IM0 :: IM1, mas-ma)
         tgAddr = self.address
         tgUMAddr = self.address_um
-        masClAddr = tgAddr + '-client'
+        masClAddr = self.address_client
         toaddr = address_to_maude(self.mastodon_server)
         res = ''
         mastodonClient = MastodonClient(masClAddr, toaddr, tgAddr, self.X)
