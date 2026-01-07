@@ -253,7 +253,7 @@ class DNSTGenClient(TGenClient):
         tgUMAddr = self.address_um
         res  = f'  mkDnsTgenA({tgAddr},{address_to_maude(self.resolverAddress)},{self.nameDBSize}, {self.retryTO}, {self.numRetries})\n'
         res += f'  mkUMactor({tgUMAddr},{address_to_maude(self.profile)}-ma,{tgAddr})\n'
-        res += f'  [{self.startTime}, (to {tgUMAddr} from {tgUMAddr} : actionR("")), 0]'
+        res += f'  [{self.startTime} + genRandom(0.0, 0.0001), (to {tgUMAddr} from {tgUMAddr} : actionR("")), 0]'
         return res
 
 

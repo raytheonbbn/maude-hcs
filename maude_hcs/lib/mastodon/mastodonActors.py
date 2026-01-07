@@ -68,5 +68,5 @@ class MASTGenClient(TGenClient):
         res += f'  {mastodonClient.to_maude()}\n'
         res += f'  mkMasTGenActor({tgAddr}, {masClAddr}, {self.images_id}, {address_to_maude(self.profile)}-ma)\n'
         res += f'  mkUMactor({tgUMAddr},{address_to_maude(self.profile)}-ma,{tgAddr})\n'
-        res += f'  [{self.startTime}, (to {tgUMAddr} from {tgUMAddr} : actionR("")), 0]'
+        res += f'  [{self.startTime} + genRandom(0.0, 0.0001), (to {tgUMAddr} from {tgUMAddr} : actionR("")), 0]'
         return res
