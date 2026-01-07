@@ -61,6 +61,7 @@ class IodineDNSConfig(DNSConfig):
             addresses.append(client.address)
             if isinstance(client, TGenClient):
                 addresses.append(client.address_um)
+                addresses.append(client.address)
         for app in self.applications:
             addresses.append(app.address)
         for actor in self.tunnels:
@@ -107,10 +108,12 @@ class IodineDNSConfig(DNSConfig):
             res = '--- This maude file has been created automatically from the Python representation ---\n'
             res += '\n'.join([
                 f'sload {self.weirdpath}/probabilistic/iodine_dns',
-                f'sload {self.weirdpath}/probabilistic/dnsTgen-actor\n'
+                f'sload {Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('dnsTgen-actor')}\n'
                 f'sload {path}test/probabilistic-model/test_helpers',
                 f'sload {self.common_path}/user-action-actor\n'
-                f'sload {self.common_path}/masTGen.maude',
+                f'sload {Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('masTGen.maude')}\n'
+                f'sload {Path(self.weirdpath).parent.parent.joinpath('mastodon').joinpath('maude').joinpath('probabilistic').joinpath('mastodon')}',
+                f'sload {Path(self.weirdpath).parent.parent.joinpath('app').joinpath('maude').joinpath('probabilistic')}',
                 f'sload {self.common_path}/router',
                 f'sload {self.common_path}/adversary-observer'
             ])
@@ -148,7 +151,9 @@ class IodineDNSConfig(DNSConfig):
           ' inc DNS-TGEN .',
           ' inc IODINE_DNS . --- + TEST-HELPERS .',
           ' inc ROUTER .',
-          ' inc ADVERSARY-OBSERVER .'
+          ' inc MASTODON .',
+          ' inc ADVERSARY-OBSERVER .',
+          ' inc CP2_APP .'
         ]
         if model == 'prob':
             res = '\n'.join(includes)

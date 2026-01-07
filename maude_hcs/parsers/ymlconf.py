@@ -127,12 +127,13 @@ class Destini:
         # 4. Construct the final Maude code
         lines = []
         map_name = f'{identifier}-map'
-        lines.append(f"op {map_name} : -> " + "Map{String, Nat} .")
-        lines.append(f"eq {map_name} = {map_rhs} .")
+        # lines.append(f"op {map_name} : -> " + "Map{String, Nat} .")
+        # lines.append(f"eq {map_name} = {map_rhs} .")
 
         lines.append("")
         lines.append(f"op {identifier} : -> ByteSeqL .")
         lines.append(f"eq {identifier} = {rhs} .")
+        lines.append("\n")
 
         return "\n".join(lines)
 
