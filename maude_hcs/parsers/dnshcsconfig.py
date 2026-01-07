@@ -81,7 +81,6 @@ class DNSNondeterministicParameters(NondeterministicParameters):
     packetSize: int = 1
     packetOverhead: int = 1
     maxMinimiseCount: int = 0
-    maxFragmentLen: int = 1
     maxFragmentTx: int = 1
     maxUpFragmentLen: int = 1
     maxDownFragmentLen: int = 1

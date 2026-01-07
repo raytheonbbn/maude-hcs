@@ -7,13 +7,13 @@ from maude_hcs.lib.common import X
 class MastodonServer:
 
     def __init__(self, address) -> None:
-        self.address = address
+        self.address = address_to_maude(address)
 
     def __str__(self) -> str:
         return f'< {self.address} : MasServer | Attrs >'
 
     def to_maude(self) -> str:
-        return f'makeMastodonServer({address_to_maude(self.address)})'
+        return f'makeMastodonServer({self.address})'
 
 
 class MastodonClient:
