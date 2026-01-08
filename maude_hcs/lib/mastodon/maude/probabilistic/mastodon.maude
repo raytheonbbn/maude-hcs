@@ -58,16 +58,16 @@ mod MASTODON is
   vars RCODE : Nat .
 
   vars DNS_LIFETIME T_DNSLAST : Float .
-  vars B : Bool .
+  vars GOTFIRSTDNS NEEDQUERY : Bool .
   vars N2 : Nat .
 
   vars addr-nameserver : Address .
+  vars PENDINGREQ : Config .
 
   -------------------------------
   --- [Mastodon Client] --- Rules
   -------------------------------
 
-  op pendingHttpReq : Config Nat -> Content .
 
   --- Receive HTTP Response from server.
   crl [mascl-receive-http-resp]:
@@ -83,27 +83,31 @@ mod MASTODON is
   .
 
   rl [mascl-receive-dns-resp]:
-  < MAS_CLIENT_ADDR : MasClient | attrs, timeOfLastDNSResp: T_DNSLAST, gotFirstDNSResp: B  >
+  < MAS_CLIENT_ADDR : MasClient | attrs, timeOfLastDNSResp: T_DNSLAST, gotFirstDNSResp: GOTFIRSTDNS, pendingHttpReq: PENDINGREQ  >
     {T, (to MAS_CLIENT_ADDR from DNS-ADDR : response(ID, NAME, ANS, AUTH, ADD, RCODE))}
   =>
-  < MAS_CLIENT_ADDR : MasClient | attrs, timeOfLastDNSResp: T, gotFirstDNSResp: true >
-  [ print "(" T ") Mastodon Client received DNS response ID " ID ]
+  < MAS_CLIENT_ADDR : MasClient | attrs, timeOfLastDNSResp: T, gotFirstDNSResp: true, pendingHttpReq: nullMsg >
+  (if PENDINGREQ == nullMsg then nullMsg else delayMsgs(PENDINGREQ, null) fi)
+  [ print "(" T ") Mastodon Client received DNS response ID " ID " sending pending message " PENDINGREQ ]
   .
 
   --- Receive Command from Raceboat or TGEN.
   crl [mascl-receive-requester-req]:
-  < MAS_CLIENT_ADDR : MasClient | attrs, timeOfLastDNSResp: T_DNSLAST, DNSRespLifetime: DNS_LIFETIME, gotFirstDNSResp: B, DNSReqIDToSend: N, DNSAddr: addr-nameserver >
+  < MAS_CLIENT_ADDR : MasClient | attrs, timeOfLastDNSResp: T_DNSLAST, DNSRespLifetime: DNS_LIFETIME, gotFirstDNSResp: GOTFIRSTDNS, DNSReqIDToSend: N, DNSAddr: addr-nameserver, pendingHttpReq: nullMsg >
     {T, (to MAS_CLIENT_ADDR from raceboatCl : raceboatReq)}
   => 
-  < MAS_CLIENT_ADDR : MasClient | attrsNext, timeOfLastDNSResp: T_DNSLAST, DNSRespLifetime: DNS_LIFETIME, gotFirstDNSResp: B, DNSReqIDToSend: N2, DNSAddr: addr-nameserver >
+  < MAS_CLIENT_ADDR : MasClient | attrsNext, timeOfLastDNSResp: T_DNSLAST, DNSRespLifetime: DNS_LIFETIME, gotFirstDNSResp: GOTFIRSTDNS, DNSReqIDToSend: N2, DNSAddr: addr-nameserver, pendingHttpReq: (if NEEDQUERY then msgOut else nullMsg fi) >
     --- TODO: Figure out what the correct delay should be.
-    (if ((not B) or (T - T_DNSLAST) > DNS_LIFETIME) then [99., (to MAS_CLIENT_ADDR : pendingHttpReq(msgOut, N2)), 0] else delayMsgs(msgOut, null) fi)
-    (if ((not B) or (T - T_DNSLAST) > DNS_LIFETIME) then [0., (to addr-nameserver from MAS_CLIENT_ADDR : query(N2, 'pwnd2 . 'com, a)), 0] else nullMsg fi)
+    --- (if ((not B) or (T - T_DNSLAST) > DNS_LIFETIME) then [99., (to MAS_CLIENT_ADDR : pendingHttpReq(msgOut, N2)), 0] else delayMsgs(msgOut, null) fi)
+    (if NEEDQUERY then [0., (to addr-nameserver from MAS_CLIENT_ADDR : query(N2, 'pwnd2 . 'com, a)), 0] else delayMsgs(msgOut, null) fi)
     [0., (to raceboatCl from MAS_CLIENT_ADDR : mkRequestResponse("ACCEPTED")), 0]
   if { attrsNext, msgOut } := dispatchRaceboatCommand(attrs, raceboatReq)
     /\ opStack:OpStack := getOpStack(attrsNext)
-    /\ N2 := (if ((not B) or (T - T_DNSLAST) > DNS_LIFETIME) then (s N) else N fi)
-  [ print "(" T ") Mastodon Client handling command " raceboatReq " from Raceboat, sending " msgOut " | OPS: " opStack:OpStack ]
+    --- If sending a message for the first time, or the last DNS info has expired, need to send another
+    /\ NEEDQUERY := ((not GOTFIRSTDNS) or (T - T_DNSLAST) > DNS_LIFETIME)
+    --- TODO: DNS query is sequential, check if correct
+    /\ N2 := (if NEEDQUERY then (s N) else N fi)
+  [ print "(" T ") Mastodon Client handling command " raceboatReq " from Raceboat, possibly sending " msgOut " | OPS: " opStack:OpStack " needs valid DNS: " NEEDQUERY ]
   .  
 
   

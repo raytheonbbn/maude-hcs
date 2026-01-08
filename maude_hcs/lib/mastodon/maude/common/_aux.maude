@@ -170,6 +170,7 @@ mod MASTODON_NODE is
   vars tag_list TAG_LIST : TagList .
   vars mediaLocation url URL : Url .
   vars urlList urlList' URL_LIST : UrlList .
+  var DNS_LIFETIME : Float .
 
   --------------------
   ---[Mastodon Client]
@@ -212,11 +213,13 @@ mod MASTODON_NODE is
 
   op DNSAddr:_ : Address -> Attribute [ctor] .
 
+  op pendingHttpReq:_ : Config -> Attribute [ctor] .
+
 
   --- Make a MasClient:   its_addr srver_addr requester_addr
-  op makeMastodonClient : Address  Address    Address  Address -> Actor .
+  op makeMastodonClient : Address  Address    Address  Address  Float -> Actor .
   ---   requester addr is addr of Raceboat / TGEN.
-  eq makeMastodonClient(MAS_CLIENT_ADDR, MAS_SERVER_ADDR, FROM-ADDR, DNS-ADDR) =
+  eq makeMastodonClient(MAS_CLIENT_ADDR, MAS_SERVER_ADDR, FROM-ADDR, DNS-ADDR, DNS_LIFETIME) =
     < MAS_CLIENT_ADDR : MasClient |
         thisAddr: MAS_CLIENT_ADDR,
         masServerAddr: MAS_SERVER_ADDR,
@@ -231,10 +234,11 @@ mod MASTODON_NODE is
         gettingPosts: emptyMasIdList,
         gotFirstDNSResp: false,
         timeOfLastDNSResp: 0.,
-        DNSRespLifetime: 0.,
+        DNSRespLifetime: DNS_LIFETIME,
         DNSReqIDToSend: 0,
         DNSReqIDRecvd: 0,
-        DNSAddr: DNS-ADDR
+        DNSAddr: DNS-ADDR,
+        pendingHttpReq: nullMsg
     >
     .
 
