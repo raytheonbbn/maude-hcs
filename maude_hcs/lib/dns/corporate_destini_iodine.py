@@ -50,7 +50,7 @@ from ...parsers.dnshcsconfig import DNSUnderlyingNetwork, DNSWeirdNetwork, DNSBa
 from ...parsers.hcsconfig import HCSConfig
 from ...parsers.markovJsonToMaudeParser import find_and_load_json
 from ...parsers.ymlconf import Destini
-from ...parsers.graph import Node
+from ...parsers.graph import Node, Link
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     monitorAddr = hcsconf.monitor_address
 
     # These links contain link characteristics and have now the proper names.
+    # This network get transformed later (see below)
     parameterized_network = ParameterizedTopo(hcsconf.topology)
 
     # find the DNS underlying network conf
@@ -200,6 +201,48 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
             destiniobj = Destini.from_dict(images)
         # output this once
         tgen_clients.append(MASTGenClient(f'tgen-mas-{index}', client.client_markov_model_profile, client.start_time, False, client.client_username, client.client_hashtags, destiniobj, images_id, mastodon_server_address, True))
+
+    # transformation of the topology: we want links to/from router to be direct links instead
+    #  Instead of mastodon clients to router, we will have
+    #       mastodon clients to mastodon server as direct links
+    #       this means that delays on client to router link are assumed to be zero and not to affect anything
+    #       so delay/loss will be applied on messages as they egress clients
+    # Similarly dns to router will be direct
+    # create the links transforms dictionary
+    topo_transforms = {}
+    topo_transforms[Link(src_label=mastodon_server_address, dst_label=router.address)] = []
+    topo_transforms[Link(dst_label=mastodon_server_address, src_label=router.address)] = []
+    for client in tgen_clients:
+        if isinstance(client, MASTGenClient):
+            topo_transforms[Link(src_label=mastodon_server_address, dst_label=router.address)].append(Link(src_label=mastodon_server_address, dst_label=client.address_client))
+            topo_transforms[Link(dst_label=mastodon_server_address, src_label=router.address)].append(Link(dst_label=mastodon_server_address, src_label=client.address_client))
+    # add raceboat client mastodon client
+    topo_transforms[Link(src_label=mastodon_server_address, dst_label=router.address)].append(
+        Link(src_label=mastodon_server_address, dst_label=raceboatCl.masClientAddress))
+    topo_transforms[Link(dst_label=mastodon_server_address, src_label=router.address)].append(
+        Link(dst_label=mastodon_server_address, src_label=raceboatCl.masClientAddress))
+    # add raceboat server mastodon client
+    topo_transforms[Link(src_label=mastodon_server_address, dst_label=router.address)].append(
+        Link(src_label=mastodon_server_address, dst_label=raceboatSvr.masClientAddress))
+    topo_transforms[Link(dst_label=mastodon_server_address, src_label=router.address)].append(
+        Link(dst_label=mastodon_server_address, src_label=raceboatSvr.masClientAddress))
+    # DNS topo transforms
+    topo_transforms[Link(src_label=resolver_node.label, dst_label=router.address)] = \
+        [Link(src_label=resolver_node.label, dst_label=nameserverCORP.address)]
+    topo_transforms[Link(dst_label=resolver_node.label, src_label=router.address)] = \
+        [Link(dst_label=resolver_node.label, src_label=nameserverCORP.address)]
+    # user bob communicates with mastodon server and resolver through its respective clients
+    topo_transforms[Link(src_label=app.bob_address, dst_label=mastodon_server_address)] = \
+        [Link(src_label=raceboatSvr.masClientAddress, dst_label=mastodon_server_address)]
+    topo_transforms[Link(dst_label=app.bob_address, src_label=mastodon_server_address)] = \
+        [Link(dst_label=raceboatSvr.masClientAddress, src_label=mastodon_server_address)]
+    topo_transforms[Link(src_label=app.bob_address, dst_label=resolver_node.label)] = \
+        [Link(src_label=iodineSvr.address, dst_label=resolver_node.label)]
+    topo_transforms[Link(dst_label=app.bob_address, src_label=resolver_node.label)] = \
+        [Link(dst_label=iodineSvr.address, src_label=resolver_node.label)]
+
+    parameterized_network.transform(topo_transforms)
+
     C = IodineDNSConfig([Ctr(hcsconf.seed), router], monitor, [sndApp, rcvApp, mainSndApp, mainRcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     ndp = {}
     pp = {}
