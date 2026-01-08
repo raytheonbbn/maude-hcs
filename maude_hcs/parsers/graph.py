@@ -42,15 +42,27 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Link:
     """Represents a network link with its properties."""    
-    src_id: int
-    src_label: str
-    dst_id: int
-    dst_label: str
-    label: str
-    latency: float
-    jitter: float
+    src_id: int = 0
+    src_label: str = ''
+    dst_id: int = 0
+    dst_label: str = ''
+    label: str = ''
+    latency: float = 0.0
+    jitter: float = 0.0
     # Loss probability:
-    loss: float    
+    loss: float = 0.0
+
+    def __eq__(self, other):
+        # Check if the 'other' object is an instance of the same class
+        if not isinstance(other, Link):
+            return False
+
+        # Define custom comparison logic based on attributes
+        return self.src_label == other.src_label and self.dst_label == other.dst_label
+
+    def __hash__(self):
+        # Hash based on the same attributes used in __eq__
+        return hash((self.src_label, self.dst_label))
 
     def is_similar_to(self, link):
        return self.latency == link.latency and self.jitter == link.jitter and self.loss == link.loss       
