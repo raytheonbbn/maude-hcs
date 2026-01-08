@@ -42,6 +42,7 @@ from .corporate import createAuthZone, createRootZone, createTLDZone
 import logging
 
 from .. import GLOBALS, Protocol
+from ..common import X
 from ..mastodon.mastodonActors import MastodonServer, MastodonClient, MASTGenClient
 from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp, RbRcvApp
 from ...deps.dns_formalization.Maude.attack_exploration.src.zone import Record
@@ -134,7 +135,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     nameserverRoot = Nameserver(root_node.address, [zoneRoot])
     nameserverCom = Nameserver(tld_node.address, [zoneCom])
     nameserverEE = Nameserver(ee_node.address, [zoneEverythingelse])
-    nameserverCORP = Nameserver(corp_node.address, [zonecorp], forwardonly=resolver.address)
+    nameserverCORP = Nameserver(corp_node.address, [zonecorp], forwardonly=X(resolver.address, True))
     #nameserverPWND2 = Nameserver(pwnd2_node.address, [zonepwnd2])
     root_nameservers = {'a.root-servers.net.': root_node.address}
 
