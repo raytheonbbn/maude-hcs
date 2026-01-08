@@ -82,16 +82,18 @@ mod MASTODON is
   [print "(" T ") Mastodon Client handling HTTP Response from Server, sending " msgOut " | OPS: " opStack:OpStack ]
   .
 
+  --- Note: incoming DNS response that doesn't match the one we're waiting on is considered invalid and will stall
   rl [mascl-receive-dns-resp]:
-  < MAS_CLIENT_ADDR : MasClient | attrs, timeOfLastDNSResp: T_DNSLAST, gotFirstDNSResp: GOTFIRSTDNS, pendingHttpReq: PENDINGREQ  >
+  < MAS_CLIENT_ADDR : MasClient | attrs, timeOfLastDNSResp: T_DNSLAST, DNSReqIDToSend: ID, gotFirstDNSResp: GOTFIRSTDNS, pendingHttpReq: PENDINGREQ  >
     {T, (to MAS_CLIENT_ADDR from DNS-ADDR : response(ID, NAME, ANS, AUTH, ADD, RCODE))}
   =>
-  < MAS_CLIENT_ADDR : MasClient | attrs, timeOfLastDNSResp: T, gotFirstDNSResp: true, pendingHttpReq: nullMsg >
+  < MAS_CLIENT_ADDR : MasClient | attrs, timeOfLastDNSResp: T, DNSReqIDToSend: ID, gotFirstDNSResp: true, pendingHttpReq: nullMsg >
   (if PENDINGREQ == nullMsg then nullMsg else delayMsgs(PENDINGREQ, null) fi)
   [ print "(" T ") Mastodon Client received DNS response ID " ID " sending pending message " PENDINGREQ ]
   .
 
   --- Receive Command from Raceboat or TGEN.
+  --- Note: receving a request before the last one has cleared (such as if it's waiting on a DNS resolution) is considered invalid and will stall
   crl [mascl-receive-requester-req]:
   < MAS_CLIENT_ADDR : MasClient | attrs, timeOfLastDNSResp: T_DNSLAST, DNSRespLifetime: DNS_LIFETIME, gotFirstDNSResp: GOTFIRSTDNS, DNSReqIDToSend: N, DNSAddr: addr-nameserver, pendingHttpReq: nullMsg >
     {T, (to MAS_CLIENT_ADDR from raceboatCl : raceboatReq)}
