@@ -131,7 +131,7 @@ class RbSendApp:
         out = f'makeTxApp({address_to_maude(self.address)}, {address_to_maude(self.toAddress)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)}, {files_to_maude(self.xfiles)})'
         if self.start == True:
             out += '\n'
-            out += f'delayMsgs((to {address_to_maude(self.address)} : start),null)'
+            out += f'[genRandom(0.0, 0.0001), (to {address_to_maude(self.address)} : start), 0]'
         return out
 
 
@@ -163,5 +163,5 @@ class RbRcvApp:
         out = f'makeRxApp({address_to_maude(self.address)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)})'
         if self.start == True:
             out += '\n'
-            out += f'delayMsgs((to {address_to_maude(self.address)} : start),null)'
+            out += f'[genRandom(0.0, 0.0001), (to {address_to_maude(self.address)} : start), 0]'
         return out
