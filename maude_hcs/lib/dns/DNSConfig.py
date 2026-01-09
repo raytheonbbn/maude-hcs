@@ -30,7 +30,7 @@
 
 from pathlib import Path
 import os
-from maude_hcs.lib import GLOBALS
+from maude_hcs.lib import GLOBALS, flatten
 from Maude.attack_exploration.src.config import Config
 from Maude.attack_exploration.src.conversion_utils import address_to_maude
 from .cache import ResolverCache
@@ -154,7 +154,7 @@ class DNSConfig(Config):
         # define includes
         res += self._maude_includes(param_dict, path, 'prob')
 
-        res += self._to_maude_common_definitions(param_dict)
+        res += self._to_maude_common_definitions(flatten(param_dict))
         res += self._to_maude_caches()
         res += '--- Initial configuration\n'
         res += 'op initState : -> Config .\n'

@@ -243,6 +243,12 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
 
     parameterized_network.transform(topo_transforms)
 
+    # add some paramters
+    pp = hcsconf.protocols[Protocol.IODINE_DNS.value].probabilistic_parameters
+    if not pp.other:
+        pp.other = {}
+    pp.other['noiseMin(msg:Msg)'] = 0.001
+
     C = IodineDNSConfig([Ctr(hcsconf.seed), router], monitor, [sndApp, rcvApp, mainSndApp, mainRcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     ndp = {}
     pp = {}
