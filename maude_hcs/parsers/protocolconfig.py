@@ -168,6 +168,7 @@ class DuplexApplication(Application):
     module: str = 'duplex'
     alice_address: str = ''
     bob_address: str = ''
+    hashtags: list[str] = field(default_factory=list)
     xfiles : list[XFile] = field(default_factory=list)
 
 @dataclass

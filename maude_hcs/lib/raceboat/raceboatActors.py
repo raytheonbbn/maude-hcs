@@ -2,7 +2,7 @@ from maude_hcs.lib.mastodon.mastodonActors import MastodonClient
 from maude_hcs.parsers.protocolconfig import XFile, files_to_maude
 from maude_hcs.parsers.ymlconf import Destini
 from Maude.attack_exploration.src.conversion_utils import address_to_maude, name_to_maude, rtype_to_maude
-
+from ...parsers.markovJsonToMaudeParser import JsonToMaudeParser
 class RaceboatClient:
     """
     *** Make a Raceboat client.
@@ -114,13 +114,17 @@ class RbSendApp:
             currentCcFile: nilBytes
         > .
     """
-    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, xfiles: list[XFile]):
+    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, hashtags:list[str], xfiles: list[XFile]):
         self.address = address_to_maude(address)
         self.toAddress = toAddress
         self.iodineTunAddress = iodineTunAddress
         self.rbUMAddress = rbUMAddress
         self.rbCMAddress = rbCMAddress
+        self.hashtags = hashtags
         self.xfiles = xfiles
+
+    def to_maude_defs(self):
+        return f'eq weirdHashtags = {JsonToMaudeParser(None, None).to_maude_jv(self.hashtags)} .'
 
     def to_maude(self):
         return f'makeTxApp({address_to_maude(self.address)}, {address_to_maude(self.toAddress)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)}, {files_to_maude(self.xfiles)})'

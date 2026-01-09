@@ -27,6 +27,7 @@ class Alice:
     mastodon_user: str
     raceboat_prof_config: str
     raceboat_prof: str
+    hashtags: List[str]
     xfiles: List[XFile]
 
 @dataclass_json
@@ -249,6 +250,7 @@ class YmlConf:
             mastodon_user=alice_data.get('mastodon_user', ''),
             raceboat_prof_config=alice_data.get('raceboat_prof_config', ''),
             raceboat_prof=alice_data.get('raceboat_prof', ''),
+            hashtags=['whatupmydudes'],
             xfiles=[XFile(0, 50)] # TODO fix when in yml conf
         )
 
