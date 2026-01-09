@@ -1,0 +1,148 @@
+set show advisories off .
+
+sload cp2-scenario-shared
+sload ../../../deps/dns_formalization/Maude/dns/probabilistic-model/dns
+sload ../../common/maude/router
+  
+mod  DNS-NET is
+  inc CP2-SCENARIO-SHARED .
+  inc DNS .
+  inc ROUTER .
+****  inc IODINE_DNS .
+
+ ops auth-dns corporate-dns public-dns root-dns  tld-dns : -> Address .
+
+  **** "SBELT": fallback if there are no known name servers
+op sb : -> ZoneState .
+eq sb = < root (('a . 'root-servers . 'net . root ) |-> root-dns) > .
+
+  **** Zone files
+  op zoneCorporateCom : -> List{Record} .
+  eq zoneCorporateCom =
+    < 'corporate . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
+    < 'ns . 'corporate . 'com . root, a, 3600.0, corporate-dns >
+    < 'tmp0 . 'corporate . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
+    < wildcard . 'corporate . 'com . root, a, 0.0, 3 . 1 . 1 . 2 > .
+
+  op zone : -> List{Record} .
+  eq zone =
+    < root, soa, 3600.0, soaData(3600.0) >
+    < root, ns, 3600.0, 'a . 'root-servers . 'net . root >
+    < 'a . 'root-servers . 'net . root, a, 3600.0, root-dns >
+    < 'com . root, ns, 3600.0, 'ns . 'com . root >
+    < 'ns . 'com . root, a, 3600.0, tld-dns > .
+
+  op zoneCom : -> List{Record} .
+  eq zoneCom =
+    < 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'com . root, ns, 3600.0, 'ns . 'com . root >
+    < 'ns . 'com . root, a, 3600.0, tld-dns >
+    < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
+    < 'ns . 'pwnd . 'com . root, a, 3600.0, auth-dns >
+    < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
+    < 'ns . 'internet . 'com . root, a, 3600.0, auth-dns >
+    < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
+    < 'ns . 'corporate . 'com . root, a, 3600.0, corporate-dns > .
+
+  op zoneT1PwndCom : -> List{Record} .
+  eq zoneT1PwndCom =
+    < 't1 . 'pwnd . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 't1 . 'pwnd . 'com . root, ns, 3600.0, 'ns . 't1 . 'pwnd . 'com . root >
+    < 'ns . 't1 . 'pwnd . 'com . root, a, 3600.0, iServer >
+    < 'tmp0 . 't1 . 'pwnd . 'com . root, a, 0.0, 2 . 0 . 1 . 2 >
+    < wildcard . 't1 . 'pwnd . 'com . root, a, 0.0, 2 . 1 . 1 . 2 > .
+
+  op zoneInternetCom : -> List{Record} .
+  eq zoneInternetCom =
+    < 'internet . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
+    < 'ns . 'internet . 'com . root, a, 3600.0, auth-dns >
+    < 'tmp0 . 'internet . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >
+    < 't1 . 'pwnd . 'com . root, ns, 3600.0, 'ns . 't1 . 'pwnd . 'com . root >
+    < 'ns . 't1 . 'pwnd . 'com . root, a, 3600.0, iServer >
+    < 'mastodon . 'pwnd . 'com . root, a, 0.0, masS >
+    < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1 . 1 . 2 > .
+
+
+  ********Caches
+  op resolverCache : -> Cache .
+  eq resolverCache =
+    cacheEntry(< root, ns, 3600.0, 'a . 'root-servers . 'net . root >, 1)
+    cacheEntry(< 'a . 'root-servers . 'net . root, a, 3600.0, root-dns >, 1) ----****
+    cacheEntry(< 'com . root, ns, 3600.0, 'ns . 'com . root >, 1)
+    cacheEntry(< 'ns . 'com . root, a, 3600.0, tld-dns >, 1) ----***
+    cacheEntry(< 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >, 1)
+    cacheEntry(< 'ns . 'pwnd . 'com . root, a, 3600.0, auth-dns >, 1) -----****
+    cacheEntry(< 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >, 1)
+    cacheEntry(< 'ns . 'internet . 'com . root, a, 3600.0, auth-dns >, 1)   -----****
+    cacheEntry(< 't1 . 'pwnd . 'com . root, ns, 3600.0, 'ns . 't1 . 'pwnd . 'com . root >, 1)
+    cacheEntry(< 'ns . 't1 . 'pwnd . 'com . root, a, 3600.0, iServer >, 1)  -----****
+    cacheEntry(< 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >, 1)
+    cacheEntry(< 'ns . 'corporate . 'com . root, a, 3600.0, corporate-dns >, 1) .   -----****
+    
+vars ADDR ADDR1 : Address .    
+vars db : List{Record} .
+vars sbx : ZoneState .
+vars rcache : Cache .
+
+*** these are defined in lib/dns/maude/common/_aux IODINE_NODE
+**** not the right place to put it
+  op mkNameServer : Address List{Record} Address  -> Actor [ctor] .
+  eq mkNameServer(ADDR, db, ADDR1) =
+    < ADDR : Nameserver |
+      db: db,
+      queue: nilQueue,
+      forwardonly: ADDR1,
+      queriesFwd: nilTAQL >  .
+
+  op mkResolver : Address Cache ZoneState -> Actor .
+  eq mkResolver(ADDR, rcache, sbx) =
+      < ADDR : Resolver |
+        cache: rcache,
+        nxdomainCache: nilNxdomainCache,
+        nodataCache: nilNodataCache,
+        sbelt: sbx,
+        workBudget: emptyIN,
+        blockedQueries: eptQSS,
+        sentQueries: eptQSS > .
+    
+op dnsNetConfig : -> Config .
+eq dnsNetConfig =
+  mkResolver(public-dns, resolverCache,  sb)
+****  < root (('a . 'root-servers . 'net . root ) |-> root-dns) >
+  --- Nameservers
+  mkNameServer(root-dns, (zone), nullAddr)
+  mkNameServer(tld-dns, (zoneCom), nullAddr)
+  mkNameServer(auth-dns, (zoneInternetCom), nullAddr)
+  mkNameServer(corporate-dns, (zoneCorporateCom), X(public-dns))    
+ .
+ 
+ op DNSLinkData : -> AdrAdrAttrsSet .
+ eq DNSLinkData =
+   aaa(public-dns,root-dns,LinkType-0)
+   aaa(root-dns,public-dns,LinkType-0)
+   aaa(public-dns,tld-dns,LinkType-0)
+   aaa(tld-dns,public-dns,LinkType-0)
+   aaa(public-dns,auth-dns,LinkType-1)
+   aaa(auth-dns,public-dns,LinkType-1)
+   aaa(public-dns,corporate-dns,LinkType-2)
+   aaa(corporate-dns,public-dns,LinkType-2)
+ .
+ 
+endm
+
+eof 
+
+
+makeMastodonClient(tgen-mas-0-client, X(mastodon-proxy), tgen-mas-0)
+mkMasTGenActor(tgen-mas-0, tgen-mas-0-client, images, mas-config-lurker-1-ma)
+mkUMactor(tgen-mas-0-UM,mas-config-lurker-1-ma,tgen-mas-0)
+[0.0, (to tgen-mas-0-UM from tgen-mas-0-UM : actionR("")), 0]
+
+  mkDnsTgenA(tgen-dns-5,corporate-dns,10000, 5.0, 2.0)
+mkUMactor(tgen-dns-5-UM,dns-config-slow-1-ma,tgen-dns-5)
+[0.0, (to tgen-dns-5-UM from tgen-dns-5-UM : actionR("")), 0]
+
+    
+ tgen-dns-5 tgen-dns-5-UM tgen-dns-6 tgen-dns-6-UM tgen-dns-7 tgen-dns-7-UM tgen-dns-8 tgen-dns-8-UM tgen-dns-9 tgen-dns-9-UM tgen-mas-0 tgen-mas-0-UM tgen-mas-1 tgen-mas-1-UM tgen-mas-2 tgen-mas-2-UM tgen-mas-3 tgen-mas-3-UM tgen-mas-4 tgen-mas-4-UM  
