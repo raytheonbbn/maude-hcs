@@ -43,6 +43,7 @@ import logging
 
 from .. import GLOBALS, Protocol
 from ..common import X
+from ..common.commonActors import Adversary, ObservationPattern
 from ..mastodon.mastodonActors import MastodonServer, MastodonClient, MASTGenClient
 from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp, RbRcvApp
 from ...deps.dns_formalization.Maude.attack_exploration.src.zone import Record
@@ -154,11 +155,13 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     sndApp = SendApp(weird_network.send_app_address,
                      weird_network.rcv_app_address,
                      weird_network.sender_northbound_addr,
-                     weird_network.tunnel_client_addr)
+                     weird_network.tunnel_client_addr,
+                     start=-1) # dont start it
     rcvApp = ReceiveApp(weird_network.rcv_app_address,
                         weird_network.send_app_address,
                         weird_network.receiver_northbound_addr,
-                        weird_network.tunnel_server_addr)
+                        weird_network.tunnel_server_addr,
+                        start=-1) # dont start it
 
     ## raceboat tunnel client and server with
     rb_images = find_and_load_json(GLOBALS.TOPLEVELDIR, 'destini_covers.json')
@@ -170,11 +173,19 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
 
     # applications
     app = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].application
-    mainSndApp = RbSendApp(app.alice_address, app.bob_address, sndApp.address, raceboatCl.userModelAddress, raceboatCl.contentManagerAddress, app.hashtags, app.xfiles)
+    mainSndApp = RbSendApp(app.alice_address, app.bob_address, sndApp.address, raceboatCl.userModelAddress, raceboatCl.contentManagerAddress, app.hashtags, app.xfiles, True)
     mainRcvApp = RbRcvApp(app.bob_address, app.alice_address, rcvApp.address, raceboatSvr.userModelAddress,
-                           raceboatSvr.contentManagerAddress)
+                           raceboatSvr.contentManagerAddress, True)
     # adversary
-    # TODO
+    # TODO add this to the HCS Config at some point
+    adversary = Adversary("adversary",
+                          [ObservationPattern.ExtToLocalPreNat,
+                            ObservationPattern.LocalToExtPostNat
+                            ],
+                          [ObservationPattern.ExtToLocalPostNat,
+                           ObservationPattern.LocalToExtPreNat
+                           ]
+                          )
 
     # monitor
     monitor = WMonitor(monitorAddr)
@@ -247,9 +258,11 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     pp = hcsconf.protocols[Protocol.IODINE_DNS.value].probabilistic_parameters
     if not pp.other:
         pp.other = {}
+    # these are hacks for now (TODO put in the correct place)
     pp.other['noiseMin(msg:Msg)'] = 0.001
+    pp.other['exeDone(< mon:Address :  WMonitor | attrs:AttributeSet, doneFlag: true > conf:Config)'] = True
 
-    C = IodineDNSConfig([Ctr(hcsconf.seed), router], monitor, [sndApp, rcvApp, mainSndApp, mainRcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
+    C = IodineDNSConfig([Ctr(hcsconf.seed), router, adversary], monitor, [sndApp, rcvApp, mainSndApp, mainRcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     ndp = {}
     pp = {}
     for pname,protocol in hcsconf.protocols.items():
