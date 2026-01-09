@@ -86,16 +86,18 @@ class IodineDNSConfig(DNSConfig):
     def _to_maude_common_definitions(self, param_dict) -> str:
         defs = super()._to_maude_common_definitions(param_dict)
         # Tgen actors and raceboat/destini have image list defs, include here
+        new_defs = set()
         for client in sorted(self.paced_clients, key=lambda x: x.address):
             if isinstance(client, MASTGenClient):
                 _d = client.to_maude_defs()
                 if _d.strip():
-                    defs += _d + '\n'
+                    new_defs.add(_d)
         for tun in sorted(self.tunnels, key=lambda x: x.address):
             if isinstance(tun, RaceboatClient):
-                _d += tun.to_maude_defs()
+                _d = tun.to_maude_defs()
                 if _d.strip():
-                    defs += _d + '\n'
+                    new_defs.add(_d)
+        defs += '\n'.join(sorted(new_defs))
         return defs
 
     # Override
