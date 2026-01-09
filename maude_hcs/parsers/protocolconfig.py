@@ -44,13 +44,13 @@ from maude_hcs.lib import Protocol
 @dataclass
 class NondeterministicParameters:
     """Dataclass for nondeterministic simulation parameters."""
-    pass
+    other: dict = field(default_factory=dict)
 
 @dataclass_json
 @dataclass
 class ProbabilisticParameters:
     """Dataclass for probabilistic simulation parameters."""
-    pass
+    other: dict = field(default_factory=dict)
 
 @dataclass_json
 @dataclass
