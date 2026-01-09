@@ -37,7 +37,7 @@ from pathlib import Path
 
 from .. import GLOBALS
 from ..mastodon.mastodonActors import MASTGenClient
-from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer
+from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp
 from ...parsers.markovJsonToMaudeParser import find_recursively
 
 
@@ -97,7 +97,13 @@ class IodineDNSConfig(DNSConfig):
                 _d = tun.to_maude_defs()
                 if _d.strip():
                     new_defs.add(_d)
+        for app in sorted(self.applications, key=lambda x: x.address):
+            if isinstance(app, RbSendApp):
+                _d = app.to_maude_defs()
+                if _d.strip():
+                    new_defs.add(_d)
         defs += '\n'.join(sorted(new_defs))
+        defs += '\n'
         return defs
 
     # Override

@@ -170,7 +170,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
 
     # applications
     app = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].application
-    mainSndApp = RbSendApp(app.alice_address, app.bob_address, sndApp.address, raceboatCl.userModelAddress, raceboatCl.contentManagerAddress, app.xfiles)
+    mainSndApp = RbSendApp(app.alice_address, app.bob_address, sndApp.address, raceboatCl.userModelAddress, raceboatCl.contentManagerAddress, app.hashtags, app.xfiles)
     mainRcvApp = RbRcvApp(app.bob_address, app.alice_address, rcvApp.address, raceboatSvr.userModelAddress,
                            raceboatSvr.contentManagerAddress)
     # adversary
