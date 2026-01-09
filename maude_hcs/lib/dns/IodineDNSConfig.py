@@ -188,7 +188,7 @@ class IodineDNSConfig(DNSConfig):
     # Override to add tunnels and applications to conf
     def _to_maude_actors(self) -> str:
         res = super()._to_maude_actors()
-        res += '  --- routers\n'
+        res += '  --- standalone actors\n'
         for router in self.standaloneActors:
             res += '  ' + router.to_maude() + '\n'
         res += '  --- tunnels\n'
@@ -213,7 +213,7 @@ class IodineDNSConfig(DNSConfig):
             for app in self.applications:
                 if isinstance(app, SendApp) and app.start >= 0:
                     res += f'  [{str(app.start)}, (to {address_to_maude(app.address)} : start), 0] \n'
-                if isinstance(app, ReceiveApp): # TODO: testing for Bob also add start messages for RecvApp
+                if isinstance(app, ReceiveApp) and app.start >= 0: # TODO: testing for Bob also add start messages for RecvApp
                     res += f'  [1.0, (to {address_to_maude(app.address)} : start), 0] \n'
         elif self.model_type == 'nondet':
             res += '  --- App start messages\n'

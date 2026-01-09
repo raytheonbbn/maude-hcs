@@ -114,7 +114,7 @@ class RbSendApp:
             currentCcFile: nilBytes
         > .
     """
-    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, hashtags:list[str], xfiles: list[XFile]):
+    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, hashtags:list[str], xfiles: list[XFile], start:bool = True):
         self.address = address_to_maude(address)
         self.toAddress = toAddress
         self.iodineTunAddress = iodineTunAddress
@@ -122,12 +122,17 @@ class RbSendApp:
         self.rbCMAddress = rbCMAddress
         self.hashtags = hashtags
         self.xfiles = xfiles
+        self.start = start
 
     def to_maude_defs(self):
         return f'eq weirdHashtags = {JsonToMaudeParser(None, None).to_maude_jv(self.hashtags)} .'
 
     def to_maude(self):
-        return f'makeTxApp({address_to_maude(self.address)}, {address_to_maude(self.toAddress)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)}, {files_to_maude(self.xfiles)})'
+        out = f'makeTxApp({address_to_maude(self.address)}, {address_to_maude(self.toAddress)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)}, {files_to_maude(self.xfiles)})'
+        if self.start == True:
+            out += '\n'
+            out += f'delayMsgs((to {address_to_maude(self.address)} : start),null)'
+        return out
 
 
 class RbRcvApp:
@@ -146,12 +151,17 @@ class RbRcvApp:
                 rcvd: emptyFileList
             > .
     """
-    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str):
+    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, start:bool = True):
         self.address = address_to_maude(address)
         self.toAddress = toAddress
         self.iodineTunAddress = iodineTunAddress
         self.rbUMAddress = rbUMAddress
         self.rbCMAddress = rbCMAddress
+        self.start = start
 
     def to_maude(self):
-        return f'makeRxApp({address_to_maude(self.address)}, {address_to_maude(self.toAddress)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)})'
+        out = f'makeRxApp({address_to_maude(self.address)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)})'
+        if self.start == True:
+            out += '\n'
+            out += f'delayMsgs((to {address_to_maude(self.address)} : start),null)'
+        return out
