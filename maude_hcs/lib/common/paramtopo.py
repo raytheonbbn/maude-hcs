@@ -130,11 +130,19 @@ class ParameterizedTopo:
                 if xlink in links:
                   # delete xlink and replace with its transforms
                   new_list = [x for x in links if x != xlink]
+                  old_link = [x for x in links if x == xlink][0] # use the characteristics of the link being replaced
                   for new_link in xforms[xlink]:
                       # verify nodes exist and add them if not (needed for integrity of topology)
                       src_node = self.findOrAddNode(new_link.src_label)
                       dst_node = self.findOrAddNode(new_link.dst_label)
-                      new_list.append(Link(src_id=src_node.id, src_label=src_node.label, dst_label=dst_node.label,dst_id=dst_node.id))
+                      new_list.append(
+                          Link(src_id=src_node.id, src_label=src_node.label,
+                               dst_label=dst_node.label,dst_id=dst_node.id,
+                               loss=old_link.loss,
+                               latency=old_link.latency,
+                               jitter=old_link.jitter,
+                               )
+                      )
                   self.link_characteristics[link_type] = new_list
 
   def _characerize_links(self) -> None:
