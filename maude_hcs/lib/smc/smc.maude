@@ -52,6 +52,7 @@ mod SMC is
   var QUERY : Query .
   var RESP : Response .
   var HREQ : HttpRequest .
+  var POST_TEXT : String .
   vars LR LR1 LR2 : List{Record} .
 
   vars TML TML' : TimeMsgList .
@@ -156,7 +157,7 @@ mod SMC is
     .
   eq isDone (C) = false [owise] .
 )
-  eq stopCondition (C < ADDR : WMonitor | doneFlag: true, attrs >) = true .
+  eq exeDone (C < ADDR : WMonitor | doneFlag: true, attrs >) = true .
 
   op getQuerySent : Actor -> QueryTimestampList . 
   eq getQuerySent (< ADDR : WMonitor | querySent: QTL, attrs >) = QTL . 
@@ -622,21 +623,35 @@ mod SMC is
   --- C.8 Post-NAT HTTPS connection count: Aggregate post-NAT traffic includes more than n HTTPS connections
   op getToDCumulativeHttpConnectionPostNAT : Config Nat -> Float .
   eq getToDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthHttpReqPostNAT(TML, s N) .
-endm
-eof
+
+  op postRequestHttpOverhead : -> Nat .
+  eq postRequestHttpOverhead = 10 .
+
+  op size : HttpRequest -> Nat .
+  eq size (makeHttpRequest(postRequest, makeMediaFile(S:String, len, bytes))) = len + postRequestHttpOverhead .
+  eq size (makeHttpRequest(postRequest, POST_TEXT, MAS_ID_LIST:MasIdList)) = length(POST_TEXT) + postRequestHttpOverhead .
+
+  op nByteHttpUploadPreNAT : TimeMsgList Nat -> Float .
+  eq nByteHttpUploadPreNAT (TML, 0) = 0.0 .
+  ceq nByteHttpUploadPreNAT (tm(T, M) ; TML, N) = T if PreNATAliceHttpReq(M) and size(getHttpRequest(M)) >= N and N > 0 .
+  ceq nByteHttpUploadPreNAT (tm(T, M) ; TML, N) = nByteHttpUploadPreNAT (TML, N - size(getHttpRequest(M))) if PreNATAliceHttpReq(M) and size(getHttpRequest(M)) < N and N > 0 . 
+  ceq nByteHttpUploadPreNAT (tm(T, M) ; TML, N) = nByteHttpUploadPreNAT (TML, N) if (not PreNATAliceHttpReq(M)) and N > 0 .
+  eq nByteHttpUploadPreNAT (nilTML, N) = 0.0 .
 
   --- C.9 Pre-NAT HTTPS upload byte count: An individual host uploads more than n bytes via HTTPS
+  op getToDCumulativeHttpUploadPreNAT : Config Nat -> Float .
+  eq getToDCumulativeHttpUploadPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteHttpUploadPreNAT(TML, s N) .
 
   op nByteHttpUploadPostNAT : TimeMsgList Nat -> Float .
   eq nByteHttpUploadPostNAT (TML, 0) = 0.0 .
-  eq nByteHttpUploadPostNAT (tm(T, M) ; TML, N) =
-    if (getHttpRequest(M) :: HttpRequest) then
-      (if size(getQuery(M)) > N then T else nByteHttpUploadPostNAT(TML, N - size(getQuery(M))) fi)
-    else
-      nByteHttpUploadPostNAT(TML, N)
-    fi .
+  ceq nByteHttpUploadPostNAT (tm(T, M) ; TML, N) = T if PostNATHttpReq(M) and size(getHttpRequest(M)) >= N and N > 0 .
+  ceq nByteHttpUploadPostNAT (tm(T, M) ; TML, N) = nByteHttpUploadPostNAT (TML, N - size(getHttpRequest(M))) if PostNATHttpReq(M) and size(getHttpRequest(M)) < N and N > 0 . 
+  ceq nByteHttpUploadPostNAT (tm(T, M) ; TML, N) = nByteHttpUploadPostNAT (TML, N) if (not PostNATHttpReq(M)) and N > 0 .
   eq nByteHttpUploadPostNAT (nilTML, N) = 0.0 .
 
   --- C.10 Post-NAT HTTPS upload byte count: Aggregate post-NAT traffic uploads more than n bytes via HTTPS
   op getToDCumulativeHttpUploadPostNAT : Config Nat -> Float .
   eq getToDCumulativeHttpUploadPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteHttpUploadPostNAT(TML, s N) .
+
+endm
+eof
