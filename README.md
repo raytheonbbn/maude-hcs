@@ -126,7 +126,7 @@ Pass a maude-hcs json configuration file as follows,
 
 To generate a probabilistic DNS model config with iodine and specify the output filename,
 ```shell
-maude-hcs --verbose --run-args=./use-cases/corporate-iodine-conf.json --model=prob --protocol=dns --filename=generated_test_aa generate
+ maude-hcs --verbose  generate --run-args=./results/generated_test_yml-hcsconfig.json     --model=prob --filename=generated_test_yml_2
 ```
 Set `--model=nondet` to generate a nondeterministic version.
 
@@ -141,8 +141,7 @@ probabilistic params (whic override the nondeterministic ones).
 A YML configuration contains the full config of the tunnels and undelying networks.
 We can generate an HCS config directly from it.
 ```shell
- maude-hcs --verbose  generate --yml-filename=../pwnd-cp2/src/landing/testing_configs/cp2_setup_example.yml \
-    --model=prob --filename=generated_test_yml
+ maude-hcs --verbose  generate --yml-filename=./use-cases/challenge-problem-2/cp2_setup_example.yml     --model=prob --filename=generated_test_yml
 ```
 
 ## Using Shadow yaml configuration

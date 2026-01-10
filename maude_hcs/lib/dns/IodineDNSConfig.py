@@ -27,6 +27,8 @@
 # contained herein. Refer to the provided NOTICE file.
 #
 # MAUDE_HCS: end
+import logging
+import traceback
 
 from Maude.attack_exploration.src.conversion_utils import address_to_maude
 from numpy.f2py.cfuncs import includes
@@ -39,7 +41,7 @@ from .. import GLOBALS
 from ..mastodon.mastodonActors import MASTGenClient
 from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp
 from ...parsers.markovJsonToMaudeParser import find_recursively
-
+logger = logging.getLogger(__name__)
 
 class IodineDNSConfig(DNSConfig):
     def __init__(self, standaloneActors, monitor, applications, weird_networks, clients, paced_clients, resolvers, nameservers, root_nameservers, network) -> None:
@@ -135,8 +137,12 @@ class IodineDNSConfig(DNSConfig):
             for actor in self.tunnels:
                 if isinstance(actor, RaceboatClient) or isinstance(actor, RaceboatServer):
                     mod = '_'.join(actor.profile.replace('-', '_').split('_')[1:])
-                    file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude')
-                    rb_loads.add(f'sload {file}')
+                    try:
+                        file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude')
+                        rb_loads.add(f'sload {file}')
+                    except:
+                        logger.warning(f'Could not find {mod}.maude. Exception {traceback.format_exc()}')
+
             if tgen_loads:
                 res += '\n ---- tgen models\n'
                 res += '\n'.join(sorted(tgen_loads))

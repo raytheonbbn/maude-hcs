@@ -166,9 +166,13 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     ## raceboat tunnel client and server with
     rb_images = find_and_load_json(GLOBALS.TOPLEVELDIR, 'destini_covers.json')
     rb_destiniobj = Destini.from_dict(rb_images)
-    raceboatCl = RaceboatClient(mas_weird_network.tunnel_client_addr, mas_weird_network.sender_northbound_addr, mas_weird_network.alice_raceboat_profile, rb_destiniobj, 'destini-covers', mastodon_server_address, True)
+    raceboatCl = RaceboatClient(mas_weird_network.tunnel_client_addr, mas_weird_network.sender_northbound_addr,
+                                mas_weird_network.alice_raceboat_profile,
+                                rb_destiniobj, 'destini-covers', mastodon_server_address, True)
     raceboatSvr = RaceboatServer(mas_weird_network.tunnel_server_addr, mas_weird_network.receiver_northbound_addr,
-                                mas_weird_network.bob_raceboat_profile, rb_destiniobj, 'destini-covers',
+                                'mas',
+                                # mas_weird_network.bob_raceboat_profile, # TODO uncomment this when we fix the rb user model issue
+                                 rb_destiniobj, 'destini-covers',
                                 mastodon_server_address, False)
 
     # applications
