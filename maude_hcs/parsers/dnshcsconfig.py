@@ -77,9 +77,9 @@ class DNSUnderlyingNetwork(UnderlyingNetwork):
 @dataclass
 class DNSNondeterministicParameters(NondeterministicParameters):
     """Dataclass for nondeterministic simulation parameters."""
-    fileSize: int = 100
-    packetSize: int = 1
-    packetOverhead: int = 1
+    fileSize: int = 1000
+    packetSize: int = 530
+    packetOverhead: int = 33
     maxMinimiseCount: int = 0
     maxFragmentTx: int = 1
     maxUpFragmentLen: int = 1
@@ -89,9 +89,9 @@ class DNSNondeterministicParameters(NondeterministicParameters):
 @dataclass
 class DNSProbabilisticParameters(ProbabilisticParameters):
     """Dataclass for probabilistic simulation parameters."""
-    maxPacketSize: int = 1
-    pacingTimeoutDelay: float = 0.0
-    pacingTimeoutDelayMax: float = 0.0
+    maxPacketSize: int = 530
+    pacingTimeoutDelay: float = 0.01
+    pacingTimeoutDelayMax: float = 0.01
     ackTimeoutDelay: float = 0.0
     pingInterval: float = 1.0
     initialPingDelay: float = 0.001

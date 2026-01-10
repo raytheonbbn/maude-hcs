@@ -154,13 +154,13 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     iodineSvr = IodineServer(weird_network.tunnel_server_addr, [zonepwnd2], weird_network.severWResponseTTL)
     sndApp = SendApp(weird_network.send_app_address,
                      weird_network.rcv_app_address,
-                     weird_network.sender_northbound_addr,
                      weird_network.tunnel_client_addr,
+                     weird_network.sender_northbound_addr,
                      start=-1) # dont start it
     rcvApp = ReceiveApp(weird_network.rcv_app_address,
                         weird_network.send_app_address,
-                        weird_network.receiver_northbound_addr,
                         weird_network.tunnel_server_addr,
+                        weird_network.receiver_northbound_addr,
                         start=-1) # dont start it
 
     ## raceboat tunnel client and server with
