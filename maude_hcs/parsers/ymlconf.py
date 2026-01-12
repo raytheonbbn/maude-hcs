@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Any, Optional
 import math
+import re
 
 from dataclasses_json import dataclass_json
 import yaml
@@ -146,11 +147,94 @@ class Application:
     iodine: Iodine
     destini: Destini
 
+
 @dataclass_json
 @dataclass
 class Adversary:
-    baseline: Dict[str, Any]
-    actual: Dict[str, Any]
+    baseline: Dict[str, Any] = field(default_factory=dict)
+    actual: Dict[str, Any] = field(default_factory=dict)
+    router_pre_nat: Dict[str, Any] = field(default_factory=dict)
+    router_post_nat: Dict[str, Any] = field(default_factory=dict)
+
+    def render_template(self) -> Dict[str, Any]:
+        """
+        Creates the input dictionary for QuatexGenerator.generate_file.
+        Maps the script parameters from the YAML structure to the short codes expected by the generator.
+        """
+        # Mapping from Generator Keys -> YAML Script Names
+        key_map = {
+            'qps': 'moving_average/average_dns_query_rate',
+            'qsize': 'moving_average/average_dns_query_size',
+            'respsize': 'moving_average/average_dns_response_size',
+            'uploadrate': 'moving_average/average_https_upload_rate'
+        }
+
+        config = {}
+        config['start_time'] = 0.0  # Default start time
+
+        # Extract scripts from router_post_nat
+        # Structure is usually {'scripts': [{'name': ..., 'params': ...}, ...]}
+        scripts = self.router_post_nat.get('scripts', [])
+
+        # Create a lookup map for easy access by script name
+        script_params_map = {}
+        for script in scripts:
+            name = script.get('name')
+            params = script.get('params', {})
+            if name:
+                script_params_map[name] = params
+
+        for gen_key, yaml_name in key_map.items():
+            if yaml_name in script_params_map:
+                params = script_params_map[yaml_name]
+
+                # Clean 's' parameter (e.g., "10secs" -> 10)
+                s_raw = params.get('s')
+                s_val = s_raw
+                if isinstance(s_raw, str):
+                    # Extract digits
+                    match = re.match(r"(\d+(\.\d+)?)", s_raw)
+                    if match:
+                        s_val = float(match.group(1)) if '.' in match.group(1) else int(match.group(1))
+
+                config[gen_key] = {
+                    'k': params.get('k'),
+                    'n': params.get('n'),
+                    's': s_val,
+                    'm': params.get('m')
+                }
+
+        return config
+
+
+def parse_adversary(yml_path: str) -> Adversary:
+    """
+    Parses the .yml file and populates the Adversary class.
+
+    Args:
+        yml_path (str): Path to the YAML configuration file.
+
+    Returns:
+        Adversary: A populated Adversary instance.
+    """
+    with open(yml_path, 'r') as f:
+        data = yaml.safe_load(f)
+
+    # Extract adversary sections
+    baseline = data.get('adversary_phase0', {})
+    actual = data.get('adversary_phase1', {})
+
+    # Extract vantage points from Phase 1
+    vantage_points = actual.get('vantage_points', {})
+    router_pre_nat = vantage_points.get('router_pre_nat', {})
+    router_post_nat = vantage_points.get('router_post_nat', {})
+
+    return Adversary(
+        baseline=baseline,
+        actual=actual,
+        router_pre_nat=router_pre_nat,
+        router_post_nat=router_post_nat
+    )
 
 
 class YmlConf:
@@ -276,13 +360,20 @@ class YmlConf:
         return Application(alice=alice, bob=bob, iodine=iodine, destini=destini)
 
     def _parse_adversary(self, data: dict) -> Adversary:
-        # "Adversary: Baseline and Actual sections"
-        # Mapping 'adversary_phase0' to baseline and 'adversary_phase1' to actual
-        # based on standard CP2 naming conventions implied in the prompt.
         baseline = data.get('adversary_phase0', {})
         actual = data.get('adversary_phase1', {})
 
-        return Adversary(baseline=baseline, actual=actual)
+        # Populate pre/post nat
+        vantage_points = actual.get('vantage_points', {})
+        router_pre_nat = vantage_points.get('router_pre_nat', {})
+        router_post_nat = vantage_points.get('router_post_nat', {})
+
+        return Adversary(
+            baseline=baseline,
+            actual=actual,
+            router_pre_nat=router_pre_nat,
+            router_post_nat=router_post_nat
+        )
 
     def load_destini_from_json(self) -> Destini:
         """
