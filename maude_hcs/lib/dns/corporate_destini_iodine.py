@@ -170,8 +170,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
                                 mas_weird_network.alice_raceboat_profile,
                                 rb_destiniobj, 'destini-covers', mastodon_server_address, True)
     raceboatSvr = RaceboatServer(mas_weird_network.tunnel_server_addr, mas_weird_network.receiver_northbound_addr,
-                                'mas',
-                                # mas_weird_network.bob_raceboat_profile, # TODO uncomment this when we fix the rb user model issue
+                                mas_weird_network.bob_raceboat_profile, #'mas',
                                  rb_destiniobj, 'destini-covers',
                                 mastodon_server_address, False)
 
