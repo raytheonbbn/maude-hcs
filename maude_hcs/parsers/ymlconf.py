@@ -198,10 +198,10 @@ class Adversary:
                         s_val = float(match.group(1)) if '.' in match.group(1) else int(match.group(1))
 
                 config[gen_key] = {
-                    'k': params.get('k'),
+                    'k': float(params.get('k')),
                     'n': params.get('n'),
-                    's': s_val,
-                    'm': params.get('m')
+                    's': float(s_val),
+                    'm': float(params.get('m'))
                 }
 
         return config
