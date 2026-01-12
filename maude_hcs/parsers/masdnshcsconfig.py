@@ -38,7 +38,7 @@ from ..lib import Protocol
 from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
 from .protocolconfig import NondeterministicParameters, \
     ProbabilisticParameters, UnderlyingNetwork, BackgroundTrafficTgen, BackgroundTrafficTgenClient, \
-    Tunnel, DuplexApplication, HCSProtocolConfig, MASBackgroundTrafficTgenClient
+    Tunnel, DuplexApplication, HCSProtocolConfig, MASBackgroundTrafficTgenClient, XFile
 from .ymlconf import YmlConf
 from maude_hcs import  PROJECT_TOPLEVEL_DIR
 
@@ -114,7 +114,11 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
         app.alice_address = alice
         app.bob_address = bob
         app.hashtags = ymlconf.application.alice.hashtags
+        if not app.hashtags:
+            app.hashtags = [f'whatsup{i}' for i in range(1, 11)] #default
         app.xfiles = ymlconf.application.alice.xfiles
+        if not app.xfiles:
+            app.xfiles = [XFile(0, 50)]
 
         m_un = MASUnderlyingNetwork()
         m_un.module = 'mastodon'
