@@ -31,10 +31,12 @@
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List
 from dataclasses_json import dataclass_json
 from dataclasses_json import DataClassJsonMixin
-from maude_hcs.lib import Protocol
+from maude_hcs.lib import Protocol, GLOBALS
+from maude_hcs.parsers.markovJsonToMaudeParser import find_recursively
 
 
 # By using `default_factory=dict`, we ensure that a new dictionary is created
@@ -81,6 +83,7 @@ class Application:
 class Output:
     """Dataclass for output and reporting settings."""
     directory: str = "./results"
+    smc_directory: str = "./results"
     result_format: str = "maude"
     save_output: bool = True
     force_save: bool = False
@@ -96,6 +99,7 @@ class Output:
             "set print attribute off .",
             "set show advisories off ."
         ]
+        out.smc_directory = str(Path(find_recursively(GLOBALS.TOPLEVELDIR, 'adversary_param.j2')).parent)
         return out
 
 @dataclass

@@ -40,7 +40,7 @@ from maude_hcs.parsers.dnshcsconfig import DNSHCSProtocolConfig
 from maude_hcs.parsers.graph import Topology
 from maude_hcs.parsers.masdnshcsconfig import MASHCSProtocolConfig
 from maude_hcs.parsers.shadowconf import parse_shadow_config
-from maude_hcs.parsers.ymlconf import YmlConf
+from maude_hcs.parsers.ymlconf import YmlConf, Adversary
 from .protocolconfig import HCSProtocolConfig, Output
 
 @dataclass_json
@@ -54,6 +54,7 @@ class HCSConfig:
     output: Output
     monitor_address: str
     seed: int
+    adversary: Adversary
     protocols: dict[str, HCSProtocolConfig] # each protocol is keyed by name
 
     @staticmethod
@@ -91,6 +92,7 @@ class HCSConfig:
                          output=Output.generic(),
                          monitor_address=GLOBALS.MONITOR_ADDRESS,
                          seed=1,
+                         adversary=ymlconf.adversary,
                          protocols=protocols)
 
 

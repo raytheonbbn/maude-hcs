@@ -1,18 +1,21 @@
 import pytest
 import os
+import yaml
 from maude_hcs.parsers.quatexGenerator import QuatexGenerator
+from maude_hcs.parsers.ymlconf import parse_adversary, Adversary
+
 
 @pytest.fixture
 def full_template_content():
-    """Returns the content of the full adversary_param.j2 for testing."""
+    """Returns the content of a mock adversary_param.j2 for testing."""
     return """
 // Adversary Parameter Template
-// k = {{ k }}
-// w = {{ w }}
-ToDAvgQPS() = if (s.rval("getToD(C,0.0,{{ w }},{{ s }},{{ k }},{{ n }})") == 0.0) then discard else s.rval("getToD(C,0.0,{{ w }},{{ s }},{{ k }},{{ n }})") fi;
-// C.1 Check
-ToDCumulativeNQueryPreNAT() = if (s.rval("getToDCumulativeNQueryPreNAT(C,N)") == 0.0) then discard
+ToDAvgQPS() = getToD(C,{{ start_time }},{{ w_qps }},{{ s_qps }},{{ k_qps }},{{ n_qps }})
+ToDAvgQuerySize() = getToDAvgQuerySize(C,{{ start_time }},{{ w_qsize }},{{ s_qsize }},{{ k_qsize }},{{ n_qsize }})
+ToDAvgResponseSize() = getToDAvgResponseSize(C,{{ start_time }},{{ w_respsize }},{{ s_respsize }},{{ k_respsize }},{{ n_respsize }})
+ToDAvgUploadRate() = getToDAvgUploadRate(C,{{ start_time }},{{ w_uploadrate }},{{ s_uploadrate }},{{ k_uploadrate }},{{ n_uploadrate }})
 """
+
 
 @pytest.fixture
 def setup_generator(tmp_path, full_template_content):
@@ -23,57 +26,118 @@ def setup_generator(tmp_path, full_template_content):
     p.write_text(full_template_content)
     return QuatexGenerator(str(p)), d
 
-def test_generate_quatex_logic(setup_generator, tmp_path):
+
+@pytest.fixture
+def sample_yaml_content():
     """
-    Verifies that variables are substituted correctly and w is calculated as s*m.
+    Returns the content of cp2_setup_example.yml as provided in the instructions.
+    """
+    return """
+adversary_phase1:
+  vantage_points:
+    router_pre_nat:
+      scripts:
+        - name: cumulative/dns_query_count
+          params:
+            dns_q_threshold: 100
+    router_post_nat:
+      scripts:
+        - name: bin_loader
+          params:
+            json_path: "/baselines/cp2_setup_example.json"
+        - name: moving_average/average_dns_query_rate
+          params:
+            s: 10secs
+            m: 6
+            k: 1.15
+            n: 3
+        - name: moving_average/average_dns_query_size
+          params:
+            s: 10secs
+            m: 6
+            k: 1.15
+            n: 3
+        - name: moving_average/average_dns_response_size
+          params:
+            s: 10secs
+            m: 6
+            k: 1.15
+            n: 3
+        - name: moving_average/average_https_upload_rate
+          params:
+            s: 10secs
+            m: 6
+            k: 1.15
+            n: 3
+"""
+
+
+@pytest.fixture
+def sample_yaml_file(tmp_path, sample_yaml_content):
+    p = tmp_path / "cp2_setup_example.yml"
+    p.write_text(sample_yaml_content)
+    return str(p)
+
+
+def test_parse_adversary_and_generate(setup_generator, sample_yaml_file, tmp_path):
+    """
+    Integration test:
+    1. Parse YAML using parse_adversary
+    2. Convert to Generator Config using render_template
+    3. Generate Quatex file
     """
     generator, _ = setup_generator
-    output_file = tmp_path / "generated_adversary.quatex"
-    
-    # Define Inputs
-    k_val = 1.5
-    n_val = 4
-    s_val = 20
-    m_val = 3
-    # Expected w = 20 * 3 = 60
-    
-    # Execution
-    content = generator.generate_file(
-        k=k_val,
-        n=n_val,
-        s=s_val,
-        m=m_val,
-        output_filename=str(output_file)
-    )
-    
-    # Verification
-    assert output_file.exists()
-    
-    # 1. Check Derived Variable w calculation
-    # "getToD(..., 60, ...)"
-    assert f"getToD(C,0.0,60,{s_val},{k_val},{n_val})" in content
-    
-    # 2. Check Static Content Preservation
-    # Ensure parts of the file that shouldn't change remained intact
-    assert "ToDCumulativeNQueryPreNAT" in content
-    assert "(C,N)" in content  # N should NOT be replaced
-    
-    # 3. Check variable replacement in comments if they exist in template
-    # "// k = 1.5"
-    assert f"// k = {k_val}" in content
+    output_file = tmp_path / "cp2_generated.quatex"
 
-def test_generate_file_structure(tmp_path):
+    # 1. Parse Adversary
+    adversary_obj = parse_adversary(sample_yaml_file)
+
+    # Verify parsing structure
+    assert adversary_obj.router_pre_nat is not None
+    assert adversary_obj.router_post_nat is not None
+    scripts = adversary_obj.router_post_nat.get('scripts', [])
+    assert len(scripts) > 0
+
+    # 2. Render Template
+    config = adversary_obj.render_template()
+
+    # Verify extracted values
+    # In YAML: k: 1.15, n: 3, m: 6, s: 10secs
+
+    assert 'qps' in config
+    qps_config = config['qps']
+    assert qps_config['k'] == 1.15
+    assert qps_config['n'] == 3
+    assert qps_config['m'] == 6
+    assert qps_config['s'] == 10  # Should be stripped of 'secs'
+
+    # Check upload rate
+    assert 'uploadrate' in config
+    assert config['uploadrate']['k'] == 1.15
+
+    # 3. Generate File
+    content = generator.generate_file(config, str(output_file))
+
+    assert output_file.exists()
+
+    # w = s * m = 10 * 6 = 60
+    # Expected: getToD(C,0.0,60,10,1.15,3)
+    assert "getToD(C,0.0,60,10,1.15,3)" in content
+
+
+def test_parse_adversary_missing_values_safe(setup_generator, tmp_path):
+    """Test that parser handles missing scripts gracefully."""
+    yaml_content = """
+    adversary_phase1:
+      vantage_points:
+        router_post_nat:
+          scripts: []
     """
-    Integration test using the actual file content logic if available,
-    or ensuring the file write works for any string content.
-    """
-    # Create a simple template just for this test
-    tpl_path = tmp_path / "simple.j2"
-    tpl_path.write_text("Value: {{ w }}")
-    
-    gen = QuatexGenerator(str(tpl_path))
-    out_path = tmp_path / "simple.out"
-    
-    gen.generate_file(1, 1, 10, 5, str(out_path)) # w=50
-    
-    assert out_path.read_text() == "Value: 50"
+    p = tmp_path / "empty.yml"
+    p.write_text(yaml_content)
+
+    adv = parse_adversary(str(p))
+    config = adv.render_template()
+
+    # Should be empty except start_time
+    assert config == {'start_time': 0.0}

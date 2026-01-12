@@ -40,7 +40,7 @@ from maude_hcs.parsers.masdnshcsconfig import MASHCSProtocolConfig, \
 from .cache import CacheEntry, ResolverCache
 from .corporate import createAuthZone, createRootZone, createTLDZone
 import logging
-
+import os
 from .. import GLOBALS, Protocol
 from ..common import X
 from ..common.commonActors import Adversary, ObservationPattern
@@ -50,6 +50,7 @@ from ...deps.dns_formalization.Maude.attack_exploration.src.zone import Record
 from ...parsers.dnshcsconfig import DNSUnderlyingNetwork, DNSWeirdNetwork, DNSBackgroundTrafficTgenClient
 from ...parsers.hcsconfig import HCSConfig
 from ...parsers.markovJsonToMaudeParser import find_and_load_json
+from ...parsers.quatexGenerator import QuatexGenerator
 from ...parsers.ymlconf import Destini
 from ...parsers.graph import Node, Link
 
@@ -180,7 +181,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     mainRcvApp = RbRcvApp(app.bob_address, app.alice_address, rcvApp.address, raceboatSvr.userModelAddress,
                            raceboatSvr.contentManagerAddress, True)
     # adversary
-    # TODO add this to the HCS Config at some point
+    ## the actor and observables
     adversary = Adversary("adversary",
                           [ObservationPattern.ExtToLocalPreNat,
                             ObservationPattern.LocalToExtPostNat
@@ -189,6 +190,10 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
                            ObservationPattern.LocalToExtPreNat
                            ]
                           )
+    ## the smc measures
+    adversary_conf = hcsconf.adversary.render_template()
+    quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'adversary_param.j2'))
+    quatexGenerator.generate_file(adversary_conf, os.path.join(hcsconf.output.smc_directory, 'adversaryX.quatex'))
 
     # monitor
     monitor = WMonitor(monitorAddr)
