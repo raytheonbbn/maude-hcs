@@ -122,7 +122,8 @@ mod CP2_NODE is
   op queue:_ : ByteSeqL -> Attribute [ctor] .
   --- Contract cc file.
   op currentCcFile:_ : ByteSeq -> Attribute [ctor] .
-
+  op doneDelay:_ : Float -> Attribute [ctor] .
+  
   vars toAddr destAddr TO_ADDR DEST_ADDR FROM_ADDR : Address .
   vars attrs attrsNext otherAttrs ATTRS : AttributeSet .
   vars file ccInfo FILE : ByteSeq .
@@ -130,13 +131,14 @@ mod CP2_NODE is
   vars outMsg : Msg .
 
   ---            This    Dest    Iodine  UserModel ContentMgr Contracts
-  op makeTxApp : Address Address Address Address   Address    ByteSeqL -> Actor [ctor] .
+  op makeTxApp : Address Address Address Address   Address    ByteSeqL Float -> Actor [ctor] .
   eq makeTxApp(AliceAddr:Address,
                BobAddr:Address,
                iodine:Address,
                userModel:Address,
                contentMgr:Address,
-               contracts:ByteSeqL) =
+               contracts:ByteSeqL,
+               donePause:Float) =
     < AliceAddr:Address : TxApp |
         destAddr: BobAddr:Address,
         iodineAddr: iodine:Address,
@@ -144,9 +146,26 @@ mod CP2_NODE is
         rbContentMgrAddr: contentMgr:Address,
         contractCount: 0,
         queue: contracts:ByteSeqL,
-        currentCcFile: nilBytes
+        currentCcFile: nilBytes,
+        doneDelay: donePause:Float
     > .
 
+  op makeTxApp : Address Address Address Address   Address    ByteSeqL -> Actor [ctor] .
+  eq makeTxApp(AliceAddr:Address,
+               BobAddr:Address,
+               iodine:Address,
+               userModel:Address,
+               contentMgr:Address,
+               contracts:ByteSeqL) =
+     makeTxApp(AliceAddr:Address,
+               BobAddr:Address,
+               iodine:Address,
+               userModel:Address,
+               contentMgr:Address,
+               contracts:ByteSeqL,
+               0.0)            
+    .               
+  
   op getRbUserModelAddr : AttributeSet -> Address .
   eq getRbUserModelAddr((attrs:AttributeSet, rbUserModelAddr: addr:Address)) = addr:Address .
 

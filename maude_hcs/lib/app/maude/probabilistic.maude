@@ -55,14 +55,16 @@ mod CP2_APP is
        contractKey0 contractHash0 contractHashtag0
        CONTRACT_KEY CONTRACT_HASH : ByteSeq .
   vars CONTRACT_LIST : ByteSeqL .
-  vars T : Float . ---timestamps
-  vars contractId : Nat .
+  vars T ddelay : Float . ---timestamps
+  vars contractId j : Nat .
   vars txAct rxAct monAct : Actor . 
   vars str : String .
   vars msg0 msg1 msg2 msg : Msg .
   vars filetsl : ByteSeqTimestampList .
   vars b : Bool .
 
+op setDoneTrue : -> Content  [ctor] .
+**** op doneDelay:_ : Float -> Attribute [ctor] .
 
   -------------------
   --- Alice Rules ---
@@ -93,21 +95,25 @@ crl [alice-send-contract]:
   .
 
  rl [alice-rcv-ack]:
+  rCtr(j)
    < ALICE_ADDR : TxApp | attrs >
    < MON : WMonitor | monAttrs >
    {T, (to ALICE_ADDR  from sndAppAddr : ackFile)}
    =>
-  txAppRcvAck( < ALICE_ADDR : TxApp | attrs >,
+  txAppRcvAck(rCtr(j),
+               < ALICE_ADDR : TxApp | attrs >,
                < MON : WMonitor | monAttrs >, 
                T, ackFile)
   .              
  
-  op txAppRcvAck : Actor Actor Float ByteSeq -> Config .
- eq txAppRcvAck(txAct,monAct,T,ackFile) = txAct monAct 
+  op txAppRcvAck : Actor Actor Actor Float ByteSeq -> Config .
+ eq txAppRcvAck(rCtr(j),txAct,monAct,T,ackFile) 
+      = rCtr(j) txAct monAct 
  [owise print "(" T ")  Alice received unexpected ackFile"] .
 
 
  ceq txAppRcvAck( 
+   rCtr(j),
     < ALICE_ADDR : TxApp | attrs, contractCount: contractId, 
        queue: (CONTRACT :: CONTRACT_LIST), 
        currentCcFile: ccFile(contractKey0, 
@@ -116,6 +122,7 @@ crl [alice-send-contract]:
   < MON : WMonitor | monAttrs >, 
          T, ackFile(str,contractHashtag0) )
  =  
+  rCtr(j) 
   < MON : WMonitor | 
         logFileSent(monAttrs,T,CONTRACT) >
   < ALICE_ADDR : TxApp | attrs,
@@ -123,8 +130,7 @@ crl [alice-send-contract]:
        queue: CONTRACT_LIST, 
        currentCcFile: ccFile(contractKey, 
                             contractHash  ,
-                             contractHashtag) >
-                            
+                             contractHashtag) >                            
     delayMsgs(msg1 msg2, null)          
    if contractKey := key(contractId, 4)
    /\ contractHash := hash(CONTRACT, 4)
@@ -141,7 +147,7 @@ crl [alice-send-contract]:
  [ print "(" T ") Alice received ackFile status: " str " hashtag " contractHashtag0 " sending contract <<<< " CONTRACT " >>>> #" contractId " with hashtag " contractHashtag ]
  .
 
- eq txAppRcvAck( 
+***( eq txAppRcvAck( 
     < ALICE_ADDR : TxApp | attrs, queue: nilBS, 
        currentCcFile: ccFile(contractKey0, 
                             contractHash0, 
@@ -154,8 +160,40 @@ crl [alice-send-contract]:
      < MON : WMonitor | setDoneFlag(monAttrs,true) > 
 [ print "(" T ") Alice received ackFile status: " str " hashtag " contractHashtag0 " setting doneFlag true." ]
  .
+)
+
+ eq txAppRcvAck( 
+    rCtr(j),
+    < ALICE_ADDR : TxApp | attrs, queue: nilBS, doneDelay: ddelay,
+       currentCcFile: ccFile(contractKey0, 
+                            contractHash0, 
+                            contractHashtag0) >,
+     < MON : WMonitor | monAttrs >, 
+      T, ackFile(str,contractHashtag0) )
+ =    
+    rCtr(s j)
+    < ALICE_ADDR : TxApp | attrs, queue: nilBS, doneDelay: ddelay,
+                           currentCcFile: nilBytes >
+     < MON : WMonitor | monAttrs >
+    [ddelay + genRandomX(j,0.0,0.0001), 
+     (to ALICE_ADDR from ALICE_ADDR : setDoneTrue),
+     0]     
+      
+[ print "(" T ") Alice received ackFile status: " str " hashtag " contractHashtag0 " setting doneFlag timer." ]
+ .
  
  
+ rl [alice-rcv-doneTimer]:
+   < ALICE_ADDR : TxApp | attrs >
+   < MON : WMonitor | monAttrs >
+   {T, (to ALICE_ADDR  from ALICE_ADDR  : setDoneTrue)}
+   =>
+   < ALICE_ADDR : TxApp | attrs >
+   < MON : WMonitor | setDoneFlag(monAttrs,true)  >
+[ print "(" T ") Alice setting doneFlag " ]
+   .   
+   
+  
    -----------------
   --- Bob Rules ---
   -----------------
