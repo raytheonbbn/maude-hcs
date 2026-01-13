@@ -161,7 +161,7 @@ class Adversary:
         Creates the input dictionary for QuatexGenerator.generate_file.
         Maps the script parameters from the YAML structure to the short codes expected by the generator.
         """
-        # Mapping from Generator Keys -> YAML Script Names
+        # Mapping from Generator Keys -> YAML Script Names for Moving Averages
         key_map = {
             'qps': 'moving_average/average_dns_query_rate',
             'qsize': 'moving_average/average_dns_query_size',
@@ -172,8 +172,7 @@ class Adversary:
         config = {}
         config['start_time'] = 0.0  # Default start time
 
-        # Extract scripts from router_post_nat
-        # Structure is usually {'scripts': [{'name': ..., 'params': ...}, ...]}
+        # --- Process Moving Averages (Post-NAT) ---
         scripts = self.router_post_nat.get('scripts', [])
 
         # Create a lookup map for easy access by script name
@@ -198,11 +197,43 @@ class Adversary:
                         s_val = float(match.group(1)) if '.' in match.group(1) else int(match.group(1))
 
                 config[gen_key] = {
-                    'k': float(params.get('k')),
+                    'k': params.get('k'),
                     'n': params.get('n'),
-                    's': float(s_val),
-                    'm': float(params.get('m'))
+                    's': s_val,
+                    'm': params.get('m')
                 }
+
+        # --- Process Cumulative Thresholds (Pre & Post NAT) ---
+        # Helper to get params for a script name from a list of scripts
+        def get_script_params(scripts_list, script_name):
+            for script in scripts_list:
+                if script.get('name') == script_name:
+                    return script.get('params', {})
+            return {}
+
+        pre_nat_scripts = self.router_pre_nat.get('scripts', [])
+        post_nat_scripts = self.router_post_nat.get('scripts', [])
+
+        # Map: Generator Key -> (IsPreNat, Script Name, Param Name)
+        cumulative_map = {
+            'N_query_pre_nat': (True, 'cumulative/dns_query_count', 'dns_q_threshold'),
+            'N_query_post_nat': (False, 'cumulative/dns_query_count', 'dns_q_threshold'),
+            'N_query_size_pre_nat': (True, 'cumulative/dns_query_bytes', 'dns_byte_threshold'),
+            'N_query_size_post_nat': (False, 'cumulative/dns_query_bytes', 'dns_byte_threshold'),
+            'N_response_pre_nat': (True, 'cumulative/dns_response_bytes', 'dns_resp_byte_threshold'),
+            'N_response_post_nat': (False, 'cumulative/dns_response_bytes', 'dns_resp_byte_threshold'),
+            'N_http_conn_pre_nat': (True, 'cumulative/https_connection_count', 'https_conn_threshold'),
+            'N_http_conn_post_nat': (False, 'cumulative/https_connection_count', 'https_conn_threshold'),
+            'N_http_upload_pre_nat': (True, 'cumulative/https_upload_bytes', 'https_upload_byte_threshold'),
+            'N_http_upload_post_nat': (False, 'cumulative/https_upload_bytes', 'https_upload_byte_threshold')
+        }
+
+        for gen_key, (is_pre, script_name, param_key) in cumulative_map.items():
+            target_scripts = pre_nat_scripts if is_pre else post_nat_scripts
+            params = get_script_params(target_scripts, script_name)
+            val = params.get(param_key)
+            if val is not None:
+                config[gen_key] = val
 
         return config
 
@@ -235,7 +266,6 @@ def parse_adversary(yml_path: str) -> Adversary:
         router_pre_nat=router_pre_nat,
         router_post_nat=router_post_nat
     )
-
 
 class YmlConf:
     """
