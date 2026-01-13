@@ -34,8 +34,8 @@ class QuatexGenerator:
         Args:
             config (dict): A dictionary containing keys for each query type:
                            'qps', 'qsize', 'respsize', 'uploadrate'.
-                           Each value must be a dict with 'k', 'n', 's', 'm'.
                            Can also include a top-level 'start_time' key.
+                           Can also include cumulative threshold keys (N_...).
             output_filename (str): Path to write the generated file.
 
         Returns:
@@ -71,6 +71,21 @@ class QuatexGenerator:
             context[f'm_{group}'] = m
             context[f'w_{group}'] = w
 
+        # Add cumulative threshold parameters directly to context
+        cumulative_keys = [
+            'N_query_pre_nat', 'N_query_post_nat',
+            'N_query_size_pre_nat', 'N_query_size_post_nat',
+            'N_response_pre_nat', 'N_response_post_nat',
+            'N_http_conn_pre_nat', 'N_http_conn_post_nat',
+            'N_http_upload_pre_nat', 'N_http_upload_post_nat'
+        ]
+
+        for key in cumulative_keys:
+            # We don't error if missing, just pass if present;
+            # Jinja will handle missing vars (empty string) or error depending on env settings.
+            if key in config:
+                context[key] = config[key]
+
         # Render the template with the provided context
         rendered_content = self.template.render(**context)
 
@@ -80,17 +95,3 @@ class QuatexGenerator:
 
         print(f"Successfully generated {output_filename}")
         return rendered_content
-
-
-if __name__ == "__main__":
-    # Example usage
-    config = {
-        'start_time': 10.0,
-        'qps': {'k': 2.5, 'n': 5, 's': 10, 'm': 6},
-        'qsize': {'k': 1.5, 'n': 3, 's': 5, 'm': 4},
-        'respsize': {'k': 2.0, 'n': 4, 's': 8, 'm': 5},
-        'uploadrate': {'k': 3.0, 'n': 6, 's': 12, 'm': 2}
-    }
-
-    generator = QuatexGenerator("adversary_param.j2")
-    generator.generate_file(config, output_filename="output_adversary.quatex")
