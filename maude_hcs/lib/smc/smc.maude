@@ -132,10 +132,16 @@ mod SMC is
   --- Goodput: Total number of file exfil bits divided by scenario latency, in bits per second
   op getGoodputCP2 : Actor -> Float .
   eq getGoodputCP2 (< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) = if getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) == 0.0 then 0.0 else (float(exfilNBytes(BTL')) * 8.0 / getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >)) fi .
-  eq getGoodputCP2 (A:Actor) = 100.0 .
 
   op getGoodput : Actor -> Float .
   eq getGoodput (A:Actor) = getGoodputCP2(A) .
+
+  op lengthTimeWindow : ByteSeqTimestampList Float Float -> Nat .
+  eq lengthTimeWindow (nilByteSeqTimestamp, T', T'') = 0 .
+  eq lengthTimeWindow (fileTimeStamp(file(id, len), T) ; BTL, T', T'') = if T >= T' and T < T'' then 1 + lengthTimeWindow(BTL, T', T'') else lengthTimeWindow(BTL, T', T'') fi .
+
+  op getExfilFiles : Actor Float -> Nat .
+  eq getExfilFiles (< ADDR : WMonitor | fileRcvd: BTL, attrs >, T) = lengthTimeWindow(BTL, 0.0, T) .
 
   op getPTLLen : PacketTimestampList -> Nat .
   eq getPTLLen (nilPacketTimestamp) = 0 .
