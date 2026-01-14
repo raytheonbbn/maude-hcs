@@ -114,7 +114,7 @@ class RbSendApp:
             currentCcFile: nilBytes
         > .
     """
-    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, hashtags:list[str], xfiles: list[XFile], start:bool = True):
+    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, hashtags:list[str], xfiles: list[XFile], donePause: float, start:bool = True):
         self.address = address_to_maude(address)
         self.toAddress = toAddress
         self.iodineTunAddress = iodineTunAddress
@@ -122,13 +122,14 @@ class RbSendApp:
         self.rbCMAddress = rbCMAddress
         self.hashtags = hashtags
         self.xfiles = xfiles
+        self.donePause = donePause #the max window size to wait before stopping
         self.start = start
 
     def to_maude_defs(self):
         return f'eq weirdHashtags = {JsonToMaudeParser(None, None).to_maude_jv(self.hashtags)} .'
 
     def to_maude(self):
-        out = f'makeTxApp({address_to_maude(self.address)}, {address_to_maude(self.toAddress)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)}, {files_to_maude(self.xfiles)})'
+        out = f'makeTxApp({address_to_maude(self.address)}, {address_to_maude(self.toAddress)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)}, {files_to_maude(self.xfiles)}, {self.donePause})'
         if self.start == True:
             out += '\n'
             out += f'[genRandom(0.0, 0.0001), (to {address_to_maude(self.address)} : start), 0]'
