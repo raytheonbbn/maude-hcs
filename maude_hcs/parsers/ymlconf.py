@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass, field
+from fileinput import filename
 from typing import List, Tuple, Dict, Any, Optional
 import math
 import re
@@ -155,6 +156,7 @@ class Adversary:
     actual: Dict[str, Any] = field(default_factory=dict)
     router_pre_nat: Dict[str, Any] = field(default_factory=dict)
     router_post_nat: Dict[str, Any] = field(default_factory=dict)
+    baseline_bins: Dict[str, Any] = field(default_factory=dict)
 
     def render_template(self) -> Dict[str, Any]:
         """
@@ -277,41 +279,14 @@ class Adversary:
 
         return max_w
 
-def parse_adversary(yml_path: str) -> Adversary:
-    """
-    Parses the .yml file and populates the Adversary class.
-
-    Args:
-        yml_path (str): Path to the YAML configuration file.
-
-    Returns:
-        Adversary: A populated Adversary instance.
-    """
-    with open(yml_path, 'r') as f:
-        data = yaml.safe_load(f)
-
-    # Extract adversary sections
-    baseline = data.get('adversary_phase0', {})
-    actual = data.get('adversary_phase1', {})
-
-    # Extract vantage points from Phase 1
-    vantage_points = actual.get('vantage_points', {})
-    router_pre_nat = vantage_points.get('router_pre_nat', {})
-    router_post_nat = vantage_points.get('router_post_nat', {})
-
-    return Adversary(
-        baseline=baseline,
-        actual=actual,
-        router_pre_nat=router_pre_nat,
-        router_post_nat=router_post_nat
-    )
-
 class YmlConf:
     """
     Parses the system configuration YAML file into structured objects.
     """
 
     def __init__(self, yml_path: str):
+        self.yml_path = yml_path
+
         # 1. Load the raw YAML
         with open(yml_path, 'r') as f:
             self.data = yaml.safe_load(f)
@@ -329,7 +304,7 @@ class YmlConf:
         self.application: Application = self._parse_application(self.data)
 
         # 6. Adversary
-        self.adversary: Adversary = self._parse_adversary(self.data)
+        self.adversary: Adversary = self._parse_adversary(self.data, self.yml_path)
 
     def _parse_tgen(self, data: dict) -> List[Tuple[str, str, int]]:
         """
@@ -428,7 +403,7 @@ class YmlConf:
 
         return Application(alice=alice, bob=bob, iodine=iodine, destini=destini)
 
-    def _parse_adversary(self, data: dict) -> Adversary:
+    def _parse_adversary(self, data: dict, ymlpath: str) -> Adversary:
         baseline = data.get('adversary_phase0', {})
         actual = data.get('adversary_phase1', {})
 
@@ -437,8 +412,26 @@ class YmlConf:
         router_pre_nat = vantage_points.get('router_pre_nat', {})
         router_post_nat = vantage_points.get('router_post_nat', {})
 
+        # get adversary bins if they exist
+        # first get the filename for the bins
+        scripts = router_post_nat.get('scripts', [])
+        for script in scripts:
+            name = script.get('name')
+            params = script.get('params', {})
+            if name == 'bin_loader':
+                filename = params['json_path']
+                break
+        baseline_bin_data = {}
+        if filename:
+            f = Path(ymlpath).parent.joinpath('zeek').joinpath(filename[1:])
+            try:
+                baseline_bin_data = find_and_load_json(f.parent, f.parts[-1])
+            except:
+                logger.warning(f'Failed to load baseline bin data from {f}')
+
         return Adversary(
             baseline=baseline,
+            baseline_bins=baseline_bin_data,
             actual=actual,
             router_pre_nat=router_pre_nat,
             router_post_nat=router_post_nat
