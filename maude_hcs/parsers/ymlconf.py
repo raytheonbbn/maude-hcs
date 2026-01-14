@@ -237,22 +237,23 @@ class Adversary:
 
         return config
 
-    def getMaxWindowSize(self) -> float:
+    def getMaxWindowSize(self, key:str) -> float:
         """
-        Computes the max value of s*m across all groups in the config.router_post_nat.
+        Computes the max value of s*n or s*m across all groups in the config.router_post_nat.
         Returns:
             float: The maximum window size.
         """
+        assert key in ['m', 'n'], f"Key {key} is not valid. Must be 'm' or 'n'."
         max_w = 0.0
         scripts = self.router_post_nat.get('scripts', [])
 
         for script in scripts:
             params = script.get('params', {})
             s_raw = params.get('s')
-            m_raw = params.get('m')
+            n_raw = params.get(key)
 
             # Only proceed if both s and m parameters exist
-            if s_raw is not None and m_raw is not None:
+            if s_raw is not None and n_raw is not None:
                 s_val = 0.0
 
                 # Parse s (handle "10secs" string format or raw numbers)
@@ -263,12 +264,12 @@ class Adversary:
                     if match:
                         s_val = float(match.group(1))
 
-                # Parse m
+                # Parse n
                 try:
-                    m_val = float(m_raw)
+                    n_val = float(n_raw)
 
-                    # Compute window w = s * m
-                    w = s_val * m_val
+                    # Compute s * n
+                    w = s_val * n_val
                     if w > max_w:
                         max_w = w
                 except (ValueError, TypeError):
