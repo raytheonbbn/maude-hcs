@@ -237,6 +237,44 @@ class Adversary:
 
         return config
 
+    def getMaxWindowSize(self) -> float:
+        """
+        Computes the max value of s*m across all groups in the config.router_post_nat.
+        Returns:
+            float: The maximum window size.
+        """
+        max_w = 0.0
+        scripts = self.router_post_nat.get('scripts', [])
+
+        for script in scripts:
+            params = script.get('params', {})
+            s_raw = params.get('s')
+            m_raw = params.get('m')
+
+            # Only proceed if both s and m parameters exist
+            if s_raw is not None and m_raw is not None:
+                s_val = 0.0
+
+                # Parse s (handle "10secs" string format or raw numbers)
+                if isinstance(s_raw, (int, float)):
+                    s_val = float(s_raw)
+                elif isinstance(s_raw, str):
+                    match = re.match(r"(\d+(\.\d+)?)", s_raw)
+                    if match:
+                        s_val = float(match.group(1))
+
+                # Parse m
+                try:
+                    m_val = float(m_raw)
+
+                    # Compute window w = s * m
+                    w = s_val * m_val
+                    if w > max_w:
+                        max_w = w
+                except (ValueError, TypeError):
+                    continue
+
+        return max_w
 
 def parse_adversary(yml_path: str) -> Adversary:
     """
