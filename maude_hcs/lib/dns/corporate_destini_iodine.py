@@ -189,12 +189,13 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     adversary_conf = hcsconf.adversary.render_template()
     quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'adversary_param.j2'))
     quatexGenerator.generate_file(adversary_conf, os.path.join(hcsconf.output.smc_directory, 'adversaryX.quatex'))
-    maxWindowSize = hcsconf.adversary.getMaxWindowSize()
-    print(maxWindowSize)
+    maxWindowSize = hcsconf.adversary.getMaxWindowSize('m')
+    maxNBinWindowSize = hcsconf.adversary.getMaxWindowSize('n')
+    print(maxWindowSize, maxNBinWindowSize)
 
     # applications
     app = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].application
-    mainSndApp = RbSendApp(app.alice_address, app.bob_address, sndApp.address, raceboatCl.userModelAddress, raceboatCl.contentManagerAddress, app.hashtags, app.xfiles, maxWindowSize, True)
+    mainSndApp = RbSendApp(app.alice_address, app.bob_address, sndApp.address, raceboatCl.userModelAddress, raceboatCl.contentManagerAddress, app.hashtags, app.xfiles, maxNBinWindowSize, True)
     mainRcvApp = RbRcvApp(app.bob_address, app.alice_address, rcvApp.address, raceboatSvr.userModelAddress,
                            raceboatSvr.contentManagerAddress, True)
 
