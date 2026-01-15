@@ -1,0 +1,316 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+**** set show advisories off .
+
+-------------------------------------------------------
+---- DNSQgen Actor 
+-------------------------------------------------------
+***(
+A qgen actor, addr, accepts message 
+(to addr from umAddr : actionQ(ract))
+carries generates  dnsnames
+sends dnsQ(name) to its dnsClient for each
+required query  and then ack to requestor
+)
+
+
+sload ../../../deps/dns_formalization/Maude/dns/common/prelim.maude
+
+sload ../../common/maude/sampler-x
+sload ../../common/maude/cp2-interfaces 
+sload dns-mamodel
+
+
+mod DNS-QGEN is
+  inc CP2-COMMON  . --- SCHEDULER+ACTOR-MODEL+PARAMETERS 
+  inc SAMPLER-X .   
+  inc MSG .         ---- prelim dns content sorts
+  inc TGEN-INTERFACE .
+  inc DNS-CLIENT-INTERFACE .
+
+  
+vars n n0 j j1 i rj rj1 k l nq nq1 index retryMx : Nat . 
+vars r : Rat .
+vars str : String .
+vars name name1 : Name .
+
+vars fl T retryTo : Float .
+vars addr dAddr umAddr rsvAddr  clientAddr : Address .
+vars attrs attrs1 attrs0 attrs2 : AttributeSet .
+vars msg msg1 msg0 : Msg .
+vars msgs msgs0 : Config .
+vars qtype : RType .
+vars query query0 query1 : Query .
+vars response response1 : Response .
+vars ract mj : Map{String,JV} .
+vars actor : Actor .
+vars ac : Content .
+
+--- DNSQgen attributes 
+  
+op qnameBase:_ : Name -> Attribute [ctor] .
+op lenNameDB:_ : Nat -> Attribute [ctor] .
+op dnsClient:_ : Address -> Attribute [ctor] . 
+op numQ:_ : Nat -> Attribute  [ctor] .
+op w4q:_ : Config -> Attribute [ctor] .
+op replyTo:_ : Config -> Attribute [ctor] . 
+
+ op getLenNameDB : Actor -> Nat .
+ op getLenNameDB : AttributeSet -> Nat .
+
+ op getQnameBase : Actor -> Name .
+ op getQnameBase : AttributeSet -> Name .
+
+eq getLenNameDB(actor) = getLenNameDB(getAttrs(actor)) .
+eq getLenNameDB((attrs, lenNameDB: l)) = l .
+
+eq getQnameBase(actor) = getQnameBase(getAttrs(actor)) .
+eq getQnameBase((attrs, qnameBase: name)) = name .
+
+op getW4q : Actor -> Config .
+op getW4q : AttributeSet -> Config .
+eq getW4q(actor) = getW4q(getAttrs(actor)) .
+eq getW4q((attrs, w4q: msgs)) = msgs .
+
+eq setAttrs((attrs,numQ: n0),(attrs0,numQ: n))
+     = (numQ: n), setAttrs(attrs,attrs0)  .     
+
+eq setAttrs((attrs,w4q: msgs0),(attrs0,w4q: msgs))
+     = (w4q: msgs), setAttrs(attrs,attrs0)  .     
+
+eq setAttrs((attrs,replyTo: msgs0),
+               (attrs0,replyTo: msgs))
+   = (replyTo: msgs), setAttrs(attrs,attrs0)  .   
+
+----- fix QType as a for now.
+
+   
+op DNSQgen : -> ActorType . 
+
+*****    base lname dblen 
+      
+op genQName : Name String Nat Nat -> Name .
+ceq genQName(name,str,l,j) = (name1 . name) 
+if i := floor(rat(floor(genRandomX(j,0., 
+                              float(l)))) )
+/\ s:String := string(i,10)                             
+/\ name1 := qid(str + s:String )
+ .
+
+
+op getNumQ : Map{String,JV} -> Nat .
+eq getNumQ((mj,"num_to_resolve" |-> jn(n))) = n .
+eq getNumQ(mj) = 1 [owise] .
+
+
+op mkDnsQgenA : Address  Address Nat  Name
+               -> Actor .
+
+eq mkDnsQgenA(addr,clientAddr,l,name) =
+ < addr : DNSQgen | 
+     qnameBase: name, lenNameDB: l, 
+     dnsClient: clientAddr, 
+     w4q: null, replyTo: null, numQ: 0 
+  > .
+ 
+op mkDnsQgenAx : Address  Address Nat -> Actor .
+eq mkDnsQgenAx(addr,clientAddr,l) =
+   mkDnsQgenA(addr,clientAddr,l,
+              ('internet . 'com . root))  .
+
+crl [rcvDNSAction]:
+rCtr(rj)
+{T,(to dAddr from umAddr : actionQ(ract))}
+< dAddr : DNSQgen | attrs >
+=>
+< dAddr : DNSQgen |  attrs1 >
+rCtr(s rj1)
+delayMsgs(msgs,null)
+if {attrs1,msgs,msgs0,rj1} := dnsQRcvAQ(attrs,
+            (to dAddr from umAddr : actionQ(ract)),rj)
+[print "(" T ") DNSQgen " dAddr " rcvDNSAction " ract " sends " msgs ]
+.
+  
+op dnsQRcvAQ : AttributeSet Msg Nat -> AttributeSetMsgsMsgsNat .
+
+eq dnsQRcvAQ(attrs,msg,rj) 
+       = {attrs,null,null,rj} [owise] .
+
+ceq dnsQRcvAQ(attrs,msg0,rj)
+       = tgenQuery(attrs2, dAddr,  rj)
+if (to dAddr from addr : actionQ(ract)) := msg0
+/\ attrs1,  w4q: null, replyTo: null, numQ: nq := attrs
+/\ s nq1 := getNumQ(ract)
+/\ attrs2 := attrs1, 
+             w4q: null, replyTo: msg0, numQ: nq1
+.             
+
+op tgenQuery : AttributeSet Address Nat
+                 -> AttributeSetMsgsMsgsNat .
+ceq tgenQuery(attrs, dAddr, rj) 
+        = {attrs2, msg, null, s rj}
+if attrs0, qnameBase: name1, lenNameDB: l, 
+           dnsClient: clientAddr := attrs
+/\ attrs1,  w4q: null := attrs
+/\ name := genQName(name1,"www",l,rj)
+/\ msg :=  (to clientAddr from dAddr : dnsQ(name))
+/\ attrs2 := attrs1, w4q: msg 
+.
+
+
+crl[dnsResponse]:
+rCtr(rj)
+{T, (to dAddr from clientAddr : dnsR(response) )}
+< dAddr : DNSQgen | dnsClient: clientAddr, attrs >
+=>
+< dAddr : DNSQgen |  attrs1 >
+rCtr(rj1)
+delayMsgs(msgs,null)
+if attrs0, w4q: msg0 := attrs  
+/\ {attrs1,msgs,msgs0,rj1} :=
+    dnsQRcvResponse((dnsClient: clientAddr, attrs), dAddr, rj)
+[print "(" T ") DNSQgen  " dAddr " receives dnsResponse sends msg " msgs ]
+.
+
+
+op dnsQRcvResponse : AttributeSet Address Nat 
+                   -> AttributeSetMsgsMsgsNat .
+eq dnsQRcvResponse(attrs,addr,rj) 
+     = {attrs,null,null,rj} [owise] .
+     
+ceq dnsQRcvResponse((numQ: 0, attrs), dAddr, rj) 
+    = {attrs2,msg,null,rj}
+if attrs1, w4q: msg0, 
+   replyTo: (to dAddr from umAddr : ac)  := attrs
+/\ msg := (to umAddr from dAddr : actionR("ok"))   
+/\ attrs2 := attrs1, w4q: null, replyTo: null, numQ: 0 
+.
+
+eq dnsQRcvResponse((numQ: (s n), w4q: msg0, attrs), 
+                    dAddr, rj) 
+      = tgenQuery((numQ: n, w4q: null, attrs), 
+                   dAddr, rj)
+  .
+  
+  
+crl[dnsResponseRedundant]:
+{T, (to dAddr from rsvAddr : response)}
+< dAddr : DNSQgen | attrs >
+=>
+< dAddr : DNSQgen |  attrs >
+if attrs0, w4q: null := attrs
+[print "(" T ") DNSQgen receives unexpected response \n" response]
+.
+
+endm
+
+mod TEST-DNS-QGEN is
+  inc DNS-QGEN .
+  inc DNS-MAMODEL .
+  
+*** dns-ma = ma("dns",dns-markov,dns-actions,dns-params) 
+  
+  eq defaultDelay = 1.5 .
+  eq noiseMin(msg:Msg) = 0.001 .
+  
+  ops umDAddr dnsQAddr fclientAddr : -> Address .
+
+  op dnsQGenA : -> Actor .
+  eq dnsQGenA = 
+      mkDnsQgenA(dnsQAddr,fclientAddr,1000,
+                 'internet . 'com . root) .
+
+**** rew rCtr(1) dnsQGenA {5.9284461638890209e-6, to dnsQAddr from umDAddr : actionQ("type" |-> js("resolve_a"))} .
+   
+   
+op dnsQGenA1 : -> Actor .
+eq dnsQGenA1 =
+**** rCtr(3) 
+< dnsQAddr : DNSQgen | 
+  qnameBase: 'internet . 'com . root, lenNameDB: 1000, 
+  dnsClient: fclientAddr, numQ: 0, 
+  w4q: (to fclientAddr from dnsQAddr : dnsQ('www592 . 'internet . 'com . root)), 
+  replyTo: (to dnsQAddr from umDAddr : actionQ("type" |-> js("resolve_a"))) > 
+.  
+**** [4.5118649769574401e-4, to fclientAddr from dnsQAddr : dnsQ('www592 . 'internet . 'com . root), 0]
+
+
+**** rew rCtr(3) {1.0, (to dnsQAddr from fclientAddr : dnsR(response(0,( 'internet . 'com .  root), nil,nil,nil,0) ))} dnsQGenA1 .
+
+
+op dnsQGenA2 : -> Actor .
+eq dnsQGenA2 =
+**** rCtr(3) 
+< dnsQAddr : DNSQgen |
+ qnameBase: 'internet . 'com . root,
+ lenNameDB: 1000, dnsClient: fclientAddr, 
+ numQ: 0, w4q: null, replyTo: null > 
+.
+
+**** [4.5118649769574401e-4, to umDAddr from dnsQAddr : actionR("ok"), 0]
+
+**** rew rCtr(1) dnsQGenA {5.9284461638890209e-6, to dnsQAddr from umDAddr : actionQ((("type" |-> js("resolve_a")), ("num_to_resolve" |-> jn(2)) )) } .
+
+op dnsQGenA3 : -> Actor .
+eq dnsQGenA3 = 
+**** rCtr(3)
+< dnsQAddr : DNSQgen | 
+   qnameBase: 'internet . 'com . root, lenNameDB: 1000,  
+   dnsClient: fclientAddr, numQ: 1,
+   w4q: (to fclientAddr from dnsQAddr : dnsQ('www592 . 'internet . 'com . root)), 
+   replyTo: (to dnsQAddr from umDAddr : actionQ(("num_to_resolve" |-> jn( 2), "type" |-> js("resolve_a"))))
+  > .
+*** [4.5118649769574401e-4, to fclientAddr from    dnsQAddr : dnsQ('www592 . 'internet . 'com . root), 0]
+    
+**** rew rCtr(3) {1.0, (to dnsQAddr from fclientAddr : dnsR(response(0,('www592 . 'internet . 'com . root),nil,nil,nil,0) ))} dnsQGenA3 .
+
+op dnsQGenA4 : -> Actor .
+eq dnsQGenA4 = 
+**** rCtr(4)
+< dnsQAddr : DNSQgen | 
+  qnameBase: 'internet . 'com . root, lenNameDB: 1000, 
+  dnsClient: fclientAddr, numQ: 0, 
+  w4q: (to fclientAddr from dnsQAddr : dnsQ('www844 . 'internet . 'com . root)), 
+  replyTo: (to dnsQAddr from umDAddr : actionQ(("num_to_resolve" |-> jn( 2), "type" |-> js("resolve_a")))) > 
+.
+
+**** [4.5118649769574401e-4, to fclientAddr from  dnsQAddr : dnsQ('www844 . 'internet . 'com . root), 0]
+    
+**** rew rCtr(4) {1.0, (to dnsQAddr from fclientAddr : dnsR(response(1,('www844 . 'internet . 'com .  root), nil,nil,nil,0) ))} dnsQGenA4 .
+
+***(
+rCtr(4)
+< dnsQAddr : DNSQgen | qnameBase: 'internet . 'com . root, lenNameDB: 1000, dnsClient: fclientAddr, numQ: 0, w4q: null, replyTo: null > [4.5118649769574401e-4, to umDAddr from dnsQAddr : actionR("ok"), 0]
+)
+endm
+eof
+ 
+set print attribute on .
