@@ -229,11 +229,11 @@ Mastodon server is captured
   eq logRcvdC(AC,GT,M1) = AC [owise] .
 )
 
-  op mkAdversary : Address Observable Observable 
+  op mkAdversary : Address Observable Observable TimeMsgList
                    -> Actor .
-  eq mkAdversary(aaddr,obsS, obsR) =
+  eq mkAdversary(aaddr,obsS, obsR, SL) =
     < aaddr : Adversary | canSeeS: obsS, canSeeR: obsR,
-                          sent: nilTML, rcvd: nilTML > .
+                          sent: SL, rcvd: nilTML > .
 endm
 
 
@@ -244,17 +244,17 @@ mod TEST-ADVERSARY is
 
   
   ops advC advX advM : -> Actor .
-  eq advC = mkAdversary(advAddr,mtObs,obsC)  .
-  eq advX = mkAdversary(advAddr,obsX,mtObs)  .
-  eq advM = mkAdversary(advAddr,mtObs,obsM(masAddr))  .
+  eq advC = mkAdversary(advAddr,mtObs,obsC, nilTML)  .
+  eq advX = mkAdversary(advAddr,obsX,mtObs, nilTML)  .
+  eq advM = mkAdversary(advAddr,mtObs,obsM(masAddr), nilTML)  .
 
   ops advPre advPost : -> Actor .
   eq advPre = mkAdversary(advAddr,
                         pat("addr","X"),
-                        pat("X","addr") ) .
+                        pat("X","addr"),nilTML ) .
   eq advPost = mkAdversary(advAddr, 
                         pat("addr","Z"),
-                        pat("Z","addr")) .
+                        pat("Z","addr"), nilTML) .
  
   op getAttrs : Actor -> AttributeSet .
   eq getAttrs(< addr:Address : atype:ActorType |
