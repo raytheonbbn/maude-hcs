@@ -114,7 +114,7 @@ class RbSendApp:
             currentCcFile: nilBytes
         > .
     """
-    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, hashtags:list[str], xfiles: list[XFile], donePause: float, start:bool = True):
+    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, hashtags:list[str], xfiles: list[XFile], donePause: float, start:float = 0.0):
         self.address = address_to_maude(address)
         self.toAddress = toAddress
         self.iodineTunAddress = iodineTunAddress
@@ -130,9 +130,8 @@ class RbSendApp:
 
     def to_maude(self):
         out = f'makeTxApp({address_to_maude(self.address)}, {address_to_maude(self.toAddress)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)}, {files_to_maude(self.xfiles)}, {self.donePause})'
-        if self.start == True:
-            out += '\n'
-            out += f'[genRandom(0.0, 0.0001), (to {address_to_maude(self.address)} : start), 0]'
+        out += '\n'
+        out += f'[{self.start} + genRandom(0.0, 0.0001), (to {address_to_maude(self.address)} : start), 0]'
         return out
 
 
@@ -152,7 +151,7 @@ class RbRcvApp:
                 rcvd: emptyFileList
             > .
     """
-    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, start:bool = True):
+    def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, start:float = 0.0):
         self.address = address_to_maude(address)
         self.toAddress = toAddress
         self.iodineTunAddress = iodineTunAddress
@@ -162,7 +161,6 @@ class RbRcvApp:
 
     def to_maude(self):
         out = f'makeRxApp({address_to_maude(self.address)}, {address_to_maude(self.iodineTunAddress)}, {address_to_maude(self.rbUMAddress)}, {address_to_maude(self.rbCMAddress)})'
-        if self.start == True:
-            out += '\n'
-            out += f'[genRandom(0.0, 0.0001), (to {address_to_maude(self.address)} : start), 0]'
+        out += '\n'
+        out += f'[{self.start} + genRandom(0.0, 0.0001), (to {address_to_maude(self.address)} : start), 0]'
         return out

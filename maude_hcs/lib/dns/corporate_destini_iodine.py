@@ -179,12 +179,12 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
 
     # adversary
     ## the smc measures
-    adversary_conf = hcsconf.adversary.render_template()
-    quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'adversary_param.j2'))
-    quatexGenerator.generate_file(adversary_conf, os.path.join(hcsconf.output.smc_directory, 'adversaryX.quatex'))
     maxWindowSize = hcsconf.adversary.getMaxWindowSize('m')
     maxNBinWindowSize = hcsconf.adversary.getMaxWindowSize('n')
-    print(maxWindowSize, maxNBinWindowSize)
+    adversary_conf = hcsconf.adversary.render_template(start_time=maxWindowSize)
+    quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'adversary_param.j2'))
+    quatexGenerator.generate_file(adversary_conf, os.path.join(hcsconf.output.smc_directory, 'adversaryX.quatex'))
+    # print(maxWindowSize, maxNBinWindowSize)
     ## the actor and observables
     def xformQuery(M, size):
         if size == 0: return M
@@ -206,9 +206,9 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
 
     # applications
     app = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].application
-    mainSndApp = RbSendApp(app.alice_address, app.bob_address, sndApp.address, raceboatCl.userModelAddress, raceboatCl.contentManagerAddress, app.hashtags, app.xfiles, maxNBinWindowSize, True)
+    mainSndApp = RbSendApp(app.alice_address, app.bob_address, sndApp.address, raceboatCl.userModelAddress, raceboatCl.contentManagerAddress, app.hashtags, app.xfiles, maxNBinWindowSize, maxWindowSize)
     mainRcvApp = RbRcvApp(app.bob_address, app.alice_address, rcvApp.address, raceboatSvr.userModelAddress,
-                           raceboatSvr.contentManagerAddress, True)
+                           raceboatSvr.contentManagerAddress, maxWindowSize)
 
     # monitor
     monitor = WMonitor(monitorAddr)
@@ -221,9 +221,11 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     seen_images = []
     for index,client in enumerate(hcsconf.protocols[Protocol.IODINE_DNS.value].background_traffic.clients):
         assert isinstance(client, DNSBackgroundTrafficTgenClient)
+        client.start_time = maxWindowSize # we are shifting the experiment in time to accommodate baseline data
         tgen_clients.append(DNSTGenClient(f'tgen-dns-{index}', client.client_markov_model_profile, client.start_time, False, corp_node.address, 10000, client.client_retry_to, client.client_num_retry))
     for index, client in enumerate(hcsconf.protocols[Protocol.DESTINI_MASTODON.value].background_traffic.clients):
         assert isinstance(client, MASBackgroundTrafficTgenClient)
+        client.start_time = maxWindowSize
         # for now we are hardcoding images since neither the yml config nor the profile specify where these are
         #  mastodon_images.json was extracted using the `maude-hcs images` utility, see README
         # if tgens specify the same image dir we only gen image list once per unique dir (TODO test it)

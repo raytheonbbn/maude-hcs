@@ -158,7 +158,7 @@ class Adversary:
     router_post_nat: Dict[str, Any] = field(default_factory=dict)
     baseline_bins: Dict[str, Any] = field(default_factory=dict)
 
-    def render_template(self) -> Dict[str, Any]:
+    def render_template(self, start_time:float = 0) -> Dict[str, Any]:
         """
         Creates the input dictionary for QuatexGenerator.generate_file.
         Maps the script parameters from the YAML structure to the short codes expected by the generator.
@@ -172,7 +172,7 @@ class Adversary:
         }
 
         config = {}
-        config['start_time'] = 0.0  # Default start time
+        config['start_time'] = start_time  # Default start time
 
         # --- Process Moving Averages (Post-NAT) ---
         scripts = self.router_post_nat.get('scripts', [])
