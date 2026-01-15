@@ -200,9 +200,10 @@ class Adversary:
 
                 config[gen_key] = {
                     'k': float(params.get('k')),
-                    'n': params.get('n'),
+                    'n': int(params.get('n')),
                     's': float(s_val),
-                    'm': float(params.get('m'))
+                    'm': float(params.get('m')),
+                    'offset': start_time - float(s_val)*float(params.get('m'))
                 }
 
         # --- Process Cumulative Thresholds (Pre & Post NAT) ---

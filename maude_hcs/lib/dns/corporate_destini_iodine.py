@@ -194,6 +194,16 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     q = Query(0, f"www.{ee_domain}", 'A')
     msg = Msg(f'{resolver.address}', f'Z(0, {nameserverCORP.address})', q)
     baselineBinMsgs = generateBaselineBins(hcsconf.adversary.baseline_bins, 'dns_request', binSize=1.0, maxWindowSize=maxWindowSize, msg=msg, xform=xformQuery)
+    """
+        # these are offsets from start time for the differnet avg bin measures
+        Extracts 'offset' values from sub-dictionaries in the input config
+        and returns a new dictionary with keys formatted as '{original_key}_offset'.
+        """
+    offsets = {}
+    for key, value in adversary_conf.items():
+        # Check if the value is a dictionary and contains the 'offset' key
+        if isinstance(value, dict) and 'offset' in value:
+            offsets[f"{key}-offset"] = value['offset']
     adversary = AdversaryActor("adversary",
                           [ObservationPattern.ExtToLocalPreNat,
                             ObservationPattern.LocalToExtPostNat
@@ -201,7 +211,8 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
                           [ObservationPattern.ExtToLocalPostNat,
                            ObservationPattern.LocalToExtPreNat
                            ],
-                           baselineBinMsgs
+                           baselineBinMsgs,
+                           offsets
                           )
 
     # applications
