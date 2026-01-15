@@ -414,6 +414,8 @@ class YmlConf:
 
         # get adversary bins if they exist
         # first get the filename for the bins
+        filename = None
+        baseline_bin_data = {}
         scripts = router_post_nat.get('scripts', [])
         for script in scripts:
             name = script.get('name')
@@ -421,7 +423,6 @@ class YmlConf:
             if name == 'bin_loader':
                 filename = params['json_path']
                 break
-        baseline_bin_data = {}
         if filename:
             f = Path(ymlpath).parent.joinpath('zeek').joinpath(filename[1:])
             try:

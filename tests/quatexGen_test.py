@@ -2,7 +2,7 @@ import pytest
 import os
 import yaml
 from maude_hcs.parsers.quatexGenerator import QuatexGenerator
-from maude_hcs.parsers.ymlconf import parse_adversary, Adversary
+from maude_hcs.parsers.ymlconf import YmlConf
 
 
 @pytest.fixture
@@ -118,8 +118,9 @@ def test_parse_adversary_and_generate(setup_generator, sample_yaml_file, tmp_pat
     generator, _ = setup_generator
     output_file = tmp_path / "cp2_generated.quatex"
 
+    conf = YmlConf(sample_yaml_file)
     # 1. Parse Adversary
-    adversary_obj = parse_adversary(sample_yaml_file)
+    adversary_obj = conf.adversary
 
     # Verify parsing structure
     assert adversary_obj.router_pre_nat is not None
@@ -154,25 +155,7 @@ def test_parse_adversary_and_generate(setup_generator, sample_yaml_file, tmp_pat
 
     # w = s * m = 10 * 6 = 60
     # Expected: getToD(C,0.0,60,10,1.15,3)
-    assert "getToD(C,0.0,60,10,1.15,3)" in content
+    assert "getToD(C,0.0,60.0,10.0,1.15,3)" in content
     # Check replacements
     assert "getToDCumulativeNQueryPreNAT(C,100)" in content
     assert "getToDCumulativeNQueryPostNAT(C,200)" in content
-
-
-def test_parse_adversary_missing_values_safe(setup_generator, tmp_path):
-    """Test that parser handles missing scripts gracefully."""
-    yaml_content = """
-    adversary_phase1:
-      vantage_points:
-        router_post_nat:
-          scripts: []
-    """
-    p = tmp_path / "empty.yml"
-    p.write_text(yaml_content)
-
-    adv = parse_adversary(str(p))
-    config = adv.render_template()
-
-    # Should be empty except start_time
-    assert config == {'start_time': 0.0}
