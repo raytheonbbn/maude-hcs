@@ -38,6 +38,7 @@ from .iodineActors import IodineServer, SendApp, PacedClient, ReceiveApp, TGenCl
 from pathlib import Path
 
 from .. import GLOBALS
+from ..common.commonActors import AdversaryActor
 from ..mastodon.mastodonActors import MASTGenClient
 from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp
 from ...parsers.markovJsonToMaudeParser import find_recursively
@@ -102,6 +103,11 @@ class IodineDNSConfig(DNSConfig):
         for app in sorted(self.applications, key=lambda x: x.address):
             if isinstance(app, RbSendApp):
                 _d = app.to_maude_defs()
+                if _d.strip():
+                    new_defs.add(_d)
+        for actr in self.standaloneActors:
+            if isinstance(actr, AdversaryActor):
+                _d = actr.to_maude_defs()
                 if _d.strip():
                     new_defs.add(_d)
         defs += '\n'.join(sorted(new_defs))

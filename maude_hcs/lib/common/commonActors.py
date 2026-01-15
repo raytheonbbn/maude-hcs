@@ -56,11 +56,19 @@ class ObservationPattern(Enum):
     ExtToLocalPreNat = 'pat("addr","X")'
 
 class AdversaryActor:
-    def __init__(self, address, patternsSent:list[ObservationPattern], patternsReceived:list[ObservationPattern],  baselineBins: TimeMsgList):
+    def __init__(self, address, patternsSent:list[ObservationPattern], patternsReceived:list[ObservationPattern],  baselineBins: TimeMsgList, offsets:dict):
         self.address = address
         self.patternsSent = patternsSent
         self.patternsReceived = patternsReceived
         self.baselineBins = baselineBins
+        self.offsets = offsets
+
+    def to_maude_defs(self):
+        s=''
+        for key, value in self.offsets.items():
+            s += f'op {key} : -> Float .\n'
+            s += f'eq {key} = {value} .\n'
+        return s
 
     def to_maude(self):
         return f'mkAdversary({address_to_maude(self.address)}, {" ".join([x.value for x in self.patternsSent])}, {" ".join([x.value for x in self.patternsReceived])}, {self.baselineBins.to_maude()})'
