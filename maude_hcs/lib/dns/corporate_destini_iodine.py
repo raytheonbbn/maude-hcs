@@ -41,9 +41,11 @@ from .cache import CacheEntry, ResolverCache
 from .corporate import createAuthZone, createRootZone, createTLDZone
 import logging
 import os
+
+from .utils import extend_or_truncate
 from .. import GLOBALS, Protocol
 from ..common import X
-from ..common.commonActors import Adversary, ObservationPattern
+from ..common.commonActors import ObservationPattern, AdversaryActor, generateBaselineBins, Msg
 from ..mastodon.mastodonActors import MastodonServer, MastodonClient, MASTGenClient
 from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp, RbRcvApp
 from ...deps.dns_formalization.Maude.attack_exploration.src.zone import Record
@@ -176,15 +178,6 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
                                 mastodon_server_address, False)
 
     # adversary
-    ## the actor and observables
-    adversary = Adversary("adversary",
-                          [ObservationPattern.ExtToLocalPreNat,
-                            ObservationPattern.LocalToExtPostNat
-                            ],
-                          [ObservationPattern.ExtToLocalPostNat,
-                           ObservationPattern.LocalToExtPreNat
-                           ]
-                          )
     ## the smc measures
     adversary_conf = hcsconf.adversary.render_template()
     quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'adversary_param.j2'))
@@ -192,6 +185,24 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     maxWindowSize = hcsconf.adversary.getMaxWindowSize('m')
     maxNBinWindowSize = hcsconf.adversary.getMaxWindowSize('n')
     print(maxWindowSize, maxNBinWindowSize)
+    ## the actor and observables
+    def xformQuery(M, size):
+        if size == 0: return M
+        M1 = M.copy()
+        M1.query.qname = extend_or_truncate(M.query.qname, size)
+        return M1
+    q = Query(0, f"www.{ee_domain}", 'A')
+    msg = Msg(f'{resolver.address}', f'Z(0, {nameserverCORP.address})', q)
+    baselineBinMsgs = generateBaselineBins(hcsconf.adversary.baseline_bins, 'dns_request', binSize=1.0, maxWindowSize=maxWindowSize, msg=msg, xform=xformQuery)
+    adversary = AdversaryActor("adversary",
+                          [ObservationPattern.ExtToLocalPreNat,
+                            ObservationPattern.LocalToExtPostNat
+                            ],
+                          [ObservationPattern.ExtToLocalPostNat,
+                           ObservationPattern.LocalToExtPreNat
+                           ],
+                           baselineBinMsgs
+                          )
 
     # applications
     app = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].application
