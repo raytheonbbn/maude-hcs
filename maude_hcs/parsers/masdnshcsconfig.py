@@ -162,7 +162,7 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
                     # search for the json_prof file and grab the parameters dict
                     # use that to set the retry and lifetime
                     # we have already copied the json file to the right directory in maude_hcs, find it
-                    data = find_and_load_json(PROJECT_TOPLEVEL_DIR, json_prof)
+                    data = find_and_load_json(PROJECT_TOPLEVEL_DIR, json_prof, key='mastodonprofiles')
                     C.client_hashtags = data['parameters']['hashtags']
                     C.client_username = data['parameters']['username']
                     C.clients_images_dir = data['parameters']['image_repo']
