@@ -179,9 +179,11 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
 
     # adversary
     ## the smc measures
+    baselineBinSize = 1.0 #sec
     maxWindowSize = hcsconf.adversary.getMaxWindowSize('m')
     maxNBinWindowSize = hcsconf.adversary.getMaxWindowSize('n')
-    adversary_conf = hcsconf.adversary.render_template(start_time=maxWindowSize)
+    # the adversary is going to start at maxWindowSize because we will put the baseline data in the first window
+    adversary_conf = hcsconf.adversary.render_template(start_time=maxWindowSize, baseline_window=maxWindowSize, baseline_binsize=baselineBinSize,offset_baselines=True)
     # generate the adversaryX from template
     scenario_name = 'X'
     if _args.filename:
@@ -206,7 +208,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
         return M1
     q = Query(0, f"www.{ee_domain}", 'A')
     msg = Msg(f'{resolver.address}', f'Z(0, {nameserverCORP.address})', q)
-    baselineBinMsgs = generateBaselineBins(hcsconf.adversary.baseline_bins, 'dns_request', binSize=1.0, maxWindowSize=maxWindowSize, msg=msg, xform=xformQuery)
+    baselineBinMsgs = generateBaselineBins(hcsconf.adversary.baseline_bins, 'dns_request', binSize=baselineBinSize, maxWindowSize=maxWindowSize, msg=msg, xform=xformQuery)
     """
         # these are offsets from start time for the differnet avg bin measures
         Extracts 'offset' values from sub-dictionaries in the input config
