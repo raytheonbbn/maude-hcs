@@ -372,6 +372,44 @@ class YmlConf:
 
     def _parse_application(self, data: dict) -> Application:
         app_section = data.get('application', {})
+        # Parse XFiles from testing section
+        xfiles = []
+        testing_section = data.get('testing', {})
+        exfil_dir = testing_section.get('exfil_dir')
+
+        if exfil_dir:
+            # Resolve directory path relative to yml file
+            base_dir = Path(self.yml_path).parent
+            exfil_path = base_dir / 'files' / exfil_dir
+
+            if exfil_path.exists() and exfil_path.is_dir():
+                used_ids = set()
+                pending_files = []
+
+                # First pass: files with integer IDs in name
+                # Sort to ensure deterministic order for files processed
+                for file_path in sorted(exfil_path.iterdir()):
+                    if file_path.is_file():
+                        # Simple regex to find the first integer sequence
+                        match = re.search(r'(\d+)', file_path.name)
+                        if match:
+                            fid = int(match.group(1))
+                            size = file_path.stat().st_size
+                            xfiles.append(XFile(id=fid, size_bytes=size))
+                            used_ids.add(fid)
+                        else:
+                            pending_files.append(file_path)
+
+                # Second pass: files without IDs
+                next_id = 1
+                for file_path in pending_files:
+                    while next_id in used_ids:
+                        next_id += 1
+                    size = file_path.stat().st_size
+                    xfiles.append(XFile(id=next_id, size_bytes=size))
+                    used_ids.add(next_id)
+            else:
+                logger.warning(f"Exfil directory {exfil_path} does not exist or is not a directory.")
 
         # Alice
         alice_data = app_section.get('alice', {})
@@ -380,7 +418,7 @@ class YmlConf:
             raceboat_prof_config=alice_data.get('raceboat_prof_config', ''),
             raceboat_prof=alice_data.get('raceboat_prof', ''),
             hashtags=[],
-            xfiles=[] # TODO fix when in yml conf
+            xfiles=xfiles # TODO fix when in yml conf
         )
 
         # Bob
