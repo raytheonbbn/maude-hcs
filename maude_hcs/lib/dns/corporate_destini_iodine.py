@@ -297,6 +297,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     # these are hacks for now (TODO put in the correct place)
     pp.other['noiseMin(msg:Msg)'] = 0.001
     pp.other['exeDone(< mon:Address :  WMonitor | attrs:AttributeSet, doneFlag: true > conf:Config)'] = True
+    pp.other['raceBoatMastodonClients'] = f'({raceboatCl.masClientAddress} ;; {raceboatSvr.masClientAddress}) .'
 
     C = IodineDNSConfig([Ctr(hcsconf.seed), router, adversary], monitor, [sndApp, rcvApp, mainSndApp, mainRcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     ndp = {}
