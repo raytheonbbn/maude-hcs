@@ -312,7 +312,7 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
                     # search for the json_prof file and grab the parameters dict
                     # use that to set the retry and lifetime
                     # we have already copied the json file to the right directory in maude_hcs, find it
-                    data = find_and_load_json(PROJECT_TOPLEVEL_DIR, json_prof)
+                    data = find_and_load_json(PROJECT_TOPLEVEL_DIR, json_prof, 'dnsprofiles')
                     C.client_retry_to = float(data['parameters']['request_timeout'])
                     C.client_num_retry = int(floor(data['parameters']['request_lifetime'] / C.client_retry_to))
                     bg.clients.append(C)
