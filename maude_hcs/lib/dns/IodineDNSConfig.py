@@ -129,6 +129,7 @@ class IodineDNSConfig(DNSConfig):
                 f'sload {Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('masTGen.maude')}\n'
                 f'sload {Path(self.weirdpath).parent.parent.joinpath('mastodon').joinpath('maude').joinpath('probabilistic').joinpath('mastodon')}',
                 f'sload {Path(self.weirdpath).parent.parent.joinpath('app').joinpath('maude').joinpath('probabilistic')}',
+                f'sload {Path(self.weirdpath).parent.parent.joinpath('common').joinpath('maude').joinpath('http-overhead')}',
                 f'sload {self.common_path}/router',
                 f'sload {self.common_path}/adversary-observer'
             ])
@@ -173,7 +174,8 @@ class IodineDNSConfig(DNSConfig):
           ' inc MASTODON .',
           ' inc MAS-TGEN .',
           ' inc ADVERSARY-OBSERVER .',
-          ' inc CP2_APP .'
+          ' inc CP2_APP .',
+          'inc HTTP-OVERHEAD .'
         ]
         if model == 'prob':
             res = '\n'.join(includes)
