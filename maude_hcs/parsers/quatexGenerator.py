@@ -51,7 +51,7 @@ class QuatexGenerator:
 
         for group in required_groups:
             if group not in config:
-                raise ValueError(f"Configuration missing required group: {group}")
+                continue
 
             params = config[group]
 
@@ -84,6 +84,11 @@ class QuatexGenerator:
             # We don't error if missing, just pass if present;
             # Jinja will handle missing vars (empty string) or error depending on env settings.
             if key in config:
+                context[key] = config[key]
+
+        # other keys we havent considered
+        for key in config.keys():
+            if key not in required_groups and key not in cumulative_keys:
                 context[key] = config[key]
 
         # Render the template with the provided context
