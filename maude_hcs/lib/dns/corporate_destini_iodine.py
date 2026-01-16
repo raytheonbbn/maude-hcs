@@ -182,9 +182,22 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     maxWindowSize = hcsconf.adversary.getMaxWindowSize('m')
     maxNBinWindowSize = hcsconf.adversary.getMaxWindowSize('n')
     adversary_conf = hcsconf.adversary.render_template(start_time=maxWindowSize)
+    # generate the adversaryX from template
+    scenario_name = 'X'
+    if _args.filename:
+        scenario_name = f'_{_args.filename}'
+    advFileName = f'adversary{scenario_name}.quatex'
     quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'adversary_param.j2'))
-    quatexGenerator.generate_file(adversary_conf, os.path.join(hcsconf.output.smc_directory, 'adversaryX.quatex'))
-    # print(maxWindowSize, maxNBinWindowSize)
+    quatexGenerator.generate_file(adversary_conf, os.path.join(hcsconf.output.smc_directory, advFileName))
+    # generate the scalabilityX from template
+    scalFileName = f'scalability{scenario_name}.quatex'
+    quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'scalability_param.j2'))
+    quatexGenerator.generate_file(adversary_conf, os.path.join(hcsconf.output.smc_directory, scalFileName))
+    # generate the cp2 eval file
+    quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'cp2_eval_param.j2'))
+    quatexGenerator.generate_file({'adversary' : advFileName, 'scalability' : scalFileName},
+                                  os.path.join(hcsconf.output.smc_directory, f'cp2_eval{scenario_name}.quatex'))
+
     ## the actor and observables
     def xformQuery(M, size):
         if size == 0: return M
