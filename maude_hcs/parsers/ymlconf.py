@@ -158,7 +158,7 @@ class Adversary:
     router_post_nat: Dict[str, Any] = field(default_factory=dict)
     baseline_bins: Dict[str, Any] = field(default_factory=dict)
 
-    def render_template(self, start_time:float = 0) -> Dict[str, Any]:
+    def render_template(self, start_time:float = 0, baseline_window = 0.0, baseline_binsize = 1.0, offset_baselines = True) -> Dict[str, Any]:
         """
         Creates the input dictionary for QuatexGenerator.generate_file.
         Maps the script parameters from the YAML structure to the short codes expected by the generator.
@@ -237,6 +237,38 @@ class Adversary:
             val = params.get(param_key)
             if val is not None:
                 config[gen_key] = val
+        # If we are including baseline bins into the config then we need to offset the cumulative measures
+        #  since the testbed does not take baseline bins into account when comparing against cumulatives
+        # so if for measure m the cumulative value is N, we convert to N+K where K is the baseline bins
+        # values within the window of measure m (this effectively ignores the effect of the baseline bins)
+        if offset_baselines and baseline_window > 0.0:
+            measure = 'dns_request'
+            num_bins = int(baseline_window / baseline_binsize)
+            # Get the bins data for the measure
+            measure_bins = self.baseline_bins.get('bins', {}).get(measure, [])
+            measure_bytes_bins = self.baseline_bins.get('bins', {}).get(f'{measure}_bytes', [])
+            if measure_bytes_bins:
+                assert len(measure_bytes_bins) == len(
+                    measure_bins), f'{measure} array has different size than {measure}_bytes array in baseline data, {len(measure_bytes_bins)} != {len(measure_bins)}'
+            # if we have more bins only keep the last nbins
+            if len(measure_bins) > num_bins:
+                measure_bins = measure_bins[-num_bins:]
+                measure_bytes_bins = measure_bytes_bins[-num_bins:]
+            # Iterate backwards from the last bin
+            count = 0
+            total_bytes = 0
+            for i in range(num_bins - 1, -1, -1):
+                # count
+                idx = measure_bins[i][0]
+                count += measure_bins[i][1]
+                if measure_bytes_bins and count > 0:
+                    total_bytes += measure_bytes_bins[i][1]
+            print(f'{measure}: N_query_post_nat {config['N_query_post_nat']} before')
+            config['N_query_post_nat'] += count
+            print(f'{measure}: N_query_post_nat {config['N_query_post_nat']} after {count}')
+            print(f'{measure}: N_query_size_post_nat {config['N_query_size_post_nat']} before')
+            config['N_query_size_post_nat'] += total_bytes
+            print(f'{measure}: N_query_size_post_nat {config['N_query_size_post_nat']} after {total_bytes}')
 
         return config
 
