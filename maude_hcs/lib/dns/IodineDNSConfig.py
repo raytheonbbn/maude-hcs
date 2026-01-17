@@ -34,7 +34,7 @@ from Maude.attack_exploration.src.conversion_utils import address_to_maude
 from numpy.f2py.cfuncs import includes
 
 from .DNSConfig import DNSConfig
-from .iodineActors import IodineServer, SendApp, PacedClient, ReceiveApp, TGenClient
+from .iodineActors import IodineServer, SendApp, PacedClient, ReceiveApp, TGenClient, DNSTGenClient
 from pathlib import Path
 
 from .. import GLOBALS
@@ -138,7 +138,12 @@ class IodineDNSConfig(DNSConfig):
                 if isinstance(tc, TGenClient):
                     # we change the mmodel file when we create the maude name so change it back
                     mod = '_'.join(tc.profile.replace('-', '_').split('_')[1:])
-                    file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude')
+                    key = None # since dns and mastodon profiles can use same names, key is used to distinguish
+                    if isinstance(tc, MASTGenClient):
+                        key = 'mastodonprofiles'
+                    elif isinstance(tc, DNSTGenClient):
+                        key = 'dnsprofiles'
+                    file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude', key=key)
                     tgen_loads.add(f'sload {file}')
             rb_loads = set()
             for actor in self.tunnels:
