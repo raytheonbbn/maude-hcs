@@ -169,8 +169,12 @@ eq getNextEncodedFrag(attrs,
     currentFrags: efrag(efile(id, n, j, k), 0, 0, n)
   .
 
-eq getNextEncodedFrag((attrs,postingWeird: b:Bool)) 
-       = attrs, (postingWeird: false)  [owise] .
+***** 26jan15clt restrict to nil pendfiles nil frags
+ceq getNextEncodedFrag((attrs, postingWeird: b:Bool)) 
+       = attrs, postingWeird: false
+if attrs0, currentFrags: nilBS, pendingFiles: nilBS := attrs  .
+
+eq getNextEncodedFrag(attrs) = attrs [owise] .  --- ready to continue
 
 ---             This   Destini MastodonC NumHashtags Model
 op mkCMClient : Address Address Address    Nat         MAModel -> Actor .
@@ -267,7 +271,7 @@ ceq sendPostRequest((attrs, (w4c: null)), cmcAddr)
      (to mastodonClientAddr from cmcAddr : translateTootQ(tootQ(hashtag, IMAGES)))}
   if hashtag := getNextHashtag(attrs, (w4c: null))
     /\ attrsTrans, mcAddress: mastodonClientAddr, (encodedImages: IMAGES) := attrs
-  [ print "Raceboat client sending post request." ]
+  [ print "Raceboat client sending post request."]
   .
 
 --- Handle an encoding response.
@@ -291,7 +295,7 @@ ceq handleFragEncoding((attrs,
                     numPendingImages: n0,
                     encodedImages: (IMAGES :: image),
                     w4c: null)
-  [ print "Raceboat client handling fragment encoding, " n0 " left." ]
+  [ print "Raceboat client handling fragment encoding, " n0 " left. "]
   .
 
 
@@ -411,7 +415,8 @@ ceq crcvActionQ((attrs,
                 (to cmcAddr from umAddr : actionQ(ract)),
                 randCtr)
   = concatenate(requestMediaEncode(attrsTrans, cmcAddr), s randCtr)
-    if n0 := 1 + sampleUniWithIntX(randCtr, MAXNUMMEDIAPERTOOT)
+    if n0 := getNumImages(ract)
+       **** 1 + sampleUniWithIntX(randCtr, MAXNUMMEDIAPERTOOT)
       /\ attrsTrans := getNextEncodedFrag(attrs),
                         (numPendingImages: n0),
                         (encodedImages: nilBS),
@@ -419,7 +424,9 @@ ceq crcvActionQ((attrs,
     [ print "Raceboat client getting media action for " n0 " pending images." ]
   .
 
-
+op getNumImages : Map{String,JV} -> Nat .
+eq getNumImages(("numImages" |-> jn(n), ract)) =  n .
+eq getNumImages(ract) = 1 [owise] .
 
 crl [rbc-rcv-capR] :
 {T,(to cmcAddr from edAddr :  capR(cap) )}
