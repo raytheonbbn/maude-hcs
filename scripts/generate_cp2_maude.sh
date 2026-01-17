@@ -13,7 +13,8 @@ do
     maude-hcs --verbose generate \
         --yml-filename="../pwnd-cp2/cp2_scenarios/cp2_scenario_$i/cp2_scenario_$i.yml" \
         --model=prob \
-        --filename="cp2_scenario_$i"
+        --filename="cp2_scenario_$i" \
+        --output-dir="./use-cases/challenge-problem-2/cp2_scenarios/"
 
     echo "Finished scenario $i."
     echo "-----------------------------------"
