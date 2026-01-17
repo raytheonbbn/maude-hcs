@@ -70,9 +70,11 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
         node = Node.from_label(hcsconf.topology.nextID(), _name)
         hcsconf.topology.nodes.append(node)
         return node
-
+    # did we override output directory?
+    if _args.output_dir:
+        hcsconf.output.directory = _args.output_dir
+    # monitor address
     monitorAddr = hcsconf.monitor_address
-
     # These links contain link characteristics and have now the proper names.
     # This network get transformed later (see below)
     parameterized_network = ParameterizedTopo(hcsconf.topology)
