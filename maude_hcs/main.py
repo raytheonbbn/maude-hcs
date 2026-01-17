@@ -154,6 +154,8 @@ def build_cli_parser():
             default=GLOBALS.MODEL_TYPES[0],
             help=f'Choose one of the following options: {", ".join(GLOBALS.MODEL_TYPES)}. Default is {GLOBALS.MODEL_TYPES[0]}.'
     )
+    generate_parser.add_argument('--output-dir', dest='output_dir',
+                               required=False, default=None, help=f'Directory containing the output files')
 
     parser_scheck = cmd_parser.add_parser('scheck')
     parser_scheck.add_argument(
