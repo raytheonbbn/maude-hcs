@@ -1,0 +1,489 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set show advisories off .
+
+-------------------------------------------------------
+---- DNSTgen Actor 
+-------------------------------------------------------
+***(
+A tgen actor, addr, accepts message (to addr from umAddr :
+actionQ(aspec)) carries out the action (possibly sending and
+receiving several messages) and then sends (to umAddr
+from addr : actionR(str))
+)
+
+***( 
+for namelist, idlist, query, response
+)
+sload ../../../deps/dns_formalization/Maude/dns/common/prelim.maude
+
+sload ../../common/maude/sampler-x
+sload ../../common/maude/cp2-interfaces 
+sload dns-mamodel
+
+
+mod DNS-TGEN is
+  inc CP2-COMMON  . --- SCHEDULER+ACTOR-MODEL+PARAMETERS 
+  inc SAMPLER-X .   
+  inc MSG .         ---- prelim dns content sorts
+  inc TGEN-INTERFACE .
+  
+vars n n0 j j1 i rj rj1 k l nq nq1 index retryMx : Nat . 
+vars r : Rat .
+vars str : String .
+vars name name1 : Name .
+**** vars namel : NameList .
+vars fl T retryTo : Float .
+vars addr dAddr umAddr rsvAddr : Address .
+vars attrs attrs1 attrs0 attrs2 : AttributeSet .
+vars recs0 recs1 recs2 : List{Record} .
+vars msg msg1 msg0 : Msg .
+vars msgs msgs0 : Config .
+vars qtype : RType .
+vars query query0 query1 : Query .
+vars response response1 : Response .
+vars ract mj : Map{String,JV} .
+vars actor : Actor .
+vars ac : Content .
+vars newId  id0 id1 : Id .
+
+--- DNSTgen attributes 
+  
+op qnameBase:_ : Name -> Attribute [ctor] .
+op lenNameDB:_ : Nat -> Attribute [ctor] .
+op retryTO:_ : Float -> Attribute  [ctor] .  
+op retryMax:_ : Nat -> Attribute  [ctor] .
+****        ("request_timeout" |->  jn(5)),
+****        ("request_lifetime" |->  jn(10))
+op dnsRsv:_ : Address -> Attribute [ctor] . --- resolver 
+op nRetry:_ : Nat -> Attribute  [ctor] .
+op numQ:_ : Nat -> Attribute  [ctor] .
+op ctr:_ : Nat -> Attribute [ctor] . ---  query id
+op w4:_ : Query -> Attribute [ctor] .
+op replyTo:_ : Config -> Attribute [ctor] . --- umactor
+
+ op getLenNameDB : Actor -> Nat .
+ op getLenNameDB : AttributeSet -> Nat .
+
+ op getQnameBase : Actor -> Name .
+ op getQnameBase : AttributeSet -> Name .
+
+
+op getRetryTO : Actor -> Float .
+op getRetryTO : AttributeSet -> Float .
+
+op getRetryMax : Actor -> Nat .
+op getRetryMax : AttributeSet -> Nat .
+
+eq getLenNameDB(actor) = getLenNameDB(getAttrs(actor)) .
+eq getLenNameDB((attrs, lenNameDB: l)) = l .
+
+eq getQnameBase(actor) = getQnameBase(getAttrs(actor)) .
+eq getQnameBase((attrs, qnameBase: name)) = name .
+
+eq getRetryTO(actor) = getRetryTO(getAttrs(actor)) .
+eq getRetryTO((attrs, retryTO: fl)) = fl .
+
+eq getRetryMax(actor) = getRetryMax(getAttrs(actor)) .
+eq getRetryMax((attrs, retryMax: n)) = n .
+
+op getW4 : Actor -> Query .
+op getW4 : AttributeSet -> Query .
+eq getW4(actor) = getW4(getAttrs(actor)) .
+eq getW4((attrs, w4: query)) = query .
+
+
+eq setAttrs((attrs,nRetry: n0),(attrs0,nRetry: n))
+     = (nRetry: n), setAttrs(attrs,attrs0)  .     
+
+eq setAttrs((attrs,numQ: n0),(attrs0,numQ: n))
+     = (numQ: n), setAttrs(attrs,attrs0)  .     
+
+eq setAttrs((attrs,ctr: n0),(attrs0,ctr: n))
+     = (ctr: n), setAttrs(attrs,attrs0)  .     
+
+eq setAttrs((attrs,w4: query0),(attrs0,w4: query))
+     = (w4: query), setAttrs(attrs,attrs0)  .     
+
+eq setAttrs((attrs,replyTo: msgs0),
+               (attrs0,replyTo: msgs))
+   = (replyTo: msgs), setAttrs(attrs,attrs0)  .   
+
+***(
+op len : NameList -> Nat .
+op lenX : NameList Nat ->  Nat .
+eq len(nilNL) = 0 .
+eq len(name namel) = lenX(namel,1) .
+eq lenX(name namel,n) = lenX(namel,s n) .
+eq lenX(nilNL,n) = n .
+
+op select : NameList Nat -> Name .
+eq select(name namel,0) = name .
+eq select(name namel,s j) = select(namel, j) .
+eq select(nilNL,j) = nullName .
+)
+
+----- fix QType as a for now.
+
+   
+op noQuery : -> Query  .
+op DNSTgen : -> ActorType . 
+op dnsTO : Query -> Content .
+
+
+*****    base lname dblen 
+
+***(      
+op genQName : Name String Nat Nat -> Name .
+ceq genQName(name,str,l,j) = (name1 . name) 
+if i := floor(rat(floor(genRandomX(j,0., 
+                              float(l)))) )
+/\ s:String := string(i,10)                             
+/\ name1 := qid(str + s:String )
+ .
+)
+
+op getNumQ : Map{String,JV} -> Nat .
+eq getNumQ((mj,"num_to_resolve" |-> jn(n))) = n .
+eq getNumQ(mj) = 1 [owise] .
+
+op matchQR : AttributeSet Response -> Bool .
+eq matchQR((attrs, w4: query), 
+            response(id1,name,recs0,recs1,recs2,j))
+   = eqQId(query,id1) .
+
+op eqQId : Query  Id -> Bool .
+eq eqQId(query(id0,name,qtype),id1) =  (id0 == id1) .
+eq eqQId(query,id0) = false [owise] .
+
+
+
+op mkDnsTgenA : Address  Address Nat Float Nat
+               -> Actor .
+eq mkDnsTgenA(addr,rsvAddr,l,retryTo,retryMx ) =
+ < addr : DNSTgen | 
+   qnameBase: ('internet . 'com . 'root),
+   lenNameDB: l, dnsRsv: rsvAddr, 
+   w4: noQuery, replyTo: null, numQ: 0,  
+   ctr: 0, nRetry: 0, 
+   retryTO: retryTo, retryMax: retryMx 
+    >  .
+                  
+crl [rcvDNSAction]:
+rCtr(rj)
+{T,(to dAddr from umAddr : actionQ(ract))}
+< dAddr : DNSTgen | attrs >
+=>
+< dAddr : DNSTgen |  attrs1 >
+rCtr(s rj1)
+delayMsgs(msgs,null)
+ (if msgs0 == null 
+  then null
+  else [getRetryTO(attrs) + 
+        genRandomX(rj1,-0.00001,0.00001), msgs0,0]
+  fi)
+if {attrs1,msgs,msgs0,rj1} := dtgenRcvAQ(attrs,
+            (to dAddr from umAddr : actionQ(ract)),rj)
+[print "(" T ") DNSTgen rcvDNSAction " ract " sends " msgs msgs0]
+.
+  
+op dtgenRcvAQ : AttributeSet Msg Nat -> AttributeSetMsgsMsgsNat .
+
+eq dtgenRcvAQ(attrs,msg,rj) 
+       = {attrs,null,null,rj} [owise] .
+
+ceq dtgenRcvAQ(attrs,msg0,rj)
+       = tgenQuery(attrs2, dAddr,  rj)
+if (to dAddr from addr : actionQ(ract)) := msg0
+/\ attrs1,  w4: noQuery, replyTo: null, 
+            numQ: nq, nRetry: k := attrs
+/\ s nq1 := getNumQ(ract)
+/\ attrs2 := attrs1, w4: noQuery, replyTo: msg0,
+             numQ: nq1, nRetry:  getRetryMax(attrs)
+.             
+
+op tgenQuery : AttributeSet Address Nat
+                 -> AttributeSetMsgsMsgsNat .
+ceq tgenQuery(attrs, dAddr, rj) 
+        = {attrs2, msg, msg1, s rj}
+if attrs0, qnameBase: name1, lenNameDB: l, 
+           dnsRsv: rsvAddr, retryTO: retryTo  := attrs
+/\ attrs1,  w4: noQuery, ctr: j := attrs
+**** /\ name := genQName(name1,"www",l,rj)
+/\ name := label(j) . name1
+/\ newId := clientId(dAddr,j)
+/\ query := query(newId,name,a)
+/\ msg :=  (to rsvAddr from dAddr : query)
+/\ msg1 := (to dAddr : dnsTO(query))
+/\ attrs2 := attrs1, w4: query, ctr: s j
+.
+  
+crl[dnsResponse]:
+rCtr(rj)
+{T, (to dAddr from rsvAddr : response )}
+****     response(i,name,recs0,recs1,recs2,j)
+< dAddr : DNSTgen | dnsRsv: rsvAddr, attrs >
+=>
+< dAddr : DNSTgen |  attrs1 >
+rCtr(rj1)
+delayMsgs(msgs,null)
+ (if msgs0 == null 
+  then null
+  else [getRetryTO(attrs) + 
+        genRandom(-0.00001,0.00001), msgs0,0]
+  fi)
+if matchQR(attrs, response)
+/\ {attrs1,msgs,msgs0,rj1} :=
+    tgenRcvResponse((dnsRsv: rsvAddr, attrs), dAddr, rj)
+[print "(" T ") DNSTgen receives dnsResponse sends msg " msgs  " msg0 " msgs0]
+.
+
+
+op tgenRcvResponse : AttributeSet Address Nat 
+                   -> AttributeSetMsgsMsgsNat .
+eq tgenRcvResponse(attrs,addr,rj) 
+     = {attrs,null,null,rj} [owise] .
+     
+ceq tgenRcvResponse((numQ: 0, attrs), dAddr, rj) 
+    = {attrs2,msg,null,rj}
+if attrs0, dnsRsv: rsvAddr := attrs
+/\ attrs1, w4: query, 
+   replyTo: (to dAddr from umAddr : ac)  := attrs
+/\ msg := (to umAddr from dAddr : actionR("ok"))   
+/\ attrs2 := attrs1, w4: noQuery, replyTo: null, numQ: 0 
+.
+
+eq tgenRcvResponse((numQ: (s n), w4: query, attrs), 
+                    dAddr, rj) 
+      = tgenQuery((numQ: n, w4: noQuery, attrs), 
+                   dAddr, rj)
+  .
+  
+crl[dnsResponseRedundant]:
+{T, (to dAddr from rsvAddr : response)}
+< dAddr : DNSTgen | attrs >
+=>
+< dAddr : DNSTgen |  attrs >
+if not(matchQR(attrs, response))
+[print "(" T ") DNSTask receives dnsResponseRedundant " ]
+.
+
+
+
+***(
+TO cases
+1 query =/= w4  -- ignore
+2 query == w4  
+  2a nRetries remaining = 0
+  2b nRetries remaining > 0
+)
+
+---- case 1
+crl[dnsTOretryIgnore]:
+{T, (to dAddr  : dnsTO(query))} 
+< dAddr : DNSTgen | w4: query1, attrs >
+=>
+< dAddr : DNSTgen | w4: query1, attrs >
+if query1 =/= query
+[print "DNSTgen dnsTOretryIgnore w4: " query1 " TOQuery " query]
+.
+
+----- case 2b
+crl[dnsTOretry]:
+rCtr(rj)
+{T, (to dAddr  : dnsTO(query))} 
+< dAddr : DNSTgen | nRetry: s n, w4: query, 
+                    dnsRsv: rsvAddr,  attrs >
+=>
+< dAddr : DNSTgen | nRetry: n, w4: query, 
+                    dnsRsv: rsvAddr, attrs >
+rCtr(s rj)
+[delayParamd(msg), msg, dropParamd(msg)]
+[getRetryTO(attrs) + genRandomX(rj,-0.0001, 0.0001), msg1, 0]
+if msg := (to rsvAddr from dAddr : query)
+/\ msg1 := (to dAddr : dnsTO(query))
+[print "(" T ") DNSTask dnsTOretry nRetry left " n]
+.
+
+---- case 2a query match, no retries left
+crl[dnsTOgiveup]:
+{T, (to dAddr  : dnsTO(query))} 
+rCtr(rj)
+< dAddr : DNSTgen | attrs, nRetry: 0, 
+                    w4: query, replyTo: msg >
+=>
+rCtr(s rj)
+< dAddr : DNSTgen | attrs, nRetry: 0, 
+                    w4: noQuery, replyTo: null >
+*** [genRandomX(rj,0.0,0.0001), (to umAddr from dAddr : actionR("failed")), 0]
+delayMsgs(msg0,null)
+if (to dAddr from umAddr : ac) := msg
+/\ msg0 := (to umAddr from dAddr : actionR("failed"))
+[print "(" T ") DNSTgen dnsTOretry, nRetry 0, send failure to " umAddr]
+.
+
+
+endm
+
+
+mod TEST-DNS-TGEN is
+  inc DNS-TGEN .
+  inc DNS-MAMODEL .
+  
+**** ma("dns",dns-markov,dns-actions,dns-params) 
+  
+  eq defaultDelay = 1.5 .
+  
+  ops umDAddr dnsTGAddr frsvAddr : -> Address .
+
+  op dnsTGenA : -> Actor .
+  eq dnsTGenA = 
+      mkDnsTgenA(dnsTGAddr,frsvAddr,1000, 5.0, 2) .
+**** mkDnsTgenA(addr,rsvAddr,lennames,retryTo,retryMx ) 
+
+***(
+ qnameBase: ('internet . 'com . 'root), 
+  lenNameDB: 1000, 
+)  
+   
+**** rew rCtr(1) dnsTGenA {5.9284461638890209e-6, to dnsTGAddr from umDAddr : actionQ("type" |-> js("resolve_a"))} .
+   
+op dnsTGenA1 : -> Actor .
+eq dnsTGenA1 =
+**** rCtr(3) 
+< dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 2, numQ: 0, ctr: 1, w4: query(clientId( dnsTGAddr, 0), label(0) . 'internet . 'com . 'root, a), replyTo: (to dnsTGAddr from umDAddr : actionQ("type" |-> js("resolve_a"))) >
+.
+    
+***(  [0.0, to frsvAddr from dnsTGAddr : query(clientId(dnsTGAddr, 0), label(0) . 'internet . 'com . 'root, a), 0]
+    
+[ 5.0000043037872999, to dnsTGAddr : dnsTO(query(clientId(dnsTGAddr, 0), label(0) . 'internet . 'com . 'root, a)), 0]
+  )  
+
+**** rew rCtr(1) dnsTGenA {5.9284461638890209e-6, to dnsTGAddr from umDAddr : actionQ((("type" |-> js("resolve_a")), ("num_to_resolve" |-> jn(2)) ))} .
+
+op dnsTGenA2 : -> Actor .
+eq dnsTGenA2 =
+**** rCtr(3) 
+< dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 2, numQ: 1, ctr: 1, w4: query(clientId( dnsTGAddr, 0), label(0) . 'internet . 'com . 'root, a), replyTo: (to dnsTGAddr from umDAddr : actionQ(("num_to_resolve" |-> jn(2), "type" |-> js("resolve_a")))) >
+ . 
+    
+***(
+[0.0, to frsvAddr from dnsTGAddr : query(clientId(dnsTGAddr, 0), label(0) . 'internet . 'com . 'root, a), 0] [5.0000043037872999, to dnsTGAddr : dnsTO(query(clientId( dnsTGAddr, 0), label(0) . 'internet . 'com . 'root, a)), 0]
+)
+
+**** rew rCtr(3) {1.0, (to dnsTGAddr from frsvAddr : response(clientId(dnsTGAddr, 0),(label(0) . 'internet . 'com . 'root),nil,nil,nil,0) )} dnsTGenA2 .
+
+***(
+{1.0, to dnsTGAddr from frsvAddr : 
+response(clientId(dnsTGAddr, 0), label(0) . 'internet . 'com . 'root, nil, nil, nil, 0)}
+
+< dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 2, numQ: 1, ctr: 1, 
+w4: query(clientId( dnsTGAddr, 0), label(0) . 'internet . 'com . 'root, a), 
+replyTo: (to dnsTGAddr from umDAddr : actionQ(("num_to_resolve" |-> jn(2), "type" |-> js("resolve_a")))) 
+>
+)
+
+op dnsTGenA3 : -> Actor . 
+eq dnsTGenA3 = 
+**** rCtr(4)
+ < dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 2, numQ: 0, ctr: 2, w4: query(clientId( dnsTGAddr, 1), label(1) . 'internet . 'com . 'root, a), replyTo: (to dnsTGAddr from umDAddr : actionQ(("num_to_resolve" |-> jn(2), "type" |-> js("resolve_a")))) >
+ .
+ 
+***  [0.0, to frsvAddr from dnsTGAddr : query(clientId(dnsTGAddr, 1), label(1) . 'internet . 'com . 'root, a), 0] 
+*** [5.0000009762700461, to dnsTGAddr : dnsTO(query(clientId( dnsTGAddr, 1), label(1) . 'internet . 'com . 'root, a)), 0]
+    
+    
+
+endm
+eof
+
+ 
+set print attribute on .
+
+rew rCtr(1) dnsTGenA {5.9284461638890209e-6, to dnsTGAddr from umDAddr : actionQ("type" |-> js("resolve_a"))} .
+>>
+rCtr(3) 
+ < dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 2, numQ: 0, ctr: 1, w4: query(0, 'www592 . 'internet . 'com . 'root, a), replyTo: (to dnsTGAddr from umDAddr : actionQ("type" |-> js("resolve_a"))) > 
+ [0.0, to frsvAddr from dnsTGAddr : query(0, 'www592 . 'internet . 'com . 'root, a), 0] [ 5.0000043037872999, to dnsTGAddr : dnsTO(query(0, 'www592 . 'internet . 'com . 'root, a)), 0]
+
+---------------- dnsResponse single ----------------
+rew rCtr(3) {1.0, (to dnsTGAddr from frsvAddr : response(0,('www592 . 'internet . 'com . 'root),nil,nil,nil,0) )} dnsTGenA1 .
+>>
+rCtr(3)
+< dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 2, numQ: 0, ctr: 1, w4: noQuery, replyTo: null > 
+[0.0, to umDAddr from dnsTGAddr : actionR("ok"), 0]
+
+------------- TO with  retries left  -----------------    
+rew rCtr(3) {5.0000018568923279, to dnsTGAddr : dnsTO(query(0, 'www592 . 'internet . 'com . 'root, a))} dnsTGenA1 .
+>>
+ rCtr(4)
+< dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 1, numQ: 0, ctr: 1, w4: query(0, 'www592 . 'internet . 'com . 'root, a), replyTo: (to dnsTGAddr from umDAddr : actionQ("type" |-> js("resolve_a"))) > 
+
+[0.0, to frsvAddr from dnsTGAddr : query(0, 'www592 . 'internet . 'com . 'root, a), 0] 
+[ 5.000068853148818, to dnsTGAddr : dnsTO(query(0, 'www592 . 'internet . 'com . 'root, a)), 0]
+
+------------- TO with  no retries left ---------------    
+rew rCtr(3) {5.0000018568923279, to dnsTGAddr : dnsTO(query(0, 'www592 . 'internet . 'com . 'root, a))} dnsTGenA10 .
+>>
+rCtr(4)
+< dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 0, numQ: 0, ctr: 1, w4: noQuery, replyTo: null >
+
+[8.4426574409008024e-5, to umDAddr from dnsTGAddr :     actionR("failed"), 0]
+
+--------------------  ignore bad TO --------------
+rew rCtr(3) {5.0000018568923279, to dnsTGAddr : dnsTO(query(0, 'www592 . 'com . 'root, a))} dnsTGenA1 .
+>>
+rCtr(3)
+< dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 2, numQ: 0, ctr: 1, w4: query(0, 'www592 . 'internet . 'com . 'root, a), replyTo: (to dnsTGAddr from umDAddr : actionQ("type" |-> js("resolve_a"))) >    
+
+--------------- qaction nq = 2 ----------------------
+rew rCtr(1) dnsTGenA {5.9284461638890209e-6, to dnsTGAddr from umDAddr : actionQ((("type" |-> js("resolve_a")), ("num_to_resolve" |-> jn(2)) ))} .
+>>
+rCtr(3) 
+< dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 2, numQ: 1, ctr: 1, w4: query(0, 'www592 . 'internet . 'com . 'root, a), replyTo: (to dnsTGAddr from umDAddr : actionQ(("num_to_resolve" |-> jn(2), "type" |-> js("resolve_a")))) > 
+[0.0, to frsvAddr from dnsTGAddr : query(0, 'www592 . 'internet . 'com . 'root, a), 0] 
+[5.0000043037872999, to dnsTGAddr : dnsTO(query(0, 'www592 . 'internet . 'com . 'root, a)), 0]
+
+------------ response to nq2 action step 1 -------------
+rew rCtr(3) {1.0, (to dnsTGAddr from frsvAddr : response(0,('www592 . 'internet . 'com . 'root),nil,nil,nil,0) )} dnsTGenA2 .
+>>
+rCtr(4)
+< dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 2, numQ: 0, ctr: 2, w4: query(1, 'www844 . 'internet . 'com . 'root, a), replyTo: (to dnsTGAddr from umDAddr : actionQ(("num_to_resolve" |-> jn(2), "type" |-> js("resolve_a")))) > 
+[0.0, to frsvAddr from dnsTGAddr : query(1, 'www844 . 'internet . 'com . 'root, a), 0] 
+[5.0000018568923279, to dnsTGAddr : dnsTO(query(1, 'www844 . 'internet . 'com . 'root, a)), 0]
+
+---------------- response to nq2 step 2 --------------
+
+rew rCtr(4) {1.0, (to dnsTGAddr from frsvAddr : response(1,('www844 . 'internet . 'com . 'root),nil,nil,nil,0) )} dnsTGenA3 .
+>>
+rCtr(4)
+< dnsTGAddr : DNSTgen | qnameBase: 'internet . 'com . 'root, lenNameDB: 1000, retryTO: 5.0, retryMax: 2, dnsRsv: frsvAddr, nRetry: 2, numQ: 0, ctr: 2, w4: noQuery, replyTo: null > 
+[0.0, to umDAddr from dnsTGAddr : actionR("ok"), 0]
