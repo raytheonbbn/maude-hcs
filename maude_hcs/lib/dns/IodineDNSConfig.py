@@ -123,7 +123,7 @@ class IodineDNSConfig(DNSConfig):
             res = '--- This maude file has been created automatically from the Python representation ---\n'
             res += '\n'.join([
                 f'sload {self.weirdpath}/probabilistic/iodine_dns',
-                f'sload {Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('dnsTgen-actor')}\n'
+                f'sload {Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('dnsTgen-actor-uniqueId')}\n'
                 f'sload {path}test/probabilistic-model/test_helpers',
                 f'sload {self.common_path}/user-action-actor\n'
                 f'sload {Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('masTGen.maude')}\n'
