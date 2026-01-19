@@ -31,6 +31,7 @@
 *** Load DNS aux for the types, even though this is not a DNS related actor.
 sload ../../../../deps/dns_formalization/Maude/common/actor
 sload ../../../common/maude/_aux
+sload ../../../common/maude/cp2-interfaces
 sload ./mas_id
 sload ./media_file
 sload ./tag
@@ -46,6 +47,7 @@ mod MASTODON_NODE is
   pr TAGS .
   pr TOOTS .
   pr URLS .
+  pr MC-INTERFACE .
 
   --- A client Program Counter operation.
   sorts Op .
@@ -420,7 +422,7 @@ mod MASTODON_NODE is
   --- Handle a reply from the server, for a status posting request.
   ---              MsgAttributes ClientAttributes
   ceq handleReply(makeHttpResponse("OK", RESPONSE_TOOT_LIST), masClAttrs) =
-    { handleStatusPostReply(getPostId(RESPONSE_TOOT_LIST), masClAttrs), nullMsg }
+    handleStatusPostReply(getPostId(RESPONSE_TOOT_LIST), masClAttrs)
       if peekOp(masClAttrs) == POST-STATUS-OP
     [ print "Handle reply for status post." ]
     .
@@ -459,17 +461,18 @@ mod MASTODON_NODE is
 
   --- Handle a Status posting reply.
   ---                       MsgAttributes ClientAttributes  ClientAttributes
-  op handleStatusPostReply : MasId AttributeSet -> AttributeSet .
+  op handleStatusPostReply : MasId AttributeSet -> AttributeSetMsgs .
   ceq handleStatusPostReply(POST_ID, (masClAttrs, opStack: OP_STACK, postingMediaIds: MAS_ID_LIST)) =
 ---    (masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: emptyMasIdList)
-    masClAttrsNext
+    { masClAttrsNext, outMsg }
     if masClAttrsTrans := (masClAttrs, opStack: popOp(OP_STACK), postingMediaIds: emptyMasIdList)
       /\ masClAttrsNext := 
         (if peekOp(masClAttrsTrans) == POST-STATUS-W-MEDIA-OP
           then popOp(masClAttrsTrans)
           else masClAttrsTrans
          fi)
-    [ print "Handle status post reply." ]
+      /\ outMsg := (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : mkRequestResponse("ACCEPTED"))
+    [ print "Handle status post reply, send " outMsg ". | " masClAttrsNext ]
     .
     
   --- Finish handling a reply from the server.
