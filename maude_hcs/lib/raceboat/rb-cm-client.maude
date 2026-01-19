@@ -256,9 +256,14 @@ op getNextHashtag : AttributeSet -> ByteSeq .
 --- From the map of benign hashtags.
 eq getNextHashtag(attrs, (currentFrags: nilBS), (pendingFiles: nilBS), (bHashTagCtr: j), (hashtagMap: natstr))
   = hashTag(natstr[j])
+  [ print "Posting with benign hashtag" ]
+  .
+eq getNextHashtag(attrs, postingWeird: false, (bHashTagCtr: j), (hashtagMap: natstr))
+  = hashTag(natstr[j])
+  [ print "Posting with benign hashtag (pending files but not posting weird)." ]
   .
 --- From the one provided by Alice.
-eq getNextHashtag(attrs, pendingHashTags: (hashtag :: hashtagl)) = hashtag .
+eq getNextHashtag(attrs, pendingHashTags: (hashtag :: hashtagl), postingWeird: true) = hashtag [ print "Posting with weird hashtag." ].
 eq getNextHashtag(attrs) = hashTag("tagError") [owise] .
 
 --- Send a batched post request to Mastodon Client.
@@ -271,7 +276,7 @@ ceq sendPostRequest((attrs, (w4c: null)), cmcAddr)
      (to mastodonClientAddr from cmcAddr : translateTootQ(tootQ(hashtag, IMAGES)))}
   if hashtag := getNextHashtag(attrs, (w4c: null))
     /\ attrsTrans, mcAddress: mastodonClientAddr, (encodedImages: IMAGES) := attrs
-  [ print "Raceboat client sending post request."]
+  [ print "Raceboat client sending post request with hashtag " hashtag ]
   .
 
 --- Handle an encoding response.
