@@ -106,13 +106,13 @@ For example,
  maude-hcs --verbose \ 
     --protocol=dns markov \
     --json-dir=../pwnd-cp2/src/static/tgen_models/dns/ \ 
-    --maude-dir=./maude_hcs/lib/dns/maude/probabilistic/markov/
+    --maude-dir=./maude_hcs/lib/tgen/maude/dnsprofiles/markov/
     
 # convert mastodon tgen models
 maude-hcs --verbose \
     --protocol=mastodon markov \
     --json-dir=../pwnd-cp2/src/static/tgen_models/mastodon \
-    --maude-dir=./maude_hcs/lib/mastodon/maude/probabilistic/markov/
+    --maude-dir=./maude_hcs/lib/tgen/maude/mastodonprofiles/markov/
 ```
 
 # Auto generate configurations
