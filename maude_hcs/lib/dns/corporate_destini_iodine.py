@@ -103,7 +103,13 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     pwnd_domain = underlying_network.pwnd2_domain
     num_records   = underlying_network.everythingelse_num_records
     populateCache = underlying_network.populate_resolver_cache
+    # adversary constants
+    baselineBinSize = 1.0  # sec
+    maxWindowSize = hcsconf.adversary.getMaxWindowSize('m')
+    tlimit = 20 * maxWindowSize
     record_ttl    = underlying_network.record_ttl
+    if tlimit > record_ttl:
+        record_ttl = int(tlimit)
     record_ttl_a    = underlying_network.record_ttl_a
     # router
     router = Router(mas_underlying_network.router)
@@ -181,8 +187,6 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
 
     # adversary
     ## the smc measures
-    baselineBinSize = 1.0 #sec
-    maxWindowSize = hcsconf.adversary.getMaxWindowSize('m')
     maxNBinWindowSize = hcsconf.adversary.getMaxWindowSize('n')
     # the adversary is going to start at maxWindowSize because we will put the baseline data in the first window
     adversary_conf = hcsconf.adversary.render_template(start_time=maxWindowSize, baseline_window=maxWindowSize, baseline_binsize=baselineBinSize,offset_baselines=True)
@@ -309,7 +313,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
 
     # add some paramters
     pp = hcsconf.protocols[Protocol.IODINE_DNS.value].probabilistic_parameters
-    pp.limit = maxWindowSize * 20 # is this good enough??
+    pp.limit = tlimit # is this good enough??
     if not pp.other:
         pp.other = {}
     # these are hacks for now (TODO put in the correct place)
