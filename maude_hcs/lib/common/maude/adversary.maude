@@ -65,11 +65,11 @@ mod ADVERSARY is
   inc CONVERSION .
   inc NET-AUX .    ---- X,Z, constructors
 
-  vars GT : Float .
+  vars T GT : Float .
   vars M1 : Msg .
   vars content : Content .
   vars attrs attrs1 : AttributeSet .
-  vars SL : TimeMsgList .
+  vars SL SL1 : TimeMsgList .
   vars SM : TimeMsg .
   vars obs obsS obsR : Observable .
   vars pat : OPat .
@@ -177,7 +177,12 @@ Mastodon server is captured
   eq pmatch(pat(rcvAddr,sndAddr),addr0,addr1) 
       = false [owise] .
 
-  
+
+op content-matches : Content -> Bool .
+eq content-matches(C:Content) = false [owise] .
+op add-to-sent : TimeMsg -> TimeMsgList .
+eq add-to-sent(SM) = nilTML [owise] .
+
 **** for more complex observation may need location attribute
   op sent:_ : TimeMsgList -> Attribute [ctor] .
   op rcvd:_ : TimeMsgList -> Attribute [ctor] .
@@ -185,11 +190,18 @@ Mastodon server is captured
   op canSeeR:_ : Observable -> Attribute [ctor] .
   
   op addSent : AttributeSet TimeMsg -> AttributeSet .
-  eq addSent((attrs,sent: SL),SM) = (attrs,sent: (SL ; SM)) .
+  eq addSent((attrs,sent: SL),SM) = (attrs,sent: (SL ; SM)) [owise] .
   eq addSent(attrs,SM) = attrs [owise] .
 
+  ---- mechanism to allow minting new observed messages on matches
+  ceq addSent((attrs,sent: SL), SM) = attrs, sent: (SL ; SM ; SL1)
+    if  tm(T,to addr0 from addr1 : c:Content) := SM
+    /\ content-matches(c:Content)
+    /\ SL1 := add-to-sent(tm(T,to addr0 from addr1 : c:Content)) .
+
+
   op addRcvd : AttributeSet TimeMsg -> AttributeSet .
-  eq addRcvd((attrs,rcvd: SL),SM) = (attrs,rcvd: (SL ; SM)) .
+  eq addRcvd((attrs,rcvd: SL),SM) = (attrs,rcvd: (SL ; SM)) [owise] .
   eq addRcvd(attrs,SM) = attrs [owise] .
   
 **** collected at send time

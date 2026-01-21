@@ -62,7 +62,23 @@ class DNSConfig(Config):
 
     def set_preamble(self, L: list[str] = []):
         self.preamble = L
-        
+
+    def _to_maude_common_definitions(self, param_dict) -> str:
+        res = 'eq monitorQueryLog? = true .\n\n'
+
+        for param, val in param_dict.items():
+            if isinstance(val, str):
+                res += f'eq {param} = {val} .\n'
+            else:
+                res += f'eq {param} = {str(val).lower()} .\n'
+
+        res += '\n'
+
+        res += self._get_addr_ops() + '\n'
+        res += self._get_sbelt() + '\n'
+        res += self._to_maude_zones()
+        return res
+
     # Override to exclude the monitor
     def _to_maude_actors(self) -> str:
         res = '  --- Clients\n'
@@ -138,7 +154,9 @@ class DNSConfig(Config):
         res += '  .\n\n'
         
         res += 'endm\n'        
-        return res        
+        return res
+
+
 
     def to_maude_prob(self, param_dict, path) -> str:
         res = self._maude_loads(path, 'prob')

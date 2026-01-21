@@ -320,6 +320,12 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     pp.other['noiseMin(msg:Msg)'] = 0.001
     pp.other['exeDone(< mon:Address :  WMonitor | attrs:AttributeSet, doneFlag: true > conf:Config)'] = True
     pp.other['raceBoatMastodonClients'] = f'({raceboatCl.masClientAddress} ;; {raceboatSvr.masClientAddress})'
+    # we are adding rules to
+    pp.other['content-matches(C:Content)'] = 'isHttpReq(C:Content)'
+    # query(0, 'mastodon . 'internet . 'com . root,a)
+    mastodon_fqdn = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].underlying_network.mastodon_fqdn
+    dnsquery = Query(0, mastodon_fqdn, 'A')
+    pp.other['add-to-sent(tm(tt:Float,to addr0:Address from addr1:Address : c:Content))'] = f'tm(tt:Float,to {resolver.address} from addr1:Address : {dnsquery.to_maude()})'
 
     C = IodineDNSConfig([Ctr(hcsconf.seed), router, adversary], monitor, [sndApp, rcvApp, mainSndApp, mainRcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
     ndp = {}
