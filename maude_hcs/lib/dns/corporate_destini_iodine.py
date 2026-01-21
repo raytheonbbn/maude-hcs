@@ -290,10 +290,10 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     topo_transforms[Link(dst_label=mastodon_server_address, src_label=router.address)].append(
         Link(dst_label=mastodon_server_address, src_label=raceboatCl.masClientAddress))
     # add raceboat server mastodon client
-    topo_transforms[Link(src_label=mastodon_server_address, dst_label=router.address)].append(
-        Link(src_label=mastodon_server_address, dst_label=raceboatSvr.masClientAddress))
-    topo_transforms[Link(dst_label=mastodon_server_address, src_label=router.address)].append(
-        Link(dst_label=mastodon_server_address, src_label=raceboatSvr.masClientAddress))
+    # topo_transforms[Link(src_label=mastodon_server_address, dst_label=router.address)].append(
+    #     Link(src_label=mastodon_server_address, dst_label=raceboatSvr.masClientAddress))
+    # topo_transforms[Link(dst_label=mastodon_server_address, src_label=router.address)].append(
+    #     Link(dst_label=mastodon_server_address, src_label=raceboatSvr.masClientAddress))
     # DNS topo transforms
     topo_transforms[Link(src_label=resolver_node.label, dst_label=router.address)] = \
         [Link(src_label=resolver_node.label, dst_label=nameserverCORP.address)]

@@ -123,27 +123,31 @@ class ParameterizedTopo:
           return node
       return src_node
 
+  def pretty_print_links(self, links) -> None:
+      for link in links:
+          print(link)
 
   def transform(self, xforms: dict) -> dict:
-      for xlink in xforms.keys():
-        for link_type, links in self.link_characteristics.items():
-                if xlink in links:
-                  # delete xlink and replace with its transforms
-                  new_list = [x for x in links if x != xlink]
-                  old_link = [x for x in links if x == xlink][0] # use the characteristics of the link being replaced
-                  for new_link in xforms[xlink]:
-                      # verify nodes exist and add them if not (needed for integrity of topology)
-                      src_node = self.findOrAddNode(new_link.src_label)
-                      dst_node = self.findOrAddNode(new_link.dst_label)
-                      new_list.append(
-                          Link(src_id=src_node.id, src_label=src_node.label,
-                               dst_label=dst_node.label,dst_id=dst_node.id,
-                               loss=old_link.loss,
-                               latency=old_link.latency,
-                               jitter=old_link.jitter,
-                               )
-                      )
-                  self.link_characteristics[link_type] = new_list
+    for link_type, links in self.link_characteristics.items():
+        new_links = []
+        for link in links:
+            if link in xforms.keys():
+                # replace link with its transforms
+                for new_link in xforms[link]:
+                    # verify nodes exist and add them if not (needed for integrity of topology)
+                    src_node = self.findOrAddNode(new_link.src_label)
+                    dst_node = self.findOrAddNode(new_link.dst_label)
+                    new_links.append(
+                        Link(src_id=src_node.id, src_label=src_node.label,
+                             dst_label=dst_node.label, dst_id=dst_node.id,
+                             loss=link.loss,
+                             latency=link.latency,
+                             jitter=link.jitter,
+                             )
+                    )
+            else:
+                new_links.append(link)
+        self.link_characteristics[link_type] = new_links
 
   def _characerize_links(self) -> None:
     for link in self.topo.links:
