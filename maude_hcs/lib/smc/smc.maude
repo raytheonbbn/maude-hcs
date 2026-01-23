@@ -216,6 +216,16 @@ mod SMC is
 
   op getNQuerySent : Actor -> Nat .
   eq getNQuerySent (< ADDR : Adversary | sent: TML, attrs >) = length(TML) .
+ 
+  op getAdversaryPostNATQuery : Actor -> TimeMsgList .
+  eq getAdversaryPostNATQuery (< ADDR : Adversary | sent: TML, attrs >) = PostNATQueryTML(TML) .
+
+  op getAdversaryPostNATQueryTotal : Actor -> Nat .
+  eq getAdversaryPostNATQueryTotal (< ADDR : Adversary | sent: TML, attrs >) = length(PostNATQueryTML(TML)) .
+
+  ---                                        startT binSize
+  op getAdversaryPostNATQueryBinCount : Actor Float Float -> Nat .
+  eq getAdversaryPostNATQueryBinCount (< ADDR : Adversary | sent: TML, attrs >, T, T') = lengthTimeWindow(PostNATQueryTML(TML), T, T + T') .
 
   ----- the avg QPS in a time window of size T' starting at T
   ---                     startT window 
@@ -514,7 +524,8 @@ mod SMC is
   eq getToDCumulativeNQueryPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthQueryTimePreNAT(TML, s N) .
 
   op PostNATQuery : Msg -> Bool .
-  eq PostNATQuery (to public-dns from Z(N, corporate-dns) : QUERY) = true .
+  eq PostNATQuery (to public-dns from Z(N, ADDR) : QUERY) = true .
+---  eq PostNATQuery (to public-dns from Z(N, corporate-dns) : QUERY) = true .
   eq PostNATQuery (M) = false [owise] .
 
   op nthQueryTimePostNAT : TimeMsgList Nat -> Float .
