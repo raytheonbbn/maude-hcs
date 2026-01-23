@@ -1,0 +1,624 @@
+set show advisories off .
+
+***(
+deps....common/maude/parameters.maude
+
+*** delayParamd
+op delayParamd : Msg -> Float .
+ceq delayParamd(msg) =
+  oh:Float +
+  (if delayType(msg) == "Constant"
+    then delayConst(msg) + genRandom(noiseMin(msg), noiseMax(msg))
+    else (if delayType(msg) == "Uniform"
+      then sampleUniform(delayConst(msg), delayConstMax(msg))
+      else sampleNormalWithMeanSd(delayMean(msg), delayStd(msg))
+      fi)
+  fi)
+if oh:Float := overhead(msg)
+  .
+
+op overhead : Msg -> Float .
+eq overhead(msg) = 0.0 [owise] .
+)
+
+***(
+
+op fakeDropFlag : -> Bool .
+eq fakeDropFlag = false [owise] .
+
+op dropParamdX : Message -> Nat .
+eq dropParamdX(msg) = <orig dropParamd(msg)> .
+
+eq dropParamd(msg) 
+   = if fakeDropFlag(msg) 
+     then 0
+     else dropParamdX(msg) 
+     fi .
+
+)
+-----------------------------
+sload ../../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../../deps/dns_formalization/Maude/common/parameters
+sload ../../mastodon/maude/common/_aux  --- http msg constructors
+sload net-aux 
+
+mod HTTP-OVERHEAD is
+ **** inc MSGS . 
+  inc MASTODON_NODE .
+  inc PARAMETERS-BASE-COMMON .
+  inc NET-AUX .
+
+
+vars msg msg0 : Msg .
+vars mcAddr msAddr addr addr0 addr1 : Address .
+vars addrs : AddrSet .
+vars mediaFile : MediaFile .
+vars hashstr : String .
+vars masIdL : MasIdList  .
+vars tag : Tag .
+vars url : Url .
+vars n : Nat .
+vars b : Bool .
+vars rtt oh doh fl : Float .
+vars str : String .
+
+op isHttpReq : Content -> Bool .
+eq isHttpReq(makeHttpRequest(postRequest, mediaFile)) = true .
+eq isHttpReq(makeHttpRequest(postRequest, hashstr,masIdL)) = true .
+eq isHttpReq(makeHttpRequest(getRequest, tag)) = true .
+eq isHttpReq(makeHttpRequest(getRequest, tag, n)) = true .
+eq isHttpReq(makeHttpRequest(getRequest, url)) = true .
+eq isHttpReq(c:Content) = false [owise] .
+
+***(
+op isHttpMsg : Msg -> Bool .
+eq isHttpMsg(msg) = false [owise] .
+eq isHttpMsg(to msAddr from mcAddr : c:HttpRequest) 
+     = true .
+eq isHttpMsg(to mcAddr from msAddr : c:HttpResponse) 
+    = true .
+)
+**** AddrSet in ADDRESS in actor-model
+op raceBoatMastodonClients : -> AddrSet .
+eq raceBoatMastodonClients = ept [owise] .
+
+***(
+**** CP2 scenarios
+eq raceBoatMastodonClients =
+   (alice-raceboat-client-mas-client ;;
+    user-bob-raceboat-server-mas-client) .
+)
+
+op isRaceboat : Address -> Bool .
+ceq isRaceboat(addr) = true 
+  if Z(n,mcAddr) := addr
+  /\ addrs ;; mcAddr := raceBoatMastodonClients .
+ceq isRaceboat(addr) = true
+  if notZ(addr)
+  /\ addrs ;; addr := raceBoatMastodonClients .
+
+eq isRaceboat(addr) = false [owise] .
+
+***(
+ceq isRaceboat(addr) = true
+  if addrs ;; addr := raceBoatMastodonClients .
+eq isRaceboat(addr) = false [owise] .
+)
+
+*****************************************
+***** modeling drops by extra delay
+**** op fakeDrop : Msg -> Bool .
+eq fakeDrop(to msAddr from mcAddr : c:HttpRequest)
+     = true .
+eq fakeDrop(to mcAddr from msAddr : c:HttpResponse)
+     = true .
+
+op numTcpPackets : Msg -> Nat .
+eq numTcpPackets(msg) = 1 [owise] .
+
+ceq numTcpPackets(msg) 
+      =  ceiling(sizeImageContent(c:Content) / 1500)
+  if (to addr0 from addr1 : c:Content) := msg 
+  /\ c:Content :: HttpRequest 
+      or c:Content :: HttpResponse .
+
+op sizeImageContent : Content -> Nat . 
+eq sizeImageContent(c:Content) = 0 [owise] .
+
+eq sizeImageContent(makeHttpRequest(postRequest,
+    makeMediaFile(str,n,image:ByteSeq)) ) = n .
+eq sizeImageContent(makeHttpResponse(str,
+    makeMediaFile(str,n,image:ByteSeq)) ) = n .
+
+
+op stripZ : Msg -> Msg .
+
+eq stripZ(to Z(n,addr0) from addr1 : c:Content)
+   = to addr0 from addr1 : c:Content .
+eq stripZ(to addr0 from Z(n,addr1) : c:Content)
+   = to addr0 from addr1 : c:Content .
+eq stripZ(msg) = msg [owise] .
+
+---- add to oh if fakeDrop(msg) is true 
+---- and would be dropped
+op dropOh : Msg -> Float .
+eq dropOh(msg) = 0.0 [owise] .
+
+ceq dropOh(msg) =
+     (if sampleBerWithP(fl) 
+      then delayConst(msg0)   ---- add noise?
+      else 0. fi)            ---- no extra delay
+  if msg0 := stripZ(msg)
+  /\ canDrop(msg0) and fakeDrop(msg0)
+  /\ fl := dropProb(msg0) * 
+           float(6 + numTcpPackets(msg0) ) .
+
+***(
+defined in parameters.maude
+op overhead : Msg -> Float .
+eq overhead(msg) = 0.0 [owise] .
+)
+
+ops 
+rbPostImageOverhead tgenPostImageOverhead
+rbPostHashOverhead tgenPostHashOverhead
+rbGetTagOverhead tgenGetTagOverhead
+rbGetTagNOverhead tgenGetTagNOverhead
+rbGetUrlReqOverhead tgenGetUrlOverhead
+rbMediaResponseOverhead
+tgenMediaResponseOverhead
+: Msg -> Float .
+
+ceq overhead(msg) = 
+  dropOh(msg)  +
+  (if b
+   then rbPostImageOverhead(msg0)
+   else tgenPostImageOverhead(msg0)
+  fi)
+if (to msAddr from mcAddr : 
+    makeHttpRequest(postRequest, mediaFile)) := msg
+/\ not(toRouter(msg))  and not(fromRouter(msg))
+---- /\ doh := dropOh(msg)  
+/\ msg0 := stripZ(msg)
+/\ b := isRaceboat(mcAddr)
+[ print "Add overhead for media POST " msg ", is Raceboat: " b ] 
+.
+
+ceq overhead(msg) = 
+  dropOh(msg) + 
+  (if b
+   then rbPostHashOverhead(msg0)
+   else tgenPostHashOverhead(msg0)  
+   fi)
+if (to msAddr from mcAddr :  
+    makeHttpRequest(postRequest, hashstr,masIdL))
+    := msg
+/\ not(toRouter(msg))   and not(fromRouter(msg))
+---- /\ doh := dropOh(msg)  
+/\ msg0 := stripZ(msg)
+/\ b := isRaceboat(mcAddr)
+[ print "Add overhead for status POST " msg ", is Raceboat: " b ]
+.
+
+**** this case is broken
+ceq overhead(msg) = 
+  dropOh(msg)  +
+  (if b
+  then rbGetTagOverhead(msg0)
+  else tgenGetTagOverhead(msg0)
+  fi)
+if (to msAddr  from mcAddr : 
+    makeHttpRequest(getRequest, tag))
+    := msg
+/\ not(toRouter(msg))   and not(fromRouter(msg))  
+---- /\ doh := dropOh(msg)  
+/\ msg0 := stripZ(msg)
+/\ b := isRaceboat(mcAddr)
+[ print "Add overhead for Search " msg ", is Raceboat: " b ]
+.
+
+*** not used???
+ceq overhead(msg) = 
+  dropOh(msg)   +
+  (if b
+  then rbGetTagNOverhead(msg0)
+  else tgenGetTagNOverhead(msg0)
+  fi)
+if (to msAddr from mcAddr : 
+    makeHttpRequest(getRequest, tag, n))
+    := msg
+/\ not(toRouter(msg))  and not(fromRouter(msg))   
+---- /\ doh := dropOh(msg)  
+/\ msg0 := stripZ(msg)
+/\ b := isRaceboat(mcAddr)
+[ print "Add overhead for Search " msg ", is Raceboat: " b]
+.
+
+ceq overhead(msg) = 
+  dropOh(msg)  +
+  (if b
+   then rbGetUrlReqOverhead(msg0)
+   else tgenGetUrlOverhead(msg0)
+  fi)
+if (to msAddr  from mcAddr : 
+    makeHttpRequest(getRequest, url))
+    := msg
+/\ not(toRouter(msg))  and not(fromRouter(msg))   
+---- /\ doh := dropOh(msg)  
+/\ msg0 := stripZ(msg)
+/\ b := isRaceboat(mcAddr)
+[ print "Add overhead on request side for URL GET " msg ", is Raceboat: " b ]
+.
+
+---- media response delay
+ceq overhead(msg) = 
+  dropOh(msg) +
+  (if b
+  then rbMediaResponseOverhead(msg0)
+  else tgenMediaResponseOverhead(msg0)
+  fi)
+if (to mcAddr from msAddr : 
+    makeHttpResponse(str,mediaFile) )
+    := msg
+/\ not(toRouter(msg))   and not(fromRouter(msg))
+---- /\ doh := dropOh(msg)  
+/\ msg0 := stripZ(msg)
+/\ b := isRaceboat(mcAddr)
+[print "Add overhead on response side for URL GET " msg ", is Raceboat: " b ]
+.
+
+ ceq overhead(msg) = dropOh(msg)  
+  if (to mcAddr from msAddr : c:HttpResponse) := msg
+  /\ not(toRouter(msg))  and not(fromRouter(msg))
+---- /\ doh := dropOh(msg)  
+---- /\ msg0 := stripZ(msg)
+ [owise print "add only dropOh owise."]  
+ .
+ 
+***************************************************
+***(
+POSTs:
+** We should approximate RB posts to about 6RTTs + 570ms, regardless of size (media and status posts take roughly the same time, 750ms for 30ms RTT).  Technically this comes down to 5RTTs + 570ms since one of these RTTs is the explicit address resolve we will do.
+)
+ceq rbPostImageOverhead (msg) = oh **** 6.0 * rtt + .570
+if rtt := 2.0 * delayConst(msg)
+/\ oh :=  (6.0 * rtt) + .570
+[print "adding rbPostImage oh " oh]
+.
+
+ceq rbPostHashOverhead(msg) = oh *** 6.0 * rtt + .570
+if rtt := 2.0 * delayConst(msg)
+/\ oh :=  (6.0 * rtt) + .570
+[print "adding rbPostHashoh " oh]
+. 
+
+***(
+** We should approximate TGEN posts to about 450ms, regardless of size.
+)
+
+eq tgenPostImageOverhead(msg) =  .450 
+[print "adding tgPostImage oh ,450"]
+.
+eq tgenPostHashOverhead(msg) = .450 
+[print "adding tgPostHash oh ,450"]
+.
+
+
+----------- gets------------
+***(
+ RB image gets take about L = S x 5.6e-7 + 0.19, where S is the size of the image in Bytes.  
+)
+
+***( 
+** For Raceboat, status search GETs should be all request side, 450ms fixed.
+ ** For Raceboat, image download GETs should be DNS look up (1 RTT, already modeled) + TCP / TLS HS (5 RTTs) on request side
+)
+eq rbGetTagOverhead(msg) = .450  
+[print "!!!! rb getTag OH .450   for msg " msg]
+.
+
+eq rbGetTagNOverhead(msg) = .450  
+[print "rbOH  .450  for msg " msg]
+.
+
+ceq  rbGetUrlReqOverhead(msg)  = oh
+  if rtt := 2. * delayConst(msg)
+    /\ oh := (6. * rtt)
+[ print "GET URL overhead " oh " for msg " msg ]
+.
+
+eq tgenGetTagOverhead(msg) = .450  
+[print "tgOH  .450   for msg " msg]
+.
+
+eq tgenGetTagNOverhead(msg) = .450
+[print "tgOH  .450   for msg " msg]
+.
+ 
+eq tgenGetUrlOverhead(msg) = .450 
+[print "tgOH  .450   for msg " msg]
+.
+
+----------------- Responses -----------------
+***(
+  ** For Raceboat, image download GETs should be ` L = S x 5.6e-7` on response side
+
+)
+
+***** drop Z
+ceq rbMediaResponseOverhead(msg) 
+   = oh **** float(SIZE:Nat) * 5.6e-7
+if (to mcAddr from msAddr : 
+    makeHttpResponse(str,mediaFile) )
+    := msg
+/\ makeMediaFile(NAME:String, SIZE:Nat, PAYLOAD:ByteSeq)
+    := mediaFile
+/\ oh :=  float(SIZE:Nat) * 5.6e-7   
+[ print "GET URL overhead " oh "for msg " msg ]
+.
+
+eq tgenMediaResponseOverhead(msg) = .100 
+[print "tgOH  .100 for msg " msg]
+.
+
+endm
+
+
+mod TEST-HTTP-OVERHEAD is
+  inc HTTP-OVERHEAD .
+
+
+op alice-raceboat-client-mas-client : -> Address .
+op user-bob-raceboat-server-mas-client : -> Address .
+op mastodon-proxy : -> Address .
+op tgen-mas-3-UM-client : -> Address .
+
+    
+eq raceBoatMastodonClients =
+   (alice-raceboat-client-mas-client ;;
+    user-bob-raceboat-server-mas-client) .
+  
+op LinkType-2 : -> AttributeSet .
+eq LinkType-2 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.015),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+op LinkType-3 : -> AttributeSet .
+eq LinkType-3 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.015),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.1),
+  (canDrop: true)
+  .
+
+eq LinkData =
+aaa(mastodon-proxy,tgen-mas-3-UM-client,LinkType-2)
+aaa(mastodon-proxy,
+   alice-raceboat-client-mas-client,LinkType-3)
+aaa(mastodon-proxy,    
+    user-bob-raceboat-server-mas-client,LinkType-3)
+
+aaa(tgen-mas-3-UM-client,mastodon-proxy,LinkType-2)
+aaa(alice-raceboat-client-mas-client,
+    mastodon-proxy,LinkType-3)
+aaa(user-bob-raceboat-server-mas-client,
+    mastodon-proxy,LinkType-3)
+.
+  
+op noContent : -> Content .
+  
+----------- request msgs
+*** tgen-mas
+ops req0-tg req1-tg req2-tg req3-tg : -> Msg .
+**** alice-mas  Z,addr  addr addr
+ops req0-rb req00-rb req1-rb req2-rb req3-rb : -> Msg .
+**** bob-mas
+ops req0b-rb req1b-rb req2b-rb req3b-rb : -> Msg .
+
+eq req0-rb =
+to mastodon-proxy from Z(0,alice-raceboat-client-mas-client) :
+ makeHttpRequest(postRequest, makeMediaFile( "eimage:I-1-37794-3000:EF-0-50-0-4:FR-50-0-50", 37794, encode(image(1, 37794, 3000), efrag(efile(0, 50, 0, 4), 50, 0, 50), 1, 1, 1/6)))
+.
+
+eq req00-rb =
+to mastodon-proxy from alice-raceboat-client-mas-client :
+ makeHttpRequest(postRequest, makeMediaFile( "eimage:I-1-37794-3000:EF-0-50-0-4:FR-50-0-50", 37794, encode(image(1, 37794, 3000), efrag(efile(0, 50, 0, 4), 50, 0, 50), 1, 1, 1/6)))
+.
+ 
+eq req1-rb =
+to mastodon-proxy from Z(0,alice-raceboat-client-mas-client) :
+makeHttpRequest(postRequest, "hashtag is #whatsup1", 1 : 2 : 3 : 4)
+. 
+
+eq req0b-rb =
+to mastodon-proxy from user-bob-raceboat-server-mas-client :
+ makeHttpRequest(postRequest, makeMediaFile( "eimage:I-1-37794-3000:EF-0-50-0-4:FR-50-0-50", 37794, encode(image(1, 37794, 3000), efrag(efile(0, 50, 0, 4), 50, 0, 50), 1, 1, 1/6)))
+.
+ 
+eq req1b-rb =
+to mastodon-proxy from    user-bob-raceboat-server-mas-client : makeHttpRequest(postRequest, "hashtag is #whatsup1", 1 : 2 : 3 : 4)
+. 
+
+eq req2-rb =
+to mastodon-proxy from Z(0,alice-raceboat-client-mas-client) :
+makeHttpRequest(getRequest, makeTag("purple"))
+.
+
+
+eq req3-rb =
+to mastodon-proxy from Z(0,alice-raceboat-client-mas-client) : makeHttpRequest(getRequest,    url("randimage:I-4-45252-3000.com"))
+.
+
+eq req2b-rb =
+to mastodon-proxy from user-bob-raceboat-server-mas-client :
+makeHttpRequest(getRequest, makeTag("purple"))
+.
+
+eq req3b-rb =
+to mastodon-proxy from user-bob-raceboat-server-mas-client  : makeHttpRequest(getRequest,    url("randimage:I-4-45252-3000.com"))
+.
+
+------------------------------
+eq req0-tg =
+to mastodon-proxy from Z(0,tgen-mas-3-UM-client) :
+ makeHttpRequest(postRequest, makeMediaFile( "eimage:I-1-37794-3000:EF-0-50-0-4:FR-50-0-50", 37794, encode(image(1, 37794, 3000), efrag(efile(0, 50, 0, 4), 50, 0, 50), 1, 1, 1/6)))
+.
+
+eq req1-tg =
+to mastodon-proxy from Z(0,tgen-mas-3-UM-client) :
+makeHttpRequest(postRequest, "hashtag is #whatsup1", 1 : 2 : 3 : 4)
+. 
+
+eq req2-tg =
+to mastodon-proxy from Z(0,tgen-mas-3-UM-client) :
+makeHttpRequest(getRequest, makeTag("purple"))
+.
+
+eq req3-tg =
+to mastodon-proxy from Z(0,tgen-mas-3-UM-client) :
+makeHttpRequest(getRequest,    url("randimage:I-4-45252-3000.com"))
+.
+
+    
+---------- response msgs
+ops  rsp1-tg rsp2-tg rsp3-tg : -> Msg .
+ops  rsp1-rb rsp2-rb rsp3-rb : -> Msg .
+ops  rsp1b-rb rsp2b-rb rsp3b-rb : -> Msg .
+
+eq rsp1-tg =
+to Z( 15, tgen-mas-3-UM-client) from mastodon-proxy : makeHttpResponse("OK", makeResponseToot(2)) 
+.
+
+eq rsp2-tg =
+to Z(19, tgen-mas-3-UM-client) from mastodon-proxy : makeHttpResponse("OK", makeResponseToot(4, "hashtag is #purple", url("randimage:I-3-98484-3000.com") ; url( "randimage:I-11-37562-3000.com") ; url("randimage:I-4-45252-3000.com"), 1 : 2 : 3))
+.
+
+eq rsp3-tg =
+to Z(20, tgen-mas-3-UM-client) from mastodon-proxy : makeHttpResponse("OK", makeMediaFile( "image:I-3-98484-3000", 98484, image(3, 98484, 3000))) 
+.
+
+-------------------------
+
+eq rsp1-rb =
+to Z( 15, alice-raceboat-client-mas-client) from mastodon-proxy : makeHttpResponse("OK", makeResponseToot(2)) 
+.
+
+eq rsp2-rb =
+to Z(19, alice-raceboat-client-mas-client) from mastodon-proxy : makeHttpResponse("OK", makeResponseToot(4, "hashtag is #purple", url("randimage:I-3-98484-3000.com") ; url( "randimage:I-11-37562-3000.com") ; url("randimage:I-4-45252-3000.com"), 1 : 2 : 3))
+.
+
+eq rsp3-rb =
+to Z(20, alice-raceboat-client-mas-client) from mastodon-proxy : makeHttpResponse("OK", makeMediaFile( "image:I-3-98484-3000", 98484, image(3, 98484, 3000))) 
+.
+
+
+eq rsp1b-rb =
+to user-bob-raceboat-server-mas-client from mastodon-proxy : makeHttpResponse("OK", makeResponseToot(2)) 
+.
+
+eq rsp2b-rb =
+to user-bob-raceboat-server-mas-client  from mastodon-proxy : makeHttpResponse("OK", makeResponseToot(4, "hashtag is #purple", url("randimage:I-3-98484-3000.com") ; url( "randimage:I-11-37562-3000.com") ; url("randimage:I-4-45252-3000.com"), 1 : 2 : 3))
+.
+
+eq rsp3b-rb =
+to user-bob-raceboat-server-mas-client from mastodon-proxy : makeHttpResponse("OK", makeMediaFile( "image:I-3-98484-3000", 98484, image(3, 98484, 3000))) 
+.
+
+
+
+endm
+eof
+
+***(
+postMedia
+postTag
+getTag
+getUrl
+)
+red overhead(req0-rb) .
+red overhead(req1-rb) .
+red overhead(req2-rb) .
+red overhead(req3-rb) .
+
+red overhead(req0b-rb) .
+red overhead(req1b-rb) .
+red overhead(req2b-rb) .
+red overhead(req3b-rb) .
+
+--------------------
+red overhead(req0-tg) .
+red overhead(req1-tg) .
+red overhead(req2-tg) .
+red overhead(req3-tg) .
+
+***(
+rspToot 2
+rspMedia
+)
+
+red overhead(rsp1-rb) .
+red overhead(rsp2-rb) .
+red overhead(rsp3-rb) .
+
+red overhead(rsp1b-rb) .
+red overhead(rsp2b-rb) .
+red overhead(rsp3b-rb) .
+
+red overhead(rsp1-tg) .
+red overhead(rsp2-tg) .
+red overhead(rsp3-tg) .
+
+
+*************** w dropOh ******************
+
+***(
+postMedia
+postTag
+getTag
+getUrl
+)
+rew  overhead(req0-rb) .  
+rew  overhead(req1-rb) .
+rew  overhead(req2-rb) .
+rew  overhead(req3-rb) .
+
+rew  overhead(req0b-rb) .
+rew  overhead(req1b-rb) .
+rew  overhead(req2b-rb) .
+rew  overhead(req3b-rb) .
+
+--------------------
+rew  overhead(req0-tg) .
+rew  overhead(req1-tg) .
+rew  overhead(req2-tg) .
+rew  overhead(req3-tg) .
+
+***(
+rspToot 2
+rspMedia
+)
+
+rew  overhead(rsp1-rb) .
+rew  overhead(rsp2-rb) .
+rew  overhead(rsp3-rb) .
+
+rew  overhead(rsp1b-rb) .
+rew  overhead(rsp2b-rb) .
+rew  overhead(rsp3b-rb) .
+
+rew  overhead(rsp1-tg) .
+rew  overhead(rsp2-tg) .
+rew  overhead(rsp3-tg) .
+
+
