@@ -1,0 +1,303 @@
+--- This maude file has been created automatically from the Python representation ---
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/dns/maude/probabilistic/iodine_dns
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/tgen/maude/dnsTgen-actor-uniqueId
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/common/maude/user-action-actor
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/tgen/maude/masTGen.maude
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/mastodon/maude/probabilistic/mastodon
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/app/maude/probabilistic
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/common/maude/http-overhead
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/common/maude/router
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/common/maude/adversary-observer
+ ---- tgen models
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/tgen/maude/dnsprofiles/markov/config_fast_1.maude
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/tgen/maude/dnsprofiles/markov/config_slow_1.maude
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/tgen/maude/mastodonprofiles/markov/config_influencer_1.maude
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/tgen/maude/mastodonprofiles/markov/config_lurker_1.maude
+ ---- raceboat models
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/raceboat/maude/mastodonprofiles/client_config_post_only_new.maude
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/raceboat/maude/mastodonprofiles/server_config_download_only_new.maude
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+mod HCS_TEST is
+ inc DNS .
+ inc USER-ACTION-ACTOR .
+ inc DNS-TGEN .
+ inc IODINE_DNS . --- + TEST-HELPERS .
+ inc ROUTER .
+ inc MASTODON .
+ inc MAS-TGEN .
+ inc ADVERSARY-OBSERVER .
+ inc CP2_APP .
+inc HTTP-OVERHEAD .
+ ---- tgen model includes
+ inc DNS-CONFIG-FAST-1-MAMODEL .
+ inc DNS-CONFIG-SLOW-1-MAMODEL .
+ inc MASTODON-CONFIG-INFLUENCER-1-MAMODEL .
+ inc MASTODON-CONFIG-LURKER-1-MAMODEL .
+ ---- raceboat model includes
+ inc MASTODON-CLIENT-CONFIG-POST-ONLY-NEW-MAMODEL .
+ inc MASTODON-SERVER-CONFIG-DOWNLOAD-ONLY-NEW-MAMODEL .
+eq monitorQueryLog? = true .
+
+eq noiseMin(msg:Msg) = 0.001 .
+eq exeDone(< mon:Address :  WMonitor | attrs:AttributeSet, doneFlag: true > conf:Config) = true .
+eq raceBoatMastodonClients = (alice-raceboat-client-mas-client ;; user-bob-raceboat-server-mas-client) .
+eq content-matches(C:Content) = isHttpReq(C:Content) .
+eq add-to-sent(tm(tt:Float,to addr0:Address from addr1:Address : c:Content)) = tm(tt:Float,to public-dns from addr1:Address : query(0, 'mastodon . 'pwnd . 'com . root, a)) .
+eq fileSize = 1000 .
+eq packetSize = 530 .
+eq packetOverhead = 33 .
+eq maxMinimiseCount = 0 .
+eq maxFragmentTx = 20 .
+eq maxUpFragmentLen = 71 .
+eq maxDownFragmentLen = 200 .
+eq maxPacketSize = 530 .
+eq pacingTimeoutDelay = 0.01 .
+eq pacingTimeoutDelayMax = 0.01 .
+eq ackTimeoutDelay = 1.0 .
+eq pingInterval = 1.0 .
+eq initialPingDelay = 1.0 .
+eq receiveToPingDelay = 0.001 .
+eq limit = 1200.0 .
+
+--- Actor addresses
+ops adversary alice alice-iodine-client alice-iodine-snd-app alice-raceboat-client-UM alice-raceboat-client-content-manager alice-raceboat-client-destini alice-raceboat-client-mas-client auth-dns corporate-dns mAddr mastodon-proxy monAddr public-dns root-dns router tgen-dns-0 tgen-dns-0-UM tgen-dns-1 tgen-dns-1-UM tgen-dns-2 tgen-dns-2-UM tgen-dns-3 tgen-dns-3-UM tgen-dns-4 tgen-dns-4-UM tgen-mas-0 tgen-mas-0-UM tgen-mas-0-UM-client tgen-mas-1 tgen-mas-1-UM tgen-mas-1-UM-client tgen-mas-2 tgen-mas-2-UM tgen-mas-2-UM-client tgen-mas-3 tgen-mas-3-UM tgen-mas-3-UM-client tgen-mas-4 tgen-mas-4-UM tgen-mas-4-UM-client tld-dns user-bob user-bob-iodine-rcv-app user-bob-iodine-server user-bob-raceboat-server-UM user-bob-raceboat-server-content-manager user-bob-raceboat-server-destini user-bob-raceboat-server-mas-client : -> Address .
+
+--- "SBELT": fallback if there are no known name servers
+op sb : -> ZoneState .
+eq sb = < root ('a . 'root-servers . 'net . root |-> root-dns) > .
+
+--- Zone files
+op zone : -> List{Record} .
+eq zone =
+  < root, soa, 3600.0, soaData(3600.0) >
+  < root, ns, 3600.0, 'a . 'root-servers . 'net . root >
+  < 'a . 'root-servers . 'net . root, a, 3600.0, root-dns >
+  < 'com . root, ns, 3600.0, 'ns . 'com . root >
+  < 'ns . 'com . root, a, 3600.0, tld-dns > .
+
+op zoneCom : -> List{Record} .
+eq zoneCom =
+  < 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'com . root, ns, 3600.0, 'ns . 'com . root >
+  < 'ns . 'com . root, a, 3600.0, tld-dns >
+  < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
+  < 'ns . 'pwnd . 'com . root, a, 3600.0, auth-dns >
+  < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
+  < 'ns . 'internet . 'com . root, a, 3600.0, auth-dns >
+  < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
+  < 'ns . 'corporate . 'com . root, a, 3600.0, corporate-dns > .
+
+op zoneCorporateCom : -> List{Record} .
+eq zoneCorporateCom =
+  < 'corporate . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >
+  < 'ns . 'corporate . 'com . root, a, 3600.0, corporate-dns >
+  < 'tmp0 . 'corporate . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
+  < wildcard . 'corporate . 'com . root, a, 0.0, 3 . 1 . 1 . 2 > .
+
+op zoneInternetCom : -> List{Record} .
+eq zoneInternetCom =
+  < 'internet . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
+  < 'ns . 'internet . 'com . root, a, 3600.0, auth-dns >
+  < 'tmp0 . 'internet . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >
+  < 't1 . 'pwnd . 'com . root, ns, 3600.0, 'ns . 't1 . 'pwnd . 'com . root >
+  < 'ns . 't1 . 'pwnd . 'com . root, a, 3600.0, user-bob-iodine-server >
+  < 'mastodon . 'pwnd . 'com . root, a, 0.0, mastodon-proxy >
+  < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1 . 1 . 2 > .
+
+op zoneT1PwndCom : -> List{Record} .
+eq zoneT1PwndCom =
+  < 't1 . 'pwnd . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 't1 . 'pwnd . 'com . root, ns, 3600.0, 'ns . 't1 . 'pwnd . 'com . root >
+  < 'ns . 't1 . 'pwnd . 'com . root, a, 3600.0, user-bob-iodine-server >
+  < 'tmp0 . 't1 . 'pwnd . 'com . root, a, 0.0, 2 . 0 . 1 . 2 >
+  < wildcard . 't1 . 'pwnd . 'com . root, a, 0.0, 2 . 1 . 1 . 2 > .
+
+
+op destini-covers : -> ByteSeqL .
+eq destini-covers = image(1, 37794, 3000) :: image(2, 240585, 3000) :: image(3, 368610, 3000) :: image(4, 253774, 3000) :: image(5, 244065, 3000) :: image(6, 127525, 3000) :: image(7, 77101, 3000) :: image(8, 357704, 3000) :: image(9, 341521, 3000) :: image(10, 74123, 3000) :: image(11, 200489, 3000) :: image(12, 310947, 3000) :: image(13, 171850, 3000) :: image(14, 263966, 3000) :: image(15, 202973, 3000) :: image(16, 92862, 3000) :: image(17, 84059, 3000) :: image(18, 310172, 3000) :: image(19, 139917, 3000) :: image(20, 257972, 3000) :: image(21, 79081, 3000) :: image(22, 2178, 3000) :: image(23, 328077, 3000) :: image(24, 217055, 3000) :: image(25, 66432, 3000) :: image(26, 285486, 3000) :: image(27, 173335, 3000) :: image(28, 237655, 3000) :: image(29, 257900, 3000) :: image(30, 244032, 3000) .
+
+
+---- defining the images list 
+
+op images : -> ByteSeqL .
+eq images = image(1, 67738, 3000) :: image(2, 54659, 3000) :: image(3, 98484, 3000) :: image(4, 45252, 3000) :: image(5, 211045, 3000) :: image(6, 99210, 3000) :: image(7, 1073104, 3000) :: image(8, 710903, 3000) :: image(9, 27701, 3000) :: image(10, 68732, 3000) :: image(11, 37562, 3000) .
+
+
+
+eq weirdHashtags = jl(js("whatsup1") ; js("whatsup2") ; js("whatsup3") ; js("whatsup4") ; js("whatsup5") ; js("whatsup6") ; js("whatsup7") ; js("whatsup8") ; js("whatsup9") ; js("whatsup10")) .
+op qps-offset : -> Float .
+eq qps-offset = 0.0 .
+op qsize-offset : -> Float .
+eq qsize-offset = 0.0 .
+op respsize-offset : -> Float .
+eq respsize-offset = 0.0 .
+op uploadrate-offset : -> Float .
+eq uploadrate-offset = 0.0 .
+
+--- Caches
+op resolverCache : -> Cache .
+eq resolverCache =
+  cacheEntry(< root, ns, 3600.0, 'a . 'root-servers . 'net . root >, 1)
+  cacheEntry(< 'a . 'root-servers . 'net . root, a, 3600.0, root-dns >, 1)
+  cacheEntry(< 'com . root, ns, 3600.0, 'ns . 'com . root >, 1)
+  cacheEntry(< 'ns . 'com . root, a, 3600.0, tld-dns >, 1)
+  cacheEntry(< 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >, 1)
+  cacheEntry(< 'ns . 'pwnd . 'com . root, a, 3600.0, auth-dns >, 1)
+  cacheEntry(< 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >, 1)
+  cacheEntry(< 'ns . 'internet . 'com . root, a, 3600.0, auth-dns >, 1)
+  cacheEntry(< 't1 . 'pwnd . 'com . root, ns, 3600.0, 'ns . 't1 . 'pwnd . 'com . root >, 1)
+  cacheEntry(< 'ns . 't1 . 'pwnd . 'com . root, a, 3600.0, user-bob-iodine-server >, 1)
+  cacheEntry(< 'corporate . 'com . root, ns, 3600.0, 'ns . 'corporate . 'com . root >, 1)
+  cacheEntry(< 'ns . 'corporate . 'com . root, a, 3600.0, corporate-dns >, 1) .
+--- Initial configuration
+op initState : -> Config .
+eq initState =
+  --- Client start messages
+  --- Clients
+  --- Resolvers
+  mkResolver(public-dns, resolverCache, sb)
+  --- Nameservers
+  mkNameServer(root-dns, (zone), nullAddr)
+  mkNameServer(tld-dns, (zoneCom), nullAddr)
+  mkNameServer(auth-dns, (zoneInternetCom), nullAddr)
+  mkNameServer(corporate-dns, (zoneCorporateCom), X(public-dns))
+  --- standalone actors
+  rCtr(1)
+  mkRouter(router)
+  mkAdversary(adversary, pat("addr","X") pat("addr","Z"), pat("Z","addr") pat("X","addr"), tm(0.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(1.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(1.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(1.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(2.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(2.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(2.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(2.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(2.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(2.505, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(3.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(3.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(3.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(3.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(3.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(4.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(4.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(4.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(5.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(5.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(6.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(6.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(6.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(7.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(7.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(7.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(7.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(7.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(8.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(8.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(8.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(8.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(8.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(9.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(10.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(10.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(10.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(10.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(10.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(10.505, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(10.506, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(10.507, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(11.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(12.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(12.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(12.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(12.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(12.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(13.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(14.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(14.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(14.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(15.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(15.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(15.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(17.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(17.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(17.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(17.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(17.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(17.505, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(19.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(19.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(20.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(20.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(20.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(21.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(21.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(21.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(21.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(21.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(21.505, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(21.506, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(23.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(23.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(23.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(24.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(24.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(24.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(25.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(25.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(25.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(25.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(26.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(26.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(26.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(26.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(27.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(27.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(29.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(29.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(30.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(30.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(31.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(31.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(31.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(31.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(31.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(31.505, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(31.506, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(31.507, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(32.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(32.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(32.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(32.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(32.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(34.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(35.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(35.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(35.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(35.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(36.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(36.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(36.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(36.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(36.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(36.505, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(38.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(38.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(38.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(38.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(38.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(38.505, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(39.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(39.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(39.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(40.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(40.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(40.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(40.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(40.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(41.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(41.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(41.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(41.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(42.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(43.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(43.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(43.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(43.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(43.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(44.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(45.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(45.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(45.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(45.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(46.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(46.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(46.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(48.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(48.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(48.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(49.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(49.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(49.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(49.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(49.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(49.505, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(49.506, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(50.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(50.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(50.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(50.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(50.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(50.505, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(51.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(51.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(51.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(52.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(52.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(53.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(53.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(53.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(54.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(54.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(55.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(55.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(55.502, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(55.503, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(55.504, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(57.5, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)) ; tm(57.501, to public-dns from Z(0, corporate-dns) : query(0, 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww . 'internet . 'com . root, a)))
+  --- tunnels
+  makeWClient(alice-iodine-client, corporate-dns, 't1 . 'pwnd . 'com . root, a, 0.0)
+  makeWNameServer(user-bob-iodine-server, 0.0, (zoneT1PwndCom))
+  makeMastodonServer(mastodon-proxy)
+  ---- raceboat Client ----
+  mkUMactor(alice-raceboat-client-UM,mastodon-client-config-post-only-new-ma, alice-raceboat-client-content-manager)
+  mkCMClient(alice-raceboat-client-content-manager, alice-raceboat-client-destini, alice-raceboat-client-mas-client, 3, mastodon-client-config-post-only-new-ma)
+  makeDestiniActor(alice-raceboat-client-destini, destini-covers)
+  makeMastodonClient(alice-raceboat-client-mas-client, X(mastodon-proxy), alice-raceboat-client-content-manager)
+  ---- raceboat Server ----
+  mkUMactor(user-bob-raceboat-server-UM,mastodon-server-config-download-only-new-ma, user-bob-raceboat-server-content-manager)
+  mkCMServer(user-bob-raceboat-server-content-manager, user-bob-raceboat-server-destini, user-bob-raceboat-server-mas-client, user-bob, 3, mastodon-server-config-download-only-new-ma)
+  makeDestiniActor(user-bob-raceboat-server-destini, destini-covers)
+  makeMastodonClient(user-bob-raceboat-server-mas-client, mastodon-proxy, user-bob-raceboat-server-content-manager)
+  --- applications
+  mkSendApp(alice-iodine-snd-app, user-bob-iodine-rcv-app, alice, alice-iodine-client)
+  mkRcvApp(user-bob-iodine-rcv-app, alice-iodine-snd-app, user-bob, user-bob-iodine-server)
+  makeTxApp(alice, user-bob, alice-iodine-snd-app, alice-raceboat-client-UM, alice-raceboat-client-content-manager, file(0, 103) :: file(1, 120) :: file(2, 155) :: file(3, 93) :: file(4, 96), 30.0)
+[60.0 + genRandom(0.0, 0.0001), (to alice : start), 0]
+  makeRxApp(user-bob, user-bob-iodine-rcv-app, user-bob-raceboat-server-UM, user-bob-raceboat-server-content-manager)
+[60.0 + genRandom(0.0, 0.0001), (to user-bob : start), 0]
+  --- WMonitor
+  mkWMonitor(monAddr)
+  --- tgens 
+    mkDnsTgenA(tgen-dns-0,corporate-dns,10000, 5.0, 2)
+  mkUMactor(tgen-dns-0-UM,dns-config-slow-1-ma,tgen-dns-0)
+  [60.0 + genRandom(0.0, 0.0001), (to tgen-dns-0-UM from tgen-dns-0-UM : actionR("")), 0]
+    mkDnsTgenA(tgen-dns-1,corporate-dns,10000, 5.0, 2)
+  mkUMactor(tgen-dns-1-UM,dns-config-slow-1-ma,tgen-dns-1)
+  [60.0 + genRandom(0.0, 0.0001), (to tgen-dns-1-UM from tgen-dns-1-UM : actionR("")), 0]
+    mkDnsTgenA(tgen-dns-2,corporate-dns,10000, 5.0, 2)
+  mkUMactor(tgen-dns-2-UM,dns-config-fast-1-ma,tgen-dns-2)
+  [60.0 + genRandom(0.0, 0.0001), (to tgen-dns-2-UM from tgen-dns-2-UM : actionR("")), 0]
+    mkDnsTgenA(tgen-dns-3,corporate-dns,10000, 5.0, 2)
+  mkUMactor(tgen-dns-3-UM,dns-config-fast-1-ma,tgen-dns-3)
+  [60.0 + genRandom(0.0, 0.0001), (to tgen-dns-3-UM from tgen-dns-3-UM : actionR("")), 0]
+    mkDnsTgenA(tgen-dns-4,corporate-dns,10000, 5.0, 2)
+  mkUMactor(tgen-dns-4-UM,dns-config-fast-1-ma,tgen-dns-4)
+  [60.0 + genRandom(0.0, 0.0001), (to tgen-dns-4-UM from tgen-dns-4-UM : actionR("")), 0]
+    makeMastodonClient(tgen-mas-0-UM-client, X(mastodon-proxy), tgen-mas-0)
+  mkMasTGenActor(tgen-mas-0, tgen-mas-0-UM-client, images, mastodon-config-lurker-1-ma)
+  mkUMactor(tgen-mas-0-UM,mastodon-config-lurker-1-ma,tgen-mas-0)
+  [60.0 + genRandom(0.0, 0.0001), (to tgen-mas-0-UM from tgen-mas-0-UM : actionR("")), 0]
+    makeMastodonClient(tgen-mas-1-UM-client, X(mastodon-proxy), tgen-mas-1)
+  mkMasTGenActor(tgen-mas-1, tgen-mas-1-UM-client, images, mastodon-config-lurker-1-ma)
+  mkUMactor(tgen-mas-1-UM,mastodon-config-lurker-1-ma,tgen-mas-1)
+  [60.0 + genRandom(0.0, 0.0001), (to tgen-mas-1-UM from tgen-mas-1-UM : actionR("")), 0]
+    makeMastodonClient(tgen-mas-2-UM-client, X(mastodon-proxy), tgen-mas-2)
+  mkMasTGenActor(tgen-mas-2, tgen-mas-2-UM-client, images, mastodon-config-influencer-1-ma)
+  mkUMactor(tgen-mas-2-UM,mastodon-config-influencer-1-ma,tgen-mas-2)
+  [60.0 + genRandom(0.0, 0.0001), (to tgen-mas-2-UM from tgen-mas-2-UM : actionR("")), 0]
+    makeMastodonClient(tgen-mas-3-UM-client, X(mastodon-proxy), tgen-mas-3)
+  mkMasTGenActor(tgen-mas-3, tgen-mas-3-UM-client, images, mastodon-config-influencer-1-ma)
+  mkUMactor(tgen-mas-3-UM,mastodon-config-influencer-1-ma,tgen-mas-3)
+  [60.0 + genRandom(0.0, 0.0001), (to tgen-mas-3-UM from tgen-mas-3-UM : actionR("")), 0]
+    makeMastodonClient(tgen-mas-4-UM-client, X(mastodon-proxy), tgen-mas-4)
+  mkMasTGenActor(tgen-mas-4, tgen-mas-4-UM-client, images, mastodon-config-influencer-1-ma)
+  mkUMactor(tgen-mas-4-UM,mastodon-config-influencer-1-ma,tgen-mas-4)
+  [60.0 + genRandom(0.0, 0.0001), (to tgen-mas-4-UM from tgen-mas-4-UM : actionR("")), 0]
+  --- App start messages
+  .
+
+ --- Link Characteristic definitions
+op LinkType-0 : -> AttributeSet .
+eq LinkType-0 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.01),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+op LinkType-1 : -> AttributeSet .
+eq LinkType-1 = 
+  (delayStd: 0.01334),
+  (delayType: "Normal"),
+  (delayMean: 0.025),
+  (delayConst: 0.),
+  (noiseMin: 0.),
+  (noiseMax: 0.),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+op LinkType-2 : -> AttributeSet .
+eq LinkType-2 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.015),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+eq LinkData =
+  aaa(public-dns,root-dns,LinkType-0)
+  aaa(root-dns,public-dns,LinkType-0)
+  aaa(public-dns,tld-dns,LinkType-0)
+  aaa(tld-dns,public-dns,LinkType-0)
+  aaa(public-dns,auth-dns,LinkType-1)
+  aaa(auth-dns,public-dns,LinkType-1)
+  aaa(public-dns,corporate-dns,LinkType-2)
+  aaa(corporate-dns,public-dns,LinkType-2)
+  aaa(mastodon-proxy,tgen-mas-0-UM-client,LinkType-2)
+  aaa(mastodon-proxy,tgen-mas-1-UM-client,LinkType-2)
+  aaa(mastodon-proxy,tgen-mas-2-UM-client,LinkType-2)
+  aaa(mastodon-proxy,tgen-mas-3-UM-client,LinkType-2)
+  aaa(mastodon-proxy,tgen-mas-4-UM-client,LinkType-2)
+  aaa(mastodon-proxy,alice-raceboat-client-mas-client,LinkType-2)
+  aaa(tgen-mas-0-UM-client,mastodon-proxy,LinkType-2)
+  aaa(tgen-mas-1-UM-client,mastodon-proxy,LinkType-2)
+  aaa(tgen-mas-2-UM-client,mastodon-proxy,LinkType-2)
+  aaa(tgen-mas-3-UM-client,mastodon-proxy,LinkType-2)
+  aaa(tgen-mas-4-UM-client,mastodon-proxy,LinkType-2)
+  aaa(alice-raceboat-client-mas-client,mastodon-proxy,LinkType-2)
+  aaa(user-bob-raceboat-server-mas-client,mastodon-proxy,LinkType-2)
+  aaa(mastodon-proxy,user-bob-raceboat-server-mas-client,LinkType-2)
+  aaa(user-bob-iodine-server,public-dns,LinkType-2)
+  aaa(public-dns,user-bob-iodine-server,LinkType-2)
+.
+
+op initConfig : -> Config .
+eq initConfig = run({0.0 | nil} initState,limit) .
+endm
