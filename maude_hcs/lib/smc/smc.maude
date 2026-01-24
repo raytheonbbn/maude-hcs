@@ -635,6 +635,21 @@ mod SMC is
   eq PostNATHttpReq (to mastodon-proxy from Z(I,ADDR) : HREQ) = true .
   eq PostNATHttpReq (M) = false [owise] .
 
+  op PostNATHttpReqTML : TimeMsgList -> TimeMsgList .
+  eq PostNATHttpReqTML (nilTML) = nilTML .
+  ceq PostNATHttpReqTML (tm(T, M) ; TML) = tm(T, M) ; PostNATHttpReqTML(TML) if PostNATHttpReq(M) .
+  eq PostNATHttpReqTML (tm(T, M) ; TML) = PostNATHttpReqTML(TML) [owise] .  
+
+  op getAdversaryPostNATHttpReq : Actor -> TimeMsgList .
+  eq getAdversaryPostNATHttpReq (< ADDR : Adversary | sent: TML, attrs >) = PostNATHttpReqTML(TML) .
+
+  op getAdversaryPostNATHttpReqTotal : Actor -> Nat .
+  eq getAdversaryPostNATHttpReqTotal (< ADDR : Adversary | sent: TML, attrs >) = length(PostNATHttpReqTML(TML)) .
+
+  ---                                        startT binSize
+  op getAdversaryPostNATHttpReqBinCount : Actor Float Float -> Nat .
+  eq getAdversaryPostNATHttpReqBinCount (< ADDR : Adversary | sent: TML, attrs >, T, T') = lengthTimeWindow(PostNATHttpReqTML(TML), T, T + T') .
+
   op nthHttpReqPostNAT : TimeMsgList Nat -> Float .
   eq nthHttpReqPostNAT (TML, 0) = 0.0 .
   eq nthHttpReqPostNAT (tm(T, M) ; TML, 1) = if PostNATHttpReq(M) then T else nthHttpReqPostNAT (TML, 1) fi .
