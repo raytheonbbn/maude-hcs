@@ -14,12 +14,16 @@ TOPLEVELDIR = Path(os.path.dirname(__file__))
 cdfGeneration = True
 
 def cdf_gen(data_fn:str):
-  raw_data = np.loadtxt(data_fn)
+  raw_data = np.genfromtxt(data_fn, delimiter=" ", missing_values=["None"], filling_values=np.nan)
 
   num_col = raw_data.shape[1]
 
   for col in range(num_col):
-    sorted_data = np.sort(np.array(raw_data[:, col], dtype=float))
+    data = raw_data[:, col]
+    filtered_data = data[~np.isnan(data)]
+    sorted_data = np.sort(np.array(filtered_data, dtype=float))
+    #print (sorted_data)
+    
     cdf = np.arange (1, len(sorted_data) + 1) / len(sorted_data)
 
     min = np.min(sorted_data)
@@ -43,6 +47,18 @@ def cdf_gen(data_fn:str):
       cdf_fn = re.sub(r"\..*$", "", data_fn) + "_latency.pdf"
     elif col == 1:
       cdf_fn = re.sub(r"\..*$", "", data_fn) + "_goodput.pdf"
+    elif col == 2:
+      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_exfil_c2.pdf"
+    elif col == 3:
+      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_exfil_c8.pdf"
+    elif col == 4:
+      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_exfil_ma1.pdf"
+    elif col == 5:
+      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_op_c2.pdf"
+    elif col == 6:
+      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_op_c8.pdf"
+    elif col == 7:
+      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_op_ma1.pdf"
       
     plt.title(Path(cdf_fn).stem)
     plt.savefig(cdf_fn)
