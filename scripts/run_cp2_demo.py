@@ -50,7 +50,8 @@ def cdf_gen(data_fn:str):
 def smc_cdf(scenario_path:Path, result_path:Path, smc_path:Path, nsims:int, nsims_max:int):
   result = {}
   scenario_name = scenario_path.stem
-  queries = [f"cp2_eval_performance.quatex"]
+  #queries = [f"cp2_eval_performance.quatex"]
+  queries = [f"cp2_eval_{scenario_name}.quatex"]
   for query in queries:
     result[query] = {}            
     dat_fn = str(result_path.resolve()) + ".dat"
