@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 TOPLEVELDIR = Path(os.path.dirname(__file__))
 
-cdfGeneration = False 
+cdfGeneration = True
 
 def cdf_gen(data_fn:str):
   raw_data = np.loadtxt(data_fn)
@@ -47,14 +47,14 @@ def cdf_gen(data_fn:str):
     plt.title(Path(cdf_fn).stem)
     plt.savefig(cdf_fn)
 
-def smc_cdf(scenario_path:Path, result_path:Path, smc_path:Path):
+def smc_cdf(scenario_path:Path, result_path:Path, smc_path:Path, nsims:int, nsims_max:int):
   result = {}
   scenario_name = scenario_path.stem
   queries = [f"cp2_eval_performance.quatex"]
   for query in queries:
     result[query] = {}            
     dat_fn = str(result_path.resolve()) + ".dat"
-    scheck_cmd = ["maude-hcs", "scheck", "--test=" + str(scenario_path.resolve()), f"--query={str(Path.joinpath(smc_path, query).resolve())}", "--format", "json", "-j", "1", "-n", "30-30", "--dump", dat_fn]
+    scheck_cmd = ["maude-hcs", "scheck", "--test=" + str(scenario_path.resolve()), f"--query={str(Path.joinpath(smc_path, query).resolve())}", "--format", "json", "-j", "1", "-n", f"{nsims}-{nsims_max}", "--dump", dat_fn]
     result[query]['scheck cmd'] = ' '.join([x for x in scheck_cmd])
     print(f'{result[query]['scheck cmd']}')
     start = time.perf_counter()
@@ -69,13 +69,13 @@ def smc_cdf(scenario_path:Path, result_path:Path, smc_path:Path):
 
   return result
 
-def smc(scenario_path:Path, result_path:Path, smc_path:Path):
+def smc(scenario_path:Path, result_path:Path, smc_path:Path, nsims:int, nsims_max:int):
   result = {}
   scenario_name = scenario_path.stem
   queries = [f"cp2_eval_{scenario_name}.quatex"]
   for query in queries:
     result[query] = {}            
-    scheck_cmd = ["maude-hcs", "scheck", "--test=" + str(scenario_path.resolve()), f"--query={str(Path.joinpath(smc_path, query).resolve())}", "--format", "json", "-j", "0", "-n", "30-30"]
+    scheck_cmd = ["maude-hcs", "scheck", "--test=" + str(scenario_path.resolve()), f"--query={str(Path.joinpath(smc_path, query).resolve())}", "--format", "json", "-j", "0", "-n", f"{nsims}-{nsims_max}", "--dump", str(result_path.resolve())]
     result[query]['scheck cmd'] = ' '.join([x for x in scheck_cmd])
     print(f'{result[query]['scheck cmd']}')
     start = time.perf_counter()
@@ -89,32 +89,89 @@ def smc(scenario_path:Path, result_path:Path, smc_path:Path):
       
   return result
 
-def main():    
-  args = sys.argv
-  if len(args) != 3:
-    print(f'Expecting two arguments (1) the path of the directory with maude scenario files, and (2) path of results directory')
-    sys.exit(1)
-  use_case_path = TOPLEVELDIR.joinpath(sys.argv[1])
-  result_path = TOPLEVELDIR.joinpath(sys.argv[2])
-  smc_path = TOPLEVELDIR.parent.joinpath('smc')
-  print(result_path)
-  if not os.path.exists(result_path):
-    os.mkdir(result_path)
-  print(f'Loading scenarios from {use_case_path}')
-  files = sorted(list(filter(lambda x: x.endswith('maude'), os.listdir(use_case_path))))
 
-  for file in files:
-    path = Path(os.path.join(use_case_path, file))
-    print(f'Processing {path.resolve()}')
-    if cdfGeneration == True:
-      result = smc_cdf(path, Path.joinpath(result_path, f'{path.stem}'), smc_path)
-      result_file = result_path.joinpath(f'{path.stem}_cdf.json')
-    else:
-      result = smc(path, Path.joinpath(result_path, f'{path.stem}'), smc_path)
-      result_file = result_path.joinpath(f'{path.stem}.json')
-    print(f'Writing result to {str(result_file.resolve())}')
-    with open(result_file, "w") as f:
-      json.dump(result, f, indent=2)
+def parse_selection(selection_str):
+    """
+    Parses a string like '10' or '1-3' into a set of integers.
+    """
+    selected_indices = set()
+    try:
+        if '-' in selection_str:
+            parts = selection_str.split('-')
+            if len(parts) == 2:
+                start, end = map(int, parts)
+                # Assuming inclusive range
+                selected_indices.update(range(start, end + 1))
+            else:
+                raise ValueError("Invalid range format")
+        else:
+            selected_indices.add(int(selection_str))
+    except ValueError:
+        print(f"Error: Argument '{selection_str}' must be an integer (e.g., '10') or a range (e.g., '1-3').")
+        sys.exit(1)
+
+    return selected_indices
+
+def main():
+    args = sys.argv
+    # Expecting 4 items: [script_name, use_case_dir, results_dir, selection]
+    if len(args) != 6:
+        print(
+            f'Expecting three arguments:\n(1) path of the directory with maude scenario files\n(2) path of results directory\n(3) scenario index (e.g. "10") or range (e.g. "1-3")\n (4) nsims (5) nsims_max')
+        sys.exit(1)
+
+    use_case_path = TOPLEVELDIR.joinpath(sys.argv[1])
+    result_path = TOPLEVELDIR.joinpath(sys.argv[2])
+    selection_arg = sys.argv[3]
+    nsims = int(sys.argv[4])
+    nsims_max = int(sys.argv[5])
+
+    # Parse the selection argument
+    selected_indices = parse_selection(selection_arg)
+
+    smc_path = TOPLEVELDIR.parent.joinpath('smc')
+    print(f"Results Directory: {result_path}")
+
+    if not os.path.exists(result_path):
+        os.mkdir(result_path)
+
+    print(f'Loading scenarios from {use_case_path}')
+
+    if not os.path.exists(use_case_path):
+        print(f"Error: Directory {use_case_path} does not exist.")
+        sys.exit(1)
+
+    # Filter files based on pattern "cp2_scenario_<n>.maude" and the selected indices
+    all_files = os.listdir(use_case_path)
+    pattern = re.compile(r'^cp2_scenario_(\d+)\.maude$')
+
+    filtered_files = []
+    for filename in all_files:
+        match = pattern.match(filename)
+        if match:
+            file_index = int(match.group(1))
+            if file_index in selected_indices:
+                filtered_files.append(filename)
+
+    files = sorted(filtered_files)
+
+    if not files:
+        print(f"No files matched the selection '{selection_arg}' in {use_case_path}.")
+        # We don't exit here, just loop 0 times, but printing a warning is helpful.
+
+
+    for file in files:
+        path = Path(os.path.join(use_case_path, file))
+        print(f'Processing {path.resolve()}')
+        if cdfGeneration == True:
+          result = smc_cdf(path, Path.joinpath(result_path, f'{path.stem}'), smc_path, nsims, nsims_max)
+          result_file = result_path.joinpath(f'{path.stem}_cdf.json')
+        else:
+          result = smc(path, Path.joinpath(result_path, f'{path.stem}'), smc_path, nsims, nsims_max)
+          result_file = result_path.joinpath(f'{path.stem}.json')
+        print(f'Writing result to {str(result_file.resolve())} nsims {nsims}')
+        with open(result_file, "w") as f:
+          json.dump(result, f, indent=2)
 
 if __name__ == "__main__":
   main()
