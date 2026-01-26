@@ -5,7 +5,7 @@ do
     echo "Annotating scenario $i results..."
 
     python annotateResults.py \
-      "../use-cases/challenge-problem-2/cp2_scenarios_noloss_remote/results/scenario_$i.json" \
+      "../results/cp2_scenario_${i}_cdf.json" \
        "../smc/"
 
     echo "Finished scenario $i."

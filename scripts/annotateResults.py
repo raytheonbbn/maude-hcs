@@ -31,8 +31,12 @@ def annotate_results(query_results_file, query_def_path_str):
 
     # simple cache to avoid re-reading the same definition files
     file_cache = {}
-
-    queries = data.get('queries', [])
+    key = list(data.keys())[0]
+    smc = data[key].get('smc', {})
+    queries = smc.get('queries', [])
+    T = data[key].get('time')
+    data[key].pop('time', None)
+    data[key]['serial'] = T
 
     print(f"Processing {len(queries)} queries...")
 
@@ -42,6 +46,8 @@ def annotate_results(query_results_file, query_def_path_str):
         # We only want the filename "file.quatex"
         raw_file_path = query.get('file')
         line_num = query.get('line')
+        discarded = query.get('discarded')
+        nsims = query.get('nsims')
 
         if raw_file_path is None or line_num is None:
             continue
@@ -78,17 +84,18 @@ def annotate_results(query_results_file, query_def_path_str):
 
         # Add new key
         query['measure'] = query_description
+        query['PoD'] = float(discarded / (discarded + nsims))
 
     # Construct output filename
     # e.g., input.json -> input_verbose.json
-    output_filename = f"{results_path.stem}_verbose{results_path.suffix}"
+    output_filename = f"{results_path.stem}_annotated{results_path.suffix}"
     output_path = results_path.parent / output_filename
 
     # Write output
     try:
         with open(output_path, 'w') as f:
             json.dump(data, f, indent=2)
-        print(f"Successfully wrote verbose results to: {output_path}")
+        print(f"Successfully wrote annotated results to: {output_path}")
     except Exception as e:
         print(f"Error writing output file: {e}")
         sys.exit(1)
