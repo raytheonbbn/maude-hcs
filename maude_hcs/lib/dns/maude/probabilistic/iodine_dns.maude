@@ -77,7 +77,7 @@ mod IODINE_DNS is
   vars IN_SEQNO IN_FRAGNO OUT_SEQNO OUT_FRAGNO P_LEN : Nat .
   vars DELAY DELAY2 : Float .
   var IS_PERIODIC : Bool .
-  vars LAST_PACKET : Bool .
+  vars LAST_PACKET LAST_FRAG : Bool .
 
   op fileSize : -> Nat .
   op packetSize : -> Nat .
@@ -427,7 +427,7 @@ crl [wnameserver-receive-query-weird]:
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
        /\ sentFragment := grabCurrentFragment(wattrsNext)
-    [print "(" T ") iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout"]
+    [print "(" T ") iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout" "\n ??? sentFragment " sentFragment "\n??? wattrsNext " wattrsNext]
     .
 
   --- Handle a response from the resolver to WClient.
@@ -476,7 +476,7 @@ crl [wnameserver-receive-query-weird]:
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
       /\ {wattrs2, appMsgOut} := updateRcvAppAlice(wattrsNext, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)))
-      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt " following received " downstreamdata "." ] 
+      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt " following received " downstreamdata "."  "\n??? sentFragment " sentFragment "\n??? wattrs2 " wattrs2] 
     .
 
   --- Handle a response from the resolver to WClient that is for a past Fragment.
@@ -541,7 +541,7 @@ crl [wnameserver-receive-query-weird]:
     if isSending(wattrs)
       --- If the timed out fragment does not match the current fragment, 
       ---  then we have already received the ACK and this rule should not match.
-      /\ isAckMatch(wattrs, FRAGMENT)
+      /\ isTimeOutMatch(wattrs, FRAGMENT)
       /\ maxAttemptsReached := isMaxAttemptsReached(wattrs)
       /\ {wattrsNext, msgOutExt} :=
         if maxAttemptsReached
@@ -558,8 +558,17 @@ crl [wnameserver-receive-query-weird]:
     {T, (to ADDR : ackTimeout(FRAGMENT))}
     =>
     < ADDR : WClient | wattrs >
-    if not (isSending(wattrs) and isAckMatch(wattrs, FRAGMENT))
+    if not (isSending(wattrs) and isTimeOutMatch(wattrs, FRAGMENT))
     [print "(" T ") WClient ignoring timeout" ]
   .
 
+
+  op isTimeOutMatch : AttributeSet Fragment -> Bool .
+  ceq isTimeOutMatch(wattrs, fragment(ADDR, ADDR1, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, N, LAST_PACKET, LAST_FRAG)) = true
+    if (getOutSeqNo(wattrs) == OUT_SEQNO)
+    /\ (getOutFragNo(wattrs) == OUT_FRAGNO)
+    .
+  eq isTimeOutMatch(wattrs, fragment(ADDR, ADDR1, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, N, LAST_PACKET, LAST_FRAG)) = false [owise print "TimeOut did not match" ] .
+
 endm
+eof
