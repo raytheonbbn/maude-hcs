@@ -84,7 +84,7 @@ def annotate_results(query_results_file, query_def_path_str):
 
         # Add new key
         query['measure'] = query_description
-        query['PoD'] = float(discarded / (discarded + nsims))
+        query['PoD'] = float(nsims / (discarded + nsims))
 
     # Construct output filename
     # e.g., input.json -> input_verbose.json
