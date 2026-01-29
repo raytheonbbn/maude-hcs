@@ -162,15 +162,15 @@ fig, ax = plt.subplots(figsize=(10, 6))
 
 # Process and Plot Series 1
 sizes1, means1, mins1, maxs1 = parse_data(data_series_1)
-fit_and_plot(ax, sizes1, means1, mins1, maxs1, loss_pct=5, rtt_ms=50, color='tab:blue')
+fit_and_plot(ax, sizes1, means1, mins1, maxs1, loss_pct=5, rtt_ms=100, color='tab:blue')
 
 # Process and Plot Series 2
 sizes2, means2, mins2, maxs2 = parse_data(data_series_2)
-fit_and_plot(ax, sizes2, means2, mins2, maxs2, loss_pct=2.5, rtt_ms=50, color='tab:orange')
+fit_and_plot(ax, sizes2, means2, mins2, maxs2, loss_pct=2.5, rtt_ms=100, color='tab:orange')
 
 # Process and Plot Series 3
 sizes3, means3, mins3, maxs3 = parse_data(data_series_3)
-fit_and_plot(ax, sizes3, means3, mins3, maxs3, loss_pct=0, rtt_ms=50, color='tab:green')
+fit_and_plot(ax, sizes3, means3, mins3, maxs3, loss_pct=0, rtt_ms=100, color='tab:green')
 
 # --- Formatting ---
 ax.set_title('File Size vs. Total Transfer Time (Data + Model Fit)', fontsize=14)
