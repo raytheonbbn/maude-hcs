@@ -193,15 +193,23 @@ crl [alice-send-contract]:
 [ print "(" T ") Alice setting doneFlag " ]
    .   
    
-  
+vars  bsl0 bsl1  SEEN_HASHTAGS : ByteSeqL .
+vars bytes : ByteSeq .
    -----------------
   --- Bob Rules ---
   -----------------
+  
+ op  notIn : ByteSeqL ByteSeq -> Bool .
+ eq notIn(bsl0 :: bytes :: bsl1, bytes) = false .
+ eq notIn(bsl0, bytes) = true [owise] .
+ 
+ 
  crl [bob-recv-cc-file]:
     < BOB_ADDR : RxApp |  attrs,
                           currentKey: CONTRACT_KEY,
                           currentHash: CONTRACT_HASH,
-                      currentHashTag: CONTRACT_HASHTAG 
+                      currentHashTag: CONTRACT_HASHTAG,
+                      hashTagsRcvd: SEEN_HASHTAGS  
    >
     {T, (to BOB_ADDR : ccFile(contractKey, contractHash,
                   contractHashtag))}
@@ -209,19 +217,25 @@ crl [alice-send-contract]:
     < BOB_ADDR : RxApp | attrs,
                         currentKey: contractKey,
                         currentHash: contractHash,
-                      currentHashTag: contractHashtag >
+                      currentHashTag: contractHashtag ,
+                     hashTagsRcvd: (SEEN_HASHTAGS  ::
+                                   contractHashtag)
+        >
    delayMsgs(msg,null)
- if cmAddr := getRbContentMgrAddr(attrs) 
+   
+ if notIn(SEEN_HASHTAGS,contractHashtag)
+ /\ cmAddr := getRbContentMgrAddr(attrs) 
  /\ msg := (to cmAddr from BOB_ADDR :
              pkg(contractHashtag) )
-[ print "(" T ") Bob received CC file " contractKey " with hash " contractHash " for tag " contractHashtag]
+[ print "(" T ") Bob received new CC file " contractKey " with hash " contractHash " for tag " contractHashtag]
   .
 
  crl [bob-recv-cc-file-from]:
     < BOB_ADDR : RxApp |  attrs,
                           currentKey: CONTRACT_KEY,
                           currentHash: CONTRACT_HASH,
-                      currentHashTag: CONTRACT_HASHTAG 
+                      currentHashTag: CONTRACT_HASHTAG ,
+                       hashTagsRcvd: SEEN_HASHTAGS  
    >
     {T, (to BOB_ADDR from rcvAppAddr :     
            ccFile(contractKey, contractHash,    
@@ -230,15 +244,62 @@ crl [alice-send-contract]:
     < BOB_ADDR : RxApp | attrs,
                         currentKey: contractKey,
                         currentHash: contractHash,
-                      currentHashTag: contractHashtag >
+                      currentHashTag: contractHashtag ,
+                      hashTagsRcvd: (SEEN_HASHTAGS  ::
+                                    contractHashtag)
+          >
    delayMsgs(msg,null)
- if cmAddr := getRbContentMgrAddr(attrs) 
+ if notIn(SEEN_HASHTAGS,contractHashtag)
+ /\ cmAddr := getRbContentMgrAddr(attrs) 
  /\ msg := (to cmAddr from BOB_ADDR :
              pkg(contractHashtag) )
-[ print "(" T ") Bob received CC file " contractKey " " contractHash " " contractHashtag]
+[ print "(" T ") Bob received new CC file " contractKey " " contractHash " " contractHashtag]
   .
 
- 
+ crl [bob-recv-cc-file-duplicate]:
+    < BOB_ADDR : RxApp |  attrs,
+                          currentKey: CONTRACT_KEY,
+                          currentHash: CONTRACT_HASH,
+                      currentHashTag: CONTRACT_HASHTAG,
+                      hashTagsRcvd: SEEN_HASHTAGS  
+   >
+    {T, (to BOB_ADDR : ccFile(contractKey, contractHash,
+                  contractHashtag))}
+  =>
+    < BOB_ADDR : RxApp | attrs,
+                        currentKey: contractKey,
+                        currentHash: contractHash,
+                      currentHashTag: contractHashtag ,
+                     hashTagsRcvd: SEEN_HASHTAGS 
+        >
+   
+ if notIn(SEEN_HASHTAGS,contractHashtag) == false
+
+[ print "(" T ") Bob received duplicate CC file " contractKey " with hash " contractHash " for tag " contractHashtag]
+  .
+
+ crl [bob-recv-cc-file-from-duplicate]:
+    < BOB_ADDR : RxApp |  attrs,
+                          currentKey: CONTRACT_KEY,
+                          currentHash: CONTRACT_HASH,
+                      currentHashTag: CONTRACT_HASHTAG ,
+                       hashTagsRcvd: SEEN_HASHTAGS  
+   >
+    {T, (to BOB_ADDR from rcvAppAddr :     
+           ccFile(contractKey, contractHash,    
+                  contractHashtag))}
+  =>
+    < BOB_ADDR : RxApp | attrs,
+                        currentKey: contractKey,
+                        currentHash: contractHash,
+                      currentHashTag: contractHashtag ,
+                      hashTagsRcvd: SEEN_HASHTAGS 
+          >
+ if notIn(SEEN_HASHTAGS,contractHashtag) == false
+[ print "(" T ") Bob received duplicate CC file " contractKey " " contractHash " " contractHashtag]
+  .
+
+
   crl [bob-start]:
     < BOB_ADDR : RxApp | attrs >
     {T, (to BOB_ADDR : start)}
