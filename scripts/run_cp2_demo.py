@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 TOPLEVELDIR = Path(os.path.dirname(__file__))
 
-cdfGeneration = True
+cdfGeneration = False
 
 def cdf_gen(data_fn:str):
   raw_data = np.genfromtxt(data_fn, delimiter=" ", missing_values=["None"], filling_values=np.nan)
