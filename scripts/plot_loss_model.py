@@ -61,18 +61,10 @@ def fit_and_plot(ax, sizes, means, mins, maxs, loss_pct, rtt_ms, color):
     sizes_arr = np.array(sizes)
     means_arr = np.array(means)
 
-    # Convert parameters to standard units for calculation
-    loss_prob = loss_pct / 100.0
-    rtt_sec = rtt_ms / 1000.0
-
     # Linear Fit (y = mx + c)
     # Slope (m) represents the transfer rate factor
     # Intercept (c) represents the Setup Time (S)
     slope, intercept = np.polyfit(sizes_arr, means_arr, 1)
-
-    # Derive K from the slope based on the model: m = K * RTT * sqrt(Loss)
-    # This helps normalize the fit across different RTT/Loss values
-    k_const = slope / (rtt_sec * np.sqrt(loss_prob))
 
     fit_values = slope * sizes_arr + intercept
 
@@ -86,9 +78,23 @@ def fit_and_plot(ax, sizes, means, mins, maxs, loss_pct, rtt_ms, color):
     ax.errorbar(sizes, means, yerr=y_errors, fmt='o', color=color,
                 linewidth=2, capsize=4, label=f'{label_base} (Data)')
 
+    # Prepare Fit Label
+    # We check for loss > 0 to avoid division by zero in the K calculation
+    if loss_pct > 0:
+        # Convert parameters to standard units for calculation
+        loss_prob = loss_pct / 100.0
+        rtt_sec = rtt_ms / 1000.0
+        # Derive K from the slope based on the model: m = K * RTT * sqrt(Loss)
+        k_const = slope / (rtt_sec * np.sqrt(loss_prob))
+        fit_label = f'Fit: S={intercept:.2f}s, K={k_const:.2e}'
+    else:
+        # For 0% loss, the sqrt(loss) in denominator is invalid for K calculation
+        # The slope here is purely 1/Bandwidth
+        fit_label = f'Fit: S={intercept:.2f}s, Slope={slope:.2e}'
+
     # Plot Fitted Line
     ax.plot(sizes_arr, fit_values, linestyle='--', color=color, linewidth=1.5,
-            label=f'Fit: S={intercept:.2f}s, K={k_const:.2e}')
+            label=fit_label)
 
 
 # --- Data Series 1: 5% Loss, 50ms RTT ---
@@ -131,6 +137,26 @@ data_series_2 = """
 2000000    | 0.260236  | 0.208419  | 1.220845  | 8.108043  | 0.602185  | 17.971070
 """
 
+# --- Data Series 3: 0% Loss, 50ms RTT ---
+data_series_3 = """
+500000     | 0.209968  | 0.209104  | 0.213608  | 0.300995  | 0.300583  | 0.301989 
+600000     | 0.210126  | 0.209130  | 0.211495  | 0.314529  | 0.300659  | 0.601408 
+700000     | 0.209730  | 0.208589  | 0.210940  | 0.519405  | 0.300757  | 0.902892 
+800000     | 0.210005  | 0.209206  | 0.211392  | 0.522174  | 0.400764  | 0.543301 
+900000     | 0.209817  | 0.208548  | 0.211254  | 0.594443  | 0.400924  | 1.403532 
+1000000    | 0.209926  | 0.208770  | 0.211500  | 0.638091  | 0.401222  | 1.605224 
+1100000    | 0.209925  | 0.208876  | 0.210917  | 0.677067  | 0.401660  | 1.806350 
+1200000    | 0.209950  | 0.209145  | 0.211320  | 0.587416  | 0.400981  | 0.802950 
+1300000    | 0.209769  | 0.208835  | 0.211655  | 0.579243  | 0.401101  | 0.902398 
+1400000    | 0.210017  | 0.208992  | 0.211594  | 0.623637  | 0.501641  | 1.003342 
+1500000    | 0.210054  | 0.209076  | 0.212411  | 0.749118  | 0.502485  | 3.408665 
+1600000    | 0.210126  | 0.208471  | 0.213596  | 0.645516  | 0.502728  | 1.002223 
+1700000    | 0.209885  | 0.208871  | 0.211256  | 0.737674  | 0.542033  | 3.009598 
+1800000    | 0.210182  | 0.209128  | 0.212196  | 0.654896  | 0.501938  | 1.004260 
+1900000    | 0.209770  | 0.208832  | 0.211289  | 0.741310  | 0.543035  | 2.608968 
+2000000    | 0.210032  | 0.209243  | 0.211750  | 0.658390  | 0.602261  | 1.003601 
+"""
+
 # Plotting Setup
 fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -141,6 +167,10 @@ fit_and_plot(ax, sizes1, means1, mins1, maxs1, loss_pct=5, rtt_ms=50, color='tab
 # Process and Plot Series 2
 sizes2, means2, mins2, maxs2 = parse_data(data_series_2)
 fit_and_plot(ax, sizes2, means2, mins2, maxs2, loss_pct=2.5, rtt_ms=50, color='tab:orange')
+
+# Process and Plot Series 3
+sizes3, means3, mins3, maxs3 = parse_data(data_series_3)
+fit_and_plot(ax, sizes3, means3, mins3, maxs3, loss_pct=0, rtt_ms=50, color='tab:green')
 
 # --- Formatting ---
 ax.set_title('File Size vs. Total Transfer Time (Data + Model Fit)', fontsize=14)
