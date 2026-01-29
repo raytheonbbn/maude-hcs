@@ -25,6 +25,8 @@ import matplotlib.pyplot as plt
 import re
 import subprocess
 from datetime import datetime, timedelta
+from plot_loss_model import parse_data
+from plot_loss_model import data_series_1, data_series_2, data_series_3
 
 # Regular expression that matches a line that starts with
 # a date in the format YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
@@ -228,6 +230,13 @@ def process_tgen_posts(file_path, sizes_B, durations_s):
 
   return sizes_B, durations_s
 
+def process_tcp(target):
+  if "noloss" in target:
+    return parse_data(data_series_3)
+  else:
+    return parse_data(data_series_1)
+
+
 def analyze_raceboat(target, subdirs):
     latencies = []
     goodputs  = []
@@ -269,13 +278,21 @@ def analyze_raceboat(target, subdirs):
 
 
 def plot_transfers(target, fetch_sizes_B, fetch_durations_s, post_sizes_B, post_durations_s):
+    sizes_B, means_s, mins_s, maxs_s = process_tcp(target)
+    if "noloss" in target:
+      figure_offset = 10
+    else:
+      figure_offset = 0
+
     fetch_pairs = zip(fetch_sizes_B, fetch_durations_s)
     sorted_fetch_pairs = sorted(fetch_pairs)
     sorted_fetch_sizes_B, sorted_fetch_durations_s = zip(*sorted_fetch_pairs)
     sorted_fetch_sizes_B  = list(sorted_fetch_sizes_B)
     sorted_fetch_durations_s  = list(sorted_fetch_durations_s)
-    plt.figure(1)
+    plt.figure(1 + figure_offset)
     plt.scatter(sorted_fetch_sizes_B, sorted_fetch_durations_s)
+    plt.scatter(sizes_B, means_s)
+    plt.legend([target, "TCP benchmark"])
     plt.title(f"Fetch duration vs fetch size ({target})")
     plt.xlabel("Fetch Size (B)")
     plt.ylabel("Fetch Duration (s)")
@@ -285,8 +302,10 @@ def plot_transfers(target, fetch_sizes_B, fetch_durations_s, post_sizes_B, post_
     sorted_post_sizes_B, sorted_post_durations_s = zip(*sorted_post_pairs)
     sorted_post_sizes_B  = list(sorted_post_sizes_B)
     sorted_post_durations_s  = list(sorted_post_durations_s)
-    plt.figure(2)
+    plt.figure(2 + figure_offset)
     plt.scatter(sorted_post_sizes_B, sorted_post_durations_s)
+    plt.scatter(sizes_B, means_s)
+    plt.legend([target, "TCP benchmark"])
     plt.title(f"Post duration vs post size ({target})")
     plt.xlabel("Post Size (B)")
     plt.ylabel("Post Duration (s)")
