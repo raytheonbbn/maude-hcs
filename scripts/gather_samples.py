@@ -4,8 +4,9 @@ import argparse
 import re
 import shutil
 from run_cp2_demo import cdf_gen
+from annotateResults import annotate_results
 
-def process_scenarios(input_dir, output_dir):
+def process_scenarios(input_dir, output_dir, smc_dir):
     """
     Combines sample files for scenarios and copies non-sample files.
     """
@@ -90,7 +91,7 @@ def process_scenarios(input_dir, output_dir):
         except IOError as e:
             print(f"Error writing to {output_filepath}: {e}")
 
-        print('CDF generation')
+        print('generating CDFs')
         cdf_gen(output_filepath, scenario_name)
 
     # 2. Copy Non-Sample Files
@@ -103,6 +104,11 @@ def process_scenarios(input_dir, output_dir):
         except IOError as e:
             print(f"Error copying {filename}: {e}")
 
+        # if file is a json file, annorate
+        if dst.endswith('.json'):
+            print(f'Annotating {filename}... using quatex in {smc_dir}')
+            annotate_results(dst, smc_dir)
+
     print("\nProcessing complete.")
 
 
@@ -113,7 +119,8 @@ if __name__ == "__main__":
 
     parser.add_argument("input_dir", help="Path to the directory containing results")
     parser.add_argument("output_dir", help="Path to the directory where output will be saved")
+    parser.add_argument("smc_dir", help="Path to the directory where smc quatex formula is")
 
     args = parser.parse_args()
 
-    process_scenarios(args.input_dir, args.output_dir)
+    process_scenarios(args.input_dir, args.output_dir, args.smc_dir)
