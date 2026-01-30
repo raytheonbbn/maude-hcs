@@ -14,7 +14,14 @@ TOPLEVELDIR = Path(os.path.dirname(__file__))
 cdfGeneration = False
 
 def cdf_gen(data_fn:str, prefix:str = None):
+  if not prefix:
+    prefix = re.sub(r"\..*$", "", data_fn)
+
   raw_data = np.genfromtxt(data_fn, delimiter=" ", missing_values=["None"], filling_values=np.nan)
+
+  if len(raw_data.shape) < 2:
+      print(f'******++++Skipping scenario {prefix} input .dat {data_fn} empty++++********')
+      return
 
   num_col = raw_data.shape[1]
 
@@ -23,6 +30,10 @@ def cdf_gen(data_fn:str, prefix:str = None):
     filtered_data = data[~np.isnan(data)]
     sorted_data = np.sort(np.array(filtered_data, dtype=float))
     #print (sorted_data)
+
+    if len(sorted_data) == 0:
+        print(f'******Skipping scenario {prefix} col {col}, no data********')
+        continue
     
     cdf = np.arange (1, len(sorted_data) + 1) / len(sorted_data)
 
@@ -43,8 +54,7 @@ def cdf_gen(data_fn:str, prefix:str = None):
     plt.plot(avg, avg_y, "ro", label=f"Avg = {avg:.3f}")
     plt.legend()
 
-    if not prefix:
-        prefix = re.sub(r"\..*$", "", data_fn)
+
     if col == 0:
       cdf_fn = prefix + "_latency.pdf"
     elif col == 1:
@@ -64,6 +74,7 @@ def cdf_gen(data_fn:str, prefix:str = None):
       
     plt.title(Path(cdf_fn).stem)
     plt.savefig(Path(data_fn).parent.joinpath(cdf_fn))
+    plt.close('all')
 
 def smc_cdf(scenario_path:Path, result_path:Path, smc_path:Path, nsims:int, nsims_max:int):
   result = {}
