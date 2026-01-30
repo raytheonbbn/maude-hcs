@@ -3,7 +3,7 @@ import sys
 import argparse
 import re
 import shutil
-
+from run_cp2_demo import cdf_gen
 
 def process_scenarios(input_dir, output_dir):
     """
@@ -89,6 +89,9 @@ def process_scenarios(input_dir, output_dir):
 
         except IOError as e:
             print(f"Error writing to {output_filepath}: {e}")
+
+        print('CDF generation')
+        cdf_gen(output_filepath, scenario_name)
 
     # 2. Copy Non-Sample Files
     for filename in non_sample_files:

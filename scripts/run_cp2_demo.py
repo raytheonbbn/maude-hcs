@@ -13,7 +13,7 @@ TOPLEVELDIR = Path(os.path.dirname(__file__))
 
 cdfGeneration = False
 
-def cdf_gen(data_fn:str):
+def cdf_gen(data_fn:str, prefix:str = None):
   raw_data = np.genfromtxt(data_fn, delimiter=" ", missing_values=["None"], filling_values=np.nan)
 
   num_col = raw_data.shape[1]
@@ -43,25 +43,27 @@ def cdf_gen(data_fn:str):
     plt.plot(avg, avg_y, "ro", label=f"Avg = {avg:.3f}")
     plt.legend()
 
+    if not prefix:
+        prefix = re.sub(r"\..*$", "", data_fn)
     if col == 0:
-      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_latency.pdf"
+      cdf_fn = prefix + "_latency.pdf"
     elif col == 1:
-      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_goodput.pdf"
+      cdf_fn = prefix + "_goodput.pdf"
     elif col == 2:
-      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_exfil_c2.pdf"
+      cdf_fn = prefix + "_exfil_c2.pdf"
     elif col == 3:
-      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_exfil_c8.pdf"
+      cdf_fn = prefix + "_exfil_c8.pdf"
     elif col == 4:
-      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_exfil_ma1.pdf"
+      cdf_fn = prefix + "_exfil_ma1.pdf"
     elif col == 5:
-      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_op_c2.pdf"
+      cdf_fn = prefix + "_op_c2.pdf"
     elif col == 6:
-      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_op_c8.pdf"
+      cdf_fn = prefix + "_op_c8.pdf"
     elif col == 7:
-      cdf_fn = re.sub(r"\..*$", "", data_fn) + "_op_ma1.pdf"
+      cdf_fn = prefix + "_op_ma1.pdf"
       
     plt.title(Path(cdf_fn).stem)
-    plt.savefig(cdf_fn)
+    plt.savefig(Path(data_fn).parent.joinpath(cdf_fn))
 
 def smc_cdf(scenario_path:Path, result_path:Path, smc_path:Path, nsims:int, nsims_max:int):
   result = {}
