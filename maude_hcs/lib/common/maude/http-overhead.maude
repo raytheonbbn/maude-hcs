@@ -212,8 +212,16 @@ eq P2KMAP = (0.0 |-> 0.0,
 op getK : Float -> [Float] .
 eq getK(F:Float) = P2KMAP[F:Float] .
 
+op P2EXTRA : Map{Float, Float} .
+eq P2EXTRA = (0.0 |-> 0.0,
+              0.025 |-> 3.0,
+              0.05 |-> 7.5) .
+
+op getExtra : Float -> [Float] .
+eq getExtra(F:Float) = P2EXTRA[F:Float] .
+
 op TCPCONNECTTIME : -> Float .
-eq TCPCONNECTTIME = 0.53 .
+eq TCPCONNECTTIME = 0.28 .
 
 op MASTODONSRVPROCTIME : -> Float .
 eq MASTODONSRVPROCTIME = 0.47 .
@@ -225,7 +233,7 @@ ceq getOverheadClient(msg) = oh
     /\ c:Content :: HttpRequest
     /\ S:Float := float(sizeImageContent(c:Content))
     /\ p:Float := dropProb(msg)
-    /\ oh := getK(p:Float) * rtt * S:Float + TCPCONNECTTIME
+    /\ oh := getK(p:Float) * rtt * S:Float + TCPCONNECTTIME + getExtra(p:Float)
   .
   
 op getOverheadServer : Msg -> Float .
@@ -267,6 +275,37 @@ ceq tgenGetUrlOverhead(msg) =  oh
 if oh := getOverheadClient(msg)
 [print "HTTP-OH adding GetUrl oh " oh]
 .
+
+op P2KMAP : -> Map{Float, Float} .
+eq P2KMAP = (0.0 |-> 0.0,
+              0.025 |-> 5.0e-5,
+              0.05 |-> 1.0e-4) .
+
+op getK : Float -> [Float] .
+eq getK(F:Float) = P2KMAP[F:Float] .
+
+op TCPCONNECTTIME : -> Float .
+eq TCPCONNECTTIME = 0.53 .
+
+op MASTODONSRVPROCTIME : -> Float .
+eq MASTODONSRVPROCTIME = 0.47 .
+
+op getOverheadClient : Msg -> Float .
+ceq getOverheadClient(msg) = oh
+  if rtt := 2. * delayConst(msg)
+    /\ (to addr0 from addr1 : c:Content) := msg
+    /\ c:Content :: HttpRequest
+    /\ S:Float := float(sizeImageContent(c:Content))
+    /\ p:Float := dropProb(msg)
+    /\ oh := getK(p:Float) * rtt * S:Float + TCPCONNECTTIME
+  .
+  
+op getOverheadServer : Msg -> Float .
+eq getOverheadServer((to mcAddr from msAddr : makeHttpResponse(str, mediaFile)))
+  = 0.
+  .
+eq getOverheadServer(msg0) = MASTODONSRVPROCTIME [owise] .
+
 
 ----------------- Responses -----------------
 
@@ -375,10 +414,12 @@ to Z( 15, tgen-mas-3-UM-client) from mastodon-proxy : makeHttpResponse("OK", mak
 eq rsp2-tg =
 to Z(19, tgen-mas-3-UM-client) from mastodon-proxy : makeHttpResponse("OK", makeResponseToot(4, "hashtag is #purple", url("randimage:I-3-98484-3000.com") ; url( "randimage:I-11-37562-3000.com") ; url("randimage:I-4-45252-3000.com"), 1 : 2 : 3))
 .
+*** Should be: 0.47
 
 eq rsp3-tg =
 to Z(20, tgen-mas-3-UM-client) from mastodon-proxy : makeHttpResponse("OK", makeMediaFile( "image:I-3-98484-3000", 98484, image(3, 98484, 3000))) 
 .
+*** Should be: 0.
 
 endm
 eof
