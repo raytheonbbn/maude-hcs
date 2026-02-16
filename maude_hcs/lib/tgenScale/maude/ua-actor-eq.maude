@@ -1,0 +1,307 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set show advisories off .
+
+sload ../../common/maude/markov-action-model.maude
+sload ../../common/maude/cp2-interfaces
+--- load dns-mamodel
+sload ../../common/maude/_aux  ---- CP2_SORTS  attrsmsgs
+sload ../../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
+
+
+mod USER-ACTION-ACTOR-EQ is
+  inc MARKOV-ACTION-MODEL .
+  inc CP2-COMMON .
+       **** ACTOR-MODEL SCHEDULER PARAMETERS, rCtr
+  inc TGEN-INTERFACE .
+  inc CP2_SORTS .
+  inc MAP{String,Float} .
+  inc LIST{String} .
+  inc LIST{Float} .
+  inc MAP{String,JV} .
+ 
+vars umAddr aAddr addr : Address .
+vars mm : Map{String,Map{String,Float}} .
+vars ma : MAModel .
+vars msum wmap : Map{String,Float} .
+vars init str  sid sid1 default : String .
+vars acts ract : Map{String,JV} .
+vars maxSteps j j0 j1 j2 n : Nat .
+vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+vars msgs : Config .
+vars msg msg0 : Msg .
+vars dmsg : ScheduleMsg .
+vars T Tstop T0 sleepT noiseD fl fl0 wsum wt : Float .
+vars ac : Content . --- action content
+vars b : Bool .
+
+vars weightl statel : JVL .   **** floats, strings
+vars str2strl str2wtl : Map{String,JV} .  **** str
+
+---- A UM actor executes an MM. 
+op UM-EQ : -> ActorType .
+
+---- Its attribures are
+op markov:_ : Map{String,Map{String,Float}}
+               -> Attribute [ctor] .
+op actions:_ : Map{String,JV} -> Attribute [ctor] .
+op curState:_ : String -> Attribute [ctor] .
+op nsteps:_ : Nat -> Attribute [ctor] . --- remaining
+op actAddress:_ : Address -> Attribute [ctor] .
+op w4:_ : Config -> Attribute [ctor] .
+
+op default:_ : String -> Attribute [ctor] . --- probably the start state
+
+op mSum:_ : Map{String,Float} -> Attribute [ctor] .
+
+op stateL:_ : JVL -> Attribute [ctor] .
+op weightL:_ : JVL -> Attribute [ctor] .
+op stateLM:_ : Map{String,JV}  -> Attribute [ctor] .
+op weightLM:_ : Map{String,JV} -> Attribute [ctor] .
+
+op stopTime:_ : Float -> Attribute [ctor] .
+
+**** state -> the sum of weights of choices from state
+op markov2msum : Map{String,Map{String,Float}} -> 
+                   Map{String,Float} .
+op markov2msumX : Map{String,Map{String,Float}}  
+                  Map{String,Float}  
+      -> Map{String,Float} .
+
+eq markov2msum(mm) = markov2msumX(mm,empty) .
+
+eq markov2msumX(empty,msum)  = msum .
+eq markov2msumX(((str |-> wmap), mm), msum)  = 
+    markov2msumX(mm, (msum, (str |-> mapSum(wmap,0.0) )))  .
+
+ op mapSum : Map{String,Float} Float -> Float .
+ eq mapSum(empty,fl) = fl .
+ eq mapSum(((str |-> fl0), wmap),fl) = mapSum(wmap,fl + fl0)  .
+ 
+************* NEW
+
+****** WtMap to stateL: jvl(str), weightL: jbl(float) 
+op wtMap2Attrs : Map{String,Float} -> AttributeSet .
+op wtMap2AttrsX : Map{String,Float}  AttributeSet 
+                  -> AttributeSet .
+eq wtMap2Attrs(wmap) 
+    = wtMap2AttrsX(wmap, 
+                  (stateL: nilJV, weightL: nilJV)) 
+  .
+eq wtMap2AttrsX(((str |-> wt), wmap), attrs)
+       = wtMap2AttrsX(wmap, addStrWt(attrs,str,wt)) .
+eq wtMap2AttrsX(empty,attrs) = attrs .
+
+op addStrWt : AttributeSet String Float -> AttributeSet .
+eq addStrWt( (stateL: nilJV, weightL: nilJV), str,wt) 
+    = (stateL: js(str), weightL: jf(wt)) .
+eq addStrWt( (stateL: statel, 
+              weightL: (weightl ; jf(wsum))), str,wt) 
+    =  stateL: (statel ; js(str)),
+       weightL: (weightl ; jf(wsum) ; jf(wsum + wt))  .
+
+eq addStrWt( attrs, str,wt) = attrs [owise] .
+
+****** mm to stateLM: str :-> jv(jvl(str))
+*****        weightLM: str :-> jv(jbl(float))
+op markov2StrWt : Map{String,Map{String,Float}} -> 
+                 AttributeSet .
+op markov2StrWtX : Map{String,Map{String,Float}}
+                   AttributeSet ->  AttributeSet .       
+eq markov2StrWt (mm) 
+ = markov2StrWtX(mm,(stateLM: empty, weightLM: empty)) .
+
+eq markov2StrWtX(empty,attrs) = attrs .
+ceq markov2StrWtX(((str |-> wmap),mm), attrs)
+   = markov2StrWtX(mm,attrs1)
+  if attrs0 := wtMap2Attrs(wmap)  
+  /\ attrs1 := addStrWtAttrs(attrs,str,attrs0)
+  . 
+  
+op addStrWtAttrs : AttributeSet String AttributeSet
+     -> AttributeSet .
+eq addStrWtAttrs((stateLM: str2strl, weightLM: str2wtl),
+        str, (stateL: statel, weightL: weightl))
+  =  (stateLM: (str2strl, (str |-> jl(statel))),
+      weightLM: (str2wtl,  (str |-> jl(weightl)))) .
+eq addStrWtAttrs(attrs0,str,attrs1) = attrs0 [owise] .             
+
+************** Constructor   
+ 
+
+op mkUMactor : Address MAModel Address  Float -> Actor .
+ceq mkUMactor (umAddr,ma,aAddr,Tstop) =
+  < umAddr : UM-EQ  | markov: mm, 
+                  mSum: msum,
+                  actions: acts,
+                  curState: init, 
+                  default: init,
+                  actAddress: aAddr,
+                  nsteps: maxSteps ,
+                  stopTime: Tstop,
+                  w4: (to umAddr from umAddr :
+                        actionQ(empty)),
+                  attrs0
+                         >                  
+if mm := getMarkov(ma)    
+/\ msum := markov2msum(mm) 
+/\ acts := getActions(ma)             
+/\ init := getStart(ma)
+/\ maxSteps := getMaxSteps(ma)
+/\ attrs0 := markov2StrWt(mm)
+.
+
+***(
+rl [rcvStatusEnd] :
+{T, (to umAddr from addr : actionR(str))}
+< umAddr : UM | attrs, nsteps: 0 >
+=>
+< umAddr : UM | attrs, nsteps: 0 >
+[ print "(" T ") User Model receiving action " str " with nsteps 0."]
+.
+)
+
+
+ceq [umRcvStatusNext] :
+rCtr(j)
+{T, (to umAddr from addr : actionR(str))}
+< umAddr : UM-EQ  | attrs, nsteps: s n, stopTime: Tstop >
+=
+rCtr(j1)
+< umAddr : UM-EQ  | attrs1, stopTime: Tstop  >
+**** !
+ activateFromUM(umAddr,T,msgs)
+**** !
+if T < Tstop
+/\ {attrs1, msgs, j1} := 
+    umRcvStatus((attrs, nsteps: s n),
+                 (to umAddr from addr : actionR(str)),
+                 j)
+[ print "(" T ") User Model " umAddr " sending " msgs]
+.
+
+
+op activateFromUM : Address Float Config -> Config .
+eq activateFromUM(umAddr,T,
+            [fl, to umAddr from umAddr : c:Content, 0])
+   = {T + fl, (to umAddr from umAddr : c:Content)} .
+eq activateFromUM(umAddr,T,
+            [fl, to addr from umAddr : c:Content, 0])
+   = {T, (to addr from umAddr : c:Content)} [owise] .
+   
+   
+op umRcvStatus : AttributeSet Msg Nat ->
+                 AttributeSetMsgsNat .
+eq umRcvStatus(attrs, msg, j) = {attrs,null,j} [owise] .
+
+ceq umRcvStatus(attrs, msg0, j) =
+    {attrs2,dmsg,(s j1)}  
+  if (to umAddr from addr : actionR(str)) := msg0 
+  /\ attrs1, w4: (to addr from umAddr : ac),
+            curState: sid, nsteps: (s n)  := attrs 
+  /\ attrs0, markov: mm, mSum: msum,  default: default,
+             actions: acts, actAddress: aAddr,
+             stateLM: str2strl, weightLM: str2wtl
+              := attrs        
+  /\ sid1 := chooseNextState(str2strl[sid],
+                str2wtl[sid], msum[sid],j,default) 
+  /\ {ract,j1} := realizeParams(acts[sid],s j) 
+  /\ b := isWaitType(ract)
+  /\ msg := 
+      (if b
+      then (to umAddr from umAddr : actionR("ok"))
+      else (to aAddr from umAddr : actionQ(ract))
+      fi)
+  /\ sleepT := (if b then getSleep(ract) else 0.0 fi)
+  /\ noiseD := genRandomX(j1,0.0, 0.00001) 
+  /\ dmsg := (if b and sleepT > 0.0 
+              then [sleepT, msg, 0] 
+              else [noiseD, msg, 0] fi)
+  /\ attrs2 := attrs1, w4: msg, curState: sid1, nsteps: n
+  .                       
+
+op chooseNextState : JV JV Float  Nat String -> String .
+
+ceq chooseNextState(jl(statel), jl(weightl), 
+                    wsum, j,default)
+   = chooseSW(statel,weightl,fl,default) 
+if fl := genRandomX(j,0.0, wsum)  .
+
+op chooseSW : JVL JVL Float String -> String .
+eq chooseSW(js(str) ; statel, jf(wt) ;  weightl, 
+            fl,default) 
+  = if fl < wt 
+    then str
+    else chooseSW(statel, weightl,fl,default) 
+    fi .
+eq chooseSW(statel,weightl,fl,default) 
+   = default [owise] .
+
+
+endm  
+
+sload ../../tgen/maude/mas-mamodel
+sload ../../tgen/maude/dns-mamodel.maude
+
+mod UM-EQ-UNIT-TEST is
+  inc USER-ACTION-ACTOR-EQ .
+  inc DNS-MAMODEL . ---- dns-ma
+****  inc MAS-MAMODEL . ---- mas-ma
+  
+ops umdA ummA dnsQA masA : -> Address .
+
+ops umActD umActD0 umActM umActM0 : -> Actor .
+
+eq umActD = mkUMactor (umdA,dns-ma,dnsQA,30.) .
+
+**** eq umActM = mkUMactor (ummA,mas-ma,masA, 30.) .
+            
+**** red umActD rCtr(100) {1.0, (to umdA from umdA : actionR("ok"))} .
+op UMC1 : -> Config .
+eq UMC1 = 
+rCtr(102) 
+***(
+{1.0, to dnsQA from umdA : actionQ(("start" |-> jb(true), "type" |-> js("resolve_a")))}
+)
+{2.0, (to umdA from dnsQA : actionR("ok"))}
+< umdA : UM-EQ | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(( "num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js( "uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo(("start" |-> jb( true), "type" |-> js("resolve_a"))), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js( "wait"))), "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait")))), curState: "wait_single", nsteps: 99, actAddress: dnsQA, w4: (to dnsQA from umdA : actionQ(( "start" |-> jb(true), "type" |-> js("resolve_a")))), default: "single", mSum: ( "batch" |-> 1.0, "single" |-> 1.0, "wait_batch" |-> 1.0, "wait_single" |-> 1.0), stateLM: ("batch" |-> jl(js("wait_batch")), "single" |-> jl(js("wait_single")), "wait_batch" |-> jl(js("batch") ; js("single")), "wait_single" |-> jl(js("batch") ; js("single"))), weightLM: ("batch" |-> jl(jf(1.0)), "single" |-> jl(jf(1.0)), "wait_batch" |-> jl(jf(5.0e-1) ; jf(1.0)), "wait_single" |-> jl(jf(5.0e-1) ; jf( 1.0))), stopTime: 3.0e+1 >
+.
+
+*** red UMC1 .
+
+***(
+Config: rCtr(108) {2.0731400789868893e+1, to dnsQA from umdA : actionQ(( "num_to_resolve" |-> jn(8), "type" |-> js("resolve_a_batch")))} < umdA : UM-EQ | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(( "num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js( "uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo(("start" |-> jb( true), "type" |-> js("resolve_a"))), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js( "wait"))), "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait")))), curState: "wait_batch", nsteps: 97, actAddress: dnsQA, w4: (to dnsQA from umdA : actionQ(( "num_to_resolve" |-> jn(8), "type" |-> js("resolve_a_batch")))), default: "single", mSum: ("batch" |-> 1.0, "single" |-> 1.0, "wait_batch" |-> 1.0, "wait_single" |-> 1.0), stateLM: ("batch" |-> jl(js("wait_batch")), "single" |-> jl(js("wait_single")), "wait_batch" |-> jl(js("batch") ; js("single")), "wait_single" |-> jl(js("batch") ; js("single"))), weightLM: ("batch" |-> jl(jf(1.0)), "single" |-> jl(jf(1.0)), "wait_batch" |-> jl(jf(5.0e-1) ; jf(1.0)), "wait_single" |-> jl(jf(5.0e-1) ; jf( 1.0))), stopTime: 3.0e+1 >)
+
+endm  
+
+eof
+
