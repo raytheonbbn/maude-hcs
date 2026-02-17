@@ -22,6 +22,7 @@ Assumptions
 import argparse
 import os
 import matplotlib.pyplot as plt
+import numpy as np
 import re
 import subprocess
 from datetime import datetime, timedelta
@@ -121,7 +122,7 @@ def process_fetches(path: str, sizes_B, durations_s):
           download_size = parse_file_size(line)
           previous_event_time = ts
           durations_s.append(download_duration_s)
-          sizes_B.append(download_size * 8)
+          sizes_B.append(download_size)
   except FileNotFoundError:
     return None
 
@@ -159,7 +160,7 @@ def process_posts(path: str, sizes_B, durations_s):
           upload_duration_s = upload_delta.seconds + upload_delta.microseconds / 1e6
           previous_event_time = ts
           durations_s.append(upload_duration_s)
-          sizes_B.append(upload_size_B * 8)
+          sizes_B.append(upload_size_B)
           upload_size_B = 0
   except FileNotFoundError:
     return None
@@ -270,9 +271,9 @@ def analyze_raceboat(target, subdirs):
     print(f"Total payload size = {total_payload_bytes}B.")
     print(f"Average goodput = {sum(goodputs) / len(goodputs)}bps.")
     throughputs = [a / b for a,b in zip(fetch_sizes_B, fetch_durations_s)]
-    print(f"Fetch Throughput = {sum(throughputs) / len(throughputs)}bps")
+    print(f"Fetch Throughput = {8 * sum(throughputs) / len(throughputs)}bps")
     throughputs = [a / b for a,b in zip(post_sizes_B, post_durations_s)]
-    print(f"Post Throughput = {sum(throughputs) / len(throughputs)}bps")
+    print(f"Post Throughput = {8 * sum(throughputs) / len(throughputs)}bps")
 
     return fetch_sizes_B, fetch_durations_s, post_sizes_B, post_durations_s
 
@@ -284,6 +285,8 @@ def plot_transfers(target, fetch_sizes_B, fetch_durations_s, post_sizes_B, post_
     else:
       figure_offset = 0
 
+    size_bins = np.arange(0, 300000, 15000)
+    duration_bins = np.arange(0., 20, 1)
     fetch_pairs = zip(fetch_sizes_B, fetch_durations_s)
     sorted_fetch_pairs = sorted(fetch_pairs)
     sorted_fetch_sizes_B, sorted_fetch_durations_s = zip(*sorted_fetch_pairs)
@@ -291,25 +294,39 @@ def plot_transfers(target, fetch_sizes_B, fetch_durations_s, post_sizes_B, post_
     sorted_fetch_durations_s  = list(sorted_fetch_durations_s)
     plt.figure(1 + figure_offset)
     plt.scatter(sorted_fetch_sizes_B, sorted_fetch_durations_s)
-    plt.scatter(sizes_B, means_s)
-    plt.legend([target, "TCP benchmark"])
+#    plt.scatter(sizes_B, means_s)
+#    plt.legend([target, "TCP benchmark"])
     plt.title(f"Fetch duration vs fetch size ({target})")
     plt.xlabel("Fetch Size (B)")
     plt.ylabel("Fetch Duration (s)")
+
+    plt.figure(2 + figure_offset)
+    plt.hist(sorted_fetch_durations_s, duration_bins)
+    plt.title(f"Fetch distribution ({target})")
+    plt.xlabel("Fetch Duration (s)")
 
     post_pairs = zip(post_sizes_B, post_durations_s)
     sorted_post_pairs = sorted(post_pairs)
     sorted_post_sizes_B, sorted_post_durations_s = zip(*sorted_post_pairs)
     sorted_post_sizes_B  = list(sorted_post_sizes_B)
     sorted_post_durations_s  = list(sorted_post_durations_s)
-    plt.figure(2 + figure_offset)
+    plt.figure(3 + figure_offset)
     plt.scatter(sorted_post_sizes_B, sorted_post_durations_s)
-    plt.scatter(sizes_B, means_s)
-    plt.legend([target, "TCP benchmark"])
+#    plt.scatter(sizes_B, means_s)
+#    plt.legend([target, "TCP benchmark"])
     plt.title(f"Post duration vs post size ({target})")
     plt.xlabel("Post Size (B)")
     plt.ylabel("Post Duration (s)")
 
+    plt.figure(4 + figure_offset)
+    plt.hist(sorted_post_durations_s, duration_bins)
+    plt.title(f"Post latency distribution ({target})")
+    plt.xlabel("Post Duration (s)")
+
+    plt.figure(5 + figure_offset)
+    plt.hist(sorted_post_sizes_B, size_bins)
+    plt.title(f"Post size distribution ({target})")
+    plt.xlabel("Post Size (B)")
     plt.show() 
 
 
@@ -339,9 +356,9 @@ def analyze_tgen(target, subdirs):
         download_sizes_B, download_durations_s = process_tgen_fetches(file_path, download_sizes_B, download_durations_s)
         upload_sizes_B, upload_durations_s = process_tgen_posts(file_path, upload_sizes_B, upload_durations_s)
   throughputs = [a / b for a,b in zip(download_sizes_B, download_durations_s)]
-  print(f"Fetch Throughput = {sum(throughputs) / len(throughputs)}bps")
+  print(f"Fetch Throughput = {8 * sum(throughputs) / len(throughputs)}bps")
   throughputs = [a / b for a,b in zip(upload_sizes_B, upload_durations_s)]
-  print(f"Post Throughput = {sum(throughputs) / len(throughputs)}bps")
+  print(f"Post Throughput = {8 * sum(throughputs) / len(throughputs)}bps")
 
   return download_sizes_B, download_durations_s, upload_sizes_B, upload_durations_s
 
