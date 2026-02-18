@@ -1,0 +1,187 @@
+*** modules for Time + infty
+*** based on the theories in Real-Tiem Maude
+
+
+--- general interface for time
+fmod TIME-INF is
+  sorts Time NzTime TimeInf .
+  subsort NzTime < Time < TimeInf .
+
+  op zero : -> Time .
+  op infty : -> TimeInf .
+
+  op _plus_ : Time Time -> Time [assoc comm prec 33 gather (E e)] .
+  op _plus_ : TimeInf TimeInf -> TimeInf [ditto] .
+
+  op _monus_ : Time Time -> Time [prec 33 gather (E e)] .
+  op _monus_ : TimeInf Time -> TimeInf [ditto] .
+
+  op _le_ : TimeInf TimeInf -> Bool [prec 37] .
+  op _lt_ : TimeInf TimeInf -> Bool [prec 37] .
+  op _ge_ : TimeInf TimeInf -> Bool [prec 37] .
+  op _gt_ : TimeInf TimeInf -> Bool [prec 37] .
+
+  ops minimum maximum : Time Time -> Time [assoc comm] .
+  ops minimum maximum : TimeInf TimeInf -> TimeInf [ditto] .
+
+  vars T T' : Time . vars TI TI' : TimeInf .
+
+  eq zero  plus T   = T .
+  eq infty plus TI = infty .
+  eq infty monus T = infty .
+
+  eq TI le infty = true .
+  eq T  lt infty = true .
+  eq infty le T = false .
+  eq infty lt TI = false .
+
+  eq T le T' = (T lt T') or (T == T') .
+  eq TI ge TI' = TI' le TI .
+  eq TI gt TI' = TI' lt TI .
+
+  ceq maximum(T, T') = T  if T' le T .
+  ceq minimum(T, T') = T' if T' le T .
+  eq maximum(infty, TI) = infty .
+  eq minimum(infty, TI) = TI .
+endfm
+
+
+--- discrete time domain
+fmod NAT-TIME-INF is
+  inc TIME-INF .
+  pr  INT .
+  subsort Nat < Time .
+  subsort NzNat < NzTime .
+
+  vars N N' : Nat . var TI : TimeInf .
+
+  eq N plus N'  = N + N' .
+  eq N monus N' = if N > N' then sd(N,N') else 0 fi .
+  eq N lt N' = N < N' .
+
+  --- extending built-in ops
+  op _<_ : TimeInf TimeInf -> Bool [ditto] .
+  op _<=_ : TimeInf TimeInf -> Bool [ditto] .
+  op _>_ : TimeInf TimeInf -> Bool [ditto] .
+  op _>=_ : TimeInf TimeInf -> Bool [ditto] .
+  op _+_ : TimeInf TimeInf -> TimeInf [ditto] .
+  ops min max : TimeInf TimeInf -> TimeInf [ditto] .
+  op max : Int TimeInf -> TimeInf [ditto] .  --- preregularity
+
+
+  eq zero = 0 .
+  eq infty < TI  = false .
+  eq N < infty   = true .
+  eq TI <= infty = true .
+  eq infty <= N  = false .
+  eq infty >= TI = true .
+  eq N >= infty  = false .
+  eq TI > infty  = false .
+  eq infty > N   = true .
+  eq infty + TI  = infty .
+  
+  eq max(infty, TI) = infty .
+  eq min(infty, TI) = TI .
+endfm
+
+
+--- dense time domain
+fmod POSRAT-TIME-INF is
+  inc TIME-INF .
+  pr RAT .
+  sort NNegRat .   --- non-negative rationals
+  subsorts Zero PosRat Nat < NNegRat < Rat .
+
+  subsort NNegRat < Time .
+  subsort PosRat < NzTime .
+
+  vars R R' : NNegRat .  var TI : TimeInf .
+
+  eq R plus R' = R + R' .
+  eq R monus R' = if R > R' then R - R' else 0 fi .
+  eq R lt R' = R < R' .
+
+  --- extending built-in ops
+  op _<_ : TimeInf TimeInf -> Bool [ditto] .
+  op _<=_ : TimeInf TimeInf -> Bool [ditto] .
+  op _>_ : TimeInf TimeInf -> Bool [ditto] .
+  op _>=_ : TimeInf TimeInf -> Bool [ditto] .
+
+  op _+_ : TimeInf TimeInf -> TimeInf [ditto] .
+  op _+_ : NNegRat NNegRat -> NNegRat [ditto] .
+
+  ops min max : TimeInf TimeInf -> TimeInf [ditto] .
+  ops min max : NNegRat NNegRat -> NNegRat [ditto] .
+  op max : Rat TimeInf -> TimeInf [ditto] . --- preregularity
+  op max : Rat NNegRat -> NNegRat [ditto] . --- preregularity
+
+  eq zero = 0 .
+  eq infty < TI = false .
+  eq R < infty = true .
+  eq TI <= infty = true .
+  eq infty <= R = false .
+  eq infty >= TI = true .
+  eq R >= infty = false .
+  eq TI > infty = false .
+  eq infty > R = true .
+  eq infty + TI = infty .
+
+  eq max(infty, TI) = infty .
+  eq min(infty, TI) = TI .
+endfm
+
+**** sload time
+
+--- pseudo dense time domain
+--- see email from PO for alternative approach
+
+fmod FLOAT-TIME-INF is
+  inc TIME-INF .
+  pr FLOAT .
+
+***( 
+The following attempt at non-negative floats fails!
+
+ sort NNegFloat .   
+  subsort  NNegFloat < Float .
+  cmb f:Float : NNegFloat if f:Float >= 0.0 .
+)  
+  subsort Float < Time .
+
+ 
+  vars R R' : Float .  var TI : TimeInf .
+
+  eq R plus R' = R + R' .
+  eq R monus R' = if R > R' then R - R' else 0.0 fi .
+  eq R lt R' = R < R' .
+
+  --- extending built-in ops
+  op _<_ : TimeInf TimeInf -> Bool [ditto] .
+  op _<=_ : TimeInf TimeInf -> Bool [ditto] .
+  op _>_ : TimeInf TimeInf -> Bool [ditto] .
+  op _>=_ : TimeInf TimeInf -> Bool [ditto] .
+
+  op _+_ : TimeInf TimeInf -> TimeInf [ditto] .
+  op _+_ : Float Float -> Float [ditto] .
+
+  ops min max : TimeInf TimeInf -> TimeInf [ditto] .
+  ops min max : Float Float -> Float [ditto] .
+  op max : Float TimeInf -> TimeInf [ditto] . --- preregularity
+  op max : Float Float -> Float [ditto] . --- preregularity
+
+  eq zero = 0.0 .
+  eq infty < TI = false .
+  eq R < infty = true .
+  eq TI <= infty = true .
+  eq infty <= R = false .
+  eq infty >= TI = true .
+  eq R >= infty = false .
+  eq TI > infty = false .
+  eq infty > R = true .
+  eq infty + TI = infty .
+
+  eq max(infty, TI) = infty .
+  eq min(infty, TI) = TI .
+endfm
+
+
