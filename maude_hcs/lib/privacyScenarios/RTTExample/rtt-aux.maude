@@ -1,0 +1,145 @@
+sload time
+sload rt-aux
+
+mod RTT-AUX is
+   inc CONFIGURATION .
+   inc CONVERSION  .
+   inc TIME-INF .
+   inc RT-AUX .
+
+vars T : Time .
+vars n n0 n1  nbits : Nat .
+
+sort Content .
+op to_from_:_ : Oid Oid Content -> Msg [ctor] .
+ 
+op  rttReq : TimeStamp -> Content [ctor] . 
+op  rttResp : TimeStamp TimeStamp -> Content [ctor] . 
+ 
+sorts TimeStamp TimeStampList .
+subsort TimeStamp < TimeStampList .
+op nilTS : -> TimeStampList [ctor] .
+op ts : Nat -> TimeStamp [ctor] .
+op _;_ : TimeStampList TimeStampList -> TimeStampList
+        [ctor assoc id: nilTS] .
+ 
+**** low n bits of floor of T  = T if T :: Nat < 2^64
+op t2ts : Time  Nat -> TimeStamp .
+op t2ts : Time -> TimeStamp .
+eq t2ts(T) = t2ts(T,64) .
+eq t2ts(T,n) = ts(toNbit(t2nat(T),n)) .
+
+op ts2bitstr : TimeStamp -> String .
+eq ts2bitstr(ts(n:Nat)) = string(n:Nat,2) .
+
+**** definition specific to notion of time
+op nat2t : Nat -> Time .
+op t2nat : Time -> Nat .
+
+op toNbit : Nat Nat -> Nat .
+ceq toNbit(n,nbits) = n xor n1
+  if n0 := n >> nbits 
+  /\ n1 := n0 << nbits 
+.
+ 
+**** RTT attributes 
+op rcv:_ : Oid -> Attribute [ctor] .
+op snd:_ : Oid -> Attribute [ctor] .
+op tsq:_ : TimeStampList -> Attribute [ctor] .
+op rttq:_ : TimeStampList -> Attribute [ctor] .
+op stopT:_ : TimeInf -> Attribute [ctor] . --- stopTime
+
+op computeRtt : Time TimeStamp -> TimeStamp .
+eq computeRtt(T,ts(n)) = ts(t2nat(T) + (- n)) .
+
+
+
+endm
+
+mod NAT-RTT-AUX is
+  inc RTT-AUX .
+  inc NAT-TIME-INF .
+
+vars msg  M : Msg .
+vars T : Time .
+vars ML : MsgList .
+vars conf : Configuration .
+
+op addDelay : Msg -> Configuration .  ---- DlyMsgs
+
+*** rl [sendDelayed] : [M ; ML] => dly(M, T) [ML] [nonexec] .
+crl [sendDelayed] : [M ; ML] => dly(M, T) [ML]
+    if dly(M,T) conf := addDelay(M)
+[print " sendDelayed M " M " by T " T ]
+     .
+
+eq addDelay(msg)  = dly(msg,50) dly(msg,52) dly(msg,48) .
+
+*** op nat2t : Nat -> Time .
+eq nat2t(n:Nat) = n:Nat .
+*** op t2nat : Time -> Nat .
+eq t2nat(t:Nat) = t:Nat .
+
+
+endm
+
+**** sload float-time-inf
+
+mod FLOAT-RTT-AUX is
+  inc RTT-AUX .
+  inc FLOAT-TIME-INF .
+
+vars msg M : Msg .
+vars T : Time .
+vars ML : MsgList .
+vars conf : Configuration .
+
+op addDelay : Msg -> Configuration .  ---- DlyMsgs
+
+*** rl [sendDelayed] : [M ; ML] => dly(M, T) [ML] [nonexec] .
+crl [sendDelayed] : [M ; ML] => dly(M, T) [ML]
+    if dly(M,T) conf := addDelay(M)
+[print " sendDelayed M " M " by T " T ]
+     .
+
+eq addDelay(msg)  = dly(msg,50.) dly(msg,52.) dly(msg,48.) .
+
+*** op nat2t : Nat -> Time .
+eq nat2t(n:Nat) = float(n:Nat) .
+*** op t2nat : Time -> Nat .
+eq t2nat(t:Float) =  rat(floor(t:Float)) .
+
+
+endm
+
+
+
+mod PROB-FLOAT-RTT-AUX is
+  inc RTT-AUX .
+  inc FLOAT-TIME-INF .
+
+vars msg  M : Msg .
+vars T : Time .
+vars ML : MsgList .
+vars j j1 : Nat .
+
+op rCtr : Nat -> Object .
+
+*** rl [sendDelayed] : [M ; ML] => dly(M, T) [ML] [nonexec] .
+
+op addPDelay : Msg Object -> Configuration .
+
+crl [sendDelayed] :
+    rCtr(j) [M ; ML]  => rCtr(j1) dly(M, T) [ML]
+    if dly(M,T) rCtr(j1) := addPDelay(M,rCtr(j))
+[print " sendDelayed M " M " by T " T ]
+     .
+
+
+*** op nat2t : Nat -> Time .
+eq nat2t(n:Nat) = float(n:Nat) .
+*** op t2nat : Time -> Nat .
+eq t2nat(t:Float) =  rat(floor(t:Float)) .
+
+
+endm

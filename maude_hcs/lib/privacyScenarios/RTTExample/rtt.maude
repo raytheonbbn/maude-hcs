@@ -1,0 +1,235 @@
+***(
+If A receives rttResp(ts0,ts1) with ts0 not in
+the tq: attribute, what happens to the message.
+Is it just dropped?  Yes
+Shouldn't happen, but ....
+
+Where does the message delay get represented?
+Should messages emitted be of the form [d , msg]
+where d in some range [d0,d1]?    Or?
+[msg]
+Need network rule to add delays
+
+clocks are 64 bit numbers
+)
+
+sload rtt-aux
+
+mod RTT is
+  inc RTT-AUX .
+
+vars A B : Oid .
+vars t tt T : Time .
+vars Tstop tt0 : TimeInf .
+vars ts ts0 ts1 rtt : TimeStamp .
+vars tsl tsl0 tsl1 rttl : TimeStampList .
+vars atts : AttributeSet .
+vars per  n n0 n1 : Nat .
+vars data : TimerData .
+
+ops Snd Rcv : -> Cid .  
+
+op mkSnd : Oid  Oid Time Nat TimeInf -> Object .
+eq mkSnd(A,B,T,per,Tstop) =
+    < A : Snd | clock: T, rcv: B,
+                timers: [nat2t(per) ; per ; noData],
+                stopT: Tstop,
+                tsq: nilTS,
+                rttq: nilTS  >                
+  .
+
+op mkRcv : Oid  Oid Time -> Object .
+eq mkRcv(A,B,T) =  < B : Rcv | clock: T, snd: A > .
+  
+crl [sndRttReq] :
+  < A : Snd | timers: [tt ; per ; data],  tsq: tsl,
+              clock: T,  stopT: Tstop, rcv: B, atts > 
+  => 
+  < A : Snd | timers: [tt0 ; per ; data],  
+              tsq: (tsl ; ts),
+              clock: T,  stopT: Tstop, rcv: B, atts > 
+[ (to B from A : rttReq(ts)) ]
+if tt == zero
+/\ tt0 := (if T ge Tstop then infty else nat2t(per) fi)
+/\ ts := t2ts(T)
+[print "sndRttReq  at " T]
+.
+ 
+rl[rcvRttResp]:
+ < A : Snd | clock: T, rcv: B, 
+             timers: [tt0 ; per ; data],
+             tsq: (tsl0 ; ts ; tsl1),
+             rttq: rttl  , atts > 
+(to A from B : rttResp(ts,ts0))
+=>
+< A : Snd | clock: T, rcv: B, 
+            timers: [tt0 ; per ; data],
+            tsq: (tsl0 ; ts ; tsl1),
+            rttq: (rttl  ; computeRtt(T,ts)), 
+            atts >
+[print "rcvRttResp  ts " ts " ts0 " ts0] 
+ .        
+ 
+ 
+rl[rcvRttReq]:
+ < B : Rcv | clock: T, snd: A, atts >
+  (to B from A : rttReq(ts))
+=>  
+ < B : Rcv | clock: T, snd: A, atts >
+[ (to A from B : rttResp(ts,t2ts(T))) ]
+.
+
+endm
+
+
+mod NAT-RTT is
+  inc RTT .
+  inc NAT-RTT-AUX .
+
+vars msg : Msg .
+vars T Ts : Time .
+vars P : Nat .
+
+op startTime : -> Time .
+eq startTime =  999 [owise] .
+
+op stopTime : -> Time .
+eq stopTime =  1999 [owise] .
+
+op Period : ->  Nat .
+eq Period = 500  [owise] .
+
+ops aId bId : -> Oid .
+ops aO bO : -> Object .
+eq aO = mkSnd(aId,bId,startTime,Period,stopTime) .
+eq bO = mkRcv(aId,bId,startTime) .
+
+
+op iC : Time Nat Time -> Configuration  .
+eq iC(T,P,Ts) = mkSnd(aId,bId,T,P,Ts) mkRcv(aId,bId,T) .
+
+***(
+
+rew [100] {aO bO} .
+
+{
+< aId : Snd | timers: [infty ; 500 ; noData], clock: 2095, rcv: bId, tsq: (ts(1499) ; ts(1999)), rttq: ts(96), stopT: 1999 > 
+
+< bId : Rcv | clock: 2095, snd: aId > to aId from bId : rttResp(ts(1999), ts(2047))
+}
+ ) 
+endm
+
+mod FLOAT-RTT is
+  inc RTT .
+  inc FLOAT-RTT-AUX .
+
+vars msg : Msg .
+vars T Ts : Time .
+vars P : Nat .
+
+op startTime : -> Time .
+eq startTime =  999. [owise] .
+
+op stopTime : -> Time .
+eq stopTime =  1999. [owise] .
+
+op Period : ->  Nat .
+eq Period = 500  [owise] .
+
+ops aId bId : -> Oid .
+ops aO bO : -> Object .
+eq aO = mkSnd(aId,bId,startTime,Period,stopTime) .
+eq bO = mkRcv(aId,bId,startTime) .
+
+
+op iC : Time Nat Time -> Configuration  .
+eq iC(T,P,Ts) = mkSnd(aId,bId,T,P,Ts) mkRcv(aId,bId,T) .
+
+endm
+
+***(
+rew {aO bO} .
+{
+< aId : Snd | timers: [infty ; 500 ; noData], clock: 2.095e+3, rcv: bId, tsq: (ts(1499) ; ts(1999)), rttq: (ts(96) ; ts(96)), stopT: 1.999e+3 > 
+
+< bId : Rcv | clock: 2.095e+3, snd: aId >
+}
+)
+
+sload sampler-x
+mod PROB-FLOAT-RTT is
+  inc RTT .
+  inc PROB-FLOAT-RTT-AUX .
+  inc SAMPLER-X .
+  inc COUNTER .
+
+vars msg M : Msg .
+vars T  Ts : Time .
+vars P j : Nat .
+
+
+ops MEAN SD : -> Float .
+eq MEAN = 50.0 .
+eq SD = 10.0 .
+
+
+eq addPDelay(M,rCtr(j)) = 
+   dly(M,sampleNormalWithMeanSdX(MEAN, SD, j))
+   rCtr(s j) .
+   
+eq mte(rCtr(j)) = infty .
+eq timeEffect(rCtr(j),T) = rCtr(j) .
+
+op startTime : -> Time .
+eq startTime =  999. [owise] .
+
+op stopTime : -> Time .
+eq stopTime =  1999. [owise] .
+
+op Period : ->  Nat .
+eq Period = 500  [owise] .
+
+ops aId bId : -> Oid .
+ops aO bO : -> Object .
+eq aO = mkSnd(aId,bId,startTime,Period,stopTime) .
+eq bO = mkRcv(aId,bId,startTime) .
+
+
+op iC : Time Nat Time -> Configuration  .
+eq iC(T,P,Ts) = rCtr(0) 
+             mkSnd(aId,bId,T,P,Ts) 
+             mkRcv(aId,bId,T) .
+
+op iS : -> System .
+rl [init] :
+  iS => {rCtr(counter) aO bO } .
+
+endm
+set clear rules off .
+eof
+
+rew {rCtr(4) aO bO} .
+{
+rCtr(8) < aId : Snd | timers: [infty ; 500 ; noData], clock: 2.0917188421066439e+3, rcv: bId, tsq: (ts(1499) ; ts(1999)), rttq: (ts(95) ; ts(92)), stopT: 1.999e+3 > 
+
+< bId : Rcv | clock: 2.0917188421066439e+3, snd: aId >
+}
+
+rew {iC(999.,500,2999.)} .
+
+{
+rCtr(8) 
+< aId : Snd | timers: [infty ; 500 ; noData], clock: 3.0917188421066435e+3, rcv: bId, tsq: (ts(1499) ; ts(1999) ; ts(2499) ; ts( 2999)), rttq: (ts(81) ; ts(101) ; ts(95) ; ts(92)), stopT: 2.999e+3 > 
+
+< bId : Rcv | clock: 3.0917188421066435e+3, snd: aId >
+}
+
+Maude> rew iS .
+{rCtr(4) < aId : Snd | timers: [infty ; 500 ; noData], clock: 2.1004717482238507e+3, rcv: bId, tsq: (ts(1499) ; ts(1999)), rttq: (ts(81) ; ts(101)), stopT: 1.999e+3 > < bId : Rcv | clock: 2.1004717482238507e+3, snd: aId >}
+
+Maude> rew iS .
+{rCtr(5) < aId : Snd | timers: [infty ; 500 ; noData], clock: 2.0942118641263887e+3, rcv: bId, tsq: (ts(1499) ; ts(1999)), rttq: (ts(89) ; ts(95)), stopT: 1.999e+3 > < bId : Rcv | clock: 2.0942118641263887e+3, snd: aId >}
+
+rew iS .
+{rCtr(6) < aId : Snd | timers: [infty ; 500 ; noData], clock: 2.0944366694494256e+3, rcv: bId, tsq: (ts(1499) ; ts(1999)), rttq: (ts(101) ; ts(95)), stopT: 1.999e+3 > < bId : Rcv | clock: 2.0944366694494256e+3, snd: aId >}
