@@ -16,12 +16,12 @@ vars TI1 TI2 : TimeInf .
 vars T T1 T2 : Time . 
 vars P : NzNat .
 vars O : Oid . 
-vars conf1 conf2 conf : Configuration .
+vars conf1 conf2 conf  conf0 : Configuration .
 vars TIMERS : Timers . 
 vars TD : TimerData .
 vars ATTS : AttributeSet . 
 var C : Cid .
-
+vars j j1 : Nat .
   
 ***** Delayed messages  
 sort DlyMsg . 
@@ -59,7 +59,6 @@ eq mte([ML]) = zero .
 eq mte(< O : C | timers: TIMERS, ATTS >) =
       smallestTimerValue(TIMERS) .
 eq mte(< O : C | ATTS >) = infty [owise] .
-
 
 op decrease : Timers Time -> Timers .
 eq decrease(noTimer, T) = noTimer .
@@ -102,12 +101,37 @@ eq timeEffect([ML], T) = [ML] .
 sort System .
 op `{_`} : Configuration -> System [ctor] .
 
-
 rl [sendNil] : [nil] => none .
+*** crl [msgArrival] : dly(M,T) => M if  T == zero .
 
-crl [msgArrival] : dly(M,T) => M
-if  T == zero .
+op sendTimeAction : Configuration Msg Time -> Configuration .
+eq sendTimeAction(conf,M,T) = conf [owise] .
 
+sort DlyMsgConf .
+op `{_`,_`} : DlyMsg Configuration -> DlyMsgConf [ctor] .
+
+**** NO DEFAULT
+op addDelay : Msg Configuration -> DlyMsgConf .
+
+
+crl [sendDelayed] :
+    {[M ; ML] conf}
+     =>
+    {dly(M, T) [ML] conf1}
+    if {dly(M,T), conf0} := addDelay(M,conf)
+    /\ conf1 := sendTimeAction(conf0, M,T)
+[print " sendDelayed M " M " by T " T ]
+.
+
+op arrivalTimeAction : Configuration Msg  -> Configuration .
+eq arrivalTimeAction(conf,M) = conf [owise] .
+
+crl [msgArrival] : 
+   {dly(M,T) conf} => {M conf1}
+if  T == zero 
+/\ conf1 := arrivalTimeAction(conf,M)
+[print  "Message " M " arrives "]
+.
 
 crl [tick] : {conf} => {timeEffect(conf, T)} 
 *** in Time T

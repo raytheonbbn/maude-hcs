@@ -1,0 +1,127 @@
+sload  bientropy
+sload rtt-aux
+
+
+mod RTT-OBSERVER is
+  inc RTT-AUX .
+  inc BIENTROPY .
+
+vars k n : Nat .
+vars tst : TimeStamp .
+vars bits bits0 : BitList .
+vars b : Bit .
+vars T gT : Time . 
+vars attrs : AttributeSet .
+vars obsA : Oid .
+vars tml : TimeMsgList .
+vars msg M : Msg .
+vars conf : Configuration .
+
+
+
+op lowK : BitList Nat -> BitList .
+op lowKX : BitList Nat  BitList -> BitList .
+eq lowK(bits,k) = lowKX(bits,k,nilBit) .
+eq lowKX(bits, 0, bits0) = bits0 .
+eq lowKX(bits b, s k, bits0) = lowKX(bits,k,b bits0 ) .
+eq lowKX(nilBit, s k, bits0) = lowKX(nilBit,k,z bits0 ) .
+
+
+op ts2BitL : TimeStamp  Nat -> BitList .
+eq ts2BitL(ts(n),k) = lowK(nat2BitList(n),k) .
+
+**** entropy of the low k bits of ts(n) 
+op tsEntropy : TimeStamp Nat -> Float .
+eq tsEntropy(tst,k) = biEn(ts2BitL(tst,k)) .
+
+
+sort TimeMsg .
+op tm : Time Msg -> TimeMsg .
+sort TimeMsgList .
+subsort TimeMsg < TimeMsgList .
+op nilTML : -> TimeMsgList [ctor] .
+op _;_ : TimeMsgList TimeMsgList 
+          -> TimeMsgList [ctor assoc id: nilTML] .
+
+op Observer : -> Cid .
+op sent:_ : TimeMsgList -> Attribute [ctor] .
+op rcvd:_ : TimeMsgList -> Attribute [ctor] .
+
+op gClk : Time -> Object .
+eq mte(gClk(gT)) = infty .
+eq timeEffect(gClk(gT),T) = gClk(gT plus T) .
+
+eq sendTimeAction(conf gClk(gT) < obsA : Observer | attrs > ,
+                   M,T) 
+    = conf gClk(gT)
+      < obsA : Observer | logSent(attrs,gT,M) > .
+      
+op logSent : AttributeSet Time Msg -> AttributeSet .
+eq logSent(attrs, T, msg) = attrs [owise] .
+
+endm  
+
+mod TEST-RTT-OBS is
+  inc RTT-OBSERVER  .
+  
+ops Tst0 Tst1 : -> TimeStamp .
+eq Tst0 = ts(13)  .
+eq Tst1 = ts(211) .
+
+op obsO : -> Object .
+op obsA : -> Oid .
+eq obsO = < obsA : Observer | sent: nilTML > .
+
+op rttMsg : -> Msg .
+op TT : -> Time .
+op TD : -> Time .
+
+endm
+eof
+
+red ts2BitL(Tst0,8) . --- z z z z o o z o
+red ts2BitL(Tst1,8) . --- o o z o z z o o
+red ts2BitL(Tst1,4) . --- z z o o
+
+red tsEntropy(Tst0,8) .  ---- 9.5321584024976858e-1
+red tsEntropy(Tst0,4) .  ---- 9.4969568465258747e-1
+red tsEntropy(Tst1,8) .  ---- 9.5064248069242963e-1
+red tsEntropy(Tst1,4) .  ---- 4.052273811584256e-1
+
+red tsEntropy(ts(9876),32) . ---4.7291890231546779e-1
+red tsEntropy(ts(9876),8) .  ---9 .5129288643138077e-1
+
+red tsEntropy(ts(4294967296123),32) .  
+    ---- 4.5974079610675794e-1
+red tsEntropy(ts(4294967296123),8) .
+    ---- 4.5624114838874175e-1
+
+
+
+red sendTimeAction(gClk(TT) obsO, rttMsg, TD) .
+---- gClk(TT) < obsA : Observer | sent: tm(TT, rttMsg) >
+
+
+***(
+red rat("1101",2) .
+result NzNat: 13
+red rat("11010011",2) .
+result NzNat: 211
+)
+**** eq ts2BitL(ts(n),k) = lowK(nat2BitList(n),k) .
+**** entropy of the low k bits of ts(n) 
+**** eq tsEntropy(tst,k) = biEn(ts2BitL(tst,k)) .
+
+
+
+eof
+
+NB add gClk(startTime) and < obs : Observer | sent: nilTML >
+to initial configurations to capture messages at send time.
+From the tml on can extract T,entropy  list
+
+If we want to model normal and weird together
+we can (a) just have a combined configuration
+and distinguish traffic by the msg addresses
+
+

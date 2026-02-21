@@ -1,0 +1,152 @@
+***(
+log2(x) = ln(x)/ln(2)
+
+From BiEntropy - The Approximate Entropy of a Finite Binary String by Grenville J. Croll
+2013 Arxiv
+https://arxiv.org/abs/1305.0954
+arXiv:1305.0954 v2 
+https://doi.org/10.48550/arXiv.1305.0954
+
+
+The first binary derivative of s, d1(s), is the binary string of length n - 1 formed by XORing adjacent
+pairs of digits. We refer to the kth derivative of s dk(s) as the binary derivative of dk-1(s). There are n-1
+binary derivatives of s.
+
+Adapting Nathanson’s definitions for finite strings, a binary string s of length n is periodic if, for some
+least positive integer P, s i+P = si for all 1 ≤ i ≤ n-P. A binary string s of length n is eventually periodic
+if, for some least positive integer P and some least positive nonnegative integer k, s i+P = si for all k ≤ i
+≤ n-P. Note that a finite binarr right or left reading eventually periodic and adapt our notation
+accordingly.
+)
+
+fmod BIENTROPY is
+ inc CONVERSION .
+ vars fl : Float .
+ vars bit b b0 b1 : Bit .
+ vars bits bl  bl0 : BitList .
+ vars str sbit : String .
+ vars len k j n : Nat .
+ 
+op monus : Nat Nat -> Nat .
+eq monus(k,j) = (if k >= j then sd(k,j) else 0 fi) .
+
+sorts Bit BitList .
+subsort Bit < BitList .
+
+ops z o : -> Bit .
+op nilBit : -> BitList .
+op __ : BitList BitList -> BitList [ctor assoc id: nilBit] .
+
+op length : BitList -> Nat .
+op lenX : BitList Nat -> Nat .
+eq length(bits) = lenX(bits,0) .
+eq lenX(nilBit,n) = n .
+eq lenX(b bl,n) = lenX(bl, s n) .
+
+op count : BitList Bit -> Nat .
+op countX : BitList Bit Nat -> Nat .
+eq count(bits, b) = countX(bits,b,0) .
+eq countX(b bits, b0,n) =
+     countX(bits,b0,(if b == b0 then s n else n fi)) .
+eq countX(nilBit,b0,n) = n .
+
+op xor : Bit Bit -> Bit [comm].
+eq xor(z,z) = z .
+eq xor(o,o) = z .
+eq xor(o,z) = o .
+
+op nat2BitList : Nat -> BitList .
+op str2BitList : String -> BitList .
+op str2BL : String Nat Nat BitList -> BitList .
+eq nat2BitList(n) = str2BitList(string(n,2)) .
+eq str2BitList(str) = str2BL(str,0,length(str),nilBit)  .
+ceq str2BL(str,j,len,bl) 
+     = str2BL(str, s j, len, bl b) 
+if j < len 
+/\ sbit := substr(str,j, 1)
+/\ b := (if sbit == "0" then z else o fi)
+.
+eq str2BL(str,len,len,bl) = bl .
+
+****  b0 ... bn -> b0 xor b1  b1 xor b2 ... bn-1 xor bn
+op derive : BitList -> BitList .
+op deriveX : BitList BitList -> BitList .
+eq derive(bl) = deriveX(bl,nilBit) .
+eq deriveX(b0 b1 bl, bl0) = 
+     deriveX(b1 bl, bl0 xor(b0, b1)) .
+eq deriveX(bl,bl0) = bl0 [owise] .
+
+op log2 : Float -> Float .
+eq log2(fl) = log(fl) / log(2.0) .
+
+ops H H1 : Float -> Float .
+eq H(fl) =  H1(fl) + H1(1.0 - fl) .
+eq H1(fl) = - (fl * log2(fl)) . 
+
+op p : BitList -> Float .
+eq p(bits) = float(count(bits,o) / length(bits)) .
+op shannon : BitList -> Float .
+ceq shannon(bits) = 
+     (if fl == 0.0 or fl == 1.0 
+      then 0.0
+      else H(fl)
+     fi)
+if fl := p(bits)     
+ .
+
+ 
+op biEn : BitList -> Float .
+op biEnX : BitList  Nat  Nat Float -> Float .
+eq biEn(bits) 
+     = biEnX(bits,0,monus(length(bits), 1),0.0) .
+eq biEnX(bits,k,s n,fl)  
+     = biEnX(derive(bits),s k, n,
+              fl + (shannon(bits) * float(1 << k)) ) .  
+eq biEnX(bits,k,0,fl) = fl / float((1 << k) - 1) 
+[print "returning biEn using k  " k  " fl "  fl] .
+ 
+endfm
+
+***( 
+ biEn = 1/(2^(n-1) - 1) * sum{0,n-2} (H(p(k)) * 2^k)
+
+Calculating BiEn
+ B[0] = bits
+ B[j+1] = der(B[j])  j < n-2
+ S[j] = shannon(B[j]) * 2^j
+ BiEn (bits)  (S[0] + ... + S[n-2]) / ((2^{n-1}) - 1)
+
+0   1        n-1
+n-1 n-2 ...  0
+ )
+ 
+ fmod TEST-BIENTROPY is
+ inc BIENTROPY .
+ 
+ 
+ops B0 B1 B3 B3 B4 B5 B6 : -> BitList . 
+
+ops D0 D1 D2 D3 : -> BitList .
+eq D0 = o z o o .
+eq D1 = derive(D0) .
+eq D2 = derive(D1) .
+ 
+*** red p(D0)  .
+*** red H1(p(D0)) . --- .31
+*** red H1(1. - p(D0)) .
+*** red H(p(D0)) .
+
+ops S0 S1 S2 : -> Float .
+eq S0 = shannon(D0) * float(1 << 0) .  --- .81
+eq S1 = shannon(D1) * float(1 << 1) .  ---- 1.84
+eq S2 = shannon(D2) * float(1 << 2) .  ---- 4.0
+---- 
+**** red S0 + S1 + S2 .
+**** red (S0 + S1 + S2) / (1 << 3) . 
+ endfm
+ eof
+  
+red H1(.75) .
+red biEn(D0) .  --- 8.1127812445913272e-1
+returning biEn using k  3 fl 5.6789468712139293
+
