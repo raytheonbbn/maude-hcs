@@ -1,0 +1,130 @@
+set show advisories off .
+set clear rules off .
+
+sload rtt
+sload rtt-observer 
+sload wrtt
+
+mod RTT-SCENARIO is
+  inc PROB-FLOAT-RTT .
+  inc RTT-OBSERVER .
+  
+  
+vars aid bid obsid : Oid .
+vars j Period n : Nat   .
+vars startTime stopTime  gT : Time .
+vars attrs : AttributeSet .
+vars msg : Msg .
+vars tml : TimeMsgList .
+
+***(
+**** multiple parses for eq,  both parse to Configuration ?????
+op iCrtt : Nat Oid Oid Oid Float Nat Float 
+            -> Configuration .
+eq iCrtt(j,aid,bid,obsid,startTime, Period, stopTime) 
+=
+rCtr(j)  
+mkSnd(aid,bid,startTime,Period,stopTime) 
+mkRcv(aId,bId,startTime) 
+gClk(startTime)  
+< obsId : Observer | sent: nilTML >
+.
+)  
+ops aId bId obsId  : -> Oid .
+
+op AObj : -> Object .
+eq AObj = mkSnd(aId,bId,9999.0, 500, 15000.0) . 
+
+op BObj : -> Object .
+eq BObj = mkRcv(aId,bId,9999.0) . 
+
+op OObj : -> Object .
+eq OObj = < obsId : Observer | sent: nilTML > .
+
+
+op iSrtt :  -> System .
+rl [init] :
+  iSrtt => { rCtr(counter) AObj BObj OObj gClk(9999.0) } .
+
+***(
+op iSx :  -> System .
+rl [initx] :
+  iSx => {iCrtt(counter,aId,bId,obsId,9999.0,500,15000.0)} .
+)
+
+**** collect only request messages
+ceq logSent(attrs, sent: tml, gT, msg) =
+     attrs, sent: (tml ; tm(gT,msg) ) 
+ if (to bid from aid : rttReq(ts(n))) := msg   .  
+ceq logSent(attrs, gT, msg) =
+     attrs, sent: tm(gT,msg) 
+ if (to bid from aid : rttReq(ts(n))) := msg  [owise] .  
+       
+endm
+
+**** rew iSrtt .
+
+
+mod WRTT-SCENARIO is
+  inc PROB-FLOAT-WRTT .
+  inc RTT-OBSERVER .
+  
+  
+vars aid bid obsid : Oid .
+vars j Period n : Nat   .
+vars startTime stopTime  gT : Time .
+vars attrs : AttributeSet .
+vars msg : Msg .
+vars tml : TimeMsgList .
+
+ops waId wbId obsId  : -> Oid .
+
+
+***(
+op wiC : Nat Time Nat TimeInf  -> Configuration  .
+eq wiC(j,T,P,Ts) 
+     = rCtr(j)
+       mkWSnd(aId,bId,T,P,s j, s s j,Ts) 
+       mkWRcv(aId,bId,T,s s j) .
+)
+
+
+op wAObj : Nat -> Object .
+eq wAObj(j) = mkWSnd(waId,wbId,9999.0, 500,  s j,  s s j,15000.0) . 
+
+op wBObj : Nat -> Object .
+eq wBObj(j) = mkWRcv(waId,wbId,9999.0,  s s j) . 
+
+op OObj : -> Object .
+eq OObj = < obsId : Observer | sent: nilTML > .
+
+op wiC : Nat -> Configuration .
+eq wiC(j) = rCtr(j) wAObj(j) wBObj(j) OObj gClk(9999.0) .
+
+op iSwrtt :  -> System .
+rl [init] :
+  iSwrtt => { wiC(counter) } .
+
+ceq logSent(attrs, sent: tml, gT, msg) =
+     attrs, sent: (tml ; tm(gT,msg) ) 
+ if (to bid from aid : rttReq(ts(n))) := msg   .  
+ceq logSent(attrs, gT, msg) =
+     attrs, sent: tm(gT,msg) 
+ if (to bid from aid : rttReq(ts(n))) := msg  [owise] .  
+       
+endm
+
+
+*** rew iSwrtt .
+
+
+mod RTT-WRTT-SCENARIO is
+  inc RTT-SCENARIO  .
+  inc WRTT-SCENARIO  .
+
+op iS : -> System .
+rl [initAll] : iS => { wiC(counter) AObj BObj } .
+
+endm
+
+eof

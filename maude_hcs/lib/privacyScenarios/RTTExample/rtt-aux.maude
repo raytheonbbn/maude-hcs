@@ -1,5 +1,6 @@
 sload time
 sload rt-aux
+sload sampler-x
 
 mod RTT-AUX is
    inc CONFIGURATION .
@@ -8,7 +9,11 @@ mod RTT-AUX is
    inc RT-AUX .
 
 vars T : Time .
-vars n n0 n1  nbits : Nat .
+vars n n0 n1 j nbits : Nat .
+
+op rCtr : Nat -> Object .
+eq timeEffect(rCtr(j),T) = rCtr(j) .
+eq mte(rCtr(j)) = infty .
 
 sort Content .
 op to_from_:_ : Oid Oid Content -> Msg [ctor] .
@@ -59,21 +64,24 @@ endm
 mod NAT-RTT-AUX is
   inc RTT-AUX .
   inc NAT-TIME-INF .
+  inc SAMPLER-X .
 
 vars msg  M : Msg .
+vars dmsg : DlyMsg .
 vars T : Time .
 vars ML : MsgList .
-vars conf : Configuration .
+vars conf conf0 : Configuration .
 
-op addDelay : Msg -> Configuration .  ---- DlyMsgs
+***(
+**** used in crl[sendDelayed]
+op addDelay : Msg Configuration -> Configuration . 
+)     
 
-*** rl [sendDelayed] : [M ; ML] => dly(M, T) [ML] [nonexec] .
-crl [sendDelayed] : [M ; ML] => dly(M, T) [ML]
-    if dly(M,T) conf := addDelay(M)
-[print " sendDelayed M " M " by T " T ]
-     .
+**** non determinist choice, neede search to observer
+op dlyMsgs : Msg -> Configuration . --- nondet choices
+ceq addDelay(msg,conf)  = {dmsg, conf}
+if dmsg conf0 := dlyMsgs(msg) .
 
-eq addDelay(msg)  = dly(msg,50) dly(msg,52) dly(msg,48) .
 
 *** op nat2t : Nat -> Time .
 eq nat2t(n:Nat) = n:Nat .
@@ -90,19 +98,20 @@ mod FLOAT-RTT-AUX is
   inc FLOAT-TIME-INF .
 
 vars msg M : Msg .
+vars dmsg : DlyMsg .
 vars T : Time .
 vars ML : MsgList .
-vars conf : Configuration .
+vars conf conf0 : Configuration .
 
-op addDelay : Msg -> Configuration .  ---- DlyMsgs
 
-*** rl [sendDelayed] : [M ; ML] => dly(M, T) [ML] [nonexec] .
-crl [sendDelayed] : [M ; ML] => dly(M, T) [ML]
-    if dly(M,T) conf := addDelay(M)
-[print " sendDelayed M " M " by T " T ]
-     .
-
-eq addDelay(msg)  = dly(msg,50.) dly(msg,52.) dly(msg,48.) .
+***(
+The probably should be in the app specific time specific
+module,  but we want RTT and WRTT to use the same mechanisms.
+op addDelay : Msg Configuration -> Configuration .  
+)
+op dlyMsgs : Msg -> Configuration . --- nondet choices
+ceq addDelay(msg,conf)  = {dmsg, conf}
+if dmsg conf0 := dlyMsgs (msg) .
 
 *** op nat2t : Nat -> Time .
 eq nat2t(n:Nat) = float(n:Nat) .
@@ -117,24 +126,22 @@ endm
 mod PROB-FLOAT-RTT-AUX is
   inc RTT-AUX .
   inc FLOAT-TIME-INF .
+  inc SAMPLER-X .
 
 vars msg  M : Msg .
 vars T : Time .
 vars ML : MsgList .
 vars j j1 : Nat .
+vars conf  conf0 : Configuration .
+vars dmsg : DlyMsg .
 
-op rCtr : Nat -> Object .
 
-*** rl [sendDelayed] : [M ; ML] => dly(M, T) [ML] [nonexec] .
+ops MEAN SD : -> Float .
 
-op addPDelay : Msg Object -> Configuration .
-
-crl [sendDelayed] :
-    rCtr(j) [M ; ML]  => rCtr(j1) dly(M, T) [ML]
-    if dly(M,T) rCtr(j1) := addPDelay(M,rCtr(j))
-[print " sendDelayed M " M " by T " T ]
+eq addDelay(msg,rCtr(j) conf) = 
+    {dly(msg, sampleNormalWithMeanSdX(MEAN, SD, j)) ,
+    rCtr(s j) conf}  
      .
-
 
 *** op nat2t : Nat -> Time .
 eq nat2t(n:Nat) = float(n:Nat) .
