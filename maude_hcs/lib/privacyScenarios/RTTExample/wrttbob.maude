@@ -1,0 +1,305 @@
+***(
+
+a->b tsa    remembers tsa
+b->a tsa,embed(tsb,byte)
+a extracts byte
+a computes  rtt T - tsa
+
+
+scenario 
+  {rtt wrtt obs rctr [start stop per mean sd ]}
+  av entropy over one long run
+  expected av entropy
+  
+  av rtt  expected av rtt  -- alice has a list 
+  
+
+ {rtt wrtt obs rctr [start stop per mean sd ]} t2ts*
+  expected av entropy 
+  expected av rtt
+  
+ 
+ {rtt wrttbob obs rctr [start stop per mean sd ]} t2ts
+ expected av entropy 
+ expected av rtt
+   
+)
+
+
+
+sload rtt-aux
+sload sampler-x
+
+view TimeStamp from TRIV to RTT-AUX is
+  sort Elt to TimeStamp .
+endv
+
+mod WRTTBOB is
+   inc RTT-AUX .
+   inc RANDOM .
+   inc MAP{TimeStamp,TimeStamp} .
+   inc SAMPLER-X .
+
+vars A B : Oid .
+vars n n0 i j m  : Nat .
+vars byte : Byte .
+vars bytel : ByteList .
+vars bits bits0 : String .
+vars T tt : Time .
+vars Tstop tt0 : TimeInf .
+vars per : NzNat .
+vars ts ts0 ts1 : TimeStamp .
+vars atts : AttributeSet .
+vars rtt rttl tsl tsl0 tsl1 : TimeStampList .
+*** vars tsmap : Map{TimeStamp,TimeStamp} .
+
+ops bWSnd bWRcv : -> Cid .   
+
+sorts Byte ByteList .
+subsort Byte < ByteList .
+op nilB : -> ByteList [ctor] .
+op _;_ : ByteList ByteList -> ByteList 
+               [ctor assoc id: nilB] .
+op b : Nat -> Byte [ctor] .
+
+op low8 : Nat -> Nat .
+eq low8(n) =  ((n >> 8) << 8) xor n .
+
+op mkByte : Nat -> Byte .
+eq mkByte(n) = b(low8(n)) .
+
+op bctr:_ : Nat -> Attribute [ctor] .
+op ctr:_ : Nat -> Attribute [ctor] .
+op tsMap:_ : Map{TimeStamp,TimeStamp} 
+                  -> Attribute [ctor] .
+op byteList:_ : ByteList -> Attribute [ctor] .
+
+****         a    b start per ctr Tstop
+op mkbWSnd : Oid Oid Time Nat Nat TimeInf -> Object .
+op mkbWSnd : Oid  Oid Time Nat TimeInf -> Object .
+eq mkbWSnd(A,B,T,per,Tstop)
+      = mkbWSnd(A,B,T,per,0,Tstop) .
+eq mkbWSnd(A,B,T,per,j,Tstop) =
+    < A : bWSnd | clock: T, rcv: B,
+                timers: [nat2t(per) ; per ; noData],
+                rttq: nilTS,
+                ctr: j,
+                stopT: Tstop,
+                tsq: nilTS,
+                byteList: nilB  
+                 >   .
+****        A    B   T   bctr ctr
+op mkbWRcv : Oid  Oid Time Nat Nat -> Object .
+op mkbWRcv : Oid  Oid Time -> Object .
+eq mkbWRcv(A,B,T) = mkbWRcv(A,B,T,0,0) .
+eq mkbWRcv(A,B,T,i,j) = 
+     < B : bWRcv | clock: T, snd: A , 
+                 bctr: i,
+                 ctr: j,
+                 byteList: nilB
+                > .
+
+crl [sndWRttReq] :
+    < A : bWSnd | clock: T, rcv: B,
+                timers: [tt ; per ; noData],
+                stopT: Tstop,
+                rttq: rttl,
+                ctr: j,
+                tsq: tsl ,
+                atts 
+                 >                
+=>
+    < A : bWSnd | clock: T, rcv: B,
+                timers: [tt0 ; per ; noData],
+                stopT: Tstop,
+                rttq: rttl,
+                ctr: j,
+                tsq: (tsl ; ts),
+                atts
+                 >                
+   [ (to B from A : rttReq(ts))]
+  if tt == zero
+  /\ tt0 := (if T ge Tstop then infty else nat2t(per) fi)
+  /\ ts := t2ts(T)
+[print "sndWRttReq  at " T " ts " ts]
+.
+
+crl[rcvWRttResp]:
+    < A : bWSnd | clock: T, rcv: B,
+                rttq: rttl,
+                ctr: j,
+                tsq: (tsl ; ts0 ; tsl1),
+                byteList: bytel,
+                atts
+                 >                
+   (to A from B : rttResp(ts0,ts1))
+   =>
+    < A : bWSnd | clock: T, rcv: B,
+                rttq: (rttl ; computeRtt(T,ts0)) ,
+                ctr: s j,
+                tsq: (tsl ; ts0 ; tsl1),
+                byteList: (bytel ; byte),
+                atts
+                 >     
+ if byte := extract(ts1,j) 
+ [print "rcvWRttResp ts0 " ts0 " ts1 " ts1 " byte " byte]
+   .
+
+ op extract : TimeStamp Nat -> Byte .
+ eq extract(ts(n0),j)
+      = b(low8(n0) xor low8(random(j))) .
+
+crl[rcvWRttReq]:
+ < B : bWRcv | clock: T, snd: A, 
+              bctr: i,
+              ctr: j, 
+              byteList: bytel,
+               atts >
+  (to B from A : rttReq(ts0))
+=>  
+ < B : bWRcv | clock: T, snd: A,
+             bctr: (s i), 
+             ctr: (s j), 
+             byteList: (bytel ; byte), 
+             atts >
+   [(to A from B : rttResp(ts0,ts1))]
+  --- Get a random nat between in [0, n-1].
+  if ts := t2ts(T)
+  /\ byte := b(sampleUniWithIntX(i,256))
+  /\ ts1 := embed(ts,j,byte)
+  /\ bits := ts2bitstr(ts)
+  /\ bits0 := ts2bitstr(ts1)
+[print "rcvWrttReq ts is " ts " with bits " bits  " sends ts1 " ts1  " wit bits " bits0]
+.
+
+****  replace low 8 bits of ts by obfuscated byte
+op embed : TimeStamp Nat Byte -> TimeStamp .   
+eq embed(ts(n),j,b(m)) =
+   ts((m xor low8(random(j))) xor ((n >> 8) << 8)) .
+
+endm
+
+mod NAT-WRTTBOB is
+  inc WRTTBOB .
+  inc NAT-RTT-AUX .
+
+vars msg : Msg .
+vars T : Time .
+vars Ts : TimeInf .
+vars P : Nat .
+vars bytel : ByteList .
+
+
+eq dlyMsgs(msg) = dly(msg,50) dly(msg,52) dly(msg,48) .
+
+***(
+op stopTime : -> TimeInf .
+eq stopTime = 2000 .
+)
+
+ops aId bId : -> Oid .
+ops aO bO : -> Object .
+eq aO = 
+   mkbWSnd(aId,bId,999,500,2000) .
+eq bO = mkbWRcv(aId,bId,999) .
+
+op iC : Time Nat TimeInf  -> Configuration  .
+eq iC(T,P,Ts) 
+     = mkbWSnd(aId,bId,T,P,Ts) 
+       mkbWRcv(aId,bId,T) .
+
+endm
+
+***(
+rew {aO bO} .
+rew iC(999,500,2000) .
+)
+
+mod FLOAT-WRTTBOB is
+  inc WRTTBOB .
+  inc FLOAT-RTT-AUX .
+
+vars msg : Msg .
+vars T : Time .
+vars Ts : TimeInf .
+vars P : Nat .
+vars bytel : ByteList .
+
+eq dlyMsgs(msg) = dly(msg,50.) dly(msg,52.) dly(msg,48.) .
+
+***(
+op stopTime : -> TimeInf .
+eq stopTime = 2000.0 .
+)
+
+ops aId bId : -> Oid .
+ops waO wbO : -> Object .
+eq waO = mkbWSnd(aId,bId,999.,500,2000.0) .
+eq wbO = mkbWRcv(aId,bId,999.) .
+
+op wiC : Time Nat TimeInf  -> Configuration  .
+eq wiC(T,P,Ts) 
+     = mkbWSnd(aId,bId,T,P,Ts) 
+       mkbWRcv(aId,bId,T) .
+
+endm
+
+***(
+rew  {waO wbO} .
+
+)
+sload sampler-x
+
+mod PROB-FLOAT-WRTTBOB is
+  inc WRTTBOB .
+  inc PROB-FLOAT-RTT-AUX .
+  inc SAMPLER-X .
+  inc COUNTER .
+
+vars msg M : Msg .
+vars T : Time .
+vars Ts : TimeInf .
+vars P  j j1 : Nat .
+vars bytel : ByteList .
+
+**** ops MEAN SD : -> Float .
+eq MEAN = 50.0 .
+eq SD = 10.0 .
+
+***(
+op stopTime : -> TimeInf .
+eq stopTime = 2000.0 .
+)
+
+ops aId bId : -> Oid .
+ops waO wbO : -> Object .
+eq waO = 
+   mkbWSnd(aId,bId,999.,500,2000.0 ) .
+eq wbO = mkbWRcv(aId,bId,999.) .
+
+
+op wiC : Nat Time Nat TimeInf  -> Configuration  .
+eq wiC(j,T,P,Ts) 
+     = rCtr(j)
+       mkbWSnd(aId,bId,T,P, s s j,Ts) 
+       mkbWRcv(aId,bId,T,s j, s s j) .
+
+ops wiC1 wiC3 : Nat -> Configuration .
+eq wiC1(j) = wiC(j,999.,500, 2000.0) .
+eq wiC3(j) = wiC(j,999.,500, 4000.0) .
+
+
+op iS3 : -> System .
+rl [init] :
+  iS3  => 
+  { wiC(counter,999.,500, 4000.0) } .
+
+endm
+set clear rules off .
+
+eof
+
+rew {wiC1(0)} .
+System: 
+{rCtr(6) < aId : bWSnd | timers: [infty ; 500 ; noData], clock: 2.5944366694494256e+3, rcv: bId, tsq: (ts(1499) ; ts(1999) ; ts(2499)), rttq: (ts(81) ; ts(101) ; ts(95)), stopT: 2.0e+3, ctr: 5, byteList: (b(47) ; b(117) ; b(192)) > < bId : bWRcv | clock: 2.5944366694494256e+3, snd: aId, bctr: 4, ctr: 5, byteList: (b(47) ; b(117) ; b(192)) >}
+
