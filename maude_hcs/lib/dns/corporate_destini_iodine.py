@@ -313,7 +313,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
 
     # add some paramters
     pp = hcsconf.protocols[Protocol.IODINE_DNS.value].probabilistic_parameters
-    pp.limit = tlimit # is this good enough??
+    pp.slimit = tlimit # is this good enough??
     if not pp.other:
         pp.other = {}
     # these are hacks for now (TODO put in the correct place)

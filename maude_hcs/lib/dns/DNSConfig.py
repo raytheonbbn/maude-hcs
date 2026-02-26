@@ -186,7 +186,7 @@ class DNSConfig(Config):
         res += self.network.to_maude_network()
         res += '\n'
         res += 'op initConfig : -> Config .\n'
-        res += 'eq initConfig = run({0.0 | nil} initState,limit) .\n'
+        res += 'eq initConfig = run({0.0 | nil} initState,slimit) .\n'
         res += 'endm\n'
 
         return res       
