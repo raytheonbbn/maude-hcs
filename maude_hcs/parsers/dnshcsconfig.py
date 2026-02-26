@@ -96,7 +96,7 @@ class DNSProbabilisticParameters(ProbabilisticParameters):
     pingInterval: float = 1.0
     initialPingDelay: float = 0.001
     receiveToPingDelay: float = 0.001
-    limit: float = 100.0  # the simulation time limit
+    slimit: float = 100.0  # the simulation time limit
 
 
 @dataclass_json
