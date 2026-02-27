@@ -12,7 +12,7 @@ mod RT-AUX is
   
 vars M : Msg .
 vars ML : MsgList .
-vars TI1 TI2 : TimeInf . 
+vars TI TI1 TI2 : TimeInf . 
 vars T T1 T2 : Time . 
 vars P : NzNat .
 vars O : Oid . 
@@ -140,6 +140,27 @@ if T := mte(conf)
 [print "tick T " T]
 .
 
+op final : Configuration -> System [ctor] .
+
+op finalAction : Configuration -> Configuration .
+eq finalAction(conf) = conf [owise] .
+
+crl [infty] : {conf} => final(finalAction(conf))
+if infty == mte(conf) .
 
 endm
 
+eof
+
+
+crl [tick] : {conf} =>  sys:System
+{timeEffect(conf, T)} 
+*** in Time T
+if TI := mte(conf) 
+/\ T gt zero 
+/\ sys := (if TI == infty
+           then final(finalAction(conf))
+           else {timeEffect(conf,T)}
+           fi)
+[print "tick TI " TI]
+.

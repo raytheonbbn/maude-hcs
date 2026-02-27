@@ -144,3 +144,111 @@ rl [initAll] : iS => { wiC(counter) AObj BObj } .
 endm
 
 eof
+
+
+mod WRTTBOB-SCENARIO is
+***  inc PROB-FLOAT-WRTT .
+  ***(  MEAN SD startTime stopTime )
+  inc WRTTBOB .
+  inc PROB-FLOAT-RTT-AUX .
+  inc SAMPLER-X .
+  inc COUNTER .
+  inc RTT-OBSERVER .   ---- also defines gClk
+  inc LIST{Float} .
+  
+vars aid bid obsid : Oid .
+vars j Period n n0 k enum rnum : Nat   .
+vars startTime stopTime  T  gT : Time .
+vars attrs oattrs oattrs0 oattrs1 aattrs : AttributeSet .
+vars msg : Msg .
+vars tml : TimeMsgList .
+vars ts0 ts1 : TimeStamp .
+vars rttl : TimeStampList .
+vars elist  flist : List{Float} .
+vars esum rttsum fl  fl0 : Float .
+
+
+***** observing  add summaries to observer at the end
+
+op enList:_ : List{Float} -> Attribute [ctor] .
+ops enAv:_ rttA:_ : Float -> Attribute [ctor] .
+
+ceq finalAction(conf < obs : Observer | oattrs > 
+                    < aid : bWSnd | aattrs >)
+=  conf < obs : Observer | oattrs1 > 
+                    < aid : bRTTSnd | aattrs >)            
+if oattrs0 , sent: tml := oattrs
+/\ aatrs0, rttq: rttl := aattrs
+/\ elist := tml2enList(tml)
+/\ esum := sumFL(elist)
+/\ enum := size(elist)
+/\ rttsum := sumTS(rttl)
+/\ rnum := len(rttl)
+/\ oattrs1 := oattrs, 
+              enList: elist, enAv: (esum / float(enum)),
+              rttAv: (rttsum / float(rnum))
+.              
+
+op tml2enList : TimeMsgList  Nat -> List{Float} .
+op tml2enListX : TimeMsgList Nat List{Float} -> List{Float} .
+eq tml2enList(tml,k) = tml2enListX(tml,k,nil) .
+ceq tml2enListX(tm(T,msg) ; tml, k,flist) =
+    tml2enListX(tml, k,(flist fl)) 
+if (to aid from bid : rttRsp(ts0,ts1)) := msg
+/\ fl := tsEntropy(ts1,k) 
+.
+
+eq tml2enListX(nilTML, k,flist) = flist .
+
+op sumFL : List{Float} -> Float .
+op sumFLx : List{Float}  Float -> Float .
+eq sumFL(flist) = sumFLX(flist,0.0) .
+eq sumFLX((fl0 flist),fl)  = sumFLX(flist, fl + fl0) .
+eq sumFLX(nil,fl) = fl .
+
+ceq logSent(attrs, sent: tml, gT, msg) =
+     attrs, sent: (tml ; tm(gT,msg) ) 
+ if (to aid from bid : rttRsp(ts0,ts1)) := msg   .  
+
+eq addDelay(msg,rCtr(j) conf) = 
+     {dly(msg, sampleNormalWithMeanSdX(MEAN, SD, j)) ,
+     rCtr(s j) conf}  
+      .
+
+ *** op nat2t : Nat -> Time .
+ eq nat2t(n:Nat) = float(n:Nat) .
+ *** op t2nat : Time -> Nat .
+ eq t2nat(t:Float) =  rat(floor(t:Float)) .
+
+
+**** configuration construction
+
+ops waId wbId obsId  : -> Oid .
+
+op wiC : Nat Time Nat TimeInf  -> Configuration  .
+eq wiC(j,T,P,Ts) 
+     = rCtr(j)
+       mkbWSnd(aId,bId,T,P, s s j,Ts) 
+       mkbWRcv(aId,bId,T,s j, s s j) .
+      gClk(T)
+      < obsId : Observer | sent: nilTML > .
+
+**** Parameters
+ops MEAN SD : -> Float .
+ops TSTART TSTOP : -> Float .
+op PERIOD : -> Nat .
+eq MEAN = 50.0 .
+eq SD = 10.0 .
+eq PERIOD = 500 .
+eq TSTART = 999.0 .
+eq TSTOP = 10999.0 .
+
+op wiC : Nat -> Configuration .
+eq wiC(j) = wiC(j,TSTART,PERIOD,TSTOP)
+op iSbwrtt :  -> System .
+rl [init] :
+  iSbwrtt => { wiC(counter) } .
+
+       
+endm
+
