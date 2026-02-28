@@ -11,7 +11,7 @@ import shutil
 
 TOPLEVELDIR = Path(os.path.dirname(__file__))
 
-output_dir = "./results_popets_v2/"
+output_dir = "./results_popets_v2_slimit400/"
 
 label_map = {
   3: "3 consecutive alarms",
@@ -19,7 +19,8 @@ label_map = {
   5: "5 consecutive alarms"
 }
 
-run_scenario= { 1,4,7,10 } 
+#run_scenario= { 1,4,7,10 } 
+run_scenario= { 7 } 
 
 all = {
     "label": "all",
@@ -87,7 +88,7 @@ def smc(param_space, scenario_path, scenario_id, smc_path:Path, tgenonly=False, 
             tgenonly_fn = scenario_path + "/" + generated_test_path + "_tgenonly.maude"
             subprocess.run(["cp", scenario_path + "/" + generated_test_path + ".maude", tgenonly_fn])
             subprocess.run(["sed", "-i", "/--- applications/,/--- WMonitor/ s/^/--- /", tgenonly_fn], check=True) 
-            subprocess.run([ "sed", "-i", r"s/slimit[[:space:]]*=[[:space:]]*[0-9]*\.0/slimit = 600.0/", tgenonly_fn ], check=True)
+            subprocess.run([ "sed", "-i", r"s/slimit[[:space:]]*=[[:space:]]*[0-9]*\.0/slimit = 400.0/", tgenonly_fn ], check=True)
         else:
             if not scheckonly:
                 subprocess.run(["maude-hcs", "generate", "--run-args-file=" + modified_config_path, "--model=prob", "--filename=" + generated_test_path], stdout=subprocess.DEVNULL)
@@ -100,6 +101,7 @@ def smc(param_space, scenario_path, scenario_id, smc_path:Path, tgenonly=False, 
         if tgenonly:
             scheck_cmd = ["maude-hcs", "scheck", "--test=" + scenario_path + "/" + generated_test_path + "_tgenonly.maude", "--query=" + quatex_fn, "--format", "json", "-j", "0", "--nsims", "300-300", "--dump", output_dir + "/cp2_scenario_" + str(scenario_id) + "_" + experiment + generated_test_path + "_tgenonly.dat"]
         else:
+            subprocess.run([ "sed", "-i", r"s/slimit[[:space:]]*=[[:space:]]*[0-9]*\.0/slimit = 400.0/", scenario_path + "/" + generated_test_path + ".maude" ], check=True)
             scheck_cmd = ["maude-hcs", "scheck", "--test=" + scenario_path + "/" + generated_test_path + ".maude", "--query=" + quatex_fn, "--format", "json", "-j", "0", "--nsims", "300-300", "--dump", output_dir + "/cp2_scenario_" + str(scenario_id) + "_" + experiment + generated_test_path + ".dat"]
         print(' '.join([x for x in scheck_cmd]))
         scheck_output = subprocess.run(scheck_cmd, capture_output=True, text=True, check=True)

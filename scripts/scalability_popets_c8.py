@@ -11,27 +11,10 @@ import shutil
 
 TOPLEVELDIR = Path(os.path.dirname(__file__))
 
-output_dir = "./results_popets_v2/"
+output_dir = "./results_popets_v2_c8_nx4/"
 
-label_map = {
-  3: "3 consecutive alarms",
-  4: "4 consecutive alarms",
-  5: "5 consecutive alarms"
-}
-
+#run_scenario= { 7 } 
 run_scenario= { 1,4,7,10 } 
-
-all = {
-    "label": "all",
-    "k": [1.2,1.4,1.6,1.8,2.0],
-    "n": [3,4,5]
-}
-
-ma1_baseline = {
-    "label": "ma1_baseline",
-    "k": [1.2,1.4,1.6,1.8,2.0],
-    "n": [3,4,5]
-}
 
 cli_wait = {
     "label": "cli_wait",
@@ -100,6 +83,7 @@ def smc(param_space, scenario_path, scenario_id, smc_path:Path, tgenonly=False, 
         if tgenonly:
             scheck_cmd = ["maude-hcs", "scheck", "--test=" + scenario_path + "/" + generated_test_path + "_tgenonly.maude", "--query=" + quatex_fn, "--format", "json", "-j", "0", "--nsims", "300-300", "--dump", output_dir + "/cp2_scenario_" + str(scenario_id) + "_" + experiment + generated_test_path + "_tgenonly.dat"]
         else:
+            subprocess.run([ "sed", "-i", r"s/slimit[[:space:]]*=[[:space:]]*[0-9]*\.0/slimit = 600.0/", scenario_path + "/" + generated_test_path + ".maude" ], check=True)
             scheck_cmd = ["maude-hcs", "scheck", "--test=" + scenario_path + "/" + generated_test_path + ".maude", "--query=" + quatex_fn, "--format", "json", "-j", "0", "--nsims", "300-300", "--dump", output_dir + "/cp2_scenario_" + str(scenario_id) + "_" + experiment + generated_test_path + ".dat"]
         print(' '.join([x for x in scheck_cmd]))
         scheck_output = subprocess.run(scheck_cmd, capture_output=True, text=True, check=True)
@@ -271,23 +255,6 @@ def main():
 
     use_case_path = TOPLEVELDIR.joinpath(sys.argv[1])
     smc_path = TOPLEVELDIR.parent.joinpath('smc')
-
-    # ma1 k,n params 
-    for scenario_id in run_scenario:
-        smc(ma1_baseline, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path)
-        plot_three(ma1_baseline, "Detection Threshold", "Operating Duration (Seconds)", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Operation Duration (MA.1)", "cp2_scenario_" + str(scenario_id) + "_op_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Num of Exfil Files", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Number of ExfilFiles (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfil_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Prob of Detection", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Prob of Detection (MA.1)", "cp2_scenario_" + str(scenario_id) + "_pod_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Latency", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Latency (MA.1)", "cp2_scenario_" + str(scenario_id) + "_latency_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Goodput", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Goodput (MA.1)", "cp2_scenario_" + str(scenario_id) + "_goodput_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "ExfilData", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " ExfilData (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfildata_ma1", scenario_id)
-
-    # ma1 k,n params tgenonly case
-    for scenario_id in run_scenario:
-        smc(ma1_baseline, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, True)
-        plot_three(ma1_baseline, "Detection Threshold", "Operating Duration (Seconds)", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Operation Duration (MA.1)", "cp2_scenario_" + str(scenario_id) + "_op_ma1_tgenonly", scenario_id, True)
-        plot_three(ma1_baseline, "Detection Threshold", "Num of Exfil Files", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Number of ExfilFiles (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfil_ma1_tgenonly", scenario_id, True)
-        plot_three(ma1_baseline, "Detection Threshold", "Prob of Detection", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Prob of Detection (MA.1)", "cp2_scenario_" + str(scenario_id) + "_pod_ma1_tgenonly", scenario_id, True)
 
     # cli wait time
     for scenario_id in run_scenario:
