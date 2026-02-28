@@ -137,8 +137,11 @@ mod SMC is
   op getGoodputCP2 : Actor -> Float .
   eq getGoodputCP2 (< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) = if getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) == 0.0 then 0.0 else (float(exfilNBytes(BTL')) * 8.0 / getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >)) fi .
 
+  op getGoodputPoPETS : Actor -> Float .
+  eq getGoodputPoPETS (< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) = if getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) == 0.0 then (float(exfilNBytes(BTL')) * 8.0 / slimit) else (float(exfilNBytes(BTL')) * 8.0 / getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >)) fi .
+
   op getGoodput : Actor -> Float .
-  eq getGoodput (A:Actor) = getGoodputCP2(A) .
+  eq getGoodput (A:Actor) = getGoodputPoPETS(A) .
 
   op lengthTimeWindow : ByteSeqTimestampList Float Float -> Nat .
   eq lengthTimeWindow (nilByteSeqTimestamp, T', T'') = 0 .
@@ -638,7 +641,8 @@ mod SMC is
   eq getToDCumulativeHttpConnectionPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthHttpReqPreNAT(TML, s N) .
 
   op PostNATHttpReq : Msg -> Bool .
-  eq PostNATHttpReq (to mastodon-proxy from Z(I, alice-raceboat-client-mas-client) : HREQ) = true .
+  --- eq PostNATHttpReq (to mastodon-proxy from Z(I, alice-raceboat-client-mas-client) : HREQ) = true .
+  eq PostNATHttpReq (to mastodon-proxy from Z(I,ADDR) : HREQ) = true .
   eq PostNATHttpReq (M) = false [owise] .
 
   op PostNATHttpReqTML : TimeMsgList -> TimeMsgList .
