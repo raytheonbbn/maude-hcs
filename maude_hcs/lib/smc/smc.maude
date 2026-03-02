@@ -135,7 +135,7 @@ mod SMC is
 
   --- Goodput: Total number of file exfil bits divided by scenario latency, in bits per second
   op getGoodputCP2 : Actor -> Float .
-  eq getGoodputCP2 (< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) = if getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) == 0.0 then 0.0 else (float(exfilNBytes(BTL')) * 8.0 / getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >)) fi .
+  eq getGoodputCP2 (< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) = if getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) == 0.0 then (float(exfilNBytes(BTL')) * 8.0 / slimit) else (float(exfilNBytes(BTL')) * 8.0 / getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >)) fi .
 
   op getGoodput : Actor -> Float .
   eq getGoodput (A:Actor) = getGoodputCP2(A) .
@@ -301,6 +301,9 @@ mod SMC is
                         --- init start window bin th consecutive
   op getToD : Config Float Float Float Float Int -> Float .
   eq getToD (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = tod(TML, T'' - T, T, T', TH, I) . 
+
+  op getPoDAvgQPS : Config Float Float Float Float Int -> Float .
+  eq getPoDAvgQPS (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = if tod(TML, T'' - T, T, T', TH, I) > 0.0 then 1.0 else 0.0 fi .
 
                         --- init start window bin th consecutive
   op isDetected : Config Float Float Float Float Int -> Bool .
@@ -538,6 +541,9 @@ mod SMC is
   op getToDCumulativeNQueryPostNAT : Config Nat -> Float .
   eq getToDCumulativeNQueryPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthQueryTimePostNAT(TML, s N) .
 
+  op getPoDCumulativeNQueryPostNAT : Config Nat -> Float .
+  eq getPoDCumulativeNQueryPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nthQueryTimePostNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
+
   op nByteQueryTimePreNAT : TimeMsgList Nat -> Float .
   eq nByteQueryTimePreNAT (TML, 0) = 0.0 .
   ceq nByteQueryTimePreNAT (tm(T, M) ; TML, N) = T if PreNATAliceQuery(M) and size(getQuery(M)) >= N and N > 0 . 
@@ -632,7 +638,8 @@ mod SMC is
   eq getToDCumulativeHttpConnectionPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthHttpReqPreNAT(TML, s N) .
 
   op PostNATHttpReq : Msg -> Bool .
-  eq PostNATHttpReq (to mastodon-proxy from Z(I, alice-raceboat-client-mas-client) : HREQ) = true .
+  --- eq PostNATHttpReq (to mastodon-proxy from Z(I, alice-raceboat-client-mas-client) : HREQ) = true .
+  eq PostNATHttpReq (to mastodon-proxy from Z(I,ADDR) : HREQ) = true .
   eq PostNATHttpReq (M) = false [owise] .
 
   op PostNATHttpReqTML : TimeMsgList -> TimeMsgList .
@@ -659,6 +666,9 @@ mod SMC is
   --- C.8 Post-NAT HTTPS connection count: Aggregate post-NAT traffic includes more than n HTTPS connections
   op getToDCumulativeHttpConnectionPostNAT : Config Nat -> Float .
   eq getToDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthHttpReqPostNAT(TML, s N) .
+
+  op getPoDCumulativeHttpConnectionPostNAT : Config Nat -> Float .
+  eq getPoDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nthHttpReqPostNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
 
   op postRequestHttpOverhead : -> Nat .
   eq postRequestHttpOverhead = 10 .
