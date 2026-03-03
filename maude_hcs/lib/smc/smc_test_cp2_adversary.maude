@@ -21,6 +21,15 @@ mod HCS_TEST is
   inc ROUTER .
   inc ADVERSARY-OBSERVER .
 
+op qps-offset : -> Float .
+eq qps-offset = 0.0 .
+op qsize-offset : -> Float .
+eq qsize-offset = 0.0 .
+op respsize-offset : -> Float .
+eq respsize-offset = 0.0 .
+op uploadrate-offset : -> Float .
+eq uploadrate-offset = 0.0 .
+
   ops adversary mastodon-proxy alice-raceboat-client-mas-client Alice Bob iodineAlice iodineBob bobapp application-client application-server dnsperf internet-dns corporate-dns mAddr monAddr public-dns root-dns tld-dns mcA : -> Address .
 
   op myIC : -> Config .
@@ -111,6 +120,30 @@ tm(2.1421681300249535, to corporate-dns from X(public-dns) : response(54089, nm(
 
 canSeeS: (pat("addr", "X") pat("addr", "Z")), canSeeR: (pat("X", "addr") pat("Z", "addr")) >
 .
+
+  op myIC3 : -> Config .
+  eq myIC3 =
+< adversary : Adversary | 
+sent: (
+tm(5.9384461638890209e-6, to mastodon-proxy from Z(0, mcA) : makeHttpRequest(postRequest, makeMediaFile("image:I-1-500-60", 500, image(1, 500, 60)))) ; 
+tm(5.9584461638890209e-6, to mastodon-proxy from Z(1, mcA) : makeHttpRequest(postRequest, "hashtag is #purple", 1)) ; 
+tm(1.5100029753460526, to mastodon-proxy from Z(3, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 50, image(0, 50, 50)))) ; 
+tm(1.5300029753460526, to mastodon-proxy from Z(4, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, "hashtag is #meow", 3)) ; 
+tm(1.7100029753460526, to mastodon-proxy from Z(3, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 150, image(0, 50, 50)))) ; 
+tm(1.7300029753460526, to mastodon-proxy from Z(4, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, "hashtag is #meow1", 3)) ; 
+tm(1.9100029753460526, to mastodon-proxy from Z(3, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 250, image(0, 50, 50)))) ; 
+tm(1.9300029753460526, to mastodon-proxy from Z(4, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, "hashtag is #meow11", 3)) ; 
+tm(2.1100029753460526, to mastodon-proxy from Z(3, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 59, image(0, 50, 50)))) ; 
+tm(2.1300029753460526, to mastodon-proxy from Z(4, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, "hashtag is #meow111", 3)) ; 
+tm(2.2100029753460526, to mastodon-proxy from Z(3, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 55, image(0, 50, 50)))) ; 
+tm(2.2300029753460526, to mastodon-proxy from Z(4, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, "hashtag is #meow1111", 3)) ; 
+tm(2.3100029753460526, to mastodon-proxy from Z(3, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 111, image(0, 50, 50)))) ; 
+tm(2.3300029753460526, to mastodon-proxy from Z(4, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, "hashtag is #meow11111", 3)) ; 
+tm(2.4100029753460526, to mastodon-proxy from Z(3, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 222, image(0, 50, 50)))) ; 
+tm(2.4300029753460526, to mastodon-proxy from Z(4, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, "hashtag is #meow111111", 3))),
+rcvd: nilTML, 
+canSeeS: (pat("addr", "X") pat("addr", "Z")), canSeeR: (pat("X", "addr") pat("Z", "addr")) >
+. 
 
 endm
 
@@ -238,3 +271,22 @@ red getToDAvgResponseSize(myIC2, 1.0, 1.0, 0.25, 6.0, 3) == 2.75 .
 red getToDAvgResponseSize(myIC2, 1.0, 1.0, 0.25, 7.0, 1) == 3.0 .
 red getToDAvgResponseSize(myIC2, 1.0, 1.0, 0.25, 8.0, 1) == 0.0 .
 
+--- MA.4 
+red getAvgUploadRate(myIC3, 0.0, 0.25) == 17.216e+3 .  
+red getAvgUploadRate(myIC3, 1.5, 0.25) == 8.736e+3 .
+red getAvgUploadRate(myIC3, 1.75, 0.25) == 9.216e+3 .
+red getAvgUploadRate(myIC3, 2.0, 0.25) == 6.176e+3 .
+red getAvgUploadRate(myIC3, 2.25, 0.25) == 13.312e+3 .
+red getAvgUploadRate(myIC3, 2.5, 0.25) == 0.0 .
+red getPerWindowUR(myIC3, 0.0, 1.0, 0.25) == 4.304e+3 0.0 0.0 2.184e+3 4.488e+3 6.032e+3 9.36e+3 7.176e+3 4.872e+3 3.328e+3 . 
+red getToDAvgUploadRate(myIC3, 1.0, 1.0, 0.25, 1.0, 1) == 2.0 . 
+red getToDAvgUploadRate(myIC3, 1.0, 1.0, 0.25, 1.0, 2) == 2.25 . 
+red getToDAvgUploadRate(myIC3, 1.0, 1.0, 0.25, 1.0, 3) == 2.5 . 
+red getToDAvgUploadRate(myIC3, 1.0, 1.0, 0.25, 1.0, 4) == 2.75 . 
+red getToDAvgUploadRate(myIC3, 1.0, 1.0, 0.25, 1.0, 5) == 3.0 . 
+red getToDAvgUploadRate(myIC3, 1.0, 1.0, 0.25, 1.0, 6) == 0.0 . 
+red getToDAvgUploadRate(myIC3, 1.0, 1.0, 0.25, 1.5, 1) == 2.5 . 
+red getToDAvgUploadRate(myIC3, 1.0, 1.0, 0.25, 1.5, 2) == 2.75 . 
+red getToDAvgUploadRate(myIC3, 1.0, 1.0, 0.25, 1.5, 3) == 0.0 . 
+red getToDAvgUploadRate(myIC3, 1.0, 1.0, 0.25, 2.0, 1) == 2.5 . 
+red getToDAvgUploadRate(myIC3, 1.0, 1.0, 0.25, 2.0, 2) == 0.0 . 
