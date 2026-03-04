@@ -11,12 +11,34 @@ import statistics
 INTERESTING_KEYS = [
     "latency",
     "goodput_bytes_per_second",
+    "C1_time_elapsed",
+    "C1_file_count",
     "C2_time_elapsed",
     "C2_file_count",
+    "C3_time_elapsed",
+    "C3_file_count",
+    "C4_time_elapsed",
+    "C4_file_count",
+    "C5_time_elapsed",
+    "C5_file_count",
+    "C6_time_elapsed",
+    "C6_file_count",
+    "C7_time_elapsed",
+    "C7_file_count",
     "C8_time_elapsed",
     "C8_file_count",
+    "C9_time_elapsed",
+    "C9_file_count",
+    "C10_time_elapsed",
+    "C10_file_count",
     "MA1_time_elapsed",
-    "MA1_file_count"
+    "MA1_file_count",
+    "MA2_time_elapsed",
+    "MA2_file_count",
+    "MA3_time_elapsed",
+    "MA3_file_count",
+    "MA4_time_elapsed",
+    "MA4_file_count"
 ]
 
 def parse_args():
