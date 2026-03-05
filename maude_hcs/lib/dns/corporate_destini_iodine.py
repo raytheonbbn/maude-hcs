@@ -189,7 +189,10 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     ## the smc measures
     maxNBinWindowSize = hcsconf.adversary.getMaxWindowSize('n')
     # the adversary is going to start at maxWindowSize because we will put the baseline data in the first window
-    adversary_conf = hcsconf.adversary.render_template(start_time=maxWindowSize, baseline_window=maxWindowSize, baseline_binsize=baselineBinSize,offset_baselines=True)
+    # we are also adding an offset to C.8 to count the number of tcp connections created by mastodon TGEN actors
+    #   NOTE: this would not have mattered (noise) if hte thresholds weren't too small and sensitive to noise
+    CONN_OFFSET = -1*len(hcsconf.protocols[Protocol.DESTINI_MASTODON.value].background_traffic.clients)
+    adversary_conf = hcsconf.adversary.render_template(start_time=maxWindowSize, baseline_window=maxWindowSize, baseline_binsize=baselineBinSize,offset_baselines=True, other_offsets={'N_http_conn_post_nat' : CONN_OFFSET})
     # generate the adversaryX from template
     scenario_name = 'X'
     if _args.filename:
