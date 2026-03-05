@@ -158,7 +158,7 @@ class Adversary:
     router_post_nat: Dict[str, Any] = field(default_factory=dict)
     baseline_bins: Dict[str, Any] = field(default_factory=dict)
 
-    def render_template(self, start_time:float = 0, baseline_window = 0.0, baseline_binsize = 1.0, offset_baselines = True) -> Dict[str, Any]:
+    def render_template(self, start_time:float = 0, baseline_window = 0.0, baseline_binsize = 1.0, offset_baselines = True, other_offsets={}) -> Dict[str, Any]:
         """
         Creates the input dictionary for QuatexGenerator.generate_file.
         Maps the script parameters from the YAML structure to the short codes expected by the generator.
@@ -269,6 +269,13 @@ class Adversary:
             print(f'{measure}: N_query_size_post_nat {config['N_query_size_post_nat']} before')
             config['N_query_size_post_nat'] += total_bytes
             print(f'{measure}: N_query_size_post_nat {config['N_query_size_post_nat']} after {total_bytes}')
+
+        if other_offsets:
+            for key in other_offsets.keys():
+                if key in config:
+                    print(f'{key}: {config[key]} before offset of {other_offsets[key]}')
+                    config[key] += other_offsets[key]
+                    print(f'{key}: {config[key]} after offset of {other_offsets[key]}')
 
         return config
 
