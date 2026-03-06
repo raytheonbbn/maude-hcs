@@ -1,11 +1,13 @@
 --- This maude file has been created automatically from the Python representation ---
 sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/dns/maude/probabilistic/iodine_dns
 sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/tgen/maude/dnsTgen-actor-uniqueId
-sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
 sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/common/maude/user-action-actor
 sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/tgen/maude/masTGen.maude
 sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/mastodon/maude/probabilistic/mastodon
-sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/app/maude/probabilistic
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/app/maude/probabilistic-no-rb
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/raceboat/rb-cm-client-hash
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/raceboat/rb-cm-server
+sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/raceboat/enc-dec-actor
 sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/common/maude/http-overhead
 sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/common/maude/router
 sload /Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh/maude_hcs/lib/common/maude/adversary-observer
@@ -36,6 +38,9 @@ mod HCS_TEST is
  inc MAS-TGEN .
  inc ADVERSARY-OBSERVER .
  inc CP2_APP .
+inc ENC-DEC .
+inc CONTENT-MANAGER-CLIENT .
+inc CONTENT-MANAGER-SERVER .
 inc HTTP-OVERHEAD .
  ---- tgen model includes
  inc DNS-CONFIG-FAST-1-MAMODEL .
@@ -51,6 +56,7 @@ inc HTTP-OVERHEAD .
  inc MASTODON-SERVER-CONFIG-CP2-SCENARIO-3-NEW-MAMODEL .
 eq monitorQueryLog? = true .
 
+eq encOH(fsize:Nat,ksize:Nat) = (if ksize:Nat < fsize:Nat then 0 else ksize:Nat + (- fsize:Nat) fi) .
 eq noiseMin(msg:Msg) = 0.001 .
 eq exeDone(< mon:Address :  WMonitor | attrs:AttributeSet, doneFlag: true > conf:Config) = true .
 eq raceBoatMastodonClients = (alice-raceboat-client-mas-client ;; user-bob-raceboat-server-mas-client) .
@@ -204,76 +210,76 @@ eq initState =
   --- WMonitor
   mkWMonitor(monAddr)
   --- tgens 
-    mkDnsTgenA(tgen-dns-0,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-0,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-0-UM,dns-config-fast-1-ma,tgen-dns-0)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-0-UM from tgen-dns-0-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-1,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-1,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-1-UM,dns-config-fast-1-ma,tgen-dns-1)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-1-UM from tgen-dns-1-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-2,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-2,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-2-UM,dns-config-fast-1-ma,tgen-dns-2)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-2-UM from tgen-dns-2-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-3,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-3,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-3-UM,dns-config-fast-1-ma,tgen-dns-3)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-3-UM from tgen-dns-3-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-4,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-4,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-4-UM,dns-config-fast-1-ma,tgen-dns-4)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-4-UM from tgen-dns-4-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-5,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-5,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-5-UM,dns-config-fast-1-ma,tgen-dns-5)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-5-UM from tgen-dns-5-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-6,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-6,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-6-UM,dns-config-fast-2-ma,tgen-dns-6)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-6-UM from tgen-dns-6-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-7,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-7,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-7-UM,dns-config-fast-2-ma,tgen-dns-7)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-7-UM from tgen-dns-7-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-8,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-8,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-8-UM,dns-config-fast-2-ma,tgen-dns-8)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-8-UM from tgen-dns-8-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-9,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-9,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-9-UM,dns-config-fast-2-ma,tgen-dns-9)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-9-UM from tgen-dns-9-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-10,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-10,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-10-UM,dns-config-fast-2-ma,tgen-dns-10)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-10-UM from tgen-dns-10-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-11,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-11,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-11-UM,dns-config-fast-2-ma,tgen-dns-11)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-11-UM from tgen-dns-11-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-12,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-12,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-12-UM,dns-config-fast-3-ma,tgen-dns-12)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-12-UM from tgen-dns-12-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-13,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-13,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-13-UM,dns-config-fast-3-ma,tgen-dns-13)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-13-UM from tgen-dns-13-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-14,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-14,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-14-UM,dns-config-fast-3-ma,tgen-dns-14)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-14-UM from tgen-dns-14-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-15,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-15,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-15-UM,dns-config-fast-3-ma,tgen-dns-15)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-15-UM from tgen-dns-15-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-16,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-16,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-16-UM,dns-config-fast-3-ma,tgen-dns-16)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-16-UM from tgen-dns-16-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-17,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-17,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-17-UM,dns-config-fast-3-ma,tgen-dns-17)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-17-UM from tgen-dns-17-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-18,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-18,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-18-UM,dns-config-fast-4-ma,tgen-dns-18)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-18-UM from tgen-dns-18-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-19,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-19,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-19-UM,dns-config-fast-4-ma,tgen-dns-19)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-19-UM from tgen-dns-19-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-20,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-20,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-20-UM,dns-config-fast-4-ma,tgen-dns-20)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-20-UM from tgen-dns-20-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-21,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-21,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-21-UM,dns-config-fast-4-ma,tgen-dns-21)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-21-UM from tgen-dns-21-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-22,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-22,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-22-UM,dns-config-fast-4-ma,tgen-dns-22)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-22-UM from tgen-dns-22-UM : actionR("")), 0]
-    mkDnsTgenA(tgen-dns-23,corporate-dns,10000, 5.0, 2)
+    mkDnsTgenA(tgen-dns-23,corporate-dns,10000, 1.2, 2)
   mkUMactor(tgen-dns-23-UM,dns-config-fast-4-ma,tgen-dns-23)
   [30.0 + genRandom(0.0, 0.0001), (to tgen-dns-23-UM from tgen-dns-23-UM : actionR("")), 0]
     makeMastodonClient(tgen-mas-0-UM-client, X(mastodon-proxy), tgen-mas-0)
