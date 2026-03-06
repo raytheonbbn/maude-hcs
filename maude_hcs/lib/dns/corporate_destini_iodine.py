@@ -257,7 +257,8 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     for index,client in enumerate(hcsconf.protocols[Protocol.IODINE_DNS.value].background_traffic.clients):
         assert isinstance(client, DNSBackgroundTrafficTgenClient)
         client.start_time = maxWindowSize # we are shifting the experiment in time to accommodate baseline data
-        tgen_clients.append(DNSTGenClient(f'tgen-dns-{index}', client.client_markov_model_profile, client.start_time, False, corp_node.address, 10000, client.client_retry_to, client.client_num_retry))
+        # TODO: undo the hardcoding of timeout back to client.client_retry_to
+        tgen_clients.append(DNSTGenClient(f'tgen-dns-{index}', client.client_markov_model_profile, client.start_time, False, corp_node.address, 10000, 1.2, client.client_num_retry))
     for index, client in enumerate(hcsconf.protocols[Protocol.DESTINI_MASTODON.value].background_traffic.clients):
         assert isinstance(client, MASBackgroundTrafficTgenClient)
         client.start_time = maxWindowSize
