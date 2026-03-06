@@ -733,9 +733,12 @@ mod SMC is
   op getPoDCumulativeHttpConnectionPreNAT : Config Nat -> Float .
   eq getPoDCumulativeHttpConnectionPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nthHttpReqPreNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
 
+  op PostNATHttpConn : Msg -> Bool .
+  eq PostNATHttpConn (to mastodon-proxy from Z(I, alice-raceboat-client-mas-client) : HREQ) = true .
+  eq PostNATHttpConn (M) = false [owise] .
+
   op PostNATHttpReq : Msg -> Bool .
-  eq PostNATHttpReq (to mastodon-proxy from Z(I, alice-raceboat-client-mas-client) : HREQ) = true .
-  --- eq PostNATHttpReq (to mastodon-proxy from Z(I,ADDR) : HREQ) = true .
+  eq PostNATHttpReq (to mastodon-proxy from Z(I,ADDR) : HREQ) = true .
   eq PostNATHttpReq (M) = false [owise] .
 
   op PostNATHttpReqTML : TimeMsgList -> TimeMsgList .
@@ -753,18 +756,18 @@ mod SMC is
   op getAdversaryPostNATHttpReqBinCount : Actor Float Float -> Nat .
   eq getAdversaryPostNATHttpReqBinCount (< ADDR : Adversary | sent: TML, attrs >, T, T') = lengthTimeWindow(PostNATHttpReqTML(TML), T, T + T') .
 
-  op nthHttpReqPostNAT : TimeMsgList Nat -> Float .
-  eq nthHttpReqPostNAT (TML, 0) = 0.0 .
-  eq nthHttpReqPostNAT (tm(T, M) ; TML, 1) = if PostNATHttpReq(M) then T else nthHttpReqPostNAT (TML, 1) fi .
-  ceq nthHttpReqPostNAT (tm(T, M) ; TML, s N) = if PostNATHttpReq(M) then nthHttpReqPostNAT(TML, N) else nthHttpReqPostNAT(TML, s N) fi if N > 0 .
-  eq nthHttpReqPostNAT (nilTML, N) = 0.0 .
+  op nthHttpConnPostNAT : TimeMsgList Nat -> Float .
+  eq nthHttpConnPostNAT (TML, 0) = 0.0 .
+  eq nthHttpConnPostNAT (tm(T, M) ; TML, 1) = if PostNATHttpConn(M) then T else nthHttpConnPostNAT (TML, 1) fi .
+  ceq nthHttpConnPostNAT (tm(T, M) ; TML, s N) = if PostNATHttpConn(M) then nthHttpConnPostNAT(TML, N) else nthHttpConnPostNAT(TML, s N) fi if N > 0 .
+  eq nthHttpConnPostNAT (nilTML, N) = 0.0 .
 
   --- C.8 Post-NAT HTTPS connection count: Aggregate post-NAT traffic includes more than n HTTPS connections
   op getToDCumulativeHttpConnectionPostNAT : Config Nat -> Float .
-  eq getToDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthHttpReqPostNAT(TML, s N) .
+  eq getToDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthHttpConnPostNAT(TML, s N) .
 
   op getPoDCumulativeHttpConnectionPostNAT : Config Nat -> Float .
-  eq getPoDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nthHttpReqPostNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
+  eq getPoDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nthHttpConnPostNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
 
   op postRequestHttpOverhead : -> Nat .
   eq postRequestHttpOverhead = 10 .
