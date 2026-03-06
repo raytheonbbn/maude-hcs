@@ -42,16 +42,18 @@ from ..common.commonActors import AdversaryActor
 from ..mastodon.mastodonActors import MASTGenClient
 from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp
 from ...parsers.markovJsonToMaudeParser import find_recursively
+from ..common import get_relative_file_path
+
 logger = logging.getLogger(__name__)
 
 class IodineDNSConfig(DNSConfig):
-    def __init__(self, standaloneActors, monitor, applications, weird_networks, clients, paced_clients, resolvers, nameservers, root_nameservers, network) -> None:
+    def __init__(self, standaloneActors, monitor, applications, weird_networks, clients, paced_clients, resolvers, nameservers, root_nameservers, network, output_dir) -> None:
         self.standaloneActors = standaloneActors
         self.monitor = monitor
         self.paced_clients = paced_clients
         self.applications = applications
         self.tunnels = weird_networks
-        super().__init__(clients, resolvers, nameservers, root_nameservers, network)
+        super().__init__(clients, resolvers, nameservers, root_nameservers, network, output_dir)
         self.common_path = Path(self.weirdpath).parent.parent.joinpath('common').joinpath('maude')
 
     def _get_actor_addresses(self):
@@ -114,6 +116,9 @@ class IodineDNSConfig(DNSConfig):
         defs += '\n'
         return defs
 
+    def to_relative_path(self, path):
+        return get_relative_file_path(self.output_dir, path)
+
     # Override
     def _maude_loads(self, path, model):
         # sload ../../../mastodon/maude/probabilistic/mastodon
@@ -122,19 +127,18 @@ class IodineDNSConfig(DNSConfig):
         if model == 'prob':
             res = '--- This maude file has been created automatically from the Python representation ---\n'
             res += '\n'.join([
-                f'sload {self.weirdpath}/probabilistic/iodine_dns',
-                f'sload {Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('dnsTgen-actor-uniqueId')}\n'
-                # f'sload {path}test/probabilistic-model/test_helpers',
-                f'sload {self.common_path}/user-action-actor\n'
-                f'sload {Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('masTGen.maude')}\n'
-                f'sload {Path(self.weirdpath).parent.parent.joinpath('mastodon').joinpath('maude').joinpath('probabilistic').joinpath('mastodon')}',
-                f'sload {Path(self.weirdpath).parent.parent.joinpath('app').joinpath('maude').joinpath('probabilistic-no-rb')}',
-                f'sload {Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('rb-cm-client-hash')}',
-                f'sload {Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('rb-cm-server')}',
-                f'sload {Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('enc-dec-actor')}',
-                f'sload {Path(self.weirdpath).parent.parent.joinpath('common').joinpath('maude').joinpath('http-overhead')}',
-                f'sload {self.common_path}/router',
-                f'sload {self.common_path}/adversary-observer'
+                f'sload {self.to_relative_path(self.weirdpath + "/probabilistic/iodine_dns")}',
+                f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('dnsTgen-actor-uniqueId'))}\n'                
+                f'sload {self.to_relative_path(self.common_path.joinpath("user-action-actor"))}\n'
+                f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('masTGen.maude'))}\n'
+                f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('mastodon').joinpath('maude').joinpath('probabilistic').joinpath('mastodon'))}',
+                f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('app').joinpath('maude').joinpath('probabilistic-no-rb'))}',
+                f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('rb-cm-client-hash'))}',
+                f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('rb-cm-server'))}',
+                f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('enc-dec-actor'))}',
+                f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('common').joinpath('maude').joinpath('http-overhead'))}',
+                f'sload {self.to_relative_path(self.common_path.joinpath("router"))}',
+                f'sload {self.to_relative_path(self.common_path.joinpath("adversary-observer"))}'
             ])
             tgen_loads = set()
             for tc in self.paced_clients:
@@ -147,14 +151,14 @@ class IodineDNSConfig(DNSConfig):
                     elif isinstance(tc, DNSTGenClient):
                         key = 'dnsprofiles'
                     file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude', key=key)
-                    tgen_loads.add(f'sload {file}')
+                    tgen_loads.add(f'sload {self.to_relative_path(file)}')
             rb_loads = set()
             for actor in self.tunnels:
                 if isinstance(actor, RaceboatClient) or isinstance(actor, RaceboatServer):
                     mod = '_'.join(actor.profile.replace('-', '_').split('_')[1:])
                     try:
                         file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude')
-                        rb_loads.add(f'sload {file}')
+                        rb_loads.add(f'sload {self.to_relative_path(file)}')
                     except:
                         logger.warning(f'Could not find {mod}.maude. Exception {traceback.format_exc()}')
 

@@ -332,7 +332,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     dnsquery = Query(0, mastodon_fqdn, 'A')
     pp.other['add-to-sent(tm(tt:Float,to addr0:Address from addr1:Address : c:Content))'] = f'tm(tt:Float,to {resolver.address} from addr1:Address : {dnsquery.to_maude()})'
 
-    C = IodineDNSConfig([Ctr(hcsconf.seed), router, adversary], monitor, [sndApp, rcvApp, mainSndApp, mainRcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network)
+    C = IodineDNSConfig([Ctr(hcsconf.seed), router, adversary], monitor, [sndApp, rcvApp, mainSndApp, mainRcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network, hcsconf.output.directory)
     ndp = {}
     pp = {}
     for pname,protocol in hcsconf.protocols.items():
