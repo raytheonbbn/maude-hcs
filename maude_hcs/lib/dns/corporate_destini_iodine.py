@@ -321,6 +321,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     if not pp.other:
         pp.other = {}
     # these are hacks for now (TODO put in the correct place)
+    pp.other['encOH(fsize:Nat,ksize:Nat)'] = '(if ksize:Nat < fsize:Nat then 0 else ksize:Nat + (- fsize:Nat) fi)'
     pp.other['noiseMin(msg:Msg)'] = 0.001
     pp.other['exeDone(< mon:Address :  WMonitor | attrs:AttributeSet, doneFlag: true > conf:Config)'] = True
     pp.other['raceBoatMastodonClients'] = f'({raceboatCl.masClientAddress} ;; {raceboatSvr.masClientAddress})'

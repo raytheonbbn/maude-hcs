@@ -124,11 +124,14 @@ class IodineDNSConfig(DNSConfig):
             res += '\n'.join([
                 f'sload {self.weirdpath}/probabilistic/iodine_dns',
                 f'sload {Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('dnsTgen-actor-uniqueId')}\n'
-                f'sload {path}test/probabilistic-model/test_helpers',
+                # f'sload {path}test/probabilistic-model/test_helpers',
                 f'sload {self.common_path}/user-action-actor\n'
                 f'sload {Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('masTGen.maude')}\n'
                 f'sload {Path(self.weirdpath).parent.parent.joinpath('mastodon').joinpath('maude').joinpath('probabilistic').joinpath('mastodon')}',
-                f'sload {Path(self.weirdpath).parent.parent.joinpath('app').joinpath('maude').joinpath('probabilistic')}',
+                f'sload {Path(self.weirdpath).parent.parent.joinpath('app').joinpath('maude').joinpath('probabilistic-no-rb')}',
+                f'sload {Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('rb-cm-client-hash')}',
+                f'sload {Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('rb-cm-server')}',
+                f'sload {Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('enc-dec-actor')}',
                 f'sload {Path(self.weirdpath).parent.parent.joinpath('common').joinpath('maude').joinpath('http-overhead')}',
                 f'sload {self.common_path}/router',
                 f'sload {self.common_path}/adversary-observer'
@@ -180,7 +183,11 @@ class IodineDNSConfig(DNSConfig):
           ' inc MAS-TGEN .',
           ' inc ADVERSARY-OBSERVER .',
           ' inc CP2_APP .',
-          'inc HTTP-OVERHEAD .'
+            'inc ENC-DEC .',
+            'inc CONTENT-MANAGER-CLIENT .',
+            'inc CONTENT-MANAGER-SERVER .',
+            'inc HTTP-OVERHEAD .'
+
         ]
         if model == 'prob':
             res = '\n'.join(includes)
