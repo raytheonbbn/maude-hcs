@@ -42,13 +42,14 @@ WEIRD_DNS_MAUDE_ROOT = Path(os.path.dirname(__file__)).joinpath(Path("maude/"))
 CWD = Path.cwd()
 
 class DNSConfig(Config):
-    def __init__(self, clients, resolvers, nameservers, root_nameservers, network) -> None:
+    def __init__(self, clients, resolvers, nameservers, root_nameservers, network, output_dir) -> None:
         self.nondet_params = {}
         self.prob_params = {}
         self.model_type = GLOBALS.MODEL_TYPES[0]
         self.path = str(TOPLEVELDIR.joinpath(DNS_MAUDE_ROOT)) + os.path.sep
         self.weirdpath = str(WEIRD_DNS_MAUDE_ROOT)
         self.preamble = None
+        self.output_dir = output_dir
         super().__init__(clients, resolvers, nameservers, root_nameservers, network)
 
     def set_params(self, nondet_params : dict, prob_params : dict):
