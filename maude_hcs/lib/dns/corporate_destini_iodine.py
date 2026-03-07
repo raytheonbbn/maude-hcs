@@ -192,7 +192,10 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     # we are also adding an offset to C.8 to count the number of tcp connections created by mastodon TGEN actors
     #   NOTE: this would not have mattered (noise) if hte thresholds weren't too small and sensitive to noise
     CONN_OFFSET = -1*len(hcsconf.protocols[Protocol.DESTINI_MASTODON.value].background_traffic.clients)
-    adversary_conf = hcsconf.adversary.render_template(start_time=maxWindowSize, baseline_window=maxWindowSize, baseline_binsize=baselineBinSize,offset_baselines=True, other_offsets={'N_http_conn_post_nat' : CONN_OFFSET})
+    # It seems there is a constant number of pre nat connection from Alice at the beginning that we arent count
+    # so we offset by this constant TODO: undersntad where this is coming from
+    CONN_OFFSET_PRENAT = -1*8
+    adversary_conf = hcsconf.adversary.render_template(start_time=maxWindowSize, baseline_window=maxWindowSize, baseline_binsize=baselineBinSize,offset_baselines=True, other_offsets={'N_http_conn_post_nat' : CONN_OFFSET, 'N_http_conn_pre_nat' : CONN_OFFSET_PRENAT})
     # generate the adversaryX from template
     scenario_name = 'X'
     if _args.filename:
