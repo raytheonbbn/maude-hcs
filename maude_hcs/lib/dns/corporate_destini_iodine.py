@@ -349,7 +349,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     # query(0, 'mastodon . 'internet . 'com . root,a)
     mastodon_fqdn = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].underlying_network.mastodon_fqdn
     dnsquery = Query(0, mastodon_fqdn, 'A')
-    pp.other[f'add-to-sent(tm(tt:Float,to addr0:Address from {raceboatCl.masClientAddress} : c:Content))'] = f'tm(tt:Float,to {resolver.address} from {raceboatCl.masClientAddress} : {dnsquery.to_maude()})'
+    pp.other[f'add-to-sent(tm(tt:Float,to addr0:Address from {raceboatCl.masClientAddress} : c:Content))'] = f'tm(tt:Float,to X({resolver.address}) from {raceboatCl.masClientAddress} : {dnsquery.to_maude()})'
     pp.other[
         f'add-to-sent(tm(tt:Float,to addr0:Address from Z(i:Nat, {raceboatCl.masClientAddress}) : c:Content))'] = f'tm(tt:Float,to {resolver.address} from Z(i:Nat, {raceboatCl.masClientAddress}) : {dnsquery.to_maude()})'
 
