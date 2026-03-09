@@ -336,9 +336,12 @@ mod SMC is
   vars ALICE BOB : Address .
   vars N1 N2 N3 N4 N5 : Nat .
 
+  op DNSQueryOverhead : -> Nat .
+  eq DNSQueryOverhead = 29 .
+
   op size : Name -> Nat .
-  eq size (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) .
-  eq size (NAME) = nameLength(NAME) [owise] .
+  eq size (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) + DNSQueryOverhead .
+  eq size (NAME) = nameLength(NAME) + DNSQueryOverhead [owise] .
 
   op size : Query -> Nat .
   eq size (query(ID, NAME, RTYPE)) = size(NAME) .
@@ -593,6 +596,7 @@ mod SMC is
 
   op PreNATAliceQuery : Msg -> Bool .
   eq PreNATAliceQuery (to X(public-dns) from corporate-dns : QUERY) = AliceQuery(QUERY) .
+  eq PreNATAliceQuery (to X(public-dns) from alice-raceboat-client-mas-client : QUERY) = true .
   eq PreNATAliceQuery (M) = false [owise] .
 
   op nthQueryTimePreNAT : TimeMsgList Nat -> Float .
