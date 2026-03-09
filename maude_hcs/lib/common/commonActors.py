@@ -18,17 +18,33 @@ messages from external actor to corporate actor preNat
 """
 from Maude.attack_exploration.src.query import Query
 
-class Msg:
-    def __init__(self, to_addr: str, from_addr: str, query: Query):
-        self.to_addr = to_addr
-        self.from_addr = from_addr
-        self.query = query
+class HttpRequestPost:
+    def __init__(self, fname: str, lenBytes: int):
+        self.fname = fname
+        self.lenBytes = lenBytes
+
     def copy(self):
-        return Msg(self.to_addr, self.from_addr, Query(self.query.id, self.query.qname, self.query.qtype))
+        return HttpRequestPost(fname=self.fname, lenBytes=self.lenBytes)
 
     def to_maude(self) -> str:
-        s = self.query.to_maude()
-        return f"to {self.to_addr} from {self.from_addr} : {self.query.to_maude()}"
+        return f'makeHttpRequest(postRequest, makeMediaFile("{self.fname}", {self.lenBytes}))'
+
+class Msg:
+    def __init__(self, to_addr: str, from_addr: str, content):
+        self.to_addr = to_addr
+        self.from_addr = from_addr
+        self.content = content
+
+    def copy(self):
+        if isinstance(self.content, Query):
+            cp = Query(self.content.id, self.content.qname, self.content.qtype)
+        else:
+            cp = self.content.copy()
+        return Msg(self.to_addr, self.from_addr, cp)
+
+    def to_maude(self) -> str:
+        s = self.content.to_maude()
+        return f"to {self.to_addr} from {self.from_addr} : {s}"
 
 
 class TimeMsg:
@@ -43,6 +59,15 @@ class TimeMsg:
 class TimeMsgList:
     def __init__(self, msgs: List[TimeMsg]):
         self.msgs = msgs
+
+    def merge(self, other: 'TimeMsgList') -> 'TimeMsgList':
+        """
+        Merges this TimeMsgList with another one.
+        Returns a new TimeMsgList with messages sorted by time in ascending order.
+        """
+        # Combine the lists and sort them based on the 'time' attribute
+        merged_msgs = sorted(self.msgs + other.msgs, key=lambda tm: tm.time)
+        return TimeMsgList(merged_msgs)
 
     def to_maude(self) -> str:
         if not self.msgs:
@@ -90,13 +115,20 @@ def generateBaselineBins(baselineBins: Dict[str, Any], measure: str, binSize: fl
 
     # Get the bins data for the measure
     measure_bins = baselineBins.get('bins', {}).get(measure, [])
-    measure_bytes_bins = baselineBins.get('bins', {}).get(f'{measure}_bytes', [])
+    is_bytes_measure = False
+    # if the measure is already in bytes
+    if measure.endswith('bytes'):
+        measure_bytes_bins = measure_bins
+        is_bytes_measure = True
+    else: # there is a another sister measure that is bytes
+        measure_bytes_bins = baselineBins.get('bins', {}).get(f'{measure}_bytes', [])
     if measure_bytes_bins:
         assert len(measure_bytes_bins) == len(measure_bins), f'{measure} array has different size than {measure}_bytes array in baseline data, {len(measure_bytes_bins)} != {len(measure_bins)}'
     # if we have more bins only keep the last nbins
     if len(measure_bins) > num_bins:
         measure_bins = measure_bins[-num_bins:]
-        measure_bytes_bins = measure_bytes_bins[-num_bins:]
+        if measure_bytes_bins:
+            measure_bytes_bins = measure_bytes_bins[-num_bins:]
     # Convert list of lists [[idx, val], ...] to dict for easier lookup
     # bin_data = {item[0]: item[1] for item in measure_bins}
     # Iterate backwards from the last bin
@@ -107,6 +139,9 @@ def generateBaselineBins(baselineBins: Dict[str, Any], measure: str, binSize: fl
         per_msg_bytes = 0
         if measure_bytes_bins and count > 0:
             per_msg_bytes = math.ceil(measure_bytes_bins[i][1] / count)
+        if is_bytes_measure and count > 0: # in this case we will create one msg with the size
+            per_msg_bytes = count
+            count = 1
 
         T_i = i * binSize
 

@@ -45,7 +45,7 @@ import os
 from .utils import extend_or_truncate
 from .. import GLOBALS, Protocol
 from ..common import X
-from ..common.commonActors import ObservationPattern, AdversaryActor, generateBaselineBins, Msg
+from ..common.commonActors import ObservationPattern, AdversaryActor, generateBaselineBins, Msg, HttpRequestPost
 from ..mastodon.mastodonActors import MastodonServer, MastodonClient, MASTGenClient
 from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp, RbRcvApp
 from ...deps.dns_formalization.Maude.attack_exploration.src.zone import Record
@@ -232,11 +232,30 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     def xformQuery(M, size):
         if size == 0: return M
         M1 = M.copy()
-        M1.query.qname = extend_or_truncate(M.query.qname, size)
+        M1.content.qname = extend_or_truncate(M.content.qname, size)
         return M1
+
+    def xformHttpRequest(M, size):
+        if size == 0: return M
+        M1 = M.copy()
+        M1.content.lenBytes = size
+        return M1
+
+    def identity(M, size):
+        return M
+
     q = Query(0, f"www.{ee_domain}", 'A')
     msg = Msg(f'{resolver.address}', f'Z(0, {nameserverCORP.address})', q)
-    baselineBinMsgs = generateBaselineBins(hcsconf.adversary.baseline_bins, 'dns_request', binSize=baselineBinSize, maxWindowSize=maxWindowSize, msg=msg, xform=xformQuery)
+    dnsReqBaselineBinMsgs = generateBaselineBins(hcsconf.adversary.baseline_bins, 'dns_request',
+                                                 binSize=baselineBinSize, maxWindowSize=maxWindowSize, msg=msg,
+                                                 xform=xformQuery)
+    httpReq = HttpRequestPost("baseline.jpg", 0)
+    msg = Msg(f'{mastodon_server_address}', f'Z(0, tgen-mas-0)', httpReq)
+    httpUpstreamBytesBinMsgs = generateBaselineBins(hcsconf.adversary.baseline_bins, 'http_upstream_bytes',
+                                                 binSize=baselineBinSize, maxWindowSize=maxWindowSize, msg=msg,
+                                                 xform=xformHttpRequest)
+    baselineMsgs = dnsReqBaselineBinMsgs.merge(httpUpstreamBytesBinMsgs)
+
     """
         # these are offsets from start time for the differnet avg bin measures
         Extracts 'offset' values from sub-dictionaries in the input config
@@ -254,7 +273,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
                           [ObservationPattern.ExtToLocalPostNat,
                            ObservationPattern.LocalToExtPreNat
                            ],
-                           baselineBinMsgs,
+                           baselineMsgs,
                            offsets
                           )
 
