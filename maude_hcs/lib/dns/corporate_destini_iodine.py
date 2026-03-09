@@ -195,7 +195,23 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     # It seems there is a constant number of pre nat connection from Alice at the beginning that we arent count
     # so we offset by this constant TODO: undersntad where this is coming from
     CONN_OFFSET_PRENAT = -1*8
-    adversary_conf = hcsconf.adversary.render_template(start_time=maxWindowSize, baseline_window=maxWindowSize, baseline_binsize=baselineBinSize,offset_baselines=True, other_offsets={'N_http_conn_post_nat' : CONN_OFFSET, 'N_http_conn_pre_nat' : CONN_OFFSET_PRENAT})
+    # DNS query offset: our models do not send a DNS query every time we send an HTTP request;
+    # instead we use the add-to-sent below to inject a DNS query for each HTTP request
+    # we constrain this injection to only HTTP requests from Alice because alice creates a new connection per request
+    #   whereas the mastodon tgen clients reuse a connection (so they resolve the domain name once);
+    #   This however requires adding #tgens DNS resolutions, one per which is is the purpose of this DNS count offset
+    DNS_CNT_OFFSET = CONN_OFFSET
+    adversary_conf = hcsconf.adversary.render_template(
+        start_time=maxWindowSize,
+        baseline_window=maxWindowSize,
+        baseline_binsize=baselineBinSize,
+        offset_baselines=True,
+        other_offsets={
+            'N_http_conn_post_nat' : CONN_OFFSET,
+            'N_http_conn_pre_nat' : CONN_OFFSET_PRENAT,
+            'N_query_post_nat' : DNS_CNT_OFFSET
+        }
+    )
     # generate the adversaryX from template
     scenario_name = 'X'
     if _args.filename:
@@ -333,7 +349,9 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     # query(0, 'mastodon . 'internet . 'com . root,a)
     mastodon_fqdn = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].underlying_network.mastodon_fqdn
     dnsquery = Query(0, mastodon_fqdn, 'A')
-    pp.other['add-to-sent(tm(tt:Float,to addr0:Address from addr1:Address : c:Content))'] = f'tm(tt:Float,to {resolver.address} from addr1:Address : {dnsquery.to_maude()})'
+    pp.other[f'add-to-sent(tm(tt:Float,to addr0:Address from {raceboatCl.masClientAddress} : c:Content))'] = f'tm(tt:Float,to {resolver.address} from {raceboatCl.masClientAddress} : {dnsquery.to_maude()})'
+    pp.other[
+        f'add-to-sent(tm(tt:Float,to addr0:Address from Z(i:Nat, {raceboatCl.masClientAddress}) : c:Content))'] = f'tm(tt:Float,to {resolver.address} from Z(i:Nat, {raceboatCl.masClientAddress}) : {dnsquery.to_maude()})'
 
     C = IodineDNSConfig([Ctr(hcsconf.seed), router, adversary], monitor, [sndApp, rcvApp, mainSndApp, mainRcvApp], [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr], clients, tgen_clients, [resolver], [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP], root_nameservers, parameterized_network, hcsconf.output.directory)
     ndp = {}
