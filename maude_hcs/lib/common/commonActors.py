@@ -31,8 +31,8 @@ class HttpRequestPost:
 
 class Msg:
     def __init__(self, to_addr: str, from_addr: str, content):
-        self.to_addr = to_addr
-        self.from_addr = from_addr
+        self.to_addr = address_to_maude(to_addr)
+        self.from_addr = address_to_maude(from_addr)
         self.content = content
 
     def copy(self):
