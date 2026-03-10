@@ -52,7 +52,7 @@ def start_client(args):
         logger.info(f"Starting with random seed {seed}")
         while running and ((n is None) or (runs < n)):
           # Send the current timestamp
-          weird_data = rng.getrandbits(8)
+          weird_data = 0 if args.blank else  rng.getrandbits(8)
           send_timestamp = weird_rtt_embed.time64b()
           client_timestamp = str(weird_rtt_embed.rtt_embed(send_timestamp, count, weird_data))
           
@@ -68,7 +68,7 @@ def start_client(args):
           time_send = (recv_time - recvd_server_timestamp)
           time_recv = (recvd_server_timestamp - recvd_client_timestamp)
           rtt = time_send + time_recv
-          logger.info(f"Received server_timestamp: {server_data}; current_time:{recv_time} up: {time_send}; down: {time_recv}; RTT: {rtt}")
+          logger.info(f"Received server_timestamp: {server_data}; current_time:{recv_time/1e6} up: {time_send}us; down: {time_recv}us; RTT: {rtt}us")
           count += 1
           runs += 1
 
@@ -100,6 +100,13 @@ if __name__ == "__main__":
         type = str,
         default = "10.0.0.1",
         help = "Server address (default 10.0.0.1)"
+    )
+
+    parser.add_argument(
+        '-b', '--blank',
+        action = "store_true",
+        default = False,
+        help = "Send no weird data"
     )
 
     parser.add_argument(
