@@ -135,7 +135,7 @@ mod SMC is
 
   --- Goodput: Total number of file exfil bits divided by scenario latency, in bits per second
   op getGoodputCP2 : Actor -> Float .
-  eq getGoodputCP2 (< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) = if getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) == 0.0 then (float(exfilNBytes(BTL')) * 8.0 / slimit) else (float(exfilNBytes(BTL')) * 8.0 / getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >)) fi .
+  eq getGoodputCP2 (< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) = if getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) == 0.0 then (float(exfilNBytes(BTL')) / slimit) else (float(exfilNBytes(BTL')) / getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >)) fi .
 
   op getGoodput : Actor -> Float .
   eq getGoodput (A:Actor) = getGoodputCP2(A) .
@@ -781,7 +781,8 @@ mod SMC is
   eq postRequestHttpOverhead = 10 .
 
   op size : HttpRequest -> Nat .
-  eq size (makeHttpRequest(postRequest, makeMediaFile(S:String, len, bytes))) = len + postRequestHttpOverhead .
+  ---eq size (makeHttpRequest(postRequest, makeMediaFile(S:String, len, bytes))) = len + postRequestHttpOverhead .
+  eq size (makeHttpRequest(postRequest, makeMediaFile(S:String, len, bytes))) = (len - (floor((len + 187) / 1448) * 1448)) + 66 + (1514 * floor((len + 187) / 1448)) .
   eq size (makeHttpRequest(postRequest, POST_TEXT, MAS_ID_LIST:MasIdList)) = length(POST_TEXT) + postRequestHttpOverhead .
 
   op nByteHttpUploadPreNAT : TimeMsgList Nat -> Float .
