@@ -27,7 +27,7 @@ class HttpRequestPost:
         return HttpRequestPost(fname=self.fname, lenBytes=self.lenBytes)
 
     def to_maude(self) -> str:
-        return f'makeHttpRequest(postRequest, makeMediaFile("{self.fname}", {self.lenBytes}))'
+        return f'makeHttpRequest(postRequest, makeMediaFile("{self.fname}", {self.lenBytes}, image(1, {self.lenBytes}, 0)))'
 
 class Msg:
     def __init__(self, to_addr: str, from_addr: str, content):
