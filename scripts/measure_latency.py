@@ -20,6 +20,7 @@ Assumptions
 """
 
 import argparse
+import json
 import os
 import matplotlib.pyplot as plt
 import numpy as np
@@ -231,6 +232,27 @@ def process_tgen_posts(file_path, sizes_B, durations_s):
 
   return sizes_B, durations_s
 
+
+def process_tgen_resolves(file_path, resolve_durations_s):
+  with open(file_path, 'r') as f:
+    for line in f:
+      m = DATE_RE.match(line)
+      if not m:
+        continue
+
+      if "STATS=" in line and "resolve_a" in line:
+        json_str = line.split("STATS=")[1]
+        data = json.loads(json_str)
+        num_resolves = data["num_to_resolve"] if "num_to_resolve" in data else 1
+        i = num_resolves
+        while i > 0:
+          resolve_durations_s.append(data["elapsed_time"] / num_resolves)
+          i -= 1
+
+  return resolve_durations_s
+
+
+
 def process_tcp(target):
   if "noloss" in target:
     return parse_data(data_series_3)
@@ -247,8 +269,14 @@ def analyze_raceboat(target, subdirs):
     fetch_durations_s = []
     post_sizes_B = []
     post_durations_s  = []
+    path_preamble = ""
     for sub in subdirs:
-        archive_path = os.path.join(target, sub, "archive/app_client.log")
+        nonarchive_path = os.path.join(target, sub, "app_client.log")
+        if os.path.exists(nonarchive_path):
+          archive_path = nonarchive_path
+        else:
+          path_preamble = "archive/"
+        archive_path = os.path.join(target, sub, path_preamble + "app_client.log")
         if not os.path.exists(archive_path):
            print(f"Target: {os.path.join(target, sub)}")
            subprocess.run(['unzip', os.path.join(target, sub,  "*.zip"), "-d", os.path.join(target, sub)])
@@ -263,17 +291,18 @@ def analyze_raceboat(target, subdirs):
             latencies.append(seconds)
             goodputs.append(payload_size_bytes * 8 / seconds)
             total_payload_bytes += payload_size_bytes
-        archive_path = os.path.join(target, sub, "archive/raceboat_server.log")
-        sizes_B, durations_s = process_fetches(archive_path, fetch_sizes_B, fetch_durations_s)
-        archive_path = os.path.join(target, sub, "archive/raceboat_client.log")
-        sizes_B, durations_s = process_posts(archive_path, post_sizes_B, post_durations_s)
+        archive_path = os.path.join(target, sub, path_preamble + "raceboat_server.log")
+        process_fetches(archive_path, fetch_sizes_B, fetch_durations_s)
+        archive_path = os.path.join(target, sub, path_preamble + "raceboat_client.log")
+        process_posts(archive_path, post_sizes_B, post_durations_s)
     print(f"Average latency = {sum(latencies) / len(latencies)}s.")
     print(f"Total payload size = {total_payload_bytes}B.")
     print(f"Average goodput = {sum(goodputs) / len(goodputs)}bps.")
     throughputs = [a / b for a,b in zip(fetch_sizes_B, fetch_durations_s)]
-    print(f"Fetch Throughput = {8 * sum(throughputs) / len(throughputs)}bps")
+    print(f"Fetch throughput = {8 * sum(throughputs) / len(throughputs)}bps")
     throughputs = [a / b for a,b in zip(post_sizes_B, post_durations_s)]
-    print(f"Post Throughput = {8 * sum(throughputs) / len(throughputs)}bps")
+    print(f"Post throughput = {8 * sum(throughputs) / len(throughputs)}bps")
+    print(f"Average fetch = {sum(fetch_durations_s) / len(fetch_durations_s):.3f}s")
 
     return fetch_sizes_B, fetch_durations_s, post_sizes_B, post_durations_s
 
@@ -336,7 +365,11 @@ def analyze_tgen(target, subdirs):
   upload_sizes_B = []
   upload_durations_s = []
   for sub in subdirs:
-    tgen_dir = os.path.join(target, sub, "archive", "tgen_logs")
+    nonarchive_dir = os.path.join(target, sub, "tgen_logs")
+    if os.path.exists(nonarchive_dir):
+      tgen_dir = nonarchive_dir
+    else:
+      tgen_dir = os.path.join(target, sub, "archive", "tgen_logs")
     mastodon_subdirs  = sorted(
         d for d in os.listdir(tgen_dir)
         if os.path.isdir(os.path.join(tgen_dir, d)) and "mastodon" in d
@@ -363,7 +396,38 @@ def analyze_tgen(target, subdirs):
   return download_sizes_B, download_durations_s, upload_sizes_B, upload_durations_s
 
 
-def main(target: str):
+def analyze_dns_tgen(target, subdirs):
+  resolve_durations_s = []
+  for sub in subdirs:
+    nonarchive_dir = os.path.join(target, sub, "tgen_logs")
+    if os.path.exists(nonarchive_dir):
+      tgen_dir = nonarchive_dir
+    else:
+      tgen_dir = os.path.join(target, sub, "archive", "tgen_logs")
+    dns_subdirs  = sorted(
+        d for d in os.listdir(tgen_dir)
+        if os.path.isdir(os.path.join(tgen_dir, d)) and "dns" in d
+    )
+    print(f"Found tgen subdirs {dns_subdirs}")
+
+    for dns_dir in dns_subdirs:
+      dns_dir = os.path.join(tgen_dir, dns_dir, "logs")
+      user_files = sorted(
+        f for f in os.listdir(dns_dir)
+        if os.path.isfile(os.path.join(dns_dir, f)) and "user" in f
+      )
+
+    for user_file in user_files:
+      file_path = os.path.join(dns_dir, user_file)
+      print(f"Processing {file_path}...")
+      resolve_durations_s = process_tgen_resolves(file_path, resolve_durations_s)
+
+  print(f"resolves {resolve_durations_s}")
+  print(f"DNS resolves = {sum(resolve_durations_s) / len(resolve_durations_s):.6}s")
+     
+
+def main(args):
+    target = args.scenario
     # 1. Find all sub‑directories inside target
     subdirs = sorted(
         d for d in os.listdir(target)
@@ -378,22 +442,51 @@ def main(target: str):
 
     to_process = subdirs[1:-1]
 
-    fetch_sizes_B, fetch_durations_s, post_sizes_B, post_durations_s = analyze_raceboat(target, to_process)
-    plot_transfers(target+"_rb", fetch_sizes_B, fetch_durations_s, post_sizes_B, post_durations_s)
+    if args.mastodon:
+      if args.raceboat:
+        fetch_sizes_B, fetch_durations_s, post_sizes_B, post_durations_s = analyze_raceboat(target, to_process)
+        plot_transfers(target+"_rb", fetch_sizes_B, fetch_durations_s, post_sizes_B, post_durations_s)
 
-    fetch_sizes_B, fetch_durations_s, post_sizes_B, post_durations_s = analyze_tgen(target, to_process)
-    plot_transfers(target+"_tgen", fetch_sizes_B, fetch_durations_s, post_sizes_B, post_durations_s)
+      if args.tgen:
+        fetch_sizes_B, fetch_durations_s, post_sizes_B, post_durations_s = analyze_tgen(target, to_process)
+        plot_transfers(target+"_tgen", fetch_sizes_B, fetch_durations_s, post_sizes_B, post_durations_s)
 
+    if args.dns_resolve:
+        analyze_dns_tgen(target, to_process)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute time differences in archive.txt files.")
     parser.add_argument(
         "scenario",
-        nargs="?",
-        default="target_folder",
-        help="Root folder containing subdirectories (default: target_folder)",
+        nargs = "?",
+        default = "target_folder",
+        help = "Root folder containing subdirectories (default: target_folder)",
     )
+    parser.add_argument(
+        "-m", "--mastodon",
+        action = "store_true",
+        default = False,
+        help = "Grab mastodon fetch and post latencies"
+        )
+    parser.add_argument(
+        "-d", "--dns_resolve",
+        action = "store_true",
+        default = False,
+        help = "Grab dns resolve latencies"
+        )
+    parser.add_argument(
+        "-r", "--raceboat",
+        action = "store_true",
+        default = False,
+        help = "Grab raceboat latencies"
+        )
+    parser.add_argument(
+        "-t", "--tgen",
+        action = "store_true",
+        default = False,
+        help = "Grab tgen latencies"
+        )
     args = parser.parse_args()
-    main(args.scenario)
+    main(args)
 
