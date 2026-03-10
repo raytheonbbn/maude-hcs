@@ -201,32 +201,6 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     #   whereas the mastodon tgen clients reuse a connection (so they resolve the domain name once);
     #   This however requires adding #tgens DNS resolutions, one per which is is the purpose of this DNS count offset
     DNS_CNT_OFFSET = CONN_OFFSET
-    adversary_conf = hcsconf.adversary.render_template(
-        start_time=maxWindowSize,
-        baseline_window=maxWindowSize,
-        baseline_binsize=baselineBinSize,
-        offset_baselines=True,
-        other_offsets={
-            'N_http_conn_post_nat' : CONN_OFFSET,
-            'N_http_conn_pre_nat' : CONN_OFFSET_PRENAT,
-            'N_query_post_nat' : DNS_CNT_OFFSET
-        }
-    )
-    # generate the adversaryX from template
-    scenario_name = 'X'
-    if _args.filename:
-        scenario_name = f'_{_args.filename}'
-    advFileName = f'adversary{scenario_name}.quatex'
-    quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'adversary_param.j2'))
-    quatexGenerator.generate_file(adversary_conf, os.path.join(hcsconf.output.smc_directory, advFileName))
-    # generate the scalabilityX from template
-    scalFileName = f'scalability{scenario_name}.quatex'
-    quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'scalability_param.j2'))
-    quatexGenerator.generate_file(adversary_conf, os.path.join(hcsconf.output.smc_directory, scalFileName))
-    # generate the cp2 eval file
-    quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'cp2_eval_param.j2'))
-    quatexGenerator.generate_file({'adversary' : advFileName, 'scalability' : scalFileName},
-                                  os.path.join(hcsconf.output.smc_directory, f'cp2_eval{scenario_name}.quatex'))
 
     ## the actor and observables
     def xformQuery(M, size):
@@ -252,9 +226,42 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     httpReq = HttpRequestPost("baseline.jpg", 0)
     msg = Msg(f'{mastodon_server_address}', f'Z(0, tgen-mas-0)', httpReq)
     httpUpstreamBytesBinMsgs = generateBaselineBins(hcsconf.adversary.baseline_bins, 'http_upstream_bytes',
-                                                 binSize=baselineBinSize, maxWindowSize=maxWindowSize, msg=msg,
-                                                 xform=xformHttpRequest)
+                                                    binSize=baselineBinSize, maxWindowSize=maxWindowSize, msg=msg,
+                                                    xform=xformHttpRequest)
+    # get the total bytes we need these to offset threshold by
+    TOTAL_HTTP_BYTES_OFFSET = sum([m.msg.content.lenBytes for m in httpUpstreamBytesBinMsgs.msgs])
     baselineMsgs = dnsReqBaselineBinMsgs.merge(httpUpstreamBytesBinMsgs)
+
+    adversary_conf = hcsconf.adversary.render_template(
+        start_time=maxWindowSize,
+        baseline_window=maxWindowSize,
+        baseline_binsize=baselineBinSize,
+        offset_baselines=True,
+        other_offsets={
+            'N_http_conn_post_nat' : CONN_OFFSET,
+            'N_http_conn_pre_nat' : CONN_OFFSET_PRENAT,
+            'N_query_post_nat' : DNS_CNT_OFFSET,
+            'N_http_upload_post_nat' : TOTAL_HTTP_BYTES_OFFSET
+        }
+    )
+
+
+    # generate the adversaryX from template
+    scenario_name = 'X'
+    if _args.filename:
+        scenario_name = f'_{_args.filename}'
+    advFileName = f'adversary{scenario_name}.quatex'
+    quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'adversary_param.j2'))
+    quatexGenerator.generate_file(adversary_conf, os.path.join(hcsconf.output.smc_directory, advFileName))
+    # generate the scalabilityX from template
+    scalFileName = f'scalability{scenario_name}.quatex'
+    quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'scalability_param.j2'))
+    quatexGenerator.generate_file(adversary_conf, os.path.join(hcsconf.output.smc_directory, scalFileName))
+    # generate the cp2 eval file
+    quatexGenerator = QuatexGenerator(template_path=os.path.join(hcsconf.output.smc_directory, 'cp2_eval_param.j2'))
+    quatexGenerator.generate_file({'adversary' : advFileName, 'scalability' : scalFileName},
+                                  os.path.join(hcsconf.output.smc_directory, f'cp2_eval{scenario_name}.quatex'))
+
 
     """
         # these are offsets from start time for the differnet avg bin measures
