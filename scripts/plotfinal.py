@@ -211,9 +211,9 @@ def parse_smc_directory(directory, quatex_directory):
                     "PoD": q.get("PoD", np.nan)
                 }
                 # bytes per sec vs bits
-                if key == 'goodput':
-                    smc_data[scenario_id][key]["mean"] /= 8
-                    smc_data[scenario_id][key]["std"] /= 8
+                # if key == 'goodput':
+                #     smc_data[scenario_id][key]["mean"] /= 8
+                #     smc_data[scenario_id][key]["std"] /= 8
 
 
     return smc_data
