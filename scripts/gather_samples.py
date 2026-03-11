@@ -3,10 +3,22 @@ import sys
 import argparse
 import re
 import shutil
+from pathlib import Path
 from run_cp2_demo import cdf_gen
-from annotateResults import annotate_results
+from plotfinal import parse_tne_directory, extract_scenario_id
 
-def process_scenarios(input_dir, output_dir, smc_dir):
+def process_dat(files, input_dir, output_dir, tne_directory):
+    # check if we have a corresponding scenario file in tne directory
+    tne_data = {}
+    if tne_directory:
+        print(f'Parsing tne data from {tne_directory}')
+        tne_data = parse_tne_directory(tne_directory)
+    for filename in files:
+        sid = extract_scenario_id(filename)
+        print(f'generating CDFs for sid {sid} from {filename}')
+        cdf_gen(Path(input_dir).joinpath(filename), f'scenario_{sid}', output_dir=output_dir, emp_data=tne_data.get(sid, {}))
+
+def process_scenarios(input_dir, output_dir, tne_directory):
     """
     Combines sample files for scenarios and copies non-sample files.
     """
@@ -40,6 +52,11 @@ def process_scenarios(input_dir, output_dir, smc_dir):
         sys.exit(1)
 
     for filename in files:
+        if filename.endswith(".dat"):
+            print(f"Processing as .dat instead of samples ...")
+            process_dat(files, input_dir, output_dir, tne_directory)
+            return
+
         filepath = os.path.join(input_dir, filename)
 
         # Skip directories, process only files
@@ -94,21 +111,6 @@ def process_scenarios(input_dir, output_dir, smc_dir):
         print('generating CDFs')
         cdf_gen(output_filepath, scenario_name)
 
-    # 2. Copy Non-Sample Files
-    for filename in non_sample_files:
-        src = os.path.join(input_dir, filename)
-        dst = os.path.join(output_dir, filename)
-        print(f"Copying non-sample file: {filename}")
-        try:
-            shutil.copy2(src, dst)
-        except IOError as e:
-            print(f"Error copying {filename}: {e}")
-
-        # if file is a json file, annorate
-        if dst.endswith('.json'):
-            print(f'Annotating {filename}... using quatex in {smc_dir}')
-            annotate_results(dst, smc_dir)
-
     print("\nProcessing complete.")
 
 
@@ -116,11 +118,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Combine distributed scenario result files into single sample files."
     )
-
     parser.add_argument("input_dir", help="Path to the directory containing results")
     parser.add_argument("output_dir", help="Path to the directory where output will be saved")
-    parser.add_argument("smc_dir", help="Path to the directory where smc quatex formula is")
+    parser.add_argument("tne_dir", default=None, help="Path to the empirical T&E results directory")
 
     args = parser.parse_args()
 
-    process_scenarios(args.input_dir, args.output_dir, args.smc_dir)
+    process_scenarios(args.input_dir, args.output_dir, args.tne_dir)

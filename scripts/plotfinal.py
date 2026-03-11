@@ -39,6 +39,20 @@ MAPPING = {
     "MA4_time_elapsed": "OpDurationMA4",
     "MA4_file_count": "ExfilFilesMA4"
 }
+# Create a reverse dictionary where keys and values are swapped
+REVERSE_MAPPING = {v.lower(): k for k, v in MAPPING.items()}
+
+QUERY_KEYS = [
+    "latency", "goodput",
+    "exfilfilesc1", "exfilfilesc2", "exfilfilesc3", "exfilfilesc4", "exfilfilesc5",
+    "exfilfilesc6", "exfilfilesc7", "exfilfilesc8", "exfilfilesc9", "exfilfilesc10",
+    "exfilfilesma1", "exfilfilesma2", "exfilfilesma3", "exfilfilesma4",
+    "opdurationc1", "opdurationc2", "opdurationc3", "opdurationc4", "opdurationc5",
+    "opdurationc6", "opdurationc7", "opdurationc8", "opdurationc9", "opdurationc10",
+    "opdurationma1", "opdurationma2", "opdurationma3", "opdurationma4",
+    "podc1", "podc2", "podc3", "podc4", "podc5", "podc6", "podc7", "podc8", "podc9", "podc10",
+    "podma1", "podma2", "podma3", "podma4"
+]
 
 def annotate_results(query_results_file, query_def_path_str):
     """
@@ -242,7 +256,9 @@ def parse_tne_directory(directory):
                     "mean": np.mean(samples),
                     "std": np.std(samples, ddof=1) if len(samples) > 1 else 0.0,
                     "min": np.min(samples),
-                    "max": np.max(samples)
+                    "max": np.max(samples),
+                    "nsims": len(samples),
+                    "samples": samples
                 }
 
     return tne_data
