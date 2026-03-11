@@ -8,73 +8,127 @@ import re
 
 import numpy as np
 import matplotlib.pyplot as plt
+from plotfinal import MAPPING, REVERSE_MAPPING, QUERY_KEYS
 
 TOPLEVELDIR = Path(os.path.dirname(__file__))
 
 cdfGeneration = False
 
-def cdf_gen(data_fn:str, prefix:str = None):
-  if not prefix:
-    prefix = re.sub(r"\..*$", "", data_fn)
-
-  raw_data = np.genfromtxt(data_fn, delimiter=" ", missing_values=["None"], filling_values=np.nan)
-
-  if len(raw_data.shape) < 2:
-      print(f'******++++Skipping scenario {prefix} input .dat {data_fn} empty++++********')
-      return
-
-  num_col = raw_data.shape[1]
-
-  for col in range(num_col):
-    data = raw_data[:, col]
-    filtered_data = data[~np.isnan(data)]
-    sorted_data = np.sort(np.array(filtered_data, dtype=float))
-    #print (sorted_data)
-
-    if len(sorted_data) == 0:
-        print(f'******Skipping scenario {prefix} col {col}, no data********')
-        continue
-    
-    cdf = np.arange (1, len(sorted_data) + 1) / len(sorted_data)
-
-    min = np.min(sorted_data)
-    max = np.max(sorted_data)
-    avg = np.mean(sorted_data)
-    min_y = cdf[np.argmin(sorted_data)]
-    max_y = cdf[np.argmax(sorted_data)]
-    avg_y = cdf[(np.abs(sorted_data - avg)).argmin()]
-
-    plt.figure(figsize=(6,4))
-    plt.step(sorted_data, cdf,where="post")
-    plt.xlabel("Value")
-    plt.ylabel("CDF")
-    plt.grid(True)
-    plt.plot(min, min_y, "go", label=f"Min = {min:.3f}")
-    plt.plot(max, max_y, "bo", label=f"Max = {max:.3f}")
-    plt.plot(avg, avg_y, "ro", label=f"Avg = {avg:.3f}")
-    plt.legend()
+def get_cdf_filename(col: int) -> str:
+    """
+    Takes a column index (0-43) and returns the corresponding query key
+    formatted as a PDF filename (e.g., '_latency.pdf').
+    """
+    # Lookup table of all 44 column names extracted from the queries.
+    # Converted to lowercase to match your _latency and _goodput examples.
 
 
-    if col == 0:
-      cdf_fn = prefix + "_latency.pdf"
-    elif col == 1:
-      cdf_fn = prefix + "_goodput.pdf"
-    elif col == 2:
-      cdf_fn = prefix + "_exfil_c2.pdf"
-    elif col == 3:
-      cdf_fn = prefix + "_exfil_c8.pdf"
-    elif col == 4:
-      cdf_fn = prefix + "_exfil_ma1.pdf"
-    elif col == 5:
-      cdf_fn = prefix + "_op_c2.pdf"
-    elif col == 6:
-      cdf_fn = prefix + "_op_c8.pdf"
-    elif col == 7:
-      cdf_fn = prefix + "_op_ma1.pdf"
-      
-    plt.title(Path(cdf_fn).stem)
-    plt.savefig(Path(data_fn).parent.joinpath(cdf_fn))
-    plt.close('all')
+    # Check if the column ID is within the valid range
+    if 0 <= col < len(QUERY_KEYS):
+        cdf_fn = f"_{QUERY_KEYS[col]}.pdf"
+        return cdf_fn
+    else:
+        raise ValueError(f"Column ID {col} is out of bounds. Must be between 0 and 43.")
+
+def cdf_gen(data_fn: str, prefix: str = None, output_dir: str = None, emp_data: dict = None):
+    """
+    Computes and plots the CDF for samples from a file, optionally overlaying empirical data.
+    """
+    if not prefix:
+        prefix = re.sub(r"\..*$", "", data_fn)
+
+    raw_data = np.genfromtxt(data_fn, delimiter=" ", missing_values=["None"], filling_values=np.nan)
+
+    if len(raw_data.shape) < 2:
+        print(f'******++++Skipping scenario {prefix} input .dat {data_fn} empty++++********')
+        return
+
+    num_col = raw_data.shape[1]
+    N = raw_data.shape[0]
+
+    # Increase base font size for readability
+    plt.rcParams.update({'font.size': 14})
+
+    for col in range(num_col):
+        data = raw_data[:, col]
+        filtered_data = data[~np.isnan(data)]
+        sorted_data = np.sort(np.array(filtered_data, dtype=float))
+
+        if len(sorted_data) == 0:
+            print(f'******Skipping scenario {prefix} col {col}, no data********')
+            continue
+
+        cdf = np.arange(1, len(sorted_data) + 1) / len(sorted_data)
+
+        # Renamed min/max to avoid shadowing built-in functions
+        min_val = np.min(sorted_data)
+        max_val = np.max(sorted_data)
+        avg_val = np.mean(sorted_data)
+        min_y = cdf[np.argmin(sorted_data)]
+        max_y = cdf[np.argmax(sorted_data)]
+        avg_y = cdf[(np.abs(sorted_data - avg_val)).argmin()]
+
+        plt.figure(figsize=(8, 5))
+
+        # Plot raw data (SMC)
+        plt.step(sorted_data, cdf, where="post", label="SMC", linewidth=2)
+
+        # Plot empirical data (T&E) if provided
+        N_emp_str = ''
+        if emp_data is not None:
+            query_key = QUERY_KEYS[col]
+            # Get the correct empirical key from the reverse mapping, fallback to the query_key if not found
+            emp_key = REVERSE_MAPPING.get(query_key, query_key)
+
+            if emp_key in emp_data:
+                emp_entry = emp_data[emp_key]
+
+                # Check if it's structured as a dict ({"samples": [], "nsims": X}) or just the list directly
+                if isinstance(emp_entry, dict) and "samples" in emp_entry:
+                    emp_samples = emp_entry["samples"]
+                else:
+                    emp_samples = emp_entry
+
+                if len(emp_samples) > 0:
+                    sorted_emp = np.sort(np.array(emp_samples, dtype=float))
+                    cdf_emp = np.arange(1, len(sorted_emp) + 1) / len(sorted_emp)
+                    N_emp_str = f'(N_tne={len(emp_samples)})'
+                    plt.step(sorted_emp, cdf_emp, where="post", label="T&E", linestyle="--", linewidth=2)
+                    min_emp_val = np.min(sorted_emp)
+                    max_emp_val = np.max(sorted_emp)
+                    avg_emp_val = np.mean(sorted_emp)
+                    min_emp_y = cdf_emp[np.argmin(sorted_emp)]
+                    max_emp_y = cdf_emp[np.argmax(sorted_emp)]
+                    avg_emp_y = cdf_emp[(np.abs(sorted_emp - avg_emp_val)).argmin()]
+                    plt.plot(min_emp_val, min_emp_y, "g+", markersize=8, label=f"T&E Min = {min_emp_val:.3f}")
+                    plt.plot(max_emp_val, max_emp_y, "b+", markersize=8, label=f"T&E Max = {max_emp_val:.3f}")
+                    plt.plot(avg_emp_val, avg_emp_y, "r+", markersize=8, label=f"T&E Avg = {avg_emp_val:.3f}")
+
+
+
+        plt.xlabel("Value", fontsize=16)
+        plt.ylabel("CDF", fontsize=16)
+        plt.grid(True)
+
+        # Add markers for SMC stats
+        plt.plot(min_val, min_y, "go", markersize=8, label=f"SMC Min = {min_val:.3f}")
+        plt.plot(max_val, max_y, "bo", markersize=8, label=f"SMC Max = {max_val:.3f}")
+        plt.plot(avg_val, avg_y, "ro", markersize=8, label=f"SMC Avg = {avg_val:.3f}")
+
+        plt.legend(fontsize=12, loc='best')
+
+        cdf_fn = prefix + get_cdf_filename(col)
+
+        plt.title(f'{Path(cdf_fn).stem} (SMC N={N}) {N_emp_str}', fontsize=16)
+
+        # Make the plot tight to ensure labels fit cleanly
+        plt.tight_layout()
+
+        if output_dir:
+            plt.savefig(Path(output_dir).joinpath(cdf_fn))
+        else:
+            plt.savefig(Path(data_fn).parent.joinpath(cdf_fn))
+        plt.close('all')
 
 def smc_cdf(scenario_path:Path, result_path:Path, smc_path:Path, nsims:int, nsims_max:int):
   result = {}
