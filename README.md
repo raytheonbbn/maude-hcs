@@ -97,7 +97,7 @@ The first step is to convert these to formal maude representations.
 
 To do so, specify the 
  - protocol: dns or mastodon 
- -  input directory containing all the json models that you want to convert
+ - input directory containing all the json models that you want to convert
  - output directory that will contain all the maude versions of the json models
 
 For example,
@@ -136,13 +136,20 @@ See example [corporate-iodine-conf.json](./use-cases/corporate-iodine-conf.json)
 Note that probabilistic model will combine the nondeterministic params as well as the 
 probabilistic params (whic override the nondeterministic ones).
 
-## Using a YML configuraiton
-
+## Using a YML configuration
+### Single configurations
 A YML configuration contains the full config of the tunnels and undelying networks.
 We can generate an HCS config directly from it.
 ```shell
  maude-hcs --verbose  generate --yml-filename=./use-cases/challenge-problem-2/cp2_setup_example.yml     --model=prob --filename=generated_test_yml
 ```
+
+### Batched configurations of CP2
+For batched configurations like the ones in CP2, convert multiple YML files to Maude scenario files:
+```shell
+ ./scripts/generate_cp2_maude.sh [scenario_dir]
+```
+Where `scenario_dir` is optional (defaults to `../pwnd_cp2`)
 
 ## Using Shadow yaml configuration
 The network configuration can be specified using a shadow file instead of our HCS config json
@@ -344,6 +351,16 @@ For example to generate the images used by mastodon tgen client (similarly cover
  maude-hcs --verbose --protocol dnsmastodon images --image-dir ../pwnd-cp2/src/static/images/ --image-out-dir results/
 ```
 
+### To generate the comparison plots per quatex query across scenarios between testbed and SMC
+Use plotfinal.py with arguments smc\_directory, tne\_directory, quatex\_directory
+```shell
+python scripts/plotfinal.py use-cases/challenge-problem-2/results-aligned/ use-cases/challenge-problem-2/cp2_scenarios_tne/cp2_te_results/ smc/
+```
+
+The same script will generate the CDF plots.
+```shell
+python scripts/gather\_samples.py use-cases/challenge-problem-2/results-aligned/samples/ use-cases/challenge-problem-2/results-aligned/cdfs use-cases/challenge-problem-2/cp2_scenarios_tne/cp2_te_results/
+```
 
 # References
 
