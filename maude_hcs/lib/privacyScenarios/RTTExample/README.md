@@ -27,7 +27,7 @@ adversary can see.  We model an adversary that uses a
 notion of inforamtion content (bientropy) to compare
 execution of RTT and WRTT versions.
 
-Please refer to the ([.Readme.txt](https://github.com/raytheonbbn/maude-hcs/blob/cp2.eval/maude_hcs/lib/privacyScenarios/RTTExample/Readme.txt)) for details. 
+Please refer to the [Readme.txt](https://github.com/raytheonbbn/maude-hcs/blob/cp2.eval/maude_hcs/lib/privacyScenarios/RTTExample/Readme.txt) for details. 
 
 Below are the umaudemc SMC results. Queries 1 and 2 correspond to RTT and entropy, respectively. The ``iSrtt`` and ``iSwrtt/iSbwrtt`` correspond to the initial terms for the ordinary and weird RTT cases, respectively. 
 
