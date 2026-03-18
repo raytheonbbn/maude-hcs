@@ -29,7 +29,7 @@ execution of RTT and WRTT versions.
 
 Please refer to the [Readme.txt](.Readme.txt) for details. 
 
-Below are the umaudemc SMC results. Queries 1 and 2 correspond to RTT and entropy, respectively. The ``iSrtt`` and ``iSwrtt/iSbwrtt`` corespond to the initial terms for the ordinary and weird RTT cases, respectively. 
+Below are the umaudemc SMC results. Queries 1 and 2 correspond to RTT and entropy, respectively. The ``iSrtt`` and ``iSwrtt/iSbwrtt`` correspond to the initial terms for the ordinary and weird RTT cases, respectively. 
 
 (1) Alice adding noise added to timestamp in rttReq
     Alice embedding a byte stream
