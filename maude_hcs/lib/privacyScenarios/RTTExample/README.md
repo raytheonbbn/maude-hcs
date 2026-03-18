@@ -31,8 +31,7 @@ Please refer to the [Readme.txt](https://github.com/raytheonbbn/maude-hcs/blob/c
 
 Below are the umaudemc SMC results. Queries 1 and 2 correspond to RTT and entropy, respectively. The ``iSrtt`` and ``iSwrtt/iSbwrtt`` correspond to the initial terms for the ordinary and weird RTT cases, respectively. 
 
-(1) Alice adding noise added to timestamp in rttReq
-    Alice embedding a byte stream
+(1) Alice embedding a byte stream -- noise added to timestamp in rttReq
     
 ```console
 $ umaudemc scheck rtt-smc iSrtt wrtt.quatex  --assign pmaude
