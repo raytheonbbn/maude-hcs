@@ -1,0 +1,167 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ./common/irc_name
+sload ./common/_aux
+sload ./irc_nondet
+
+mod IRC_TESTS is
+  pr IRC_NAMES .
+  pr IRC_NODE .
+  pr IRC .
+
+  ops ircClientAddr ircServerAddr aliceAddr bobAddr carolynAddr rbAddr : -> Address .
+  ops aliceIrcClient : -> Actor .
+  ops ircServer preconfiguredIrcServer : -> Actor .
+
+
+  eq aliceIrcClient = makeIrcClient(ircClientAddr, aliceAddr, ircServerAddr) .
+  eq ircServer = makeIrcServer(ircServerAddr, rbAddr) .
+
+  eq preconfiguredIrcServer =
+    < ircServerAddr : IrcServer |
+        thisAddr: ircServerAddr,
+        raceboatAddr: ircClientAddr,
+        channelMap: (makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr)))
+    >
+  .
+endm
+
+set print attribute on .
+---set trace on .
+
+red registerIrcUser(makeIrcChannelName("bbn") ~> makeIrcUserName("Alice") : makeIrcUserName("Bob"),
+                    makeIrcChannelName("sri"),
+                    makeIrcUserName("Carolyn"))
+  == (makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice") : makeIrcUserName("Bob")))
+      : (makeIrcChannelName("sri") ~> makeIrcUserName("Carolyn"))
+.
+
+red registerIrcUsers(emptyNameClientsMap,
+                     makeIrcChannelName("bbn"),
+                     aliceAddr ; bobAddr)
+  == (makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr)))
+.
+
+red registerIrcUser(emptyNameClientsMap, 
+                    makeIrcChannelName("bbn"),
+                    makeIrcUserName("Bob"))
+  == (makeIrcChannelName("bbn") ~> makeIrcUserName("Bob"))
+.
+
+red registerIrcUser(makeIrcChannelName("bbn") ~> makeIrcUserName("Alice"),
+                    makeIrcChannelName("bbn"),
+                    makeIrcUserName("Bob"))
+  == (makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice") : makeIrcUserName("Bob")))
+.
+
+red registerIrcUsers(emptyNameClientsMap,
+                     makeIrcChannelName("bbn"),
+                     aliceAddr ; bobAddr)
+  == (makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr)))
+.
+
+red getClients(emptyNameClientsMap, makeIrcChannelName("bbn"))
+  == emptyIrcUserNameList
+.
+
+red getClients(makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice") : makeIrcUserName("Bob")),
+               makeIrcChannelName("bbn"))
+  == (makeIrcUserName("Alice") : makeIrcUserName("Bob"))
+.
+
+red getClients(makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice") : makeIrcUserName("Bob")),
+               makeIrcName(makeIrcChannelName("bbn")))
+  == (makeIrcUserName("Alice") : makeIrcUserName("Bob"))
+.
+
+red getClients(makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice") : makeIrcUserName("Bob")),
+               makeIrcName(makeIrcChannelName("att")))
+  == emptyIrcUserNameList
+.
+
+red getClients(makeIrcChannelName("bbn") ~> makeIrcUserName("Alice"), makeIrcUserName("Alice"))
+  == makeIrcUserName("Alice")
+.
+
+red getClients(makeIrcChannelName("bbn") ~> makeIrcUserName("Alice"),
+               makeIrcName(makeIrcUserName("Alice"))) 
+  == makeIrcUserName("Alice")
+.
+
+red getClients(makeIrcChannelName("bbn") ~> makeIrcUserName("Bob"),
+               makeIrcName(makeIrcUserName("Alice")))
+  == emptyIrcUserNameList
+.
+
+red isChannelName(makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice")),
+                  makeIrcName("bbn"))
+  == true
+.
+
+red isChannelName(emptyNameClientsMap, makeIrcName("bbn")) == false .
+
+rew aliceIrcClient
+    (to ircClientAddr from aliceAddr : makeAppChat(makeIrcName(makeIrcUserName(bobAddr)), 
+                                                               "Hello Bob!"))
+---  == (to rbAddr from ircClientAddr : makeIrcPrivMsg(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(ircClientAddr), "Hello Bob!")) ircClient
+.
+
+rew ircServer
+    (to ircServerAddr from rbAddr : JoinChannel(makeIrcChannelName("bbn"), aliceAddr ; bobAddr))
+.
+
+--- Server receive message for channel, forward to all users (Alice and Bob) in channel.
+rew preconfiguredIrcServer
+    (to ircServerAddr from rbAddr : makeIrcPrivMsg(makeIrcName(makeIrcChannelName("bbn")),
+                                                   makeIrcUserName(carolynAddr),
+                                                   "Hello All!"))
+---  == nullMsg
+---      (to rbAddr from ircServerAddr : makeIrcPrivMsg(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
+---      (to rbAddr from ircServerAddr : makeIrcPrivMsg(makeIrcName(makeIrcUserName(aliceAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
+---    ircServer
+.
+
+rew preconfiguredIrcServer
+    (to ircServerAddr from rbAddr : makeIrcPrivMsg(makeIrcName(makeIrcChannelName("bbn")),
+                                                   makeIrcUserName(aliceAddr),
+                                                   "Hello All!"))
+---  == nullMsg
+---      (to rbAddr from ircServerAddr : makeIrcPrivMsg(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
+---      ircServer
+. 
+
+rew aliceIrcClient
+    preconfiguredIrcServer
+    (to ircServerAddr from rbAddr : makeIrcPrivMsg(makeIrcName(makeIrcChannelName("bbn")),
+                                                   makeIrcUserName(carolynAddr),
+                                                   "Hello All!"))
+.
+
