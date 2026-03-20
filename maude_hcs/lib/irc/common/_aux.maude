@@ -1,0 +1,193 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ./irc_name
+sload ../../common/maude/_aux
+
+
+mod IRC_NODE is
+  pr IRC_NAMES .
+  pr CP2_SORTS .
+
+  vars DST_ADDR SRC_ADDR APP_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR RB_ADDR : Address .
+  vars IRC_CLIENT_ADDRS : AddrList .
+  vars attrs attrsNext attrsTrans : AttributeSet .
+  vars IRC_NAME : IrcName .
+  vars IRC_USER_NAME DST_IRC_USER_NAME SRC_IRC_USER_NAME : IrcUserName .
+  vars IRC_USER_NAME_LIST : IrcUserNameList .
+  vars CHANNEL_MAP : NameClientsMap .
+  vars MSG_TEXT : String .
+
+  sorts AppChat .
+  subsorts AppChat < Content .
+
+  ---                Dest        Text
+  op makeAppChat : IrcUserName String -> AppChat .
+
+  ----------------
+  --- [IRC Client]
+  ----------------
+  --- Attributes ---
+  op IrcClient : -> ActorType [ctor] .
+  --- This client's address.
+  op thisAddr:_ : Address -> Attribute [ctor] .
+  --- The App address.
+  op appAddr:_ : Address -> Attribute [ctor] .
+  --- The Raceboat address.
+  op raceboatAddr:_ : Address -> Attribute [ctor] .
+  --- The IRC name.
+  op ircName:_ : IrcUserName -> Attribute [ctor] .
+
+  --- Make an IrcClient ItsAddr  AppAddr  RBAddr
+  op makeIrcClient :    Address  Address  Address -> Actor .
+  eq makeIrcClient(IRC_CLIENT_ADDR, APP_ADDR, RB_ADDR) =
+    < IRC_CLIENT_ADDR : IrcClient |
+        thisAddr: IRC_CLIENT_ADDR,
+        appAddr: APP_ADDR,
+        raceboatAddr: RB_ADDR,
+        ircName: makeIrcUserName(IRC_CLIENT_ADDR)
+    >
+  .
+
+  op getThisAddr : AttributeSet -> Address .
+  eq getThisAddr(attrs, thisAddr: IRC_CLIENT_ADDR) = IRC_CLIENT_ADDR .
+
+  op getAppAddr : AttributeSet -> Address .
+  eq getAppAddr(attrs, appAddr: APP_ADDR) = APP_ADDR .
+
+  op getRaceboatAddr : AttributeSet -> Address .
+  eq getRaceboatAddr(attrs, raceboatAddr: RB_ADDR) = RB_ADDR .
+
+  op getIrcName : AttributeSet -> IrcUserName .
+  eq getIrcName(attrs, ircName: IRC_USER_NAME) = IRC_USER_NAME .
+  
+  ----------------
+  --- [IRC Server]
+  ----------------
+  op IrcServer : -> ActorType [ctor] .
+  --- The channel name to user name map.
+  op channelMap:_ : NameClientsMap -> Attribute [ctor] .
+  --- Common attributes.
+  --- This server's address.
+  ---op thisAddr:_ : Address -> Attribute [ctor] .
+  --- The Raceboat address.
+  ---op raceboatAddr:_ : Address -> Attribute [ctor] .
+
+  --- Make an IrcServer ItsAddr RBAddr
+  op makeIrcServer :    Address Address -> Actor .
+  eq makeIrcServer(IRC_SERVER_ADDR, RB_ADDR) =
+    < IRC_SERVER_ADDR : IrcServer |
+        thisAddr: IRC_SERVER_ADDR,
+        raceboatAddr: RB_ADDR,
+        channelMap: emptyNameClientsMap
+    >
+  .
+
+  op registerIrcUser : AttributeSet IrcChannelName Address -> AttributeSet .
+  eq registerIrcUser((attrs, channelMap: CHANNEL_MAP),
+                     IRC_CHANNEL_NAME:IrcChannelName,
+                     IRC_CLIENT_ADDR)
+    = (attrs, channelMap: registerIrcUser(CHANNEL_MAP,
+                                          IRC_CHANNEL_NAME:IrcChannelName,
+                                          IRC_CLIENT_ADDR))
+  .
+
+  op registerIrcUsers : AttributeSet IrcChannelName AddrList -> AttributeSet .
+  eq registerIrcUsers((attrs, channelMap: CHANNEL_MAP),
+                      IRC_CHANNEL_NAME:IrcChannelName,
+                      IRC_CLIENT_ADDRS)
+    = (attrs, channelMap: registerIrcUsers(CHANNEL_MAP,
+                                           IRC_CHANNEL_NAME:IrcChannelName,
+                                           IRC_CLIENT_ADDRS))
+  .
+
+
+  --- Get the channel map.
+  op getChannelMap : AttributeSet -> NameClientsMap .
+  eq getChannelMap(attrs, channelMap: CHANNEL_MAP:NameClientsMap)
+    = CHANNEL_MAP:NameClientsMap
+  .
+
+
+  --- Create a message to go from a client to another client or all clients in 
+  --- a channel.
+  ---                 Attributes    Src IRC User  IRC dest users  Text
+  op createPrivMsg :  AttributeSet  IrcUserName   IrcUserNameList String -> Config .
+  eq createPrivMsg(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST, MSG_TEXT)
+    = $createPrivMsg(getRaceboatAddr(attrs),
+                     getThisAddr(attrs),
+                     SRC_IRC_USER_NAME,
+                     MSG_TEXT,
+                     IRC_USER_NAME_LIST)
+    [ print "Create IRC msg to " IRC_USER_NAME_LIST ]
+  .
+
+  --- Create a message to go from a client to another client or all clients in
+  --- a channel, recursively.  
+  ---                 Dest    Src     SourceUser  Text    User name list
+  op $createPrivMsg : Address Address IrcUserName String  IrcUserNameList -> Config .
+  ceq $createPrivMsg(DST_ADDR,
+                    SRC_ADDR,
+                    SRC_IRC_USER_NAME,
+                    MSG_TEXT,
+                    DST_IRC_USER_NAME : IRC_USER_NAME_LIST)
+    = msg:Msg
+        $createPrivMsg(DST_ADDR,
+                       SRC_ADDR,
+                       SRC_IRC_USER_NAME,
+                       MSG_TEXT,
+                       IRC_USER_NAME_LIST)
+    if msg:Msg :=
+      (if DST_IRC_USER_NAME == SRC_IRC_USER_NAME
+         then nullMsg
+         else (to DST_ADDR from SRC_ADDR : makeIrcPrivMsg(makeIrcName(DST_IRC_USER_NAME),
+                                                  SRC_IRC_USER_NAME,
+                                                  MSG_TEXT))
+      fi)
+    [ print "Create IRC msg from " SRC_IRC_USER_NAME " to " DST_IRC_USER_NAME " " IRC_USER_NAME_LIST ]
+  .
+
+  eq $createPrivMsg(DST_ADDR,
+                    SRC_ADDR,
+                    SRC_IRC_USER_NAME,
+                    MSG_TEXT,
+                    emptyIrcUserNameList)
+    = nullMsg [ owise ]
+  .
+
+endm
+
+mod IRC_AUX is
+  pr IRC_NAMES .
+
+  op JoinChannel : IrcChannelName AddrList -> Content .
+endm
+
+

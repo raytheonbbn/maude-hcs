@@ -1,0 +1,158 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../../../deps/dns_formalization/Maude/common/actor
+
+mod IRC_NAMES is
+  pr ACTOR-MODEL .
+  
+  sorts IrcName IrcChannelName IrcUserName IrcUserNameList .
+  sorts NameClients NameClientsMap .
+  sorts IrcMsg .
+
+  subsorts IrcName < IrcChannelName .
+  subsorts IrcName < IrcUserName < IrcUserNameList .
+  subsorts NameClients < NameClientsMap .
+  subsorts IrcMsg < Content .
+
+  op nilIrcUserName : -> IrcUserName .
+  op emptyIrcUserNameList : -> IrcUserNameList [ctor] .
+  op _:_ : IrcUserNameList IrcUserNameList -> IrcUserNameList [ctor assoc id: emptyIrcUserNameList] .
+
+  op makeIrcChannelName : String -> IrcChannelName .
+  op makeIrcName : IrcChannelName -> IrcName .
+---  eq makeIrcName(makeIrcChannelName(IRC_CHANNEL_NAME:String)) = makeIrcName(IRC_CHANNEL_NAME:String) .
+  op makeIrcName : IrcUserName -> IrcName .
+---  eq makeIrcName(makeIrcUserName(IRC_USER_NAME:String)) = makeIrcName(IRC_USER_NAME:String) .
+  op makeIrcName : String -> IrcName .
+  op makeIrcUserName : String -> IrcUserName .
+  op makeIrcUserName : Address -> IrcUserName .
+  --- IRC Priv Msg    Dest    SourceUser  Text
+  op makeIrcPrivMsg : IrcName IrcUserName String -> IrcMsg .
+
+  op _~>_ : IrcChannelName IrcUserNameList -> NameClients [ctor].
+  op emptyNameClientsMap : -> NameClientsMap .
+  op _:_ : NameClientsMap NameClientsMap -> NameClientsMap [ctor assoc comm id: emptyNameClientsMap] .
+
+  vars nameClientsMap : NameClientsMap .
+  vars client : IrcUserName .
+  vars clientList : IrcUserNameList .
+
+  op registerIrcUser : NameClientsMap IrcChannelName Address -> NameClientsMap .
+  eq registerIrcUser(CHANNEL_MAP:NameClientsMap,
+                     IRC_CHANNEL_NAME:IrcChannelName,
+                     CLIENT_ADDR:Address)
+    = registerIrcUser(CHANNEL_MAP:NameClientsMap,
+                      IRC_CHANNEL_NAME:IrcChannelName,
+                      makeIrcUserName(CLIENT_ADDR:Address))
+  .
+  op registerIrcUser : NameClientsMap IrcChannelName IrcUserName -> NameClientsMap .
+  --- Insert name (with a client).
+  --- If the already exist, add client to list.
+  eq registerIrcUser((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> clientList)), 
+                     IRC_CHANNEL_NAME:IrcChannelName,
+                     client)
+    = (nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (clientList : client)))
+  .
+  --- Otherwise create new channel with client.
+  eq registerIrcUser(nameClientsMap, IRC_CHANNEL_NAME:IrcChannelName, client)
+    = (nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> client)) [owise]
+  .
+
+  op registerIrcUsers : NameClientsMap IrcChannelName AddrList -> NameClientsMap .
+  eq registerIrcUsers(CHANNEL_MAP:NameClientsMap,
+                      IRC_CHANNEL_NAME:IrcChannelName,
+                      CLIENT_ADDR:Address ; CLIENT_ADDRS:AddrList)
+    = registerIrcUsers(registerIrcUser(CHANNEL_MAP:NameClientsMap,
+                                       IRC_CHANNEL_NAME:IrcChannelName,
+                                       CLIENT_ADDR:Address),
+                       IRC_CHANNEL_NAME:IrcChannelName,
+                       CLIENT_ADDRS:AddrList)
+  .
+  eq registerIrcUsers(CHANNEL_MAP:NameClientsMap,
+                      IRC_CHANNEL_NAME:IrcChannelName,
+                      nil)
+    = CHANNEL_MAP:NameClientsMap
+  .
+
+  --- Server functions.
+  --- Get all the clients / user names present in a channel.
+  --- If the IRC name is a channel name (server will send to all users in channel).
+  op getClients : NameClientsMap IrcChannelName -> IrcUserNameList .
+  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> clientList)),
+                IRC_CHANNEL_NAME:IrcChannelName)
+    = clientList
+  .
+  eq getClients(emptyNameClientsMap, IRC_CHANNEL_NAME:IrcChannelName) = emptyIrcUserNameList .
+  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME0:IrcChannelName ~> clientList)),
+                IRC_CHANNEL_NAME1:IrcChannelName) = emptyIrcUserNameList [owise print "owise" ] .
+
+  --- If the IRC name is a user name (server will send only to that user).
+  op getClients : NameClientsMap IrcUserName -> IrcUserNameList .
+  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME:IrcUserName : clientList))),
+                IRC_USER_NAME:IrcUserName)
+    = IRC_USER_NAME:IrcUserName
+    [ print "Return " IRC_USER_NAME:IrcUserName ]
+  .
+  eq getClients(nameClientsMap, IRC_USER_NAME:IrcUserName) = emptyIrcUserNameList [owise] .
+
+  --- If the IRC name is just an IRC name built from something else.
+  op getClients : NameClientsMap IrcName -> IrcUserNameList .
+  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME:IrcUserName : clientList))),
+                makeIrcName(IRC_USER_NAME:IrcUserName))
+    = getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME:IrcUserName : clientList))),
+                 IRC_USER_NAME:IrcUserName)
+    [ print "getClients User Name" ]
+  .
+  eq getClients(nameClientsMap,
+                makeIrcName(IRC_USER_NAME:IrcUserName)) = emptyIrcUserNameList [ owise print "empty from user name" ] .
+
+  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME:IrcUserName : clientList))),
+                makeIrcName(IRC_CHANNEL_NAME:IrcChannelName))
+    = getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME:IrcUserName : clientList))),
+                 IRC_CHANNEL_NAME:IrcChannelName)
+    [ print "getClients channel name move" ]
+  .
+  eq getClients(nameClientsMap,
+                makeIrcName(IRC_CHANNEL_NAME:IrcChannelName)) = emptyIrcUserNameList [ owise print "empty from channel name" ] .
+
+  --- Check if an IRC Name is a channel name or user name.
+  op isChannelName : NameClientsMap IrcName -> Bool .
+  eq isChannelName((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> clientList)),
+                   IRC_CHANNEL_NAME:IrcChannelName)
+    = true
+  .
+  eq isChannelName((nameClientsMap : (makeIrcChannelName(NAME:String) ~> clientList)),
+                   makeIrcName(NAME:String))
+    = true
+  .
+  eq isChannelName(nameClientsMap, IRC_NAME:IrcName) = false [owise] .
+endm
+
