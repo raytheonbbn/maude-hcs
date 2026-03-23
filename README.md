@@ -1,40 +1,50 @@
 # Maude-HCS
 
-Maude-HCS is one of the first generalized and modular toolchains for specifying 
-and reasoning about Hidden Communication Systems (HCS) at real-world scales. 
-The Maude-HCS toolchain, comprised of a Domain Specific Language (DSL) and analysis toolkit, 
-enables network designers to explore alternative HCS designs quickly and effectively 
-and provides provable privacy-performance guarantees needed to trust the design — 
-a necessary step for HCS users to ultimately trust the system, especially when operating 
-in high threat environments where detection of illicit communication has dire consequences.
+Maude-HCS is one of the first generalized and modular toolchains for formally specifying 
+and reasoning about Hidden Communication Systems (HCS) at real-world scales.
+It enables network designers to explore alternative HCS designs quickly and effectively 
+and provides formal privacy-performance guarantees needed to trust the design.
 
-# Requirements
+## Introduction
+Hidden communication systems (HCS) embed covert messages within ordinary network activity to hide the presence of communication. 
+In practice, the undetectability of an HCS is typically evaluated using ad hoc traffic statistics or specific detectors, 
+making security claims tightly coupled to experimental setups and implicit adversarial assumptions. 
+
+Maude-HCS is an executable modeling and analysis framework that provides a principled and executable foundation 
+for reasoning about undetectability–performance tradeoffs in complex HCS designs.
+Designers formally specify protocol behavior, adversary observables, and environmental assumptions, and 
+generate Monte Carlo samples from the induced trace distributions. 
+These can be used to audit claims of undetectability by estimating the true and false positive rates of 
+a statistical test and converting these estimates into lower bounds on undetectability measures. 
+This enables systematic evaluation of detectability and its tradeoffs with performance under explicitly stated modeling assumptions.
+
+Please reach out to us if you need assistance modeling and reasoning about your HCS.
+And please consider citing our work if you use it as part of your research.
+```bibtex
+@article{khoury2026maude,
+  title={Maude-HCS: Model Checking the Undetectability-Performance Tradeoffs of Hidden Communication Systems},
+  author={Khoury, Joud and Kim, Minyoung and Merlin, Christophe and Meseguer, Jos{\'e} and Ratliff, Zachary and Talcott, Carolyn},
+  journal={arXiv preprint arXiv:2603.03369},
+  year={2026}
+}
+```
+
+## Requirements
 Requires python version `3.12.4`
 
-If you use pyenv:
+Create your preferred environment and activate it, for example
 
+For pyenv
 ```bash
 pyenv install 3.12.4
 pyenv local 3.12.4
 ```
-
-# Installation
-
-Create your preferred environment:
-
-## Conda
-Create a conda env
+For conda
 ```bash
 conda create --name pwnd2 python=3.12.4
 conda activate pwnd2
 ```
-
-Then, install
-``` bash
-pip install -e .
-```
-
-## VIRTUALENV
+For virtual env
 ```bash
 python -m venv venv
 source venv/bin/activate
@@ -48,14 +58,13 @@ to it.
 We use sparse-checkout to avoid needing to checkout all the source of the 
 dependency which includes many irrelevant files (such as Testbed).
 
-First setup a new conda environment and activate it.
-
-Clone the main repo
+To clone the main repo
 ```shell
 git clone git@github.com:raytheonbbn/maude-hcs.git
 ```
 The main branch has the latest (possibly unstable) source.
-Older branches/tags such as `pwnd.cp1` refer to stable snapshots used to produce results during evaluations (e.g., `pwnd.cp1` used for challenge problem 1, and similarly `pwnd.cp2`).
+Older branches/tags such as `pwnd.cp1` refer to stable snapshots used to produce results during evaluations 
+(e.g., `pwnd.cp1` used for challenge problem 1, and similarly `pwnd.cp2`).
 To use an older snapshot, checkout the specific branch (eg `pwnd.cp1`).
 
 Setup the dns submodule using our clone of the code so we can track changes 
@@ -63,7 +72,8 @@ made to the original source, use sparse-checkout to keep only relevant sources
 ```shell
 cd maude-hcs
 mkdir -p maude_hcs/deps
-git submodule add -b <branch> -f git@github.com:raytheonbbn/dns-formalization-maude.git maude_hcs/deps/dns_formalization
+git submodule add -b <branch> -f git@github.com:raytheonbbn/dns-formalization-maude.git \
+  maude_hcs/deps/dns_formalization
 cd maude_hcs/deps/dns_formalization
 git sparse-checkout init --cone
 git sparse-checkout set "Maude/dns" "Maude/common" "Maude/test" "Maude/attack_exploration"
@@ -74,7 +84,8 @@ git reset maude_hcs/deps/dns_formalization
 In the command above set `<branch>` either to `pwnd.cp1` to reproduce challenge problem 1 results, 
 or to `pwnd` for the latest version. 
 
-The above should create a new file named sparse-checkout under .git/modules/maude_hcs/deps/dns_formalization/info/ 
+The above should create a new file named sparse-checkout under 
+  .git/modules/maude_hcs/deps/dns_formalization/info/ 
 and tell it to only include certain directories such as `Maude/src`.
 
 At this point `git status` should show a clean start.
@@ -89,7 +100,7 @@ cd ../../../
 pip install -e .
 ```
 
-# Auto generate user models
+## Auto generate user models
 
 User models are markov models intended to represent how users behave.
 These are given in json format. 
@@ -97,7 +108,7 @@ The first step is to convert these to formal maude representations.
 
 To do so, specify the 
  - protocol: dns or mastodon 
- - input directory containing all the json models that you want to convert
+ - input directory containing all the json models that you want to convert 
  - output directory that will contain all the maude versions of the json models
 
 For example,
@@ -112,46 +123,57 @@ For example,
 maude-hcs --verbose \
     --protocol=mastodon markov \
     --json-dir=../pwnd-cp2/src/static/tgen_models/mastodon \
-    --maude-dir=./maude_hcs/lib/tgen/maude/mastodonprofiles/markov/
+    --maude-dir="./maude_hcs/lib/raceboat/maude/mastodonprofiles/"
 ```
+See example markov json specifications under `./maude_hcs/lib/tgen/maude/dnsprofiles/markov/`
+(and similarly for mastodon), along with their converted maude specifications.
 
-# Auto generate configurations
+## Auto generate HCS configurations
 
-For now we can generate initial configurations using `generate` command.
+We generate initial configurations using the `generate` command.
 HCS Configurations can be directly passed in json using HCS configuration parameters, 
-or using a Shadow experiment configuration. Each of these is described next. 
+or using a Shadow experiment configuration file, or using a YML configuration file. 
+Each of these is described next. 
 
-## Using HCS json Configuration 
+### Using HCS json Configuration 
 Pass a maude-hcs json configuration file as follows,
 
 To generate a probabilistic DNS model config with iodine and specify the output filename,
 ```shell
- maude-hcs --verbose  generate --run-args=./results/generated_test_yml-hcsconfig.json     --model=prob --filename=generated_test_yml_2
+ maude-hcs --verbose generate \
+        --run-args="./use-cases/challenge-problem-2/cp2_scenarios/cp2_scenario_1-hcsconfig.json" \
+        --model=prob \
+        --filename="cp2_scenario_1" \
+        --output-dir="./use-cases/challenge-problem-2/cp2_scenarios/"
 ```
 Set `--model=nondet` to generate a nondeterministic version.
 
-This produces the executable maude file (and the corresponding HCS config json) in the results/ directory.
+This produces the executable maude file (and the corresponding HCS config json) in the output directory.
+The input json configuration file should be straightforward to follow. It includes specification of
+ * network topology (links and their characteristics)
+ * adversary (in this case zeek detector profiles, baseline data for moving average detectors, and their configurations)
+ * channels/protocols: each protocol includes a weird network and an underlying network protocol. The former hides/embeds data into the latter. For example, Iodine embeds in DNS (so the channel is called iodine-dns) and Destini embeds in Mastodon
 
-See example [corporate-iodine-conf.json](./use-cases/corporate-iodine-conf.json) configuration file, and refer to [HCSParamsGuide](./HCSParamsGuide.md) for a description of the parameters.
+Refer to [HCSParamsGuide](./HCSParamsGuide.md) for a description of some of the parameters.
 Note that probabilistic model will combine the nondeterministic params as well as the 
-probabilistic params (whic override the nondeterministic ones).
+probabilistic params (which override the nondeterministic ones). 
 
-## Using a YML configuration
-### Single configurations
+### Using a YML configuration
+#### Single configurations
 A YML configuration contains the full config of the tunnels and undelying networks.
 We can generate an HCS config directly from it.
 ```shell
  maude-hcs --verbose  generate --yml-filename=./use-cases/challenge-problem-2/cp2_setup_example.yml     --model=prob --filename=generated_test_yml
 ```
 
-### Batched configurations of CP2
+#### Batched configurations of CP2
 For batched configurations like the ones in CP2, convert multiple YML files to Maude scenario files:
 ```shell
  ./scripts/generate_cp2_maude.sh [scenario_dir]
 ```
 Where `scenario_dir` is optional (defaults to `../pwnd_cp2`)
 
-## Using Shadow yaml configuration
+### Using Shadow yaml configuration
 The network configuration can be specified using a shadow file instead of our HCS config json
 (See [Shadow](https://github.com/shadow/shadow) simulator for more info on shadow specifications).
 
@@ -165,33 +187,36 @@ Assuming the shadow network config is located in directory `../pwnd-cp1`, run
 ```shell
 maude-hcs --verbose --protocol=dns generate --shadow-filename=../pwnd-cp1/shadow_files/examples/cp1_sim_config.yaml --model=prob --filename=generated_test_shadow
 ```
-# Run configurations
+## Run HCS Configurations
 
-## Standalone run with Maude
+### Standalone run with Maude
+To run a configuration in standalone maude, first install [standalone maude](https://github.com/maude-lang/Maude) for your system (we recommend version 3.5.0 or below)
+
 To run a single configuration, invoke maude with the file name, for instance, in `results`,
 ```shell
-maude generated_corporate_iodine_prob.maude
+maude ./use-cases/challenge-problem-2/cp2_scenarios/cp2_scenario_1.maude
 ```
 
 Inside the Maude prompt, type
 ```shell
 rew initConfig .
 ```
-This will execute all rewrites until no more rules are found and no progress can be made in time.
+This will execute all rewrites until no more rules are found and no progress can be made.
 
 The addition of logging will increase the verbosity of the execution with
 ```shell
 set print attribute on .
 ```
 
-Execution can also be stepped through with the following commands
+Execution can also be stepped through with the following commands (refer to the maude manual)
 ```shell
 rew[1] initConfig .
 cont 1 .
 ```
-## Statistical Model Checking
 
-Statistical model checking is available by means of the scheck subcommand:
+### Statistical Model Checking
+
+Statistical model checking is available by means of the scheck subcommand in [QMaude](https://github.com/fadoss/umaudemc):
 ```shell
 maude-hcs scheck [-h] [--advise] 
                  [--protocol {dns}] [--file FILE] [--test TEST] [--initial INITIAL] [--query QUERY] 
@@ -223,10 +248,13 @@ An examplar SMC run for the file generated by the command above is:
 maude-hcs scheck --test ./use-cases/challenge-problem-2/cp2_scenarios/cp2_scenario_1.maude --query ./smc/cp2_eval_cp2_scenario_1.quatex -j 0 -n 30-120
 ```
 
-The probabilistic model and its initial configuration should be specified in Maude and provided via the ``--test TEST`` option (default: ``results/generated_test.maude``).  The Maude execution starts from the initial term provided via the ``--initail INITIAL`` option (default: ``initConfig`` specified in ``TEST``) and rewrites to the final configuration.  From the final configuration, the observables are extracted using the monitor and adversary actors specified in the Maude source file for the model checking problem, provided via ``--file FILE`` option, or by the ``--protocol PR`` option. For example ``--protocol dns`` refers to a model checking file created specifically for the dns protocol under `lib/`.
+The probabilistic model and its initial configuration should be specified in Maude and provided via the ``--test TEST`` option (default: ``results/generated_test.maude``).  
+The Maude execution starts from the initial term provided via the ``--initail INITIAL`` option (default: ``initConfig`` specified in ``TEST``) and rewrites to the final configuration.  
+From the final configuration, the observables are extracted using the monitor and adversary actors specified in the Maude source file for the model checking problem, provided via ``--file FILE`` option, or by the ``--protocol PR`` option. 
+For example ``--protocol dns`` refers to a model checking file created specifically for the dns protocol under `lib/`.
 
-Quantitative properties, such as the expected value of the average latency, can be specified using a QuaTEx formula and provided via ``--query QUERY`` option (default: ``smc/query.quatex``).  Our latency and scalability metrics in terms of exfiltrated files - for example, those defined in ``smc/latency.quatex`` and ``smc/scalability_cp2_scenario_1.quatex``, and imported into ``smc/cp2_eval_cp2_scenario_1.quatex``) - can be expressed with a QuaTEx formula of the following form:  
-
+Quantitative properties, such as the expected value of the average latency, can be specified using a QuaTEx formula and provided via ``--query QUERY`` option (default: ``smc/query.quatex``).  
+Our example latency and scalability metrics in terms of exfiltrated files are defined in ``smc/latency.quatex`` and ``smc/scalability_cp2_scenario_1.quatex``, and imported into ``smc/cp2_eval_cp2_scenario_1.quatex``, and can be expressed with a QuaTEx formula of the following form:  
 ```shell
 Latency() = s.rval("getLatency(getMonitor(C))");
 eval E[Latency()] with delta = 2;
@@ -239,15 +267,18 @@ ExfilFilesC2() =
 	fi;
 eval E[ExfilFilesC2()];
 ```
-where the expression ``Latency()`` extracts the latency value from the monitor and evaluates its expection with delta = 2. 
-The expression ExfilFilesC2() conditionally evaluates the number of exfiltrated files: If the time of detection based on cumulative number of post-NAT DNS queries is zero - meaning that no detection occurs because the cumulative query count never exceeds its threshold (e.g., 416 in the above example) - the sample is discarded; otherwise, the number of exfiltrated files up to the time of detection is evaluated.   
+where the expression ``Latency()`` extracts the latency value from the monitor and evaluates its expectation with delta = 2. 
+The expression `ExfilFilesC2()` conditionally evaluates the number of exfiltrated files: 
+If the time of detection based on cumulative number of post-NAT DNS queries is zero - meaning that no detection occurs because the cumulative query count never exceeds its threshold (e.g., 416 in the above example) - the sample is discarded; 
+otherwise, the number of exfiltrated files up to the time of detection is evaluated.   
 
-Sampling continues until either the specified number of samples is reached (i.e., ``-n min-max`` option, such as ``-n 30-300``) or all queries are answered with the desired statistical significance. In the example below, the second query is answered after 30 samples using the defalut values alpha=0.05 and delta=0.5, while the first query is answered after 270 samples using ``with delta = 2``, as specified above.  
+Sampling continues until either the specified number of samples is reached (i.e., ``-n min-max`` option, such as ``-n 30-300``) or all queries are answered with the desired statistical significance. 
+In the example below, the second query is answered after 30 samples using the default values alpha=0.05 and delta=0.5, while the first query is answered after 270 samples using ``with delta = 2``, as specified above.  
 
 The output includes: 
 - mu: the sample mean (expected value)
 - sigma: the sample standard deviation
-- r (confidence radius): the error margin around mu for the given alpha, i.e., mu ± radius with confidence 1-alpha
+- r (confidence radius): the error margin around mu for the given alpha, i.e., mu ± radius with confidence (1-alpha)
 
 ```shell
   step=30 n=30 30 μ=191.13112908653187 8.066666666666666 σ=20.074331354964382 1.048260737942926 r=7.495878519259243 0.391426992470463
@@ -266,7 +297,8 @@ Query 2 (./smc/readme.quatex:6:1) (30 simulations)
   μ = 8.066666666666666         σ = 1.048260737942926         r = 0.391426992470463
 ```
 
-If we modify the threshold value in the QuaTEx formual above to 500, some samples are discarded.  The results are then reported along with the number of discarded samples, and the statistical guarantees are computed using the remaining samples as shown below. 
+If we modify the threshold value in the QuaTEx formual above to 500, some samples are discarded.  
+The results are then reported along with the number of discarded samples, and the statistical guarantees are computed using the remaining samples as shown below. 
 
 ```shell
 Number of simulations = 270
@@ -277,7 +309,8 @@ Query 2 (./smc/readme.quatex:8:1) (39 simulations)
   where 21 executions out of 60 (35.0%) have been discarded
 ```
 
-To reproduce the same experiments within the same parallelization setting (i.e., the same value of ``-j``), use the ``--seed`` option with the same random seed. By default or when passing ‑1, the current time is used as the seed.
+To reproduce the same experiments within the same parallelization setting (i.e., the same value of ``-j``), use the ``--seed`` option with the same random seed. 
+By default or when passing ‑1, the current time is used as the seed.
 ```shell
 # maude-hcs scheck --seed 0
 Number of simulations = 30
@@ -304,6 +337,8 @@ where
 ```
 
 ### Run Distributed SMC  
+SMC is highly parallelizable using all cores on the machine to get near linear speedup in Monte Carlo sampling, using the `-j 0` option as indicated above.
+QMaude permits even more parallelism across machines using distributed SMC (feature still under active testing)
 
 To run the distributed SMC, there should be one or more workers that are started with
 
@@ -323,14 +358,15 @@ The scheck command will connect to the remote workers, pass them all the informa
 ### Run QMaude for a standalone test   
 
 QMaude offers Statistical Model Checking (SMC) of the model in the same formalism.
-Copy `latency.quatex` and `smc.maude` to your experiment's directory (or keep it in `results`).  Modify the former to load the target (probabilistic) experiment.
+Copy `latency.quatex` and `smc.maude` to your experiment's directory (or keep it in `results`).  
+Modify the former to load the target (probabilistic) experiment.
 Run
 ```shell
 umaudemc --no-advise scheck smc initConfig latency.quatex -a 0.05 --assign pmaude -j 50
 ```
 QMaude returns the expected value for the quatex queries (μ), and the number of Monte Carlo simulations it took to reach that value.
 
-# Tests
+## Tests
 
 To run the tests, first install pytest in your environment.
 ```
@@ -352,7 +388,7 @@ For example to generate the images used by mastodon tgen client (similarly cover
 ```
 
 ### To generate the comparison plots per quatex query across scenarios between testbed and SMC
-Use plotfinal.py with arguments smc\_directory, tne\_directory, quatex\_directory
+Use `plotfinal.py` with arguments smc\_directory, tne\_directory, quatex\_directory
 ```shell
 python scripts/plotfinal.py use-cases/challenge-problem-2/results-aligned/ use-cases/challenge-problem-2/cp2_scenarios_tne/cp2_te_results/ smc/
 ```
@@ -363,18 +399,11 @@ python scripts/gather\_samples.py use-cases/challenge-problem-2/results-aligned/
 ```
 
 # References
+The following projects are directly used by Maude-HCS 
 
-DNS model
-https://gitlab.ethz.ch/netsec/dns-formalization-maude
+ * [Maude](https://github.com/maude-lang/Maude)
+ * [QMaude](https://github.com/fadoss/umaudemc)
+ * [DNS protocol formalization](https://gitlab.ethz.ch/netsec/dns-formalization-maude) using Maude 
+ * [Actors2PMaude tool](https://zenodo.org/records/7071693)
 
-DNS Corporate use case (visualize with exalidraw) `docs/corporate-base.exalidraw`
 
-Iodine source code
-https://github.com/yarrick/iodine
-Iodine client and server flowcharts under docs/figures
-
-Actors2PMaude tool
-https://zenodo.org/records/7071693
-
-Unified Maude model-checking tool 
-https://github.com/fadoss/umaudemc
