@@ -36,8 +36,7 @@ from Maude.attack_exploration.src.network import *
 from maude_hcs.lib.dns import DNS_GLOBALS
 from typing import Tuple, List
 
-from maude_hcs.parsers.dnshcsconfig import DNSHCSConfig
-from maude_hcs.parsers.hcsconfig import HCSConfig
+from maude_hcs.parsers.dnshcsconfig import DNSHCSProtocolConfig
 from .iodineActors import IResolver
 from .cache import ResolverCache, CacheEntry
 from maude_hcs.parsers.graph import find_node_name
@@ -45,27 +44,40 @@ from maude_hcs.parsers.shadowconf import *
 import ast
 import logging
 
+from ...parsers.hcsconfig import HCSConfig
+
 logger = logging.getLogger(__name__)
 
-def createAuthZone(domain_name: str, NAME:str, parent:Zone, num_records:int, TTL:int = 3600, TTL_A:int = 0) -> Tuple[Zone, List]:
-        DNS_GLOBALS.counter += 1
-        records = [Record(f'tmp{index}.{domain_name}', 'A', TTL_A, f'{DNS_GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
-        zone_records  = [Record(domain_name, 'SOA', TTL, f'{TTL}')]
-        ns_records = [    
-                Record(domain_name, 'NS', TTL, f'ns.{domain_name}'),
-                Record(f'ns.{domain_name}', 'A', TTL, NAME)
-            ]
-        zone_records.extend(ns_records)
-        zone_records.extend(records)
-        # Append wildcard name
-        zone_records.append(Record(f'*.{domain_name}', 'A', TTL_A, f'{DNS_GLOBALS.counter}.{num_records}.1.2'))
-        return Zone(domain_name, parent, zone_records), ns_records
+def createAuthZone(hcsconf:HCSConfig, protocol:str, domain_name: str, NAME:str, parent:Zone, num_records:int, TTL:int = 3600, TTL_A:int = 0, inclPwnd:bool = False, addl_records :list[Record] = []) -> Tuple[Zone, List]:
+    DNS_GLOBALS.counter += 1
+    records = [Record(f'tmp{index}.{domain_name}', 'A', TTL_A, f'{DNS_GLOBALS.counter}.{index}.1.2') for index in range(num_records)]
+    zone_records  = [Record(domain_name, 'SOA', TTL, f'{TTL}')]
+    ns_records = [
+            Record(domain_name, 'NS', TTL, f'ns.{domain_name}'),
+            Record(f'ns.{domain_name}', 'A', TTL, NAME)
+        ]
+    if inclPwnd:
+        pwnd2_node = hcsconf.topology.getNodebyLabel(hcsconf.protocols[protocol].underlying_network.pwnd2_name)
+        pwnd_domain = hcsconf.protocols[protocol].underlying_network.pwnd2_domain
+        if pwnd_domain and pwnd2_node:
+            records.extend([
+                Record(pwnd_domain, 'NS', TTL, f'ns.{pwnd_domain}'),
+                Record(f'ns.{pwnd_domain}', 'A', TTL, pwnd2_node.address),
+            ])
+            if addl_records:
+                records.extend(addl_records)
+    zone_records.extend(ns_records)
+    zone_records.extend(records)
+    # Append wildcard name
+    zone_records.append(Record(f'*.{domain_name}', 'A', TTL_A, f'{DNS_GLOBALS.counter}.{num_records}.1.2'))
+    return Zone(domain_name, parent, zone_records), ns_records
 
-def createRootZone(hcsconf:DNSHCSConfig, TTL:int = 3600) -> Tuple[Zone, List]:
-    # root zone    
-    root_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.root_name)
+def createRootZone(hcsconf:HCSConfig, protocol:str, TTL:int = 3600) -> Tuple[Zone, List]:
+
+    # root zone
+    root_node = hcsconf.topology.getNodebyLabel(hcsconf.protocols[protocol].underlying_network.root_name)
     assert root_node, "Root node undefined"   
-    tld_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.tld_name)
+    tld_node = hcsconf.topology.getNodebyLabel(hcsconf.protocols[protocol].underlying_network.tld_name)
     assert tld_node, "TLD node undefined"   
     
     # zone apex
@@ -78,26 +90,26 @@ def createRootZone(hcsconf:DNSHCSConfig, TTL:int = 3600) -> Tuple[Zone, List]:
     records.extend(ns_records)
     # non auth - glue 
     records.extend([
-        Record(hcsconf.underlying_network.tld_domain, 'NS', TTL, f'ns.{hcsconf.underlying_network.tld_domain}'),
-        Record(f'ns.{hcsconf.underlying_network.tld_domain}', 'A', TTL, tld_node.address),
+        Record(hcsconf.protocols[protocol].underlying_network.tld_domain, 'NS', TTL, f'ns.{hcsconf.protocols[protocol].underlying_network.tld_domain}'),
+        Record(f'ns.{hcsconf.protocols[protocol].underlying_network.tld_domain}', 'A', TTL, tld_node.address),
         ])
     return Zone('', None, records), ns_records
 
-def createTLDZone(hcsconf:DNSHCSConfig, zoneRoot, TTL:int = 3600) -> Tuple[Zone, List]:    
-    root_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.root_name)
+def createTLDZone(hcsconf:HCSConfig, protocol:str,  zoneRoot, TTL:int = 3600, inclPwnd:bool = True) -> Tuple[Zone, List]:
+    root_node = hcsconf.topology.getNodebyLabel(hcsconf.protocols[protocol].underlying_network.root_name)
     assert root_node, "Root node undefined"   
-    tld_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.tld_name)
+    tld_node = hcsconf.topology.getNodebyLabel(hcsconf.protocols[protocol].underlying_network.tld_name)
     assert tld_node, "TLD node undefined"   
-    ee_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.everythingelse_name)
+    ee_node = hcsconf.topology.getNodebyLabel(hcsconf.protocols[protocol].underlying_network.everythingelse_name)
     assert ee_node, "Everythingelse node undefined"
-    pwnd2_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.pwnd2_name)
+    pwnd2_node = hcsconf.topology.getNodebyLabel(hcsconf.protocols[protocol].underlying_network.pwnd2_name)
     assert pwnd2_node, "PWND2 node undefined"
-    corp_node = hcsconf.topology.getNodebyLabel(hcsconf.underlying_network.corporate_name)
+    corp_node = hcsconf.topology.getNodebyLabel(hcsconf.protocols[protocol].underlying_network.corporate_name)
     assert corp_node, "Corp node undefined"
-    tld_domain = hcsconf.underlying_network.tld_domain
-    corp_domain = hcsconf.underlying_network.corporate_domain
-    ee_domain = hcsconf.underlying_network.everythingelse_domain
-    pwnd_domain = hcsconf.underlying_network.pwnd2_domain
+    tld_domain = hcsconf.protocols[protocol].underlying_network.tld_domain
+    corp_domain = hcsconf.protocols[protocol].underlying_network.corporate_domain
+    ee_domain = hcsconf.protocols[protocol].underlying_network.everythingelse_domain
+    pwnd_domain = hcsconf.protocols[protocol].underlying_network.pwnd2_domain
 
     
     records = [Record(tld_domain, 'SOA', TTL, f'{TTL}')]
@@ -105,13 +117,22 @@ def createTLDZone(hcsconf:DNSHCSConfig, zoneRoot, TTL:int = 3600) -> Tuple[Zone,
         Record(tld_domain, 'NS', TTL, f'ns.{tld_domain}'),
         Record(f'ns.{tld_domain}', 'A', TTL, tld_node.address)
     ]
+    if inclPwnd:
+        records.extend([
+            Record(pwnd_domain, 'NS', TTL, f'ns.{pwnd_domain}'),
+            Record(f'ns.{pwnd_domain}', 'A', TTL, pwnd2_node.address),
+        ])
+    else: # pwnd.com is also managed by auth ee (auth) instead
+        pwnd_parent_dom = pwnd_domain.replace(pwnd_domain.split('.')[0]+'.', '')
+        ns_records.extend([
+            Record(pwnd_parent_dom, 'NS', TTL, f'ns.{pwnd_parent_dom}'),
+            Record(f'ns.{pwnd_parent_dom}', 'A', TTL, ee_node.address),
+        ])
     records.extend(ns_records)
     # non auth - glue
     records.extend([
         Record(ee_domain, 'NS', TTL, f'ns.{ee_domain}'),
         Record(f'ns.{ee_domain}', 'A', TTL, ee_node.address),
-        Record(pwnd_domain, 'NS', TTL, f'ns.{pwnd_domain}'),
-        Record(f'ns.{pwnd_domain}', 'A', TTL, pwnd2_node.address),
         Record(corp_domain, 'NS', TTL, f'ns.{corp_domain}'),
         Record(f'ns.{corp_domain}', 'A', TTL, corp_node.address)        
     ])

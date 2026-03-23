@@ -1,0 +1,186 @@
+set show advisories off .
+set clear rules off .
+
+sload rttwnoise
+sload wrttwnoise
+sload rtt-observer 
+
+
+mod RTT-WRTT-SCENARIO-AUX is
+   inc RTT-AUX .
+   inc FLOAT-TIME-INF .
+   inc SAMPLER-X .
+   inc COUNTER .
+   inc RTT-OBSERVER .   ---- also defines gClk
+   inc LIST{Float} .
+ ***  inc WRTT .
+  
+****   defines addDelay in terms of MEAN SD
+
+  vars aid bid obsid : Oid .
+  vars sndCid : Cid .
+  vars j  n n0 k enum rnum rttsum : Nat   .
+  vars  T  gT : Time .
+  vars attrs oattrs oattrs0 oattrs1 aattrs aattrs0
+         :  AttributeSet .
+  vars msg : Msg .
+  vars tml : TimeMsgList .
+  vars ts0 ts1 : TimeStamp .
+  vars rttl : TimeStampList .
+  vars elist  flist : List{Float} .
+  vars esum  fl  fl0 : Float .
+  vars conf : Configuration .
+
+  ***** observing  add summaries to observer at the end
+
+  ceq logSent(attrs, sent: tml, gT, msg) =
+       attrs, sent: (tml ; tm(gT,msg) ) 
+   if (to aid from bid : rttReq(ts1)) := msg   .  
+
+  op enList:_ : List{Float} -> Attribute [ctor] .
+  ops enAv:_ rttAv:_ : Float -> Attribute [ctor] .
+
+  ceq finalAction(conf < obsid : Observer | oattrs > 
+                < aid : sndCid | aattrs, rttq: rttl >)
+  =  conf < obsid : Observer | oattrs1 > 
+                      < aid : sndCid | aattrs, rttq: rttl >            
+  if oattrs0 , sent: tml := oattrs
+  /\ elist := tml2enList(tml,NumEnBytes)
+  /\ esum := sumFL(elist)
+  /\ enum := size(elist)
+  /\ rttsum := sumTS(rttl)
+  /\ rnum := len(rttl)
+  /\ oattrs1 := oattrs, 
+                enList: elist, 
+                enAv: (esum / float(enum)),
+                rttAv: float(rttsum / rnum)
+  .              
+
+  op tml2enList : TimeMsgList  Nat -> List{Float} .
+  op tml2enListX : TimeMsgList Nat List{Float} -> List{Float} .
+  eq tml2enList(tml,k) = tml2enListX(tml,k,nil) .
+  ceq tml2enListX(tm(T,msg) ; tml, k,flist) =
+      tml2enListX(tml, k,(flist fl)) 
+  if (to aid from bid : rttResp(ts0,ts1)) := msg
+  /\ fl := tsEntropy(ts1,k) 
+  .
+
+  ceq tml2enListX(tm(T,msg) ; tml, k,flist) =
+      tml2enListX(tml, k,(flist fl)) 
+  if (to aid from bid : rttReq(ts1)) := msg
+  /\ fl := tsEntropy(ts1,k) 
+  .
+
+  eq tml2enListX(nilTML, k,flist) = flist .
+
+  op sumFL : List{Float} -> Float .
+  op sumFLX : List{Float}  Float -> Float .
+  eq sumFL(flist) = sumFLX(flist,0.0) .
+  eq sumFLX((fl0 flist),fl)  = sumFLX(flist, fl + fl0) .
+  eq sumFLX(nil,fl) = fl .
+
+ ***** parameters
+  op NumEnBytes : -> Nat .
+  ops MEAN SD : -> Float .
+  op startTime : -> Time .
+  op stopTime : -> TimeInf .
+  op Period : ->  Nat .
+
+  eq NumEnBytes = 8 .
+  eq MEAN = 50.0 .
+  eq SD = 10.0 .
+  eq Period = 500 .
+  eq startTime = 999.0 .
+  eq stopTime = 10999.0 .
+
+  eq addClockNoise(j,T)  =  T + genRandomX(j,- SD, SD)  .
+  
+  eq addDelay(msg,rCtr(j) conf) = 
+       {dly(msg, sampleNormalWithMeanSdX(MEAN, SD, j)) ,
+       rCtr(s j) conf}  
+        .
+
+   *** op nat2t : Nat -> Time .
+   eq nat2t(n:Nat) = float(n:Nat) .
+   *** op t2nat : Time -> Nat .
+   eq t2nat(t:Float) =  rat(floor(t:Float)) .
+  
+endm
+
+
+  
+mod RTT-SCENARIO is
+  inc RTT .
+  inc RTT-WRTT-SCENARIO-AUX .
+  ***(  MEAN SD startTime stopTime Period)
+  
+vars aid bid obsid : Oid .
+vars j  n : Nat   .
+
+op iCrtt : Nat Oid Oid Oid -> Configuration .
+eq iCrtt(j,aid,bid,obsid) 
+=
+rCtr(j)  
+mkSnd(aid,bid,startTime,Period,stopTime) 
+mkRcv(aid,bid,startTime) 
+gClk(startTime)  
+< obsId : Observer | sent: nilTML >
+.
+    
+ops aId bId obsId  : -> Oid .
+
+op iSrtt :  -> System .
+rl [init] :
+  iSrtt => { iCrtt(counter,aId,bId,obsId) } .
+
+endm
+**** rew iSrtt .
+
+mod WRTT-SCENARIO is
+  ***(  MEAN SD startTime stopTime Period)
+  inc RTT-WRTT-SCENARIO-AUX  .
+  inc WRTT .
+
+**** configuration construction
+vars j : Nat .
+ops waId wbId wobsId  : -> Oid .
+
+op wiC : Nat -> Configuration  .
+eq wiC(j) 
+     = rCtr(j)
+     mkWSnd(waId,wbId,startTime,Period, s j,s s j,stopTime) 
+     mkWRcv(waId,wbId,startTime, s s j) 
+      gClk(startTime)
+      < wobsId : Observer | sent: nilTML > .
+
+op iSwrtt :  -> System .
+rl [init] :
+  iSwrtt => { wiC(counter) } .
+
+       
+endm
+
+eof
+
+select RTT-SCENARIO .
+rew iSrtt .
+rew iSrtt .
+rew iSrtt .
+rew iSrtt .
+rew iSrtt .
+rew iSrtt .
+rew iSrtt .
+rew iSrtt .
+
+
+select WRTT-SCENARIO .
+rew iSwrtt .
+rew iSwrtt .
+rew iSwrtt .
+rew iSwrtt .
+rew iSwrtt .
+rew iSwrtt .
+rew iSwrtt .
+rew iSwrtt .
+q
+eof

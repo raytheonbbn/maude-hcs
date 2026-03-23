@@ -1,0 +1,336 @@
+self_path: /src/landing/testing_configs/spot_checks/spot_check_1.yml
+
+#TGEN SECTION
+enable_tgen: true
+tgen_clients:
+    configs:
+      tgen_request_section_1:
+        total: 5
+        type: mastodon
+        profiles:
+          mastodon_lurker:
+            profile: config_lurker_1.json
+            percent: 30
+          mastodon_influncer:
+            profile: config_influencer_1.json
+            percent: 70
+      tgen_request_section_2:
+        total: 5
+        type: dns
+        profiles:
+          dns_lurker:
+            profile: config_slow_1.json
+            percent: 30
+          dns_influncer:
+            profile: config_fast_1.json
+            percent: 70
+      tgen_request_section_3:
+        total: 1
+        type: mastodon_monitor
+        profiles:
+          monitor:
+            profile: config_monitor.json
+            percent: 100
+
+# ENV MANAGEMENT
+image:
+  tag: "cp2"
+  repo: ""
+
+env: spot_check_1
+
+#MASTODON SECTION
+mastodon_server:
+  common_name: "mastodon"
+  server_fqdn: "mastodon.pwnd.com"
+  username_prefix: "user" #All users will be called meow#
+  user_quantity: 50 #Makes 50 users meow1-meow50 
+
+#APPLICATION SECTION
+application:
+  destini:
+    jpeg_covers: jpeg-covers-25-jpg.tar
+  iodine:
+    max_query_length: 102
+    max_response_size: 202
+  alice:
+    mastodon_user: alice
+    raceboat_prof_config: client_config_post_only_new.json
+    raceboat_prof: client_timeline_builder.json
+  bob:
+    mastodon_user: bob
+    raceboat_prof_config: server_config_download_only_new.json
+    raceboat_prof: server_timeline_builder.json
+
+#TESTING SECTION
+testing:
+  test_id: spot_check_1
+  exfil_dir: spot_check_1
+  iterations: 40
+
+#PCAP
+pcap_section:
+  - name: user_alice
+    interface: eth0
+  - name: user_alice
+    interface: dns0
+  - name: user_bob
+    interface: eth0
+  - name: user_bob
+    interface: dns0
+  - name: router
+    interface: eth0
+  - name: router
+    interface: eth1
+
+# BASELINE
+adversary_phase0:
+  vantage_points:
+    router_post_nat:
+      scripts:
+        - name: bin_calculator
+          params:
+            json_path: "/baselines/generated/spot_check_1.json" # if you change this file path, update in adversary_phase1 > router_post_nat > bin_loader script
+#ZEEK
+adversary_phase1:
+  vantage_points:
+    router_pre_nat:
+      scripts:
+        - name: cumulative/dns_query_count
+          params:
+            dns_q_threshold: 100
+        - name: cumulative/dns_query_bytes
+          params:
+            dns_byte_threshold: 1000
+        - name: cumulative/dns_response_bytes
+          params:
+            dns_resp_byte_threshold: 5000
+        - name: cumulative/https_connection_count
+          params:
+            https_conn_threshold: 10
+        - name: cumulative/https_upload_bytes
+          params:
+            https_upload_byte_threshold: 5000
+    router_post_nat:
+      scripts:
+        - name: bin_loader
+          params:
+            json_path: "/baselines/spot_check_1.json" # baseline json
+        - name: moving_average/average_dns_query_rate
+          params:
+            s: 10secs
+            m: 6
+            k: 1.5
+            n: 3
+        - name: moving_average/average_dns_query_size
+          params:
+            s: 10secs
+            m: 6
+            k: 1.5
+            n: 3
+        - name: moving_average/average_dns_response_size
+          params:
+            s: 10secs
+            m: 6
+            k: 1.5
+            n: 3
+        - name: moving_average/average_https_upload_rate
+          params:
+            s: 10secs
+            m: 6
+            k: 1.5
+            n: 3
+        - name: cumulative/dns_query_count
+          params:
+            dns_q_threshold: 100
+        - name: cumulative/dns_query_bytes
+          params:
+            dns_byte_threshold: 1000
+        - name: cumulative/dns_response_bytes
+          params:
+            dns_resp_byte_threshold: 5000
+        - name: cumulative/https_connection_count
+          params:
+            https_conn_threshold: 10
+        - name: cumulative/https_upload_bytes
+          params:
+            https_upload_byte_threshold: 5000
+
+
+#TC NETWORKING
+weird_network_section:
+    - src: public_dns
+      dst: router
+      net_params:
+        latency: "15ms"
+        jitter: "0ms"
+        loss: 0.0
+
+    - src: router
+      dst: public_dns
+      net_params:
+        latency: "15ms"
+        jitter: "0ms"
+        loss: 0.0
+ 
+    - src: mastodon_proxy
+      dst: router
+      net_params:
+        latency: "15ms"
+        jitter: "0ms"
+        loss: 0.0
+
+    - src: router
+      dst: mastodon_proxy
+      net_params:
+        latency: "15ms"
+        jitter: "0ms"
+        loss: 0.0
+    
+    - src: user_bob
+      dst: mastodon_proxy
+      net_params:
+        latency: "15ms"
+        jitter: "0ms"
+        loss: 0.0
+
+    - src: mastodon_proxy
+      dst: user_bob
+      net_params:
+        latency: "15ms"
+        jitter: "0ms"
+        loss: 0.0
+
+    - src: user_bob
+      dst: public_dns
+      net_params:
+        latency: "15ms"
+        jitter: "0ms"
+        loss: 0.0
+
+    - src: public_dns
+      dst: user_bob 
+      net_params:
+        latency: "15ms"
+        jitter: "0ms"
+        loss: 0.0
+
+
+# DO NOT TOUCH >:(
+# services
+services:
+  adversary:
+    build_dir: /src/docker/adversary
+    image_name: adversary
+    containers:
+      - zeek
+  tgen:
+    build_dir: /src
+    image_name: tgen
+    containers:
+      - tgen
+  bind:
+    build_dir: /src/docker/bind
+    image_name: bind
+    containers:
+      - router
+      - public_dns
+      - root_dns
+      - tld_dns
+      - auth_dns
+  iodine:
+    build_dir: /src/docker/iodine
+    image_name: iodine
+  raceboat:
+    build_dir: /src
+    image_name: raceboat
+    containers:
+      - raceboat_server
+      - raceboat_client
+  application:
+    build_dir: /src/application/src
+    image_name: application
+    containers:
+      - user_bob
+      - user_alice 
+
+mastodon_containers:
+  - mastodon_proxy
+  - mastodon_db
+  - mastodon_redis
+  - mastodon_web
+  - mastodon_streaming
+  - mastodon_sidekiq
+
+network_topology:
+  internet:
+    - router
+    - public_dns
+    - root_dns
+    - tld_dns
+    - auth_dns
+    - user_bob
+    - mastodon_proxy
+  corp: 
+    - router
+    - tgen
+    - user_alice
+  mastodon:
+    - mastodon_proxy
+    - mastodon_db
+    - mastodon_redis
+    - mastodon_web
+    - mastodon_streaming
+    - mastodon_sidekiq
+  container_pods:
+    user_bob:
+      - raceboat_server
+    user_alice:
+      - raceboat_client
+
+
+# tc links
+# tc links
+network_section:
+    - src: public_dns
+      dst: root_dns
+      net_params:
+        latency: "10ms"
+        jitter: "0ms"
+        loss: 0.0
+
+    - src: root_dns
+      dst: public_dns
+      net_params:
+        latency: "10ms"
+        jitter: "0ms"
+        loss: 0.0
+    
+    - src: public_dns
+      dst: tld_dns
+      net_params:
+        latency: "10ms"
+        jitter: "0ms"
+        loss: 0.0
+
+    - src: tld_dns
+      dst: public_dns
+      net_params:
+        latency: "10ms"
+        jitter: "0ms"
+        loss: 0.0
+
+    - src: public_dns
+      dst: auth_dns
+      net_params:
+        latency: "25ms"
+        jitter: "20ms"
+        loss: 0.0
+
+    - src: auth_dns
+      dst: public_dns
+      net_params:
+        latency: "25ms"
+        jitter: "20ms"
+        loss: 0.0
+        

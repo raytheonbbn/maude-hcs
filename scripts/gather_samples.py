@@ -1,0 +1,127 @@
+import os
+import sys
+import argparse
+import re
+import shutil
+from pathlib import Path
+from run_cp2_demo import cdf_gen
+from plotfinal import parse_tne_directory, extract_scenario_id
+
+def process_dat(files, input_dir, output_dir, tne_directory):
+    # check if we have a corresponding scenario file in tne directory
+    tne_data = {}
+    if tne_directory:
+        print(f'Parsing tne data from {tne_directory}')
+        tne_data = parse_tne_directory(tne_directory)
+    for filename in files:
+        sid = extract_scenario_id(filename)
+        print(f'generating CDFs for sid {sid} from {filename}')
+        cdf_gen(Path(input_dir).joinpath(filename), f'scenario_{sid}', output_dir=output_dir, emp_data=tne_data.get(sid, {}))
+
+def process_scenarios(input_dir, output_dir, tne_directory):
+    """
+    Combines sample files for scenarios and copies non-sample files.
+    """
+
+    # Ensure output directory exists
+    if not os.path.exists(output_dir):
+        try:
+            os.makedirs(output_dir)
+        except OSError as e:
+            print(f"Error creating output directory: {e}")
+            sys.exit(1)
+
+    # Regex to parse filenames
+    # Looks for: [ScenarioName].[RunID]-[Index]
+    # ^(.*)     : Capture Group 1 - The Scenario Name (Greedy, captures everything up to the last dot block)
+    # \.        : A literal dot separator
+    # ([^.]+)   : Capture Group 2 - The RunID/Timestamp (Everything not a dot)
+    # -         : A literal hyphen
+    # (\d+)$    : Capture Group 3 - The Index (Digits at the end of the line)
+    filename_pattern = re.compile(r"^(.*)\.([^.]+)-(\d+)$")
+
+    scenarios = {}  # Key: ScenarioName, Value: List of (index, filepath)
+    non_sample_files = []
+
+    print(f"Scanning directory: {input_dir}")
+
+    try:
+        files = os.listdir(input_dir)
+    except FileNotFoundError:
+        print(f"Error: Input directory '{input_dir}' not found.")
+        sys.exit(1)
+
+    for filename in files:
+        if filename.endswith(".dat"):
+            print(f"Processing as .dat instead of samples ...")
+            process_dat(files, input_dir, output_dir, tne_directory)
+            return
+
+        filepath = os.path.join(input_dir, filename)
+
+        # Skip directories, process only files
+        if not os.path.isfile(filepath):
+            continue
+
+        match = filename_pattern.match(filename)
+
+        if match:
+            # It's a sample file (ends in -Index)
+            scenario_name = match.group(1)
+            # run_id = match.group(2) # We don't need the timestamp for grouping, just the name
+            index = int(match.group(3))  # Convert to int for proper sorting (0, 1, 2... 10)
+
+            if scenario_name not in scenarios:
+                scenarios[scenario_name] = []
+
+            scenarios[scenario_name].append((index, filepath))
+        else:
+            # It's a non-sample file (e.g., .json)
+            non_sample_files.append(filename)
+
+    # 1. Process and Combine Sample Files
+    for scenario_name, file_list in scenarios.items():
+        # Sort files based on the index (element 0 of the tuple)
+        file_list.sort(key=lambda x: x[0])
+
+        output_filename = f"{scenario_name}_samples.dat"
+        output_filepath = os.path.join(output_dir, output_filename)
+
+        print(f"Processing '{scenario_name}': Combining {len(file_list)} files into {output_filename}...")
+
+        try:
+            with open(output_filepath, 'wb') as outfile:
+                for _, infile_path in file_list:
+                    with open(infile_path, 'rb') as infile:
+                        shutil.copyfileobj(infile, outfile)
+
+                        # Optional: Ensure newline separation between files if the source
+                        # files don't end with one. If strict binary concatenation is
+                        # preferred, remove the lines below.
+                        # infile.seek(0, os.SEEK_END)
+                        # if infile.tell() > 0:
+                        #     infile.seek(-1, os.SEEK_END)
+                        #     last_char = infile.read(1)
+                        #     if last_char != b'\n':
+                        #         outfile.write(b'\n')
+
+        except IOError as e:
+            print(f"Error writing to {output_filepath}: {e}")
+
+        print('generating CDFs')
+        cdf_gen(output_filepath, scenario_name)
+
+    print("\nProcessing complete.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Combine distributed scenario result files into single sample files."
+    )
+    parser.add_argument("input_dir", help="Path to the directory containing results")
+    parser.add_argument("output_dir", help="Path to the directory where output will be saved")
+    parser.add_argument("tne_dir", default=None, help="Path to the empirical T&E results directory")
+
+    args = parser.parse_args()
+
+    process_scenarios(args.input_dir, args.output_dir, args.tne_dir)

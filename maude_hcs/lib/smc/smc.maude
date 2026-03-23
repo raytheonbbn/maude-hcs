@@ -44,13 +44,19 @@ mod SMC is
   var A : Actor .
   var N : Nat .
   var last? : Bool .
+  var done? : Bool .
   vars T T' T'' T''' Tmsg : Float .
   var ADDR AppAddrFrom AppAddrTo : Address .
 
   var QTL QTL' : QueryTimestampList .
+  vars BTL BTL' : ByteSeqTimestampList .
   var QUERY : Query .
+  var RESP : Response .
+  var HREQ : HttpRequest .
+  var POST_TEXT : String .
+  vars LR LR1 LR2 : List{Record} .
 
-  var TML : TimeMsgList .
+  vars TML TML' : TimeMsgList .
   var M : Msg .
   var TH : Float .
   var GT : Float .
@@ -58,7 +64,8 @@ mod SMC is
 
   var LF LF1 : List{Float} .
 
-  var bytes : ByteSeq .
+  vars bytes bytes' : ByteSeq .
+  vars KEY HASH HASHTAG : ByteSeq .
 
   op getMonitor : Config -> Actor .
   eq getMonitor (C < ADDR : WMonitor | attrs >) = < ADDR : WMonitor | attrs > .
@@ -75,11 +82,70 @@ mod SMC is
   op getLastPktRcvdTime : Actor -> Float .
   eq getLastPktRcvdTime (< ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL'), attrs >) = T .
 
+  op getLatencyCP1 : Actor -> Float .
+  eq getLatencyCP1 (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = T' - T .
+
+  op isCCFile : ByteSeq -> Bool .
+  eq isCCFile(ccFile(KEY, HASH, HASHTAG)) = true .
+  eq isCCFile(bytes) = false [owise] .
+
+  op isGoodAckFile : ByteSeq -> Bool .
+  eq isGoodAckFile(ackFile("OK", HASHTAG)) = true .
+  eq isGoodAckFile(bytes) = false [owise] .
+
+  op exfilStartTime : PacketTimestampList -> Float .
+  eq exfilStartTime (nilPacketTimestamp) = 0.0 .
+  eq exfilStartTime (packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL) = if isCCFile(bytes) then T else exfilStartTime(PTL) fi .
+
+  op exfilEndTime : PacketTimestampList -> Float .
+  eq exfilEndTime (nilPacketTimestamp) = 0.0 .
+  eq exfilEndTime (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T)) = if isGoodAckFile(bytes) then T else exfilEndTime(PTL) fi .
+
+  op exfilStartTime : ByteSeqTimestampList -> Float .
+  eq exfilStartTime (nilByteSeqTimestamp) = 0.0 .
+  eq exfilStartTime (fileTimeStamp(file(id, len), T) ; BTL) = T .
+
+  op getExfilStartTime : Actor -> Float .
+  eq getExfilStartTime (< ADDR : WMonitor | fileSent: BTL, attrs >) = exfilStartTime(BTL) .
+
+  op exfilEndTime : ByteSeqTimestampList -> Float .
+  eq exfilEndTime (nilByteSeqTimestamp) = 0.0 .
+  eq exfilEndTime (BTL ; fileTimeStamp(file(id, len), T)) = T .
+
+  --- Scenario Latency: Length of time to exfil entire directory of files, in seconds
+  --- Starts at “Preparing File 0…” line in application client log
+  --- Finishes at “Got File n ACK (GOOD)” line in application client log
+  op getLatencyCP2 : Actor -> Float .
+  eq getLatencyCP2 (< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', doneFlag: done?, attrs >) = if done? then exfilEndTime(BTL') - exfilStartTime(BTL) else 0.0 fi .
+
   op getLatency : Actor -> Float .
-  eq getLatency (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = T' - T .
+  eq getLatency (A:Actor) = getLatencyCP2(A) .
+
+  op getGoodputCP1 : Actor -> Float .
+  eq getGoodputCP1 (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = float(8 * fileSize) / (T' - T) .
+
+  op ccFileNBytes : PacketTimestampList -> Float .
+  eq ccFileNBytes (nilPacketTimestamp) = 0.0 .
+  eq ccFileNBytes (packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL) = if isCCFile(bytes) then float(getSize(bytes)) + ccFileNBytes(PTL) else ccFileNBytes(PTL) fi .
+  eq ccFileNBytes (packetTimestamp(Pkt, T) ; PTL) = ccFileNBytes(PTL) [owise] .
+
+  op exfilNBytes : ByteSeqTimestampList -> Nat .
+  eq exfilNBytes (nilByteSeqTimestamp) = 0 .
+  eq exfilNBytes (fileTimeStamp(file(id, len), T) ; BTL) = len + exfilNBytes(BTL) .
+
+  --- Goodput: Total number of file exfil bits divided by scenario latency, in bits per second
+  op getGoodputCP2 : Actor -> Float .
+  eq getGoodputCP2 (< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) = if getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >) == 0.0 then (float(exfilNBytes(BTL')) / slimit) else (float(exfilNBytes(BTL')) / getLatencyCP2(< ADDR : WMonitor | fileSent: BTL, fileRcvd: BTL', attrs >)) fi .
 
   op getGoodput : Actor -> Float .
-  eq getGoodput (< ADDR : WMonitor | pktSent: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, 0, len, last?), T) ; PTL'), pktRcvd: (PTL'' ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len', true), T') ; PTL'''), attrs >) = float(8 * fileSize) / (T' - T) .
+  eq getGoodput (A:Actor) = getGoodputCP2(A) .
+
+  op lengthTimeWindow : ByteSeqTimestampList Float Float -> Nat .
+  eq lengthTimeWindow (nilByteSeqTimestamp, T', T'') = 0 .
+  eq lengthTimeWindow (fileTimeStamp(file(id, len), T) ; BTL, T', T'') = if T >= T' and T < T'' then 1 + lengthTimeWindow(BTL, T', T'') else lengthTimeWindow(BTL, T', T'') fi .
+
+  op getExfilFiles : Actor Float -> Nat .
+  eq getExfilFiles (< ADDR : WMonitor | fileRcvd: BTL, attrs >, T) = lengthTimeWindow(BTL, 0.0, T) .
 
   op getPTLLen : PacketTimestampList -> Nat .
   eq getPTLLen (nilPacketTimestamp) = 0 .
@@ -101,7 +167,7 @@ mod SMC is
     .
   eq isDone (C) = false [owise] .
 )
-  eq stopCondition (C < ADDR : WMonitor | pktRcvd: (PTL ; packetTimestamp(packet(AppAddrFrom, AppAddrTo, bytes, id, len, true), T) ; PTL'), attrs >) = true .
+  eq exeDone (C < ADDR : WMonitor | doneFlag: true, attrs >) = true .
 
   op getQuerySent : Actor -> QueryTimestampList . 
   eq getQuerySent (< ADDR : WMonitor | querySent: QTL, attrs >) = QTL . 
@@ -151,11 +217,30 @@ mod SMC is
 
   op getNQuerySent : Actor -> Nat .
   eq getNQuerySent (< ADDR : Adversary | sent: TML, attrs >) = length(TML) .
+ 
+  op getAdversaryPostNATQuery : Actor -> TimeMsgList .
+  eq getAdversaryPostNATQuery (< ADDR : Adversary | sent: TML, attrs >) = PostNATQueryTML(TML) .
+
+  op getAdversaryPostNATQueryTotal : Actor -> Nat .
+  eq getAdversaryPostNATQueryTotal (< ADDR : Adversary | sent: TML, attrs >) = length(PostNATQueryTML(TML)) .
+
+  ---                                        startT binSize
+  op getAdversaryPostNATQueryBinCount : Actor Float Float -> Nat .
+  eq getAdversaryPostNATQueryBinCount (< ADDR : Adversary | sent: TML, attrs >, T, T') = lengthTimeWindow(PostNATQueryTML(TML), T, T + T') .
 
   ----- the avg QPS in a time window of size T' starting at T
   ---                     startT window 
   op avgQPS : TimeMsgList Float Float -> Float .
-  eq avgQPS (TML, T, T') = float(lengthTimeWindow(TML, T, T + T')) / T' .
+  eq avgQPS (TML, T, T') = avgQPSPostNAT (TML, T, T') . 
+
+  op PostNATQueryTML : TimeMsgList -> TimeMsgList .
+  eq PostNATQueryTML (nilTML) = nilTML .
+  ceq PostNATQueryTML (tm(T, M) ; TML) = tm(T, M) ; PostNATQueryTML(TML) if PostNATQuery(M) .
+  eq PostNATQueryTML (tm(T, M) ; TML) = PostNATQueryTML(TML) [owise] .  
+
+  op avgQPSPostNAT : TimeMsgList Float Float -> Float .
+  ceq avgQPSPostNAT (TML, T, T') = float(lengthTimeWindow(PostNATQueryTML(TML), T, T + T')) / T' if T' =/= 0.0 .
+  eq avgQPSPostNAT (TML, T, T') = 0.0 [owise] .
 
   ---- the largest timestamp in the list
   op lastT : TimeMsgList -> Float .
@@ -166,7 +251,7 @@ mod SMC is
                         --- startT window threshold
   op highQPS : TimeMsgList Float Float Float -> Bool .
   eq highQPS (TML, T, T', TH) = 
-      if avgQPS (TML, T,  T') > avgQPS (TML, 0.0, T') * TH 
+      if avgQPS (TML, T,  T') > avgQPS (TML, qps-offset, T') * TH 
       then true 
       else false 
       fi .
@@ -204,7 +289,7 @@ mod SMC is
             . 
 
   op getInitialQPS : Config Float -> Float .
-  eq getInitialQPS (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQPS(TML, 0.0, T) .  
+  eq getInitialQPS (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQPS(TML, qps-offset, T) .  
 
   op getAvgQPS : Config Float Float -> Float .
   eq getAvgQPS (C < ADDR : Adversary | sent: TML, attrs >, T, T') = avgQPS(TML, T, T') .  
@@ -212,15 +297,21 @@ mod SMC is
   op getHcsQPS : Config Float -> Float .
   eq getHcsQPS (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQPS(TML, T, lastT(TML) - T) .  
 
+  --- MA.1 Aggregate post-NAT average DNS query rate exceeds k × initial TGEN-only average query rate for n consecutive time bins of width s.
                         --- init start window bin th consecutive
   op getToD : Config Float Float Float Float Int -> Float .
   eq getToD (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = tod(TML, T'' - T, T, T', TH, I) . 
+
+  op getToDAvgQPS : Config Float Float Float Float Int -> Float .
+  eq getToDAvgQPS (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = tod(TML, T'' - T, T, T', TH, I) . 
+
+  op getPoDAvgQPS : Config Float Float Float Float Int -> Float .
+  eq getPoDAvgQPS (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = if tod(TML, T'' - T, T, T', TH, I) > 0.0 then 1.0 else 0.0 fi .
 
                         --- init start window bin th consecutive
   op isDetected : Config Float Float Float Float Int -> Bool .
   eq isDetected (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = if tod(TML, T'' - T, T, T', TH, I) > 0.0 then true else false fi . 
 
-  
   ---- get the avg qps for each window
   op perWindowQPS : TimeMsgList Float Float Float -> List{Float} .
   op $perWindowQPS : TimeMsgList Float Float Float List{Float} -> List{Float} .
@@ -234,24 +325,23 @@ mod SMC is
     fi
     .
   
-  
-  
   ----                        startT window bin -> List of values one per window
   op getPerWindowQPs : Config Float Float Float -> List{Float} .
   eq getPerWindowQPs (C < ADDR : Adversary | sent: TML, attrs >, T, T', T'') = perWindowQPS(TML, T, T', T'') . 
-
-
 
   var ID : Id .
   var NAME : Name .
   var RTYPE : RType .
   vars B1 B2 : Bool .
   vars ALICE BOB : Address .
-  vars N1 N2 N3 : Nat .
+  vars N1 N2 N3 N4 N5 : Nat .
+
+  op DNSQueryOverhead : -> Nat .
+  eq DNSQueryOverhead = 29 .
 
   op size : Name -> Nat .
-  eq size (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, B1, B2)) . NAME) = N3 + nameLength(NAME) .
-  eq size (NAME) = nameLength(NAME) [owise] .
+  eq size (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) + DNSQueryOverhead .
+  eq size (NAME) = nameLength(NAME) + DNSQueryOverhead [owise] .
 
   op size : Query -> Nat .
   eq size (query(ID, NAME, RTYPE)) = size(NAME) .
@@ -266,12 +356,462 @@ mod SMC is
 
                             --- start window 
   op avgQuerySize : TimeMsgList Float Float -> Float .
-  eq avgQuerySize (TML, T, T') = float(sizeTimeWindow(TML, T, T + T')) / float(lengthTimeWindow(TML, T, T + T')) .
+  eq avgQuerySize (TML, T, T') = avgQuerySizePostNAT (TML, T, T') . 
 
-  op getAvgQuerySize : Config -> Float .
-  eq getAvgQuerySize (C < ADDR : Adversary | sent: TML, attrs >) = float(size(TML)) / float(length(TML)) .
+  op avgQuerySizePostNAT : TimeMsgList Float Float -> Float .
+  ceq avgQuerySizePostNAT (TML, T, T') = if float(lengthTimeWindow(TML', T, T + T')) > 0.0 then float(sizeTimeWindow(TML', T, T + T')) / float(lengthTimeWindow(TML', T, T + T')) else 0.0 fi
+  if T' =/= 0.0 /\ TML' := PostNATQueryTML(TML) .
+  eq avgQuerySizePostNAT (TML, T, T') = 0.0 [owise] .
 
-  op getHcsQuerySize : Config Float -> Float .
-  eq getHcsQuerySize (C < ADDR : Adversary | sent: TML, attrs >, T) = avgQuerySize(TML, T, lastT(TML) - T) .  
+  op getAvgQuerySize : Config Float Float -> Float .
+  eq getAvgQuerySize (C < ADDR : Adversary | sent: TML, attrs >, T, T') = avgQuerySize(TML, T, T') .
+
+  ----- the average query size in window [T, T+T'] > th*(average query size in window [0, T'])
+                        --- startT window threshold
+  op highQuerySize : TimeMsgList Float Float Float -> Bool .
+  eq highQuerySize (TML, T, T', TH) =
+      if avgQuerySize (TML, T,  T') > avgQuerySize (TML, qsize-offset, T') * TH
+      then true
+      else false
+      fi .
+  eq highQuerySize (nilTML, T, T', TH) = false .
+
+  ---- Aggregate average query size exceeds k × initial average query size for n consecutive time bins of width s
+  ---- More clearly, we check avgQuerySize over n consecutive windows each of size T', shifted by bin size T''
+  ----                   startT window/m bin/s th/k consecutive/n
+  op alarmQuerySize : TimeMsgList Float Float Float Float Int -> Bool .
+  ceq alarmQuerySize (TML, T, T', T'', TH, I) =
+      if highQuerySize(TML, T + (float(I) * T''), T', TH)
+      then alarmQuerySize(TML, T, T', T'', TH, I - 1)
+      else false
+      fi
+    if I > 0 .
+  eq alarmQuerySize (TML, T, T', T'', TH, I) = true [owise].
+
+  ----                 startT window/m bin/s th/k consecutive/n
+  op todQuerySize : TimeMsgList Float Float Float Float Int -> Float .
+  eq todQuerySize (TML ; tm(Tmsg, M), T, T', T'', TH, I) =
+    if  T >= Tmsg --- passed the end
+      then 0.0
+      else
+        (if alarmQuerySize(TML ; tm(Tmsg, M), T, T', T'', TH, I)
+          then alarmTime(T, T', T'', I)
+          else todQuerySize(TML ; tm(Tmsg, M), T + T'', T', T'', TH, I)
+        fi)
+    fi
+            --- if lastT(TML ; tm(Tmsg, M)) > alarmTime(T, T', T'', I - 1)
+            --- [print "ToD [" T "," T' "] bin " T'' ]
+            .
+
+  --- MA.2 Aggregate post-NAT average DNS query size exceeds k × initial TGEN-only average query size for n consecutive time bins of width s.
+                        --- init start window bin th consecutive
+  op getToDAvgQuerySize : Config Float Float Float Float Int -> Float .
+  eq getToDAvgQuerySize (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = todQuerySize(TML, T'' - T, T, T', TH, I) .
+
+  op getPoDAvgQuerySize : Config Float Float Float Float Int -> Float .
+  eq getPoDAvgQuerySize (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = if todQuerySize(TML, T'' - T, T, T', TH, I) > 0.0 then 1.0 else 0.0 fi .
+
+  ---- get the avg query size for each window
+  op perWindowQS : TimeMsgList Float Float Float -> List{Float} .
+  op $perWindowQS : TimeMsgList Float Float Float List{Float} -> List{Float} .
+  eq  perWindowQS(TML, T, T', T'') = $perWindowQS(TML, T, T', T'', nil) .
+  eq $perWindowQS(nilTML, T, T', T'', LF) = nil .
+  eq $perWindowQS(TML ; tm(Tmsg, M), T, T', T'', LF) = 
+    if T >= Tmsg --- passed the end
+      then LF
+      ---- append average of this window and go to next window
+      else $perWindowQS(TML ; tm(Tmsg, M), T + T'', T', T'', (LF avgQuerySize(TML ; tm(Tmsg, M), T, T')))
+    fi
+    .
+  
+  ----                        startT window bin -> List of values one per window
+  op getPerWindowQS : Config Float Float Float -> List{Float} .
+  eq getPerWindowQS (C < ADDR : Adversary | sent: TML, attrs >, T, T', T'') = perWindowQS(TML, T, T', T'') . 
+
+  op PostNATRespTML : TimeMsgList -> TimeMsgList .
+  eq PostNATRespTML (nilTML) = nilTML .
+  ceq PostNATRespTML (tm(T, M) ; TML) = tm(T, M) ; PostNATRespTML(TML) if PostNATResponse(M) .
+  eq PostNATRespTML (tm(T, M) ; TML) = PostNATRespTML(TML) [owise] .
+
+  op rsizeTimeWindow : TimeMsgList Float Float -> Nat .
+  eq rsizeTimeWindow (nilTML, T', T'') = 0 .
+  eq rsizeTimeWindow (TML ; tm(T, M), T', T'') = if T > T' and T < T'' then size(getResponse(M)) + rsizeTimeWindow(TML, T', T'') else rsizeTimeWindow(TML, T', T'') fi .
+
+                            --- start window
+  op avgRespSize : TimeMsgList Float Float -> Float .
+  eq avgRespSize (TML, T, T') = avgRespSizePostNAT (TML, T, T') .
+
+  op avgRespSizePostNAT : TimeMsgList Float Float -> Float .
+  ceq avgRespSizePostNAT (TML, T, T') = if float(lengthTimeWindow(TML', T, T + T')) > 0.0 then float(rsizeTimeWindow(TML', T, T + T')) / float(lengthTimeWindow(TML', T, T + T')) else 0.0 fi
+  if T' =/= 0.0 /\ TML' := PostNATRespTML(TML) .
+  eq avgRespSizePostNAT (TML, T, T') = 0.0 [owise] .
+
+  op getAvgRespSize : Config Float Float -> Float .
+  eq getAvgRespSize (C < ADDR : Adversary | rcvd: TML, attrs >, T, T') = avgRespSize(TML, T, T') .
+
+  ----- the average response size in window [T, T+T'] > th*(average response size in window [0, T'])
+                        --- startT window threshold
+  op highRespSize : TimeMsgList Float Float Float -> Bool .
+  eq highRespSize (TML, T, T', TH) =
+      if avgRespSize (TML, T,  T') > avgRespSize (TML, respsize-offset, T') * TH
+      then true
+      else false
+      fi .
+  eq highRespSize (nilTML, T, T', TH) = false .
+
+  ---- Aggregate average response size exceeds k × initial average response size for n consecutive time bins of width s
+  ---- More clearly, we check avgRespSize over n consecutive windows each of size T', shifted by bin size T''
+  ----                   startT window/m bin/s th/k consecutive/n
+  op alarmRespSize : TimeMsgList Float Float Float Float Int -> Bool .
+  ceq alarmRespSize (TML, T, T', T'', TH, I) =
+      if highRespSize(TML, T + (float(I) * T''), T', TH)
+      then alarmRespSize(TML, T, T', T'', TH, I - 1)
+      else false
+      fi
+    if I > 0 .
+  eq alarmRespSize (TML, T, T', T'', TH, I) = true [owise].
+
+  ----                 startT window/m bin/s th/k consecutive/n
+  op todRespSize : TimeMsgList Float Float Float Float Int -> Float .
+  eq todRespSize (TML ; tm(Tmsg, M), T, T', T'', TH, I) =
+    if  T >= Tmsg --- passed the end
+      then 0.0
+      else
+        (if alarmRespSize(TML ; tm(Tmsg, M), T, T', T'', TH, I)
+          then alarmTime(T, T', T'', I)
+          else todRespSize(TML ; tm(Tmsg, M), T + T'', T', T'', TH, I)
+        fi)
+    fi
+            --- if lastT(TML ; tm(Tmsg, M)) > alarmTime(T, T', T'', I - 1)
+            --- [print "ToD [" T "," T' "] bin " T'' ]
+            .
+
+  --- MA.3 Post-NAT Average DNS response size: Aggregate post-NAT HTTPS average DNS response size exceeds k × initial TGEN-only average response size for n consecutive time bins of width s.
+  op getToDAvgResponseSize : Config Float Float Float Float Int -> Float .
+  eq getToDAvgResponseSize (C < ADDR : Adversary | rcvd: TML, attrs >, T'', T, T', TH, I) = todRespSize(TML, T'' - T, T, T', TH, I) .
+
+  op getPoDAvgResponseSize : Config Float Float Float Float Int -> Float .
+  eq getPoDAvgResponseSize (C < ADDR : Adversary | rcvd: TML, attrs >, T'', T, T', TH, I) = if todRespSize(TML, T'' - T, T, T', TH, I) > 0.0 then 1.0 else 0.0 fi .
+
+  ---- get the avg response size for each window
+  op perWindowRS : TimeMsgList Float Float Float -> List{Float} .
+  op $perWindowRS : TimeMsgList Float Float Float List{Float} -> List{Float} .
+  eq  perWindowRS(TML, T, T', T'') = $perWindowRS(TML, T, T', T'', nil) .
+  eq $perWindowRS(nilTML, T, T', T'', LF) = nil .
+  eq $perWindowRS(TML ; tm(Tmsg, M), T, T', T'', LF) = 
+    if T >= Tmsg --- passed the end
+      then LF
+      ---- append average of this window and go to next window
+      else $perWindowRS(TML ; tm(Tmsg, M), T + T'', T', T'', (LF avgRespSize(TML ; tm(Tmsg, M), T, T')))
+    fi
+    .
+  
+  ----                        startT window bin -> List of values one per window
+  op getPerWindowRS : Config Float Float Float -> List{Float} .
+  eq getPerWindowRS (C < ADDR : Adversary | rcvd: TML, attrs >, T, T', T'') = perWindowRS(TML, T, T', T'') . 
+
+  op uploadByteTimeWindow : TimeMsgList Float Float -> Nat .
+  eq uploadByteTimeWindow (nilTML, T', T'') = 0 .
+  eq uploadByteTimeWindow (TML ; tm(T, M), T', T'') = if T > T' and T < T'' then size(getHttpRequest(M)) + uploadByteTimeWindow(TML, T', T'') else uploadByteTimeWindow(TML, T', T'') fi .
+
+                            --- start window 
+  op avgUploadRate : TimeMsgList Float Float -> Float .
+  ceq avgUploadRate (TML, T, T') = float(uploadByteTimeWindow(TML', T, T + T')) * 8.0 / T' if T' =/= 0.0 /\ TML' := PostNATHttpReqTML(TML) .
+  eq avgUploadRate (TML, T, T') = 0.0 [owise] .
+
+  op getAvgUploadRate : Config Float Float -> Float .
+  eq getAvgUploadRate (C < ADDR : Adversary | sent: TML, attrs >, T, T') = avgUploadRate(TML, T, T') .
+
+  ----- the average query size in window [T, T+T'] > th*(average query size in window [0, T'])
+                        --- startT window threshold
+  op highUploadRate : TimeMsgList Float Float Float -> Bool .
+  eq highUploadRate (TML, T, T', TH) =
+      if avgUploadRate (TML, T,  T') > avgUploadRate (TML, uploadrate-offset, T') * TH
+      then true
+      else false
+      fi .
+  eq highUploadRate (nilTML, T, T', TH) = false .
+
+  ---- Aggregate average HTTP upload rate (bits per sec) exceeds k × initial average upload rate for n consecutive time bins of width s
+  ---- More clearly, we check avgUploadRate over n consecutive windows each of size T', shifted by bin size T''
+  ----                   startT window/m bin/s th/k consecutive/n
+  op alarmUploadRate : TimeMsgList Float Float Float Float Int -> Bool .
+  ceq alarmUploadRate (TML, T, T', T'', TH, I) =
+      if highUploadRate(TML, T + (float(I) * T''), T', TH)
+      then alarmUploadRate(TML, T, T', T'', TH, I - 1)
+      else false
+      fi
+    if I > 0 .
+  eq alarmUploadRate (TML, T, T', T'', TH, I) = true [owise].
+
+  ----                 startT window/m bin/s th/k consecutive/n
+  op todUploadRate : TimeMsgList Float Float Float Float Int -> Float .
+  eq todUploadRate (TML ; tm(Tmsg, M), T, T', T'', TH, I) =
+    if  T >= Tmsg --- passed the end
+      then 0.0
+      else
+        (if alarmUploadRate(TML ; tm(Tmsg, M), T, T', T'', TH, I)
+          then alarmTime(T, T', T'', I)
+          else todUploadRate(TML ; tm(Tmsg, M), T + T'', T', T'', TH, I)
+        fi)
+    fi
+            --- if lastT(TML ; tm(Tmsg, M)) > alarmTime(T, T', T'', I - 1)
+            --- [print "ToD [" T "," T' "] bin " T'' ]
+            .
+
+  --- MA.4 Post-NAT Average HTTPS upload rate: Aggregate post-NAT HTTPS upload rate (bits per second) to Mastodon exceeds k × initial TGEN-only average upload rate for n consecutive time bins of width s.
+  op getToDAvgUploadRate : Config Float Float Float Float Int -> Float .
+  eq getToDAvgUploadRate (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = todUploadRate(TML, T'' - T, T, T', TH, I) .
+
+  op getPoDAvgUploadRate : Config Float Float Float Float Int -> Float .
+  eq getPoDAvgUploadRate (C < ADDR : Adversary | sent: TML, attrs >, T'', T, T', TH, I) = if todUploadRate(TML, T'' - T, T, T', TH, I) > 0.0 then 1.0 else 0.0 fi .
+
+  ---- get the avg upload rate for each window
+  op perWindowUR : TimeMsgList Float Float Float -> List{Float} .
+  op $perWindowUR : TimeMsgList Float Float Float List{Float} -> List{Float} .
+  eq  perWindowUR(TML, T, T', T'') = $perWindowUR(TML, T, T', T'', nil) .
+  eq $perWindowUR(nilTML, T, T', T'', LF) = nil .
+  eq $perWindowUR(TML ; tm(Tmsg, M), T, T', T'', LF) = 
+    if T >= Tmsg --- passed the end
+      then LF
+      ---- append average of this window and go to next window
+      else $perWindowUR(TML ; tm(Tmsg, M), T + T'', T', T'', (LF avgUploadRate(TML ; tm(Tmsg, M), T, T')))
+    fi
+    .
+  
+  ----                        startT window bin -> List of values one per window
+  op getPerWindowUR : Config Float Float Float -> List{Float} .
+  eq getPerWindowUR (C < ADDR : Adversary | sent: TML, attrs >, T, T', T'') = perWindowUR(TML, T, T', T'') . 
+
+  op AliceQuery : Name -> Bool .
+  eq AliceQuery (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = true .
+  eq AliceQuery (NAME) = false [owise] .
+
+  op AliceQuery : Query -> Bool .
+  eq AliceQuery (query(ID, NAME, RTYPE)) = AliceQuery(NAME) .
+
+  op PreNATQuery : Msg -> Bool .
+  eq PreNATQuery (to X(public-dns) from corporate-dns : QUERY) = true .
+  eq PreNATQuery (M) = false [owise] .
+
+  op PreNATAliceQuery : Msg -> Bool .
+  eq PreNATAliceQuery (to X(public-dns) from corporate-dns : QUERY) = AliceQuery(QUERY) .
+  eq PreNATAliceQuery (to X(public-dns) from alice-raceboat-client-mas-client : QUERY) = true .
+  eq PreNATAliceQuery (M) = false [owise] .
+
+  op nthQueryTimePreNAT : TimeMsgList Nat -> Float .
+  eq nthQueryTimePreNAT (TML, 0) = 0.0 .
+  eq nthQueryTimePreNAT (tm(T, M) ; TML, 1) = if PreNATAliceQuery(M) then T else nthQueryTimePreNAT (TML, 1) fi .
+  ceq nthQueryTimePreNAT (tm(T, M) ; TML, s N) = if PreNATAliceQuery(M) then nthQueryTimePreNAT(TML, N) else nthQueryTimePreNAT(TML, s N) fi if N > 0 .
+  eq nthQueryTimePreNAT (nilTML, N) = 0.0 .
+
+  --- C.1 Pre-NAT earliest time cumulative number of queries > N
+  op getToDCumulativeNQueryPreNAT : Config Nat -> Float .
+  eq getToDCumulativeNQueryPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthQueryTimePreNAT(TML, s N) .
+
+  op getPoDCumulativeNQueryPreNAT : Config Nat -> Float .
+  eq getPoDCumulativeNQueryPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nthQueryTimePreNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
+
+  op PostNATQuery : Msg -> Bool .
+  eq PostNATQuery (to public-dns from Z(N, ADDR) : QUERY) = true .
+  eq PostNATQuery (M) = false [owise] .
+
+  op nthQueryTimePostNAT : TimeMsgList Nat -> Float .
+  eq nthQueryTimePostNAT (TML, 0) = 0.0 .
+  eq nthQueryTimePostNAT (tm(T, M) ; TML, 1) = if PostNATQuery(M) then T else nthQueryTimePostNAT (TML, 1) fi . 
+  ceq nthQueryTimePostNAT (tm(T, M) ; TML, s N) = if PostNATQuery(M) then nthQueryTimePostNAT(TML, N) else nthQueryTimePostNAT(TML, s N) fi if N > 0 .
+  eq nthQueryTimePostNAT (nilTML, N) = 0.0 .
+
+  --- C.2 Post-NAT earliest time cumulative number of queries > N
+  op getToDCumulativeNQueryPostNAT : Config Nat -> Float .
+  eq getToDCumulativeNQueryPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthQueryTimePostNAT(TML, s N) .
+
+  op getPoDCumulativeNQueryPostNAT : Config Nat -> Float .
+  eq getPoDCumulativeNQueryPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nthQueryTimePostNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
+
+  op nByteQueryTimePreNAT : TimeMsgList Nat -> Float .
+  eq nByteQueryTimePreNAT (TML, 0) = 0.0 .
+  ceq nByteQueryTimePreNAT (tm(T, M) ; TML, N) = T if PreNATAliceQuery(M) and size(getQuery(M)) >= N and N > 0 . 
+  ceq nByteQueryTimePreNAT (tm(T, M) ; TML, N) = nByteQueryTimePreNAT(TML, N - size(getQuery(M))) if PreNATAliceQuery(M) and size(getQuery(M)) < N and N > 0 . 
+  ceq nByteQueryTimePreNAT (tm(T, M) ; TML, N) = nByteQueryTimePreNAT(TML, N) if (not PreNATAliceQuery(M)) and N > 0 . 
+  eq nByteQueryTimePreNAT (nilTML, N) = 0.0 .
+
+  --- C.3 Pre-NAT earliest time cumulative size of queries > N
+  op getToDCumulativeQuerySizePreNAT : Config Nat -> Float .
+  eq getToDCumulativeQuerySizePreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteQueryTimePreNAT(TML, s N) .
+
+  op getPoDCumulativeQuerySizePreNAT : Config Nat -> Float .
+  eq getPoDCumulativeQuerySizePreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nByteQueryTimePreNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
+
+  op nByteQueryTimePostNAT : TimeMsgList Nat -> Float .
+  eq nByteQueryTimePostNAT (TML, 0) = 0.0 .
+  ceq nByteQueryTimePostNAT (tm(T, M) ; TML, N) = T if PostNATQuery(M) and size(getQuery(M)) >= N and N > 0 .
+  ceq nByteQueryTimePostNAT (tm(T, M) ; TML, N) = nByteQueryTimePostNAT(TML, N - size(getQuery(M))) if PostNATQuery(M) and size(getQuery(M)) < N and N > 0 .
+  ceq nByteQueryTimePostNAT (tm(T, M) ; TML, N) = nByteQueryTimePostNAT(TML, N) if (not PostNATQuery(M)) and N > 0 .
+  eq nByteQueryTimePostNAT (nilTML, N) = 0.0 .
+
+  --- C.4 Post-NAT earliest time cumulative size of queries > N
+  op getToDCumulativeQuerySizePostNAT : Config Nat -> Float .
+  eq getToDCumulativeQuerySizePostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteQueryTimePostNAT(TML, s N) .
+
+  op getPoDCumulativeQuerySizePostNAT : Config Nat -> Float .
+  eq getPoDCumulativeQuerySizePostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nByteQueryTimePostNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
+
+  op iByteQueryTime : TimeMsgList Nat -> Float .
+  eq iByteQueryTime (TML, 0) = 0.0 .
+  eq iByteQueryTime (tm(T, M) ; TML, N) = if size(getQuery(M)) > N then T else iByteQueryTime(TML, N) fi .
+  eq iByteQueryTime (nilTML, N) = 0.0 .
+
+  --- earliest time size of an individual query > N
+  op getToDQuerySize : Config Nat -> Float .
+  eq getToDQuerySize (C < ADDR : Adversary | sent: TML, attrs >, N) = iByteQueryTime(TML, N) .
+
+  op PreNATResponse : Msg -> Bool .
+  eq PreNATResponse (to X(public-dns) from corporate-dns : RESP) = true .
+  eq PreNATResponse (M) = false [owise] .
+
+  op AliceResponse : Name -> Bool .
+  eq AliceResponse (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = true .
+  eq AliceResponse (NAME) = false [owise] .
+
+  op AliceResponse : Response -> Bool .
+  eq AliceResponse (response(ID, NAME, LR, LR1, LR2, N)) = AliceResponse(NAME) .
+
+  op PreNATAliceResponse : Msg -> Bool .
+  eq PreNATAliceResponse (to corporate-dns from X(public-dns) : RESP) = AliceResponse(RESP) .
+  eq PreNATAliceResponse (M) = false [owise] .
+
+  op nByteRespTimePreNAT : TimeMsgList Nat -> Float .
+  eq nByteRespTimePreNAT (TML, 0) = 0.0 .
+  ceq nByteRespTimePreNAT (tm(T, M) ; TML, N) = T if PreNATAliceResponse(M) and size(getResponse(M)) >= N and N > 0 . 
+  ceq nByteRespTimePreNAT (tm(T, M) ; TML, N) = nByteRespTimePreNAT(TML, N - size(getResponse(M))) if PreNATAliceResponse(M) and size(getResponse(M)) < N and N > 0 . 
+  ceq nByteRespTimePreNAT (tm(T, M) ; TML, N) = nByteRespTimePreNAT(TML, N) if (not PreNATAliceResponse(M)) and N > 0 . 
+  eq nByteRespTimePreNAT (nilTML, N) = 0.0 .
+
+  --- C.5 Pre-NAT DNS response byte count: Alice receives more than n bytes of DNS responses
+  op getToDCumulativeResponsePreNAT : Config Nat -> Float .
+  eq getToDCumulativeResponsePreNAT (C < ADDR : Adversary | rcvd: TML, attrs >, N) = nByteRespTimePreNAT(TML, s N) .
+
+  op getPoDCumulativeResponsePreNAT : Config Nat -> Float .
+  eq getPoDCumulativeResponsePreNAT (C < ADDR : Adversary | rcvd: TML, attrs >, N) = if nByteRespTimePreNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
+
+  op PostNATResponse : Msg -> Bool .
+  eq PostNATResponse (to Z(N, corporate-dns) from public-dns : RESP) = true .
+  eq PostNATResponse (M) = false [owise] .
+
+  op size : Response -> Nat .
+  eq size (response(ID, NAME, LR, LR1, LR2, N)) = size(NAME) .
+
+  op nByteRespTimePostNAT : TimeMsgList Nat -> Float .
+  eq nByteRespTimePostNAT (TML, 0) = 0.0 .
+  ceq nByteRespTimePostNAT (tm(T, M) ; TML, N) = T if PostNATResponse(M) and size(getResponse(M)) >= N and N > 0 .
+  ceq nByteRespTimePostNAT (tm(T, M) ; TML, N) = nByteRespTimePostNAT(TML, N - size(getResponse(M))) if PostNATResponse(M) and size(getResponse(M)) < N and N > 0 .
+  ceq nByteRespTimePostNAT (tm(T, M) ; TML, N) = nByteRespTimePostNAT(TML, N) if (not PostNATResponse(M)) and N > 0 .
+  eq nByteRespTimePostNAT (nilTML, N) = 0.0 .
+
+  --- C.6 Post-NAT DNS response byte count: Aggregate post-NAT traffic includes more than n bytes of DNS responses
+  op getToDCumulativeResponsePostNAT : Config Nat -> Float .
+  eq getToDCumulativeResponsePostNAT (C < ADDR : Adversary | rcvd: TML, attrs >, N) = nByteRespTimePostNAT(TML, s N) .
+
+  op getPoDCumulativeResponsePostNAT : Config Nat -> Float .
+  eq getPoDCumulativeResponsePostNAT (C < ADDR : Adversary | rcvd: TML, attrs >, N) = if nByteRespTimePostNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
+
+  op PreNATHttpReq : Msg -> Bool .
+  ---eq PreNATHttpReq (to X(mastodon-proxy) from ADDR : HREQ) = true .
+  eq PreNATHttpReq (to X(mastodon-proxy) from ADDR : makeHttpRequest(postRequest, makeMediaFile(S:String, len, bytes))) = true .
+  eq PreNATHttpReq (to X(mastodon-proxy) from ADDR : makeHttpRequest(postRequest, POST_TEXT, MAS_ID_LIST:MasIdList)) = true .
+  eq PreNATHttpReq (M) = false [owise] .
+
+  op PreNATAliceHttpReq : Msg -> Bool .
+  eq PreNATAliceHttpReq (to X(mastodon-proxy) from alice-raceboat-client-mas-client : HREQ) = true .
+  eq PreNATAliceHttpReq (M) = false [owise] .
+
+  op nthHttpReqPreNAT : TimeMsgList Nat -> Float .
+  eq nthHttpReqPreNAT (TML, 0) = 0.0 .
+  eq nthHttpReqPreNAT (tm(T, M) ; TML, 1) = if PreNATAliceHttpReq(M) then T else nthHttpReqPreNAT (TML, 1) fi .
+  ceq nthHttpReqPreNAT (tm(T, M) ; TML, s N) = if PreNATAliceHttpReq(M) then nthHttpReqPreNAT(TML, N) else nthHttpReqPreNAT(TML, s N) fi if N > 0 .
+  eq nthHttpReqPreNAT (nilTML, N) = 0.0 .
+
+  --- C.7 Pre-NAT HTTPS connection count: A host creates more than n HTTPS connections
+  op getToDCumulativeHttpConnectionPreNAT : Config Nat -> Float .
+  eq getToDCumulativeHttpConnectionPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthHttpReqPreNAT(TML, s N) .
+
+  op getPoDCumulativeHttpConnectionPreNAT : Config Nat -> Float .
+  eq getPoDCumulativeHttpConnectionPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nthHttpReqPreNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
+
+  op PostNATHttpConn : Msg -> Bool .
+  eq PostNATHttpConn (to mastodon-proxy from Z(I, alice-raceboat-client-mas-client) : HREQ) = true .
+  eq PostNATHttpConn (M) = false [owise] .
+
+  op PostNATHttpReq : Msg -> Bool .
+  ---eq PostNATHttpReq (to mastodon-proxy from Z(I,ADDR) : HREQ) = true .
+  eq PostNATHttpReq (to mastodon-proxy from Z(I,ADDR) : makeHttpRequest(postRequest, makeMediaFile(S:String, len, bytes))) = true .
+  eq PostNATHttpReq (to mastodon-proxy from Z(I,ADDR) : makeHttpRequest(postRequest, POST_TEXT, MAS_ID_LIST:MasIdList)) = true .
+  eq PostNATHttpReq (M) = false [owise] .
+
+  op PostNATHttpReqTML : TimeMsgList -> TimeMsgList .
+  eq PostNATHttpReqTML (nilTML) = nilTML .
+  ceq PostNATHttpReqTML (tm(T, M) ; TML) = tm(T, M) ; PostNATHttpReqTML(TML) if PostNATHttpReq(M) .
+  eq PostNATHttpReqTML (tm(T, M) ; TML) = PostNATHttpReqTML(TML) [owise] .  
+
+  op getAdversaryPostNATHttpReq : Actor -> TimeMsgList .
+  eq getAdversaryPostNATHttpReq (< ADDR : Adversary | sent: TML, attrs >) = PostNATHttpReqTML(TML) .
+
+  op getAdversaryPostNATHttpReqTotal : Actor -> Nat .
+  eq getAdversaryPostNATHttpReqTotal (< ADDR : Adversary | sent: TML, attrs >) = length(PostNATHttpReqTML(TML)) .
+
+  ---                                        startT binSize
+  op getAdversaryPostNATHttpReqBinCount : Actor Float Float -> Nat .
+  eq getAdversaryPostNATHttpReqBinCount (< ADDR : Adversary | sent: TML, attrs >, T, T') = lengthTimeWindow(PostNATHttpReqTML(TML), T, T + T') .
+
+  op nthHttpConnPostNAT : TimeMsgList Nat -> Float .
+  eq nthHttpConnPostNAT (TML, 0) = 0.0 .
+  eq nthHttpConnPostNAT (tm(T, M) ; TML, 1) = if PostNATHttpConn(M) then T else nthHttpConnPostNAT (TML, 1) fi .
+  ceq nthHttpConnPostNAT (tm(T, M) ; TML, s N) = if PostNATHttpConn(M) then nthHttpConnPostNAT(TML, N) else nthHttpConnPostNAT(TML, s N) fi if N > 0 .
+  eq nthHttpConnPostNAT (nilTML, N) = 0.0 .
+
+  --- C.8 Post-NAT HTTPS connection count: Aggregate post-NAT traffic includes more than n HTTPS connections
+  op getToDCumulativeHttpConnectionPostNAT : Config Nat -> Float .
+  eq getToDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nthHttpConnPostNAT(TML, s N) .
+
+  op getPoDCumulativeHttpConnectionPostNAT : Config Nat -> Float .
+  eq getPoDCumulativeHttpConnectionPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nthHttpConnPostNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
+
+  op postRequestHttpOverhead : -> Nat .
+  eq postRequestHttpOverhead = 10 .
+
+  op size : HttpRequest -> Nat .
+  ---eq size (makeHttpRequest(postRequest, makeMediaFile(S:String, len, bytes))) = len + postRequestHttpOverhead .
+  eq size (makeHttpRequest(postRequest, makeMediaFile(S:String, len, bytes))) = (len - (floor((len + 187) / 1448) * 1448)) + 66 + (1514 * floor((len + 187) / 1448)) .
+  eq size (makeHttpRequest(postRequest, POST_TEXT, MAS_ID_LIST:MasIdList)) = length(POST_TEXT) + postRequestHttpOverhead .
+
+  op nByteHttpUploadPreNAT : TimeMsgList Nat -> Float .
+  eq nByteHttpUploadPreNAT (TML, 0) = 0.0 .
+  ceq nByteHttpUploadPreNAT (tm(T, M) ; TML, N) = T if PreNATAliceHttpReq(M) and size(getHttpRequest(M)) >= N and N > 0 .
+  ceq nByteHttpUploadPreNAT (tm(T, M) ; TML, N) = nByteHttpUploadPreNAT (TML, N - size(getHttpRequest(M))) if PreNATAliceHttpReq(M) and size(getHttpRequest(M)) < N and N > 0 . 
+  ceq nByteHttpUploadPreNAT (tm(T, M) ; TML, N) = nByteHttpUploadPreNAT (TML, N) if (not PreNATAliceHttpReq(M)) and N > 0 .
+  eq nByteHttpUploadPreNAT (nilTML, N) = 0.0 .
+
+  --- C.9 Pre-NAT HTTPS upload byte count: An individual host uploads more than n bytes via HTTPS
+  op getToDCumulativeHttpUploadPreNAT : Config Nat -> Float .
+  eq getToDCumulativeHttpUploadPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteHttpUploadPreNAT(TML, s N) .
+
+  op getPoDCumulativeHttpUploadPreNAT : Config Nat -> Float .
+  eq getPoDCumulativeHttpUploadPreNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nByteHttpUploadPreNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
+
+  op nByteHttpUploadPostNAT : TimeMsgList Nat -> Float .
+  eq nByteHttpUploadPostNAT (TML, 0) = 0.0 .
+  ceq nByteHttpUploadPostNAT (tm(T, M) ; TML, N) = T if PostNATHttpReq(M) and size(getHttpRequest(M)) >= N and N > 0 .
+  ceq nByteHttpUploadPostNAT (tm(T, M) ; TML, N) = nByteHttpUploadPostNAT (TML, N - size(getHttpRequest(M))) if PostNATHttpReq(M) and size(getHttpRequest(M)) < N and N > 0 . 
+  ceq nByteHttpUploadPostNAT (tm(T, M) ; TML, N) = nByteHttpUploadPostNAT (TML, N) if (not PostNATHttpReq(M)) and N > 0 .
+  eq nByteHttpUploadPostNAT (nilTML, N) = 0.0 .
+
+  --- C.10 Post-NAT HTTPS upload byte count: Aggregate post-NAT traffic uploads more than n bytes via HTTPS
+  op getToDCumulativeHttpUploadPostNAT : Config Nat -> Float .
+  eq getToDCumulativeHttpUploadPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = nByteHttpUploadPostNAT(TML, s N) .
+
+  op getPoDCumulativeHttpUploadPostNAT : Config Nat -> Float .
+  eq getPoDCumulativeHttpUploadPostNAT (C < ADDR : Adversary | sent: TML, attrs >, N) = if nByteHttpUploadPostNAT(TML, s N) > 0.0 then 1.0 else 0.0 fi .
 
 endm
+eof

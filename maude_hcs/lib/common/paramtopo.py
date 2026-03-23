@@ -114,6 +114,41 @@ class ParameterizedTopo:
     self._characerize_links()
 
 
+  def findOrAddNode(self, label: str) -> Node:
+      src_node = self.topo.getNodebyLabel(label)
+      if not src_node:
+          node = Node(id=self.topo.nextID(), label=label, address=label.replace('_', '-'),
+                   ip_address='', host_bandwidth_up='', host_bandwidth_down='')
+          self.topo.nodes.append(node)
+          return node
+      return src_node
+
+  def pretty_print_links(self, links) -> None:
+      for link in links:
+          print(link)
+
+  def transform(self, xforms: dict) -> dict:
+    for link_type, links in self.link_characteristics.items():
+        new_links = []
+        for link in links:
+            if link in xforms.keys():
+                # replace link with its transforms
+                for new_link in xforms[link]:
+                    # verify nodes exist and add them if not (needed for integrity of topology)
+                    src_node = self.findOrAddNode(new_link.src_label)
+                    dst_node = self.findOrAddNode(new_link.dst_label)
+                    new_links.append(
+                        Link(src_id=src_node.id, src_label=src_node.label,
+                             dst_label=dst_node.label, dst_id=dst_node.id,
+                             loss=link.loss,
+                             latency=link.latency,
+                             jitter=link.jitter,
+                             )
+                    )
+            else:
+                new_links.append(link)
+        self.link_characteristics[link_type] = new_links
+
   def _characerize_links(self) -> None:
     for link in self.topo.links:
       link_type = self.get_link_type(link)

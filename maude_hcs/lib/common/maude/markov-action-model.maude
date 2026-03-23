@@ -39,6 +39,9 @@ fmod MARKOV-ACTION-MODEL is
   inc JSON .
   inc MAP{String,Map`{String`,Float`}} .
   inc  SAMPLER-X .
+**** hashtag morphing
+  inc MAP{Nat,String} .
+  
 
   vars ma : MAModel .
   vars sid mname str str1 : String .
@@ -46,8 +49,15 @@ fmod MARKOV-ACTION-MODEL is
   vars weights : Map{String,Float} .
   vars actions params mj mj0 mj1 : Map{String,JV} .
   vars n j j1 j2 min max : Nat .
-  vars fl mean std minf maxf : Float .
+  vars fl fl0 fl1 mean std minf maxf : Float .
   vars jv : JV .
+**** hashtag morphing  
+  vars jvl : JVL .
+****  vars str : String .
+**** vars n : Nat .
+  vars natstr : Map{Nat,String} .
+  vars mamodel : MAModel .
+  
 
   sort JObjNat .
   op `{_`,_`} : Map{String,JV} Nat -> JObjNat .
@@ -184,24 +194,56 @@ ceq realizeRand(str,"gaussian",
       (("mean" |-> jf(mean) ), ("std" |-> jf(std) ), mj), 
        j )
  = {(str |-> jf(fl)), s j}
-if fl :=  sampleNormalWithMeanSdX(mean, std, j) 
+if fl :=  ensureFloor(sampleNormalWithMeanSdX(mean, std, j),mj)
       .
 
 ceq realizeRand(str,"uniform",
       (("min" |-> jn(min) ), ("max" |-> jn(max) ), mj),
       j )
- = {(str |-> jn(rat(floor(fl)))), s j}
-if fl :=  genRandomX(j, float(min), float(max))   .
+ = {(str |-> jn(n)), s j}
+if n := (if  min == max 
+        then min
+  --- Get a random nat between in [0, n-1].
+        else min + sampleUniWithIntX(j,max + (- min) + 1) 
+        fi) .
 
 ceq realizeRand(str,"uniform",
       (("min" |-> jf(minf) ), ("max" |-> jf(maxf) ), mj),
       j )
  = {(str |-> jf(fl)), s j}
-if fl :=  genRandomX(j, minf, maxf)   .
+if fl :=  ensureFloor(genRandomX(j, minf, maxf),mj)   .
 
 eq realizeRand(str,str1,mj,j) 
        = {(str |-> nullJV),j} [owise] .
         
+
+op ensureFloor : Float Map{String,JV} -> Float .
+eq ensureFloor(fl0, (mj, ("floor" |-> jf(fl1) )) ) = max(fl1,fl0) .
+eq ensureFloor(fl0, mj) = fl0 [owise] .
+
+
+****** 26mar19 clt moved from raceboate/cm-aux
+************* morphing hash string manipulation
+op ma2HashstrMap : MAModel -> Map{Nat,String} .
+op ma2HashstrLen : MAModel -> Nat .
+op jhashstrl2HashstrMap : JVL Nat Map{Nat,String} -> 
+                           Map{Nat,String} .
+                           
+ceq ma2HashstrMap(mamodel) =
+   jhashstrl2HashstrMap(jvl,0,empty)
+if jl(jvl) := getParams(mamodel)["hashtags"]
+ .
+
+ceq ma2HashstrLen(mamodel) = len(jvl)
+if jl(jvl) := getParams(mamodel)["hashtags"]  .
+ 
+eq jhashstrl2HashstrMap(nilJV,n,natstr) = natstr .
+eq jhashstrl2HashstrMap((js(str) ; jvl), n , natstr) 
+  = jhashstrl2HashstrMap(jvl, s n, (natstr, (n |-> str))) 
+.
+
+************** end morphing
+
 endfm  
 
 eof

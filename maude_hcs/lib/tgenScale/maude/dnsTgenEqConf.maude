@@ -1,0 +1,81 @@
+set show advisories off .
+
+sload ua-actor-eq
+sload dnsQgen-actor-eq
+sload dnsObs-actor-eq
+
+mod TEST-DNS-TGEN-EQ is
+  inc USER-ACTION-ACTOR-EQ  .
+  inc DNS-MAMODEL .
+  inc DNS-QGEN-EQ .
+  inc DNS-OBSERVER-EQ  .
+ 
+ vars umAddr dnsQAddr dnsOAddr rsvAddr advAddr 
+       : Address .
+ vars attrs : AttributeSet .       
+ vars mamodel : MAModel .
+ vars Tstart Tstop : Float .
+ vars rInit : Nat .
+ vars conf : Config .
+ 
+
+ op mkDNSTgenConf : 
+      Address Address Address Address Address 
+      MAModel Float Float Nat -> Config .
+ eq  mkDNSTgenConf(umAddr,dnsQAddr,dnsOAddr,
+                   rsvAddr, advAddr,
+                   mamodel, Tstart, Tstop, rInit) 
+  =
+ rCtr(rInit)                                  
+ {Tstart, (to umAddr from umAddr : actionR("ok"))}
+ mkUMactor (umAddr,mamodel,dnsQAddr,Tstop) 
+ mkDnsQgenEqA(dnsQAddr,dnsOAddr,1000,
+              'internet . 'com . root) 
+ mkDNSObs(dnsOAddr,rsvAddr) 
+ < advAddr : Adversary | 
+   dnsQuery: nilTML, dnsResponse: nilTML >
+ .            
+ 
+ops  umA dnsQA dnsOA rsvA  advA : -> Address .
+ 
+op dnsTGIC : Float -> Config .
+eq dnsTGIC(Tstop) =
+      mkDNSTgenConf(umA,dnsQA,dnsOA,rsvA,advA,
+                    dns-ma,1.0,Tstop,100) 
+ .
+ 
+ *****  TGen function 
+ 
+op produceDNSLog : 
+   Address Address Address Address Address
+   MAModel Float Float Nat -> Actor .
+eq produceDNSLog(umAddr,dnsQAddr,dnsOAddr,
+                   rsvAddr, advAddr,
+                   mamodel, Tstart, Tstop, rInit)
+ =
+  extractAdversary(    
+      mkDNSTgenConf(umAddr,dnsQAddr,dnsOAddr,
+                   rsvAddr, advAddr,
+                   mamodel, Tstart, Tstop, rInit)) .
+   
+
+op extractAdversary : Config -> Actor .
+eq extractAdversary(conf 
+                    < advAddr : Adversary | attrs >)
+   = < advAddr : Adversary | attrs > 
+.
+   
+eq extractAdversary(conf) = 
+          < advA : Adversary | noneAS >
+[owise] .
+
+
+**** TODO vary mamodel, make adversary a parameter
+
+endm
+eof
+
+
+red dnsTGIC(50.) .
+
+red productDNSLog(umA,dnsQA,dnsOA,rsvA,advA, dns-ma,1.0,50.0,100) .

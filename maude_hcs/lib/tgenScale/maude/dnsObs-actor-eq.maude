@@ -1,0 +1,173 @@
+set show advisories off .
+
+sload ../../../deps/dns_formalization/Maude/dns/common/prelim.maude
+
+sload ../../../deps/dns_formalization/Maude/common/parameters
+
+sload ../../common/maude/sampler-x
+sload ../../common/maude/cp2-interfaces 
+sload ../../common/maude/adversary
+sload ../../tgen/maude/dns-mamodel
+
+  
+ mod DNS-OBSERVER-EQ is
+   inc CP2-COMMON  . 
+               --- SCHEDULER+ACTOR-MODEL+PARAMETERS 
+   inc SAMPLER-X .   
+   inc MSG .   ---- prelim dns content sorts
+   inc TGEN-INTERFACE .
+   inc DNS-CLIENT-INTERFACE .
+   inc PARAMETERS-BASE-COMMON .
+   inc ADVERSARY .
+
+vars T T1 : Float .
+vars myaddr adv dqaddr rsvaddr : Address .
+vars msg msg0 msg1 : Msg .
+vars tmsg : TimeMsg .
+vars tml : TimeMsgList .
+vars id : Id .
+vars name : Name .
+vars j i : Nat .
+vars oattrs oattrs0 oattrs1 aattrs aattrs1  attrs
+     : AttributeSet .
+
+ op DNSObserver : -> ActorType .
+ 
+ op rsvAddr:_ : Address -> Attribute [ctor] .
+ op ctr:_ : Nat -> Attribute [ctor] .
+ 
+ op dnsQuery:_ : TimeMsgList -> Attribute [ctor] .
+ op dnsResponse:_ : TimeMsgList -> Attribute [ctor] .
+ 
+ op logQuery : AttributeSet TimeMsg -> AttributeSet .
+ op logResponse : AttributeSet TimeMsg -> AttributeSet .
+ eq logQuery((attrs, dnsQuery: tml), tmsg) =
+      attrs, dnsQuery: (tml ; tmsg) .
+  eq logQuery(attrs, tmsg) 
+      = attrs, dnsQuery: tmsg [owise] .
+ 
+ eq logResponse((aattrs, dnsResponse: tml), tmsg) =
+      aattrs, dnsResponse: (tml ; tmsg) .
+  eq logResponse(aattrs, tmsg) 
+      = aattrs, dnsResponse: tmsg [owise] .
+ 
+ op mkDNSObs : Address Address -> Actor .
+ eq mkDNSObs(myaddr,rsvaddr) =
+   < myaddr : DNSObserver | 
+    rsvAddr: rsvaddr, ctr: 0 > .
+
+
+***** place holder
+op dnsDelay : Nat -> Float .
+eq dnsDelay(j) = dnsRtt(j) * (1.0 + probDrop(s j)) .
+op dnsRtt : Nat -> Float .
+eq dnsRtt(j) = genRandomX(j, .03, .09) .
+
+op probDrop : Nat -> Float .
+eq probDrop(j) = sampleNormalWithMeanSdX(.025,.01, j) .
+
+ceq [rcvName] :
+   rCtr(j)
+   {T, (to  myaddr from dqaddr : dnsQ(name))}
+   < myaddr : DNSObserver | oattrs >
+   < adv : Adversary | aattrs >
+   =
+ rCtr(s s j)
+ {T1, msg}
+ < myaddr : DNSObserver | oattrs1 >
+ < adv : Adversary | aattrs1 >
+ if oattrs0, ctr: i, rsvAddr: rsvaddr := oattrs
+ /\ msg0 := to rsvaddr from myaddr : query(i,name,a)
+ /\ msg1 := to myaddr from rsvaddr : 
+             response(i,name,nil,nil,nil,0)
+ /\ msg := to dqaddr from myaddr : 
+             dnsR(response(i,name,nil,nil,nil,0)) 
+ /\ T1 := T + dnsDelay(j)
+ /\ aattrs1 := logResponse( 
+                   logQuery(aattrs, tm(T,msg0)),
+                   tm(T1,msg1)) 
+ /\ oattrs1 := oattrs0, ctr: s i, rsvAddr: rsvaddr
+ [print "(" T ") DNSObserver " myaddr " response time " T1]
+ .
+    
+ endm
+
+ 
+mod TEST-DNS-OBSERVER-EQ is
+ inc DNS-OBSERVER-EQ  .
+
+op dnsQA : -> Address .
+
+ops dnsOA rsvA  advA : -> Address .
+op dnsObs : -> Actor .
+eq dnsObs = mkDNSObs(dnsOA,rsvA) .
+
+op iCO : -> Config .
+eq iCO =
+  rCtr(50) 
+  {2.0, (to dnsOA from dnsQA : 
+       dnsQ(label(239) . 'internet . 'com . root))} 
+  dnsObs
+  < advA : Adversary | dnsQuery: nilTML,
+                       dnsResponse: nilTML >
+  .                                    
+
+***(
+Maude> red iCO .
+rCtr(52) 
+{2.0694859571805306, to dnsQA from dnsOA :
+     dnsR(response(0, label(239) . 
+      'internet . 'com . root, nil, nil, nil, 0))}
+< dnsOA : DNSObserver | rsvAddr: rsvA, ctr: 1 >
+< advA : Adversary | 
+dnsQuery: tm(2.0, to rsvA from dnsOA : query(0, label(239) . 'internet . 'com . root, a)),
+dnsResponse: tm(2.0694859571805306, to dnsOA from rsvA : response(0, label(239) . 'internet . 'com . root, nil, nil, nil, 0)) >
+)
+
+endm
+
+sload ua-actor-eq
+sload dnsQgen-actor-eq
+
+mod TEST-DNS-TGEN-EQ is
+ inc TEST-DNS-OBSERVER-EQ  .
+ inc  TEST-UM-DNS-QGEN-EQ  .
+
+ops  dnsQA dnsOA rsvA  advA : -> Address .
+op dnsObs : -> Actor .
+eq dnsObs = mkDNSObs(dnsOA,rsvA) .
+
+op iC : -> Config .
+eq iC =
+  rCtr(50) 
+  {1.0, (to umdA from umdA : actionR("ok"))} 
+  umActD  
+  dnsQGenA 
+  dnsObs
+  < advA : Adversary | dnsQuery: nilTML,
+                       dnsResponse: nilTML >
+ . 
+
+endm 
+
+eof
+***(
+red iC . 
+result Config: 
+rCtr(68) 
+{4.2565667010446475e+1, to umdA from umdA : actionR("ok")} 
+< dnsQA : DNSQgen-Eq | qnameBase: 'internet . 'com . root, lenNameDB: 1000, dnsClient: dnsOA, numQ: 0, w4q: null, replyTo: null >
+< dnsOA : DNSObserver | rsvAddr: rsvA, ctr: 2 > 
+
+< advA : Adversary | dnsQuery: (tm(1.0, to rsvA from dnsOA : query(0, label(673) . 'internet . 'com . root, a)) ; 
+tm(2.4422771879645399e+1, to rsvA from dnsOA : query( 1, label(326) . 'internet . 'com . root, a))), 
+dnsResponse: (tm(1.0888820001433877, to dnsOA from rsvA : response(0, label(673) . 'internet . 'com . root, nil, nil, nil, 0)) ; 
+tm(2.449794754502858e+1, to dnsOA from rsvA : response(1, label(326) . 'internet . 'com . root, nil, nil, nil, 0))) > 
+
+< umdA : UM-EQ | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(( "num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js( "uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo(("start" |-> jb( true), "type" |-> js("resolve_a"))), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js( "wait"))), "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait")))), curState: "batch", nsteps: 96, actAddress: dnsQA, w4: (to umdA from umdA : actionR("ok")), default: "single", mSum: ("batch" |-> 1.0, "single" |-> 1.0, "wait_batch" |-> 1.0, "wait_single" |-> 1.0), stateLM: ("batch" |-> jl(js("wait_batch")), "single" |-> jl( js("wait_single")), "wait_batch" |-> jl(js("batch") ; js("single")), "wait_single" |-> jl(js("batch") ; js("single"))), weightLM: ("batch" |-> jl(jf(1.0)), "single" |-> jl(jf(1.0)), "wait_batch" |-> jl(jf(5.0e-1) ; jf(1.0)), "wait_single" |-> jl(jf( 5.0e-1) ; jf(1.0))), stopTime: 3.0e+1 >
+
+)
+
+
+
+      

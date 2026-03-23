@@ -61,7 +61,8 @@ eq fileSize = 1000 .
 eq packetSize = 530 .
 eq maxPacketSize = 530 .
 eq packetOverhead = 33 .
-eq maxFragmentLen = 200 .
+eq maxUpFragmentLen = 247 .
+eq maxDownFragmentLen = 460 .
 eq maxFragmentTx = 20 .
 ---eq nsResourceBounds? = false .
 eq pacingTimeoutDelay = 0.05 .
@@ -75,15 +76,22 @@ eq receiveToPingDelay = 0.001 .
 
 --- This is needed so the rewrites don't freeze up when Bob receives Alice's file (normally this is handled by the other raceboat components)
 vars FILE : ByteSeq .
-vars BOB : Address .
+vars CLIENT, SERVER : Address .
 vars attrs : AttributeSet .
 vars T : Float .
 
-rl [dropOutputFiles]:
-    < BOB : RcvApp | attrs >
+rl [dropOutputFilesBob]:
+    < SERVER : RcvApp | attrs >
     {T, (to bob : FILE)}
     =>
-    < BOB : RcvApp | attrs >
+    < SERVER : RcvApp | attrs >
+.
+
+rl [dropOutputFilesAlice]:
+    < CLIENT : SendApp | attrs >
+    {T, (to alice from CLIENT : FILE)}
+    =>
+    < CLIENT : SendApp | attrs >
 .
 
 op zonePwnd2Com : -> List{Record} .

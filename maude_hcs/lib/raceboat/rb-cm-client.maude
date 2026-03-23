@@ -148,6 +148,8 @@ eq mkCMCAttrs(edAddr, mcAddr, l, mamodel) =
      edAddress: edAddr,
      mcAddress: mcAddr,
      w4c: null,
+     postingWeird: false, ***** NEW
+     weirdFileRcvTime: 0.,
      replyTo: null
 .
 
@@ -158,14 +160,22 @@ eq getEncodingSizeNeed(attrs) = 0 [owise] .
 
 --- Get the next encoded fragment to send.
 op getNextEncodedFrag : AttributeSet -> AttributeSet .
+**** case have efile that is ready to exfile
 eq getNextEncodedFrag(attrs,
+                      (postingWeird: true),
                       (pendingFiles: (efile(id, n, j, k) :: efilel)),
                       (currentFrags: nilBS))
   = attrs,
+    (postingWeird: true),  
     pendingFiles: (efile(id, n, j, k) :: efilel),
     currentFrags: efrag(efile(id, n, j, k), 0, 0, n)
+[print "getNextEncodedFrag: postingWeird true currentFrags nilBS"]    
   .
-eq getNextEncodedFrag(attrs) = attrs [owise] .
+
+**** postingWeird is true and frags is set
+**** or postingWeird is false
+eq getNextEncodedFrag(attrs) = attrs 
+[owise print "getNextEncodedFrag: owise"] .  --- ready to continue
 
 ---             This   Destini MastodonC NumHashtags Model
 op mkCMClient : Address Address Address    Nat         MAModel -> Actor .
@@ -222,20 +232,20 @@ eq resetTxState(attrs,
 --- Send a request to encode media with bytes.
 op requestMediaEncode : AttributeSet Address -> AttributeSetMsgs .
 
---- Benign case.
-ceq requestMediaEncode((attrs, w4c: null, pendingFiles: nilBS), cmcAddr)
+--- Benign case. postingWeird is false 
+ceq requestMediaEncode((attrs, w4c: null, postingWeird: false), cmcAddr)
   = {attrsNext, msg}
   if (attrsTrans, edAddress: edAddr) := attrs
     /\ msg := (to edAddr from cmcAddr : encQ(noBytes))
-    /\ attrsNext := (attrs, w4c: msg, pendingFiles: nilBS)
+    /\ attrsNext := (attrs, w4c: msg, postingWeird: false)
   [ print "Raceboat client has no weird bytes, encoding directly." ]
   .
 --- Weird case.
-ceq requestMediaEncode((attrs, w4c: null, pendingFiles: (efile(id, n, j, k) :: efilel)), cmcAddr)
+ceq requestMediaEncode((attrs, w4c: null, postingWeird: true), cmcAddr)
   = {attrsNext, msg}
   if (attrsTrans, edAddress: edAddr) := attrs
     /\ msg := (to edAddr from cmcAddr : capQ(getEncodingSizeNeed(attrs)))
-    /\ attrsNext := (attrs, w4c: msg, pendingFiles: (efile(id, n, j, k) :: efilel))
+    /\ attrsNext := (attrs, w4c: msg, postingWeird: true)
   [ print "Raceboat client has weird bytes ready to encode, requesting capacity." ]
   .
 
@@ -245,9 +255,15 @@ op getNextHashtag : AttributeSet -> ByteSeq .
 --- From the map of benign hashtags.
 eq getNextHashtag(attrs, (currentFrags: nilBS), (pendingFiles: nilBS), (bHashTagCtr: j), (hashtagMap: natstr))
   = hashTag(natstr[j])
+  [ print "Posting with benign hashtag" ]
+  .
+eq getNextHashtag(attrs, postingWeird: false, (bHashTagCtr: j), (hashtagMap: natstr))
+  = hashTag(natstr[j])
+  [ print "Posting with benign hashtag (pending files but not posting weird)." ]
   .
 --- From the one provided by Alice.
-eq getNextHashtag(attrs, pendingHashTags: (hashtag :: hashtagl)) = hashtag .
+eq getNextHashtag(attrs, pendingHashTags: (hashtag :: hashtagl), postingWeird: true) = hashtag 
+[ print "Posting with weird hashtag." ].
 eq getNextHashtag(attrs) = hashTag("tagError") [owise] .
 
 --- Send a batched post request to Mastodon Client.
@@ -260,7 +276,7 @@ ceq sendPostRequest((attrs, (w4c: null)), cmcAddr)
      (to mastodonClientAddr from cmcAddr : translateTootQ(tootQ(hashtag, IMAGES)))}
   if hashtag := getNextHashtag(attrs, (w4c: null))
     /\ attrsTrans, mcAddress: mastodonClientAddr, (encodedImages: IMAGES) := attrs
-  [ print "Raceboat client sending post request." ]
+  [ print "Raceboat client sending post request with hashtag " hashtag ]
   .
 
 --- Handle an encoding response.
@@ -284,7 +300,7 @@ ceq handleFragEncoding((attrs,
                     numPendingImages: n0,
                     encodedImages: (IMAGES :: image),
                     w4c: null)
-  [ print "Raceboat client handling fragment encoding, " n0 " left." ]
+  [ print "Raceboat client handling fragment encoding, " n0 " left. "]
   .
 
 
@@ -341,11 +357,13 @@ rl [rbc-rcv-file] :
 {T, (to cmcAddr from aAddr :  pkg(efile,hashtag) )}
 < cmcAddr : CMClient | cmcAtts, 
                        pendingHashTags: hashtagl,
-                       pendingFiles: efilel >
+                       pendingFiles: efilel,
+                       weirdFileRcvTime: rcvTime:Float >
 =>
 < cmcAddr : CMClient | cmcAtts, 
                       pendingHashTags: (hashtagl :: hashtag),
-                      pendingFiles: (efilel :: efile) >
+                      pendingFiles: (efilel :: efile) ,
+                      weirdFileRcvTime: T >
 [print "(" T ") Raceboat client got " efile " with hashtag " hashtag " from Alice, adding to pending."]
 .
 
@@ -354,16 +372,24 @@ rl [rbc-rcv-file] :
 crl [rbc-rcv-action] :
 rCtr(randCtr)
 {T,(to cmcAddr from umAddr :  actionQ(ract) )}
-< cmcAddr : CMClient | cmcAtts >
+< cmcAddr : CMClient | cmcAtts,
+                      (weirdFileRcvTime: rcvTime:Float),
+                      postingWeird: b:Bool,
+                      pendingFiles: efilel >
 =>
 rCtr(randCtr')
 < cmcAddr : CMClient | cmcAtts1 >
 delayMsgs(msgs,null)
-if {cmcAtts1,msgs, randCtr'} :=
-  crcvActionQ(cmcAtts,getType(ract),
-              (to cmcAddr from umAddr : actionQ(ract) ),
-              randCtr)
- [print "(" T ") Raceboat client got action request " ract ", sending " msgs]
+if b0:Bool :=  rcvTime:Float + 5.0 <= T and efilel =/= nilBS  --- no file ready
+/\ attrsTrans := cmcAtts,
+                 (weirdFileRcvTime: rcvTime:Float),
+                 postingWeird: b0:Bool,
+                 pendingFiles: efilel
+/\ {cmcAtts1,msgs, randCtr'} :=
+    crcvActionQ(attrsTrans,getType(ract),
+               (to cmcAddr from umAddr : actionQ(ract) ),
+               randCtr)
+ [print "(" T ") Raceboat client got action request " ract ",  setting postingWeird : " b0:Bool " sending " msgs]
    .
 
 --- ht := bHashtag(cur); inc  ctr mod k
@@ -404,7 +430,8 @@ ceq crcvActionQ((attrs,
                 (to cmcAddr from umAddr : actionQ(ract)),
                 randCtr)
   = concatenate(requestMediaEncode(attrsTrans, cmcAddr), s randCtr)
-    if n0 := 1 + sampleUniWithIntX(randCtr, MAXNUMMEDIAPERTOOT)
+    if n0 := getNumImages(ract)
+       **** 1 + sampleUniWithIntX(randCtr, MAXNUMMEDIAPERTOOT)
       /\ attrsTrans := getNextEncodedFrag(attrs),
                         (numPendingImages: n0),
                         (encodedImages: nilBS),
@@ -412,6 +439,9 @@ ceq crcvActionQ((attrs,
     [ print "Raceboat client getting media action for " n0 " pending images." ]
   .
 
+op getNumImages : Map{String,JV} -> Nat .
+eq getNumImages(("numImages" |-> jn(n), ract)) =  n .
+eq getNumImages(ract) = 1 [owise] .
 
 crl [rbc-rcv-capR] :
 {T,(to cmcAddr from edAddr :  capR(cap) )}
@@ -430,6 +460,7 @@ op crcvCapR : AttributeSet Msg -> AttributeSetMsgs .
  ----  call reqEnc
  ----  ow msgs = null, attrs unchanged
  
+----- assume this only happens if postingWeird: true 
 eq crcvCapR(attrs,msg) = {attrs,null} [owise] .
 ceq crcvCapR(attrs,(to cmcAddr from edAddr : capR(cap)))
     = {attrs1,msg}
@@ -470,8 +501,10 @@ eq crcvEncR(attrs, msg) = handleFragEncoding(attrs, msg) .
 
 endm  
 
+sload ../tgen/maude/mas-mamodel
 mod CM-CLIENT-TEST is
   inc CONTENT-MANAGER-CLIENT . 
+  inc MAS-MAMODEL .
 
 ops cmcA edA mcA aA umA : -> Address .
 op CMC : -> Actor .
@@ -555,18 +588,24 @@ eq CMCf =
     mcAddress: mcA,
     w4c: null,
     replyTo: null,
+    postingWeird: false,
     hashtagMap: (0 |-> "meow", 1 |-> "cat", 2 |-> "dog", 3 |-> "orange", 4 |-> "purple") >
 .
-
 
 ---- crl [rbc-rcv-action] :
 eq Mmedia =
   {0.2,(to cmcA from umA : 
-           actionQ(("type" |->  js("media")) ) )} .
+  actionQ(("contentType" |-> js("image"), "numImages" |-> jn(4), "start" |-> jb(true), "type" |-> js("media")))  ) 
+             } .
+
+  ****     actionQ(("type" |->  js("media")) )
+             
 ---- pendingFiles: nilBS or EF0
 ---- (w4c: null), (replyTo: null), 
+
  
----- rew CMC Mmedia .
+---- rew CMC Mmedia rCtr(11) .
+---- rew CMCf Mmedia rCtr(11) .
 eq CMCm =
 < cmcA : CMClient |
     bHashTagCtr: 0,

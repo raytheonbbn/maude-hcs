@@ -1,0 +1,452 @@
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+sload cp2-scenario-shared
+sload ../../app/maude/probabilistic  --- alice/bob
+sload ../../common/maude/user-action-actor
+sload ../../raceboat/rb-cm-client
+sload ../../raceboat/rb-cm-server
+sload ../../raceboat/enc-dec-actor
+sload ../../mastodon/maude/probabilistic/mastodon.maude
+sload ../../tgen/maude/mas-mamodel
+sload dnsnet
+sload ../../dns/maude/probabilistic/iodine_dns  
+sload ../../common/maude/router
+sload ../../common/maude/adversary-observer
+
+mod CP2-SCENARIO-BASE is
+---- actor addresses and link data types
+  inc CP2-SCENARIO-SHARED .  
+---- auxillary
+  inc USER-ACTION-ACTOR .
+  inc MAS-MAMODEL .
+  inc MASTODON .
+  inc DNS-NET .
+--- Alice/Bob
+  inc CP2_APP .    
+--- raceboat transport  
+  inc CONTENT-MANAGER-CLIENT .
+  inc CONTENT-MANAGER-SERVER .
+  inc ENC-DEC .
+--- dns tunnel  
+  inc IODINE_DNS .
+---- infrastructure
+  inc ROUTER .
+  inc ADVERSARY-OBSERVER .
+  
+  
+---- equations and parameters  
+
+**** uncomment this if you want Alice to terminate the execution 
+**** when the last file is acknowledged
+***()
+eq exeDone(< mon:Address :  WMonitor |
+   attrs:AttributeSet, doneFlag: true > conf:Config) = true .
+
+**** TODO make this a parameter for alice  
+*** in common/maude/_aux CP2_NODE < CP2_APP
+eq weirdHashtags = jl(js("person") ;
+                      js("man") ;           
+                      js("woman") ;
+                      js("camera") ;
+                      js("TV") )
+  .
+
+**** TODO add to byteseq.maude  
+eq encOH(fsize:Nat,ksize:Nat)  = 
+    (if ksize:Nat < fsize:Nat 
+     then 0 
+     else ksize:Nat + (- fsize:Nat) fi) [owise] .
+
+eq noiseMin(msg:Msg) = 0.001 .
+
+eq fileSize = 1000 .   --- 100
+eq packetSize = 530 .  --- 1 
+eq maxPacketSize = 530 .  --- 1 
+eq packetOverhead = 33 .  --- 1
+eq maxUpFragmentLen = 200 .
+eq maxDownFragmentLen = 510 .
+eq maxFragmentTx = 20 .
+---eq nsResourceBounds? = false .
+eq ackTimeoutDelay = 1.0 . 
+eq maxMinimiseCount = 0 .
+
+**** used by SendApp, RcvApp  Max SHOULD NO BE == DELAY
+eq pacingTimeoutDelay = 0.05 .   --- 0.
+eq pacingTimeoutDelayMax = 0.055 .   --- 0 .
+eq pingInterval = 5.0 .   
+**** eq pingInterval = 1.0 .
+eq initialPingDelay = 0.001 .
+eq receiveToPingDelay = 0.001 .
+
+
+----- actors
+op aliceAct : ByteSeqL -> Actor .
+
+ops alice bob  : -> Address .
+ops sendApp rcvApp iClient iServer : -> Address .  --- WDNS
+ops cmRBC edRBC umRBC mcRBC : -> Address . --- RB client
+ops cmRBS edRBS umRBS mcRBS : -> Address . --- RB server
+ops masS wmon router adversary : -> Address .
+ops corporate-dns public-dns : -> Address .  --- DNS interface
+
+
+**** actors
+***** users
+op aliceAct :  ByteSeqL -> Actor .
+eq  aliceAct(contracts:ByteSeqL) 
+        = makeTxApp(alice,bob,sendApp,umRBC, cmRBC,
+                    contracts:ByteSeqL) .
+    ****            [hashTags:ByteSeqL] TODO
+op bobAct :  -> Actor .
+eq  bobAct =  makeRxApp(bob,rcvApp, umRBS, cmRBS) .
+
+***** RaceBoat Client
+ops cmRBCAct  umRBCAct mcRBCAct : -> Actor .
+eq cmRBCAct =  mkCMClient(cmRBC,edRBC,mcRBC,0,mas-ma) .
+eq umRBCAct =  mkUMactor (umRBC,mas-ma,cmRBC) .
+eq mcRBCAct =  makeMastodonClient(mcRBC, X(masS), cmRBC) .
+op edRBCAct : ByteSeqL -> Actor .
+eq  edRBCAct(iml:ByteSeqL) =
+         mkEDActor(edRBC,iml:ByteSeqL,1,4,1/10)  .
+
+***** RaceBoat Server
+ops cmRBSAct  umRBSAct mcRBSAct : -> Actor .
+
+eq cmRBSAct = mkCMServer(cmRBS,edRBS,mcRBS,bob,0,mas-ma) .
+eq umRBSAct = mkUMactor (umRBS,mas-ma,cmRBS) .
+eq mcRBSAct = makeMastodonClient(mcRBS,masS, cmRBS) .
+
+op edRBSAct : ByteSeqL -> Actor .
+eq  edRBSAct(iml:ByteSeqL) =
+         mkEDActor(edRBS,iml:ByteSeqL,1,4,1/10)  .
+
+*******************************
+***** TODO -- NEED TO add these contructors to the relevant _aux file
+op makeSendApp : Address Address Address Address -> Actor .
+eq makeSendApp(sndAddr:Address,rcvAddr:Address,    
+                iclientAddr:Address, aliceAddr:Address)
+  =                
+  < sndAddr:Address : SendApp |
+      fileDestAddr: rcvAddr:Address,
+      toAddr: iclientAddr:Address,
+      fromAddr: aliceAddr:Address,   *****NEW
+      queuePopulated: true,  *****false,
+      queue: mtpl,
+      numAdmittedPkts: 1,
+      iodineReady: true,
+      sent: mtpl,
+      packetCounter: 0, 
+      rcvd: mtpl > 
+.
+
+op makeRcvApp  : Address Address Address Address -> Actor .
+eq makeRcvApp(rcvAddr:Address,sndAddr:Address, 
+               iserverAddr:Address,bobAddr:Address)
+ =  < rcvAddr:Address : RcvApp | rcvd: mtpl,
+      fileDestAddr: bobAddr:Address,
+      fileSrcAddr: sndAddr:Address,
+      toAddr: iserverAddr:Address,
+      queuePopulated: true,
+      queue: (mtpl),
+      numAdmittedPkts: 1,
+      packetCounter: 0, 
+      iodineReady: true,
+      sent: mtpl >
+.
+***************************************************************
+***** DNS Tunnel
+op zonePwnd2Com : -> List{Record} .
+eq zonePwnd2Com =
+  < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+  < 'ns . 'pwnd2 . 'com . root, a, 3600.0, iServer >
+  < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+  < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+  < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
+
+op zonePwndCom : -> List{Record} .
+eq zonePwndCom =
+  < 'pwnd . 'com . root, soa, 3600.0, soaData(3600.0) >
+  < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
+  < 'ns . 'pwnd . 'com . root, a, 3600.0, iServer >
+  < 'www0 . 'pwnd . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+  < 'www1 . 'pwnd . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+  < wildcard . 'pwnd . 'com . root, txt, 3600.0, nullAddr > .
+
+
+ops sendAppAct rcvAppAct : -> Actor .
+eq sendAppAct =  makeSendApp(sendApp,rcvApp,iClient,alice) .
+eq rcvAppAct =  makeRcvApp(rcvApp,sendApp,iServer,bob) .
+
+***** weird dns query direct to weird server
+ops iClient2Act  : -> Actor .
+eq iClient2Act = makeWClient(iClient, X(iServer),
+                           'pwnd2 . 'com . root, a,0.0) .
+
+ops iServer2Act : -> Actor .
+eq iServer2Act = makeWNameServer(iServer,0.0, zonePwnd2Com)  .
+
+***(
+  makeWClient(alice-iodine-client, corporate-dns, 't1 . 'pwnd . 'com . root, a, 0.0)
+  makeWNameServer(user-bob-iodine-server, 0.0, (zoneT1PwndCom))
+)
+
+***** weird dns query goes through resolvers
+ops iClientAct  : -> Actor .
+eq iClientAct = makeWClient(iClient, X(iServer),
+                        't1 . 'pwnd . 'com . root, a,0.0) .
+                           
+ops iServerAct : -> Actor .
+eq iServerAct = makeWNameServer(iServer,0.0, zonePwndCom)  .
+
+
+ops iClientRAct  : -> Actor .
+eq iClientRAct = makeWClient(iClient, corporate-dns,
+                         't1 . 'pwnd . 'com . root, a,0.0) .
+
+*********** infrastructure actors
+op masSAct : -> Actor .
+eq masSAct = makeMastodonServer(masS) .
+
+op wmonAct : -> Actor .
+eq wmonAct =  mkWMonitor(wmon) .
+
+op routerAct : -> Actor .
+eq routerAct = mkRouter(router) .
+
+op iSbase : ByteSeqL ByteSeqL ByteSeqL -> Config .
+eq iSbase (fl:ByteSeqL,imlc:ByteSeqL,imls:ByteSeqL) = 
+rCtr(100)
+aliceAct(fl:ByteSeqL) bobAct
+delayMsgs((to alice : start) (to bob : start),null)
+cmRBCAct  umRBCAct mcRBCAct edRBCAct(imlc:ByteSeqL)
+cmRBSAct  umRBSAct mcRBSAct edRBSAct(imls:ByteSeqL)
+sendAppAct rcvAppAct
+masSAct
+wmonAct
+routerAct
+.
+
+**** iclient talks directly to iserver pwnd2
+op iS20 : ByteSeqL ByteSeqL ByteSeqL -> Config .
+eq iS20 (fl:ByteSeqL,imlc:ByteSeqL,imls:ByteSeqL) = 
+  iSbase (fl:ByteSeqL,imlc:ByteSeqL,imls:ByteSeqL) 
+  iClient2Act iServer2Act
+  **** dnsNetConfig
+.
+
+**** iclient talks directly to iserver pwnd
+op iS0 : ByteSeqL ByteSeqL ByteSeqL -> Config .
+eq iS0 (fl:ByteSeqL,imlc:ByteSeqL,imls:ByteSeqL) = 
+  iSbase (fl:ByteSeqL,imlc:ByteSeqL,imls:ByteSeqL) 
+  iClientAct iServerAct
+  **** dnsNetConfig
+.
+
+**** weird queries go through resolver
+op iSR0 : ByteSeqL ByteSeqL ByteSeqL -> Config .
+eq iSR0 (fl:ByteSeqL,imlc:ByteSeqL,imls:ByteSeqL) = 
+  iSbase (fl:ByteSeqL,imlc:ByteSeqL,imls:ByteSeqL) 
+  iClientRAct iServerAct
+  dnsNetConfig
+.
+
+**** CP2 links
+***(
+mcRBC masS 
+mcRBS masS
+iServer public-dns
+)
+
+***** for the default case
+eq noiseMax(msg:Msg) = 0.00001 [owise] .
+
+op weirdLinkData : -> AdrAdrAttrsSet .
+eq weirdLinkData =
+   aaa(public-dns,iServer,LinkType-1)
+   aaa(iServer,public-dns,LinkType-1)
+   aaa(mcRBC,masS,LinkType-1)
+   aaa(masS,mcRBC,LinkType-1)
+   aaa(mcRBS,masS,LinkType-1)
+   aaa(masS,mcRBC,LinkType-1)
+.
+
+eq LinkData = weirdLinkData  DNSLinkData [owise] .
+
+ops F0 F1 F2 F3 : -> ByteSeq .
+eq F0 = file(0,50) .
+eq F1 = file(1,100) .
+eq F2 = file(2,125) .
+eq F3 = file(3,200) .
+
+ops IMLC  IMLS : -> ByteSeqL .
+eq IMLC = image(0,250,50) :: image(1,500,50) :: image(2,500,100) :: image(3,1000,200) :: image(4,1000,150) .
+
+eq IMLS = image(5,250,50) :: image(6,500,50) :: image(7,500,100) :: image(8,1000,200) :: image(9,1000,150) .
+ 
+*********  Basic Weird Net no TGen 
+**** iS20 iS0 iSR0 
+op iS : ByteSeqL -> Config .
+eq iS(fl:ByteSeqL) = iS0(fl:ByteSeqL,IMLC,IMLS) .
+
+op iS2 : ByteSeqL -> Config .
+eq iS2(fl:ByteSeqL) = iS20(fl:ByteSeqL,IMLC,IMLS) .
+
+**** iclient queries resovler
+op iSR : ByteSeqL -> Config .
+eq iSR(fl:ByteSeqL) = iSR0(fl:ByteSeqL,IMLC,IMLS) .
+
+endm
+
+
+sload ../../tgen/maude/masTGen
+sload ../../tgen/maude/dnsTgen-actor
+sload ../../tgen/maude/dns-mamodel
+
+mod CP2-SCENARIO-TGEN is
+  inc CP2-SCENARIO-BASE .
+  inc DNS-MAMODEL .
+  inc DNS-TGEN .
+  inc MAS-TGEN .
+
+vars obsS obsR : Observable .
+vars images : ByteSeqL .
+vars mamodel : MAModel .
+
+op adversaryAct : Observable Observable -> Actor .
+eq adversaryAct(obsS,obsR)
+    = mkAdversary(adversary,obsS, obsR) .
+
+ops dnsQPre dnsQPost dnsRPre dnsRPost httpPre httpPost
+        : -> Observable .
+eq dnsQPre = pat("X",corporate-dns)  .   --- rcvd
+eq dnsQPost = pat(public-dns,"Z") . --- sent
+eq dnsRPost = pat("Z",public-dns) . --- rcv
+eq dnsRPre = pat(corporate-dns,"X") . --- sent
+eq httpPre = pat("X",mcRBC) .  ---  rcv
+eq httpPost = pat(masS,"Z") . ---  sent
+
+
+***** MasTgen-0
+ops mcTgen-0 masTgen-0  umMasTgen-0 : -> Address .
+op mcTgen-0Act : -> Actor .
+eq mcTgen-0Act =
+    makeMastodonClient(mcTgen-0, X(masS), masTgen-0) .
+
+op masTgen-0Act : ByteSeqL MAModel -> Actor .
+eq masTgen-0Act (images,mamodel) =
+  mkMasTGenActor(masTgen-0, mcTgen-0, images,mamodel) .
+
+op umMasTgen-0Act :  MAModel -> Actor .
+eq umMasTgen-0Act(mamodel) =
+   mkUMactor(umMasTgen-0,mamodel,masTgen-0) .
+**** delayMsgs((to umMasTgen-0 from umMasTgen-0: actionR("")),null) 
+
+***** DNSTgen-0
+ops dnsTgen-0  umDnsTgen-0 : -> Address .
+op dnsTgen-0Act :  -> Actor .
+op umDnsTgen-0Act :  MAModel -> Actor .
+
+eq dnsTgen-0Act =
+  mkDnsTgenA(dnsTgen-0,corporate-dns,10000, 5.0, 2) .
+eq umDnsTgen-0Act (mamodel) = 
+mkUMactor(umDnsTgen-0,mamodel,dnsTgen-0 ) .
+**** delayMsgs((to umDnsTgen-0 from umDnsTgen-0 : actionR("")))
+  
+
+op dnsTgBase : -> Config .
+eq dnsTgBase =
+  dnsTgen-0Act
+  umDnsTgen-0Act(dns-ma)
+  delayMsgs((to umDnsTgen-0 from umDnsTgen-0 : actionR("")),null)
+.
+
+op dnsTgConf : -> Config .
+eq dnsTgConf =
+  dnsTgBase
+  dnsNetConfig
+  wmonAct
+  routerAct
+  adversaryAct( pat("addr","Z") pat("addr","X"),
+                pat("Z","addr") pat("X","addr") )
+.
+
+op masTgBase : -> Config .
+eq masTgBase =
+  masTgen-0Act (IMLC,mas-ma) 
+  mcTgen-0Act 
+  umMasTgen-0Act(mas-ma) 
+  delayMsgs((to umMasTgen-0 from umMasTgen-0 : actionR("")),null)
+.
+
+op masTgConf : -> Config .
+eq masTgConf =
+  masTgBase
+  masSAct
+  wmonAct
+  routerAct
+  adversaryAct( pat("addr","Z") pat("addr","X"),
+               pat("Z","addr") pat("X","addr") )
+.
+
+
+op iSdnsTg : ByteSeqL -> Config .
+eq iSdnsTg(fl:ByteSeqL) =
+  iSR(fl:ByteSeqL)
+  dnsTgBase
+  adversaryAct( pat("addr","Z") pat("addr","X"),
+               pat("Z","addr") pat("X","addr") )
+   .
+  
+op iSmasTg : ByteSeqL -> Config .
+eq iSmasTg(fl:ByteSeqL) =
+  iSR(fl:ByteSeqL)
+  masTgBase
+  adversaryAct( pat("addr","Z") pat("addr","X"),
+               pat("Z","addr") pat("X","addr") )
+  
+.
+
+op iSdnsmasTg : ByteSeqL -> Config .
+eq iSdnsmasTg(fl:ByteSeqL) =
+  iSR(fl:ByteSeqL)
+  dnsTgBase
+  masTgBase
+  adversaryAct( pat("addr","Z") pat("addr","X"),
+               pat("Z","addr") pat("X","addr") )
+  
+.
+
+**** links  mcTgen-0 masS
+op TGenLinkData : ->  AdrAdrAttrsSet .
+eq TGenLinkData =
+   aaa(mcTgen-0,masS,LinkType-1)
+   aaa(masS,mcTgen-0,LinkType-1) .
+
+eq LinkData = weirdLinkData  DNSLinkData  TGenLinkData  .
+
+endm  
+eof
+
+**** weird net exfil 4 files,  no TGen traffic
+rew run({0.0 | nil} iSR(F0 :: F1 :: F2 :: F3), 400.) .
+
+
+**** dnsTgen alone
+rew run({0.0 | nil} rCtr(100)  dnsTgConf,200.) .
+
+**** dnsTgen with weird Net (alice,bob, tunnels)
+rew run({0.0 | nil} iSdnsTg(F0), 200.0) . 
+rew run({0.0 | nil} iSdnsTg(F0 :: F1 :: F2), 200.0) . 
+
+**** masTGen alone
+rew run({0.0 | nil} rCtr(100)  masTgConf,200.) .
+
+**** masTGen with weird net
+rew run({0.0 | nil} iSmasTg(F0), 200.0) . 
+rew run({0.0 | nil} iSmasTg(F0 :: F1 :: F2), 200.0) . 
+
+**** dnsTgen and masTGen with weird net
+rew run({0.0 | nil} iSdnsmasTg(F0), 200.0) . 

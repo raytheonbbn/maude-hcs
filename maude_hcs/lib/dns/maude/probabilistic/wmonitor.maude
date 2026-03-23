@@ -28,7 +28,8 @@
 ---
 --- MAUDE_HCS: end
 
-load _aux
+set show advisories off .
+sload _aux
 
 
 mod WMONITOR is
@@ -56,6 +57,61 @@ mod WMONITOR is
   op pktRcvd:_ : PacketTimestampList -> Attribute [format (nss d d)] . --- records the number of packets received by Iodine server
   op querySent:_ : QueryTimestampList -> Attribute [format (nss d d)] . --- records the number of queries sent by Iodine client
   op queryRcvd:_ : QueryTimestampList -> Attribute [format (nss d d)] . --- records the number of queries received by Iodine server
+
+vars attrs : AttributeSet .
+vars filetsl : ByteSeqTimestampList .
+vars contract : ByteSeq .
+vars T : Float .
+
+ **** added for file tracking
+   op doneFlag:_ : Bool -> Attribute [ctor] .
+   op setDoneFlag : AttributeSet Bool -> AttributeSet .
+
+  eq setDoneFlag ((attrs, doneFlag: b0:Bool), b:Bool) 
+         = attrs, doneFlag: true .
+  eq setDoneFlag (attrs,b:Bool) = attrs, doneFlag: true [owise] .
+ 
+ sorts ByteSeqTimestamp ByteSeqTimestampList .
+ subsort ByteSeqTimestamp < ByteSeqTimestampList .
+ op fileTimeStamp : ByteSeq Float -> ByteSeqTimestamp .
+ op nilByteSeqTimestamp : -> ByteSeqTimestampList [ctor] .
+ op _;_ : ByteSeqTimestampList ByteSeqTimestampList
+         -> ByteSeqTimestampList 
+         [ctor assoc id: nilByteSeqTimestamp] .
+ 
+ ops fileSent:_  fileRcvd:_ : ByteSeqTimestampList 
+                 -> Attribute [ctor] .
+
+ op logFileSent : AttributeSet Float ByteSeq 
+                  -> AttributeSet .
+ eq logFileSent((attrs, fileSent: filetsl), T, contract)
+   = attrs, 
+     fileSent: (filetsl ; fileTimeStamp(contract,T)) .
+ eq logFileSent(attrs, T, contract)
+   = attrs, fileSent: fileTimeStamp(contract,T) [owise] .     
+
+ op logFileRcvd : AttributeSet Float ByteSeq 
+                  -> AttributeSet .
+ eq logFileRcvd((attrs, fileRcvd: filetsl), T, contract)
+   = attrs, 
+     fileRcvd: (filetsl ; fileTimeStamp(contract,T)) .
+ eq logFileRcvd(attrs, T, contract)
+   = attrs, fileRcvd: fileTimeStamp(contract,T) [owise] .     
+
+*** from test file
+op mkWMonitor : Address -> Actor .
+eq mkWMonitor(monAddr:Address) =
+  < monAddr:Address : WMonitor |
+    querySent: nilQueryTimestamp,
+    queryRcvd: nilQueryTimestamp,
+    pktSent: nilPacketTimestamp,
+    pktRcvd: nilPacketTimestamp,
+    fileSent: nilByteSeqTimestamp,
+    fileRcvd: nilByteSeqTimestamp,
+    doneFlag: false    
+     >
+.
+   
 
 endm
 

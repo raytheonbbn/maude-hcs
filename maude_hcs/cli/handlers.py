@@ -27,11 +27,12 @@
 # contained herein. Refer to the provided NOTICE file.
 #
 # MAUDE_HCS: end
+import json
 
 from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
 from maude_hcs.lib import GLOBALS
-from maude_hcs.parsers.configfactory import buildHCSConfig
+from maude_hcs.parsers.markovJsonToMaudeParser import process_directories
 
 import logging
 from pathlib import Path
@@ -40,15 +41,34 @@ from umaudemc.command.scheck import scheck
 import importlib.util
 import maude
 
+from ..parsers.hcsconfig import HCSConfig
+from ..parsers.ymlconf import parse_destini
+
 logger = logging.getLogger(__name__)
 
+MARKOV_NAME = 'markov'
 GENERATE_NAME = 'generate'
 SCHECK_NAME = 'scheck'
+IMAGES_NAME = 'images'
+
+def buildHCSConfig(args):
+    protocol = args.protocol
+    if args.run_args_filename:
+        return HCSConfig.from_file(Path(args.run_args_filename))
+    elif args.shadow_filename:
+        return HCSConfig.from_shadow(Path(args.shadow_filename))
+    # build from yml
+    elif args.yml_filename:
+        return HCSConfig.from_yml(Path(args.yml_filename))
+    else:
+        raise ValueError("Unsupported input. Specify run_args or yml_filename or shadow_filename.")
 
 def handle_command(command, parser, args):
     handlers = {
         GENERATE_NAME: handle_generate,
-        SCHECK_NAME: handle_scheck
+        SCHECK_NAME: handle_scheck,
+        MARKOV_NAME: handle_markov,
+        IMAGES_NAME: handle_image_mdata
     }
 
     if command in handlers:
@@ -59,8 +79,10 @@ def handle_command(command, parser, args):
 
 def handle_generate(args, parser):
     logger.debug("Handle maude generation")
-    if args.run_args and args.shadow_filename:
+    if args.run_args_filename and args.shadow_filename:
         raise Exception('Either specify a json HCS config with --run-args OR a shadow config, but not both.')
+    if args.run_args_filename and args.yml_filename:
+        raise Exception('Either specify a json HCS config with --run-args OR a yml config, but not both.')
     # get the configuration object    
     hcsconfig = buildHCSConfig(args)
     # instantiate the analysis and generate
@@ -84,3 +106,16 @@ def handle_scheck(args, parser):
     maude.init(advise=args.advise)
     maude.load(args.test)
     result = scheck(args)
+
+def handle_markov(args, parser):
+    logger.debug("Handle maude markov")
+    process_directories(args, args.json_dir, args.maude_dir)
+
+def handle_image_mdata(args, parser):
+    logger.debug("Handle image metadata generation")
+    destini_obj = parse_destini(args.image_dir)
+    output_dir = args.image_out_dir
+    logger.debug(output_dir)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    result_file = Path(output_dir).joinpath('mastodon_images.json')
+    destini_obj.save(result_file)

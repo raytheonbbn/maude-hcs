@@ -41,3 +41,21 @@ def makePackets(address, toAddress, sizeList : list, startSeqNum = 0) -> list:
     isLastList = [False for index in indeces]
     isLastList[-1] = True
     return [Packet(address, toAddress, index, L, isLast) for L, index, isLast in zip(sizeList, indeces, isLastList)]
+
+def extend_or_truncate(s, n):
+    """
+    Adjusts string s to be exactly length n.
+    - If s is longer than n, truncate trailing characters.
+    - If s is shorter than n, prepend 'w' characters until length is n.
+    """
+    if len(s) > n:
+        # Truncate
+        return s[:n]
+    elif len(s) < n:
+        # Calculate how many 'w's are needed
+        padding_count = n - len(s)
+        # Prepend the 'w's
+        return ('w' * padding_count) + s
+    else:
+        # Length matches exactly
+        return s

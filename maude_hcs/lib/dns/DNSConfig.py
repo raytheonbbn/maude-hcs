@@ -30,7 +30,7 @@
 
 from pathlib import Path
 import os
-from maude_hcs.lib import GLOBALS
+from maude_hcs.lib import GLOBALS, flatten
 from Maude.attack_exploration.src.config import Config
 from Maude.attack_exploration.src.conversion_utils import address_to_maude
 from .cache import ResolverCache
@@ -42,13 +42,14 @@ WEIRD_DNS_MAUDE_ROOT = Path(os.path.dirname(__file__)).joinpath(Path("maude/"))
 CWD = Path.cwd()
 
 class DNSConfig(Config):
-    def __init__(self, clients, resolvers, nameservers, root_nameservers, network) -> None:
+    def __init__(self, clients, resolvers, nameservers, root_nameservers, network, output_dir) -> None:
         self.nondet_params = {}
         self.prob_params = {}
         self.model_type = GLOBALS.MODEL_TYPES[0]
         self.path = str(TOPLEVELDIR.joinpath(DNS_MAUDE_ROOT)) + os.path.sep
         self.weirdpath = str(WEIRD_DNS_MAUDE_ROOT)
         self.preamble = None
+        self.output_dir = output_dir
         super().__init__(clients, resolvers, nameservers, root_nameservers, network)
 
     def set_params(self, nondet_params : dict, prob_params : dict):
@@ -62,7 +63,23 @@ class DNSConfig(Config):
 
     def set_preamble(self, L: list[str] = []):
         self.preamble = L
-        
+
+    def _to_maude_common_definitions(self, param_dict) -> str:
+        res = 'eq monitorQueryLog? = true .\n\n'
+
+        for param, val in param_dict.items():
+            if isinstance(val, str):
+                res += f'eq {param} = {val} .\n'
+            else:
+                res += f'eq {param} = {str(val).lower()} .\n'
+
+        res += '\n'
+
+        res += self._get_addr_ops() + '\n'
+        res += self._get_sbelt() + '\n'
+        res += self._to_maude_zones()
+        return res
+
     # Override to exclude the monitor
     def _to_maude_actors(self) -> str:
         res = '  --- Clients\n'
@@ -85,25 +102,44 @@ class DNSConfig(Config):
             if resolver.cache:
                 res += resolver.cache.to_maude() + '\n'
         return res
-   
-    # override update the modules imported
-    def to_maude_nondet(self, param_dict, path) -> str:
-        res = '\n'.join((
+
+    def _maude_loads(self, path, model):
+        if model == 'nondet':
+            return '\n'.join((
                 '--- This maude file has been created automatically from the Python representation ---\n',
                 f'load {self.weirdpath}/nondet/iodine_dns',
-                #f'load {path}src/nondet-model/dns',
+                # f'load {path}src/nondet-model/dns',
                 f'load {path}test/nondet-model/test_helpers'
-        ))
+            ))
+        elif model == 'prob':
+            res = '--- This maude file has been created automatically from the Python representation ---\n'
+            res += '\n'.join((
+                f'load {self.weirdpath}/probabilistic/iodine_dns',
+                f'load {self.weirdpath}/probabilistic/paced-client\n'
+                f'load {path}test/probabilistic-model/test_helpers\n',
+            ))
+            return res
+        return None
+
+    def _maude_includes(self, param_dict, path, model) -> str:
+        if model == 'nondet':
+            return 'inc IODINE_DNS + TEST-HELPERS .\n\n'
+        elif model == 'prob':
+            return 'inc IODINE_DNS + PACED-CLIENT + TEST-HELPERS .\n\n'
+
+
+    # override update the modules imported
+    def to_maude_nondet(self, param_dict, path) -> str:
+        res = self._maude_loads(path, 'nondet')
         # add preamble 
         res += '\n'
         res += '\n'.join([pr for pr in self.preamble])
         res += '\n\n'
         
         # define module
-        res += '\n'.join((
-                f'mod {GLOBALS.MODULE_NAME} is\n',
-                'inc IODINE_DNS + TEST-HELPERS .\n\n'
-        ))
+        res += f'mod {GLOBALS.MODULE_NAME} is\n'
+        # define includes
+        res += self._maude_includes(param_dict, path, 'nondet')
 
         res += self._to_maude_common_definitions(param_dict)
         res += self._to_maude_caches()
@@ -119,27 +155,25 @@ class DNSConfig(Config):
         res += '  .\n\n'
         
         res += 'endm\n'        
-        return res        
+        return res
+
+
 
     def to_maude_prob(self, param_dict, path) -> str:
-        res = '--- This maude file has been created automatically from the Python representation ---\n'
-        res += '\n'.join((            
-                f'load {self.weirdpath}/probabilistic/iodine_dns',
-                f'load {self.weirdpath}/probabilistic/paced-client\n'
-                f'load {path}test/probabilistic-model/test_helpers\n',                
-				))
+        res = self._maude_loads(path, 'prob')
+        res += '\n'
 
         # add preamble 
         res += '\n'
         res += '\n'.join([pr for pr in self.preamble])
         res += '\n\n'
 
-        res += '\n'.join((
-                f'mod {GLOBALS.MODULE_NAME} is\n',
-                'inc IODINE_DNS + PACED-CLIENT + TEST-HELPERS .\n\n'
-        ))
+        # define module
+        res += f'mod {GLOBALS.MODULE_NAME} is\n'
+        # define includes
+        res += self._maude_includes(param_dict, path, 'prob')
 
-        res += self._to_maude_common_definitions(param_dict)
+        res += self._to_maude_common_definitions(flatten(param_dict))
         res += self._to_maude_caches()
         res += '--- Initial configuration\n'
         res += 'op initState : -> Config .\n'
@@ -153,7 +187,7 @@ class DNSConfig(Config):
         res += self.network.to_maude_network()
         res += '\n'
         res += 'op initConfig : -> Config .\n'
-        res += 'eq initConfig = run({0.0 | nil} initState,limit) .\n'
+        res += 'eq initConfig = run({0.0 | nil} initState,slimit) .\n'
         res += 'endm\n'
 
         return res       

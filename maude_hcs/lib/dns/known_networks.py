@@ -30,13 +30,18 @@
 
 from maude_hcs.parsers.hcsconfig import HCSConfig
 from .corporate import corporate
-from .corporate_iodine import corporate_iodine
+from .corporate_iodine import iodine_dns
+from .corporate_destini_iodine import destini_mastodon_iodine_dns
+from .. import Protocol
+
 
 class KnownUNetworks:
     def __init__(self):        
         self.constructors = {
             'corporate_base': self._fixed_network(corporate),
-            'corporate_iodine': self._fixed_network(corporate_iodine)
+            Protocol.IODINE_DNS.value: self._fixed_network(iodine_dns),
+            # Protocol.DESTINI_MASTODON: self._fixed_network(destini_mastodon),
+            Protocol.DESTINI_MASTODON_IODINE_DNS.value: self._fixed_network(destini_mastodon_iodine_dns)
         }
     
     def create(self, args, hcsconf:HCSConfig):        

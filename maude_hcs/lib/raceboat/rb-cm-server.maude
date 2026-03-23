@@ -109,6 +109,17 @@ eq mkCMServer(cmsAddr, edAddr,mcAddr,bAddr,l, mamodel) =
   < cmsAddr : CMServer | 
     mkCMSAttrs(edAddr,mcAddr,bAddr,l, mamodel)  >
  .
+ 
+ ***(
+ op isBenign : Map{Nat,String} Tag ->  Bool .
+ eq isBenign((n |-> str),natstr), makeTag(str) = true .
+ eq isBenign(natstr,tag)= false  [owise] .
+)
+
+ op isBenign : Map{Nat,String} ByteSeq ->  Bool .
+ eq isBenign(((n |-> str), natstr), hashTag(str)) = true .
+ eq isBenign(natstr,hashtag) = false  [owise] .
+ 
 
 
 --- rbs receives hashtag from bob
@@ -205,7 +216,8 @@ eq srcvFetchR(attrs,msg) = {attrs,null} [owise] .
 ---- non weird  download  just reply to um 
 --- imagel may be empty
 ***** clt -- I think we can use 
-***** pendingHashTags: (ht :: hashtagl), instead of isEmbed
+***** pendingHashTags: (ht :: hashtagl), 
+***** NOT TRUE,  need to check ht against bhashmap
 ***** only weird hash tags appear there
 ceq srcvFetchR(attrs,
              (to cmsAddr from mcAddr : fetchR(imagel,ht)) )
@@ -213,13 +225,15 @@ ceq srcvFetchR(attrs,
 if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
            replyTo: (to cmsAddr from umAddr : actionQ(ract))
             := attrs
-/\ attrs2,   pendingHashTags: nilBS := attrs           
+/\ attrs2, hashtagMap: natstr := attrs
+/\ isBenign(natstr,ht)
+****/\ attrs2,   pendingHashTags: nilBS := attrs           
 ---- /\ hashTag(hashtag:String) := ht
 ---Replace /\ bHashTag(j) := ht with this test finding if payload in image.
 ---- /\ isEncode(imagel) == false
 /\ msg := (to umAddr from cmsAddr : actionR("ok"))    
 /\ attrs1 := attrs0,  w4c: null, replyTo: null
-**** [ print "Raceboat server has benign download." ]
+[ print "Raceboat server has fetch response for benign ht " ht]
 .    
 
 ---- w Hashtag download no images
@@ -384,10 +398,11 @@ if attrs0, bHashTagCtr: j,
 
 endm
 
+sload ../tgen/maude/mas-mamodel
 
 mod CM-SERVER-TEST is
   inc CONTENT-MANAGER-SERVER .
-  
+  inc MAS-MAMODEL .
 
 ops cmsA edA mcA bA umA : -> Address .
 op CMS : -> Actor .

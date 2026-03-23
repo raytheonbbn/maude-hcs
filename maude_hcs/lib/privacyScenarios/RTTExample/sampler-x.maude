@@ -1,0 +1,83 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+fmod SAMPLER-X is
+  pr RANDOM .
+  pr CONVERSION .
+  inc MAP{String,Float} .
+  
+
+  vars MEAN SD RAND  Min Max : Float .  
+  var j n : Nat .
+  var weights : Map{String,Float} .
+  vars wt wtsum rnd : Float .
+  vars sid : String .
+  
+  op sampleNormalX : Nat -> [Float] .
+  op $sampleNormalX : Float -> [Float] .
+  eq sampleNormalX(j) = 
+      $sampleNormalX(float(random(j) / 4294967296) ) .
+  eq $sampleNormalX(RAND) = 
+       sqrt(- 2.0 * log(RAND)) * cos(2.0 * pi * RAND) .
+ 
+  op sampleNormalWithMeanSdX : Float Float Nat -> [Float] .
+  eq sampleNormalWithMeanSdX(MEAN, SD, j) 
+    = MEAN + (SD * sampleNormalX(j)) .
+
+  --- Get a random nat between in [0, n-1].
+  op sampleUniWithIntX : Nat Nat -> [Nat] .
+  eq sampleUniWithIntX(j, n) = random(j) rem n .
+
+  op genRandomX : Nat Float Float -> [Float] .
+  eq genRandomX(j,Min, Max) = 
+       float(random(j) / 4294967296) * (Max - Min) + Min .
+ 
+ 
+ **** probabalistic version
+ op chooseWt : Map{String,Float}  Nat -> String .
+ op chooseWtX : Map{String,Float} Float Float
+               -> String .
+
+ eq chooseWt(weights,j) =
+  chooseWtX(weights, float(random(j) / 4294967296), 0.0) .
+ 
+ eq chooseWtX((weights, sid |-> wt), rnd, wtsum)
+     =
+  (if (wtsum < rnd) and (rnd <= wtsum + wt)
+   then sid
+   else chooseWtX(weights,rnd,wtsum + wt)
+   fi)
+  .
+
+ **** shouldn't happen
+ eq chooseWtX(weights, rnd,wtsum) = "idle" [owise] .
+ 
+ **** move weighted choice function here
+endfm

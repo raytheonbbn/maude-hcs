@@ -1,0 +1,76 @@
+// Adversary Parameter Template
+// Auto-generated from Python Configuration
+
+// Parameter Groups:
+// qps: k={{ k_qps }}, n={{ n_qps }}, s={{ s_qps }}, w={{ w_qps }}
+// qsize: k={{ k_qsize }}, n={{ n_qsize }}, s={{ s_qsize }}, w={{ w_qsize }}
+// respsize: k={{ k_respsize }}, n={{ n_respsize }}, s={{ s_respsize }}, w={{ w_respsize }}
+// uploadrate: k={{ k_uploadrate }}, n={{ n_uploadrate }}, s={{ s_uploadrate }}, w={{ w_uploadrate }}
+// Global: start_time={{ start_time }}
+// Cumulative Thresholds:
+// C.1: {{ N_query_pre_nat }}
+// C.2: {{ N_query_post_nat }}
+// C.3: {{ N_query_size_pre_nat }}
+// C.4: {{ N_query_size_post_nat }}
+// C.5: {{ N_response_pre_nat }}
+// C.6: {{ N_response_post_nat }}
+// C.7: {{ N_http_conn_pre_nat }}
+// C.8: {{ N_http_conn_post_nat }}
+// C.9: {{ N_http_upload_pre_nat }}
+// C.10: {{ N_http_upload_post_nat }}
+
+// MA.1 Aggregate post-NAT average DNS query rate exceeds {{ k_qps }} * initial TGEN-only average query rate for {{ n_qps }} consecutive time bins of width {{ s_qps }}.
+ToDAvgQPS() = if (s.rval("getToD(C,{{ start_time }},{{ w_qps }},{{ s_qps }},{{ k_qps }},{{ n_qps }})") == 0.0) then discard else s.rval("getToD(C,{{ start_time }},{{ w_qps }},{{ s_qps }},{{ k_qps }},{{ n_qps }})") fi;
+// eval E[ToDAvgQPS()];
+
+// MA.2 Aggregate post-NAT average DNS query size exceeds {{ k_qsize }} * initial TGEN-only average query size for {{ n_qsize }} consecutive time bins of width {{ s_qsize }}.
+ToDAvgQuerySize() = if (s.rval("getToDAvgQuerySize(C,{{ start_time }},{{ w_qsize }},{{ s_qsize }},{{ k_qsize }},{{ n_qsize }})") == 0.0) then discard else s.rval("getToDAvgQuerySize(C,{{ start_time }},{{ w_qsize }},{{ s_qsize }},{{ k_qsize }},{{ n_qsize }})") fi;
+// eval E[ToDAvgQuerySize()];
+
+// MA.3 Post-NAT Average DNS response size: Aggregate post-NAT HTTPS average DNS response size exceeds {{ k_respsize }} * initial TGEN-only average response size for {{ n_respsize }} consecutive time bins of width {{ s_respsize }}.
+ToDAvgResponseSize() = if (s.rval("getToDAvgResponseSize(C,{{ start_time }},{{ w_respsize }},{{ s_respsize }},{{ k_respsize }},{{ n_respsize }})") == 0.0) then discard else s.rval("getToDAvgResponseSize(C,{{ start_time }},{{ w_respsize }},{{ s_respsize }},{{ k_respsize }},{{ n_respsize }})") fi;
+// eval E[ToDAvgResponseSize()];
+
+// MA.4 Post-NAT Average HTTPS upload rate: Aggregate post-NAT HTTPS upload rate (bits per second) to Mastodon exceeds {{ k_uploadrate }} * initial TGEN-only average upload rate for {{ n_uploadrate }} consecutive time bins of width {{ s_uploadrate }}.
+ToDAvgUploadRate() = if (s.rval("getToDAvgUploadRate(C,{{ start_time }},{{ w_uploadrate }},{{ s_uploadrate }},{{ k_uploadrate }},{{ n_uploadrate }})") == 0.0) then discard else s.rval("getToDAvgUploadRate(C,{{ start_time }},{{ w_uploadrate }},{{ s_uploadrate }},{{ k_uploadrate }},{{ n_uploadrate }})") fi;
+// eval E[ToDAvgUploadRate()];
+
+// C.1 Pre-NAT earliest time cumulative number of queries > N
+ToDCumulativeNQueryPreNAT() = if (s.rval("getToDCumulativeNQueryPreNAT(C,{{ N_query_pre_nat }})") == 0.0) then discard else s.rval("getToDCumulativeNQueryPreNAT(C,{{ N_query_pre_nat }})") fi;
+// eval E[ToDCumulativeNQueryPreNAT()];
+
+// C.2 Post-NAT earliest time cumulative number of queries > N
+ToDCumulativeNQueryPostNAT() = if (s.rval("getToDCumulativeNQueryPostNAT(C,{{ N_query_post_nat }})") == 0.0) then discard else s.rval("getToDCumulativeNQueryPostNAT(C,{{ N_query_post_nat }})") fi;
+// eval E[ToDCumulativeNQueryPostNAT()];
+
+// C.3 Pre-NAT earliest time cumulative size of queries > N
+ToDCumulativeQuerySizePreNAT() = if (s.rval("getToDCumulativeQuerySizePreNAT(C,{{ N_query_size_pre_nat }})") == 0.0) then discard else s.rval("getToDCumulativeQuerySizePreNAT(C,{{ N_query_size_pre_nat }})") fi;
+// eval E[ToDCumulativeQuerySizePreNAT()];
+
+// C.4 Post-NAT earliest time cumulative size of queries > N
+ToDCumulativeQuerySizePostNAT() = if (s.rval("getToDCumulativeQuerySizePostNAT(C,{{ N_query_size_post_nat }})") == 0.0) then discard else s.rval("getToDCumulativeQuerySizePostNAT(C,{{ N_query_size_post_nat }})") fi;
+// eval E[ToDCumulativeQuerySizePostNAT()];
+
+// C.5 Pre-NAT DNS response byte count: Alice receives more than n bytes of DNS responses
+ToDCumulativeResponsePreNAT() = if (s.rval("getToDCumulativeResponsePreNAT(C,{{ N_response_pre_nat }})") == 0.0) then discard else s.rval("getToDCumulativeResponsePreNAT(C,{{ N_response_pre_nat }})") fi;
+// eval E[ToDCumulativeResponsePreNAT()];
+
+// C.6 Post-NAT DNS response byte count: Aggregate post-NAT traffic includes more than n bytes of DNS responses
+ToDCumulativeResponsePostNAT() = if (s.rval("getToDCumulativeResponsePostNAT(C,{{ N_response_post_nat }})") == 0.0) then discard else s.rval("getToDCumulativeResponsePostNAT(C,{{ N_response_post_nat }})") fi;
+// eval E[ToDCumulativeResponsePostNAT()];
+
+// C.7 Pre-NAT HTTPS connection count: A host creates more than n HTTPS connections
+ToDCumulativeHttpConnectionPreNAT() = if (s.rval("getToDCumulativeHttpConnectionPreNAT(C,{{ N_http_conn_pre_nat }})") == 0.0) then discard else s.rval("getToDCumulativeHttpConnectionPreNAT(C,{{ N_http_conn_pre_nat }})") fi;
+// eval E[ToDCumulativeHttpConnectionPreNAT()];
+
+// C.8 Post-NAT HTTPS connection count: Aggregate post-NAT traffic includes more than n HTTPS connections
+ToDCumulativeHttpConnectionPostNAT() = if (s.rval("getToDCumulativeHttpConnectionPostNAT(C,{{ N_http_conn_post_nat }})") == 0.0) then discard else s.rval("getToDCumulativeHttpConnectionPostNAT(C,{{ N_http_conn_post_nat }})") fi;
+// eval E[ToDCumulativeHttpConnectionPostNAT()];
+
+// C.9 Pre-NAT HTTPS upload byte count: An individual host uploads more than n bytes via HTTPS
+ToDCumulativeHttpUploadPreNAT() = if (s.rval("getToDCumulativeHttpUploadPreNAT(C,{{ N_http_upload_pre_nat }})") == 0.0) then discard else s.rval("getToDCumulativeHttpUploadPreNAT(C,{{ N_http_upload_pre_nat }})") fi;
+// eval E[ToDCumulativeHttpUploadPreNAT()];
+
+// C.10 Post-NAT HTTPS upload byte count: Aggregate post-NAT traffic uploads more than n bytes via HTTPS
+ToDCumulativeHttpUploadPostNAT() = if (s.rval("getToDCumulativeHttpUploadPostNAT(C,{{ N_http_upload_post_nat }})") == 0.0) then discard else s.rval("getToDCumulativeHttpUploadPostNAT(C,{{ N_http_upload_post_nat }})") fi;
+// eval E[ToDCumulativeHttpUploadPostNAT()];

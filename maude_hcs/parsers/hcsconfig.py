@@ -32,75 +32,80 @@
 import json
 from dataclasses import dataclass, field
 from typing import List
-
+from pathlib import Path
 from dataclasses_json import dataclass_json
 
+from maude_hcs.lib import GLOBALS, Protocol
+from maude_hcs.parsers.dnshcsconfig import DNSHCSProtocolConfig
 from maude_hcs.parsers.graph import Topology
-
-# By using `default_factory=dict`, we ensure that a new dictionary is created
-# for each instance, preventing mutable default argument issues.
-
-@dataclass_json
-@dataclass
-class NondeterministicParameters:
-    """Dataclass for nondeterministic simulation parameters."""
-    pass
-
-@dataclass_json
-@dataclass
-class ProbabilisticParameters:
-    """Dataclass for probabilistic simulation parameters."""
-    pass
-
-@dataclass_json
-@dataclass
-class UnderlyingNetwork:
-    """Dataclass for the underlying network configuration."""
-    module: str
-
-
-@dataclass_json
-@dataclass
-class WeirdNetwork:
-    """Dataclass for the 'weird' (covert) network configuration."""
-    module: str
-
-@dataclass_json
-@dataclass
-class BackgroundTraffic:
-    """Dataclass for background traffic parameters."""
-    module: str
-
-@dataclass_json
-@dataclass
-class Application:
-    """Dataclass for the application layer configuration."""
-    module: str
-
-@dataclass_json
-@dataclass
-class Output:
-    """Dataclass for output and reporting settings."""
-    directory: str = "./results"
-    result_format: str = "maude"
-    save_output: bool = True
-    force_save: bool = False
-    visualize: bool = False
-    preamble: List[str]     = field(default_factory=list)
+from maude_hcs.parsers.masdnshcsconfig import MASHCSProtocolConfig
+from maude_hcs.parsers.shadowconf import parse_shadow_config
+from maude_hcs.parsers.ymlconf import YmlConf, Adversary
+from .protocolconfig import HCSProtocolConfig, Output
 
 @dataclass_json
 @dataclass
 class HCSConfig:
-    """Main dataclass to represent the entire JSON configuration."""
-    name: str    
+    """
+    An HCS config comprising a set of protocol configurations.
+    """
+    name: str
     topology: Topology
     output: Output
+    monitor_address: str
+    seed: int
+    adversary: Adversary
+    protocols: dict[str, HCSProtocolConfig] # each protocol is keyed by name
+
+    @staticmethod
+    def from_shadow(file_path: Path) -> 'DNSHCSConfig':
+        """
+            TODO: FIXME! (test)
+        """
+        # First parse the shadow config
+        shadowconf = parse_shadow_config(file_path)
+        protocols = {}
+        dnsconf = DNSHCSProtocolConfig.from_shadow(file_path)
+        protocols[dnsconf.name] = dnsconf
+        return HCSConfig(name='_'.join(sorted(protocols.keys())),
+                        topology=shadowconf.network,
+                        output=Output.generic(),
+                        monitor_address=GLOBALS.MONITOR_ADDRESS,
+                         seed=1,
+                       protocols=protocols)
+
+    @staticmethod
+    def from_yml(file_path: Path) -> 'HCSConfig':
+        # First parse the yml config
+        ymlconf = YmlConf(file_path)
+        protocols = {}
+        if ymlconf.application.iodine:
+            # parse the iodine protocol config
+            dnsconf = DNSHCSProtocolConfig.from_yml(file_path)
+            protocols[dnsconf.name] = dnsconf
+        if ymlconf.application.destini:
+            masconf = MASHCSProtocolConfig.from_yml(file_path)
+            protocols[masconf.name] = masconf
+
+        return HCSConfig(name='_'.join(sorted(protocols.keys())),
+                         topology=ymlconf.network,
+                         output=Output.generic(),
+                         monitor_address=GLOBALS.MONITOR_ADDRESS,
+                         seed=1,
+                         adversary=ymlconf.adversary,
+                         protocols=protocols)
+
 
     @staticmethod
     def from_file(file_path: str) -> 'HCSConfig':
         with open(file_path, 'r') as f:
             data = json.load(f)
-        return HCSConfig.from_dict(data)
+        hcsconf = HCSConfig.from_dict(data)
+        # parse the protocols one at a time
+        for k,v in data['protocols'].items():
+            hcsconf.protocols[k] = HCSProtocolConfig.load_from_dict(v)
+        return hcsconf
+
 
     def save(self, file_path: str):
         """

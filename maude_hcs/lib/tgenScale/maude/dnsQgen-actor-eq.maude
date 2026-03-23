@@ -1,0 +1,259 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+**** set show advisories off .
+
+-------------------------------------------------------
+---- DNSQgen Actor 
+-------------------------------------------------------
+***(
+A qgen actor, addr, accepts message 
+(to addr from umAddr : actionQ(ract))
+carries generates  dnsnames
+sends dnsQ(name) to its dnsClient for each
+required query  and then ack to requestor
+)
+
+
+sload ../../../deps/dns_formalization/Maude/dns/common/prelim.maude
+
+sload ../../common/maude/sampler-x
+sload ../../common/maude/cp2-interfaces 
+sload ../../tgen/maude/dns-mamodel
+
+
+mod DNS-QGEN-EQ is
+  inc CP2-COMMON  . 
+              --- SCHEDULER+ACTOR-MODEL+PARAMETERS 
+  inc SAMPLER-X .   
+  inc MSG .   ---- prelim dns content sorts
+  inc TGEN-INTERFACE .
+  inc DNS-CLIENT-INTERFACE .
+
+  
+vars n n0 j j1 i rj rj1 k l nq nq1 index retryMx : Nat . 
+vars r : Rat .
+vars str : String .
+vars name name1 : Name .
+
+vars fl T retryTo : Float .
+vars addr dAddr umAddr rsvAddr  clientAddr : Address .
+vars attrs attrs1 attrs0 attrs2 : AttributeSet .
+vars msg msg1 msg0 : Msg .
+vars msgs msgs0 conf : Config .
+vars qtype : RType .
+vars query query0 query1 : Query .
+vars response response1 : Response .
+vars ract mj : Map{String,JV} .
+vars actor : Actor .
+vars ac : Content .
+
+--- DNSQgen attributes 
+  
+op qnameBase:_ : Name -> Attribute [ctor] .
+op lenNameDB:_ : Nat -> Attribute [ctor] .
+op dnsClient:_ : Address -> Attribute [ctor] . 
+op numQ:_ : Nat -> Attribute  [ctor] .
+op w4q:_ : Config -> Attribute [ctor] .
+op replyTo:_ : Config -> Attribute [ctor] . 
+
+
+----- fix QType as a for now.
+
+   
+op DNSQgen-Eq : -> ActorType . 
+
+op getNumQ : Map{String,JV} -> Nat .
+eq getNumQ((mj,"num_to_resolve" |-> jn(n))) = n .
+eq getNumQ(mj) = 1 [owise] .
+
+op mkDnsQgenEqA : Address  Address Nat  Name
+               -> Actor .
+
+eq mkDnsQgenEqA(addr,clientAddr,l,name) =
+ < addr : DNSQgen-Eq | 
+     qnameBase: name, lenNameDB: l, 
+     dnsClient: clientAddr, 
+     w4q: null, replyTo: null, numQ: 0 
+  > .
+ 
+op mkDnsQgenEqAx : Address  Address Nat -> Actor .
+eq mkDnsQgenEqAx(addr,clientAddr,l) =
+   mkDnsQgenEqA(addr,clientAddr,l,
+              ('internet . 'com . root))  .
+
+ceq [rcvDNSAction]:
+rCtr(rj)
+{T,(to dAddr from umAddr : actionQ(ract))}
+< dAddr : DNSQgen-Eq | attrs >
+=
+< dAddr : DNSQgen-Eq |  attrs1 >
+rCtr(s rj1)
+****** FIX (to clientAddr from dAddr : dnsQ(name))
+activateDNSQMsgs(T,msgs)
+if {attrs1,msgs,msgs0,rj1} := dnsQRcvAQ(attrs,
+            (to dAddr from umAddr : actionQ(ract)),rj)
+[print "(" T ") DNSQgen " dAddr " rcvDNSAction " ract " sends " msgs ]
+.
+
+op activateDNSQMsgs : Float Config -> Config .
+eq activateDNSQMsgs(T,msg) = {T,msg} .
+eq activateDNSQMsgs(T,conf) = null [owise] .
+
+  
+op dnsQRcvAQ : AttributeSet Msg Nat -> AttributeSetMsgsMsgsNat .
+
+eq dnsQRcvAQ(attrs,msg,rj) 
+       = {attrs,null,null,rj} [owise] .
+
+ceq dnsQRcvAQ(attrs,msg0,rj)
+       = tgenQuery(attrs2, dAddr,  rj)
+if (to dAddr from addr : actionQ(ract)) := msg0
+/\ attrs1,  w4q: null, replyTo: null, numQ: nq := attrs
+/\ s nq1 := getNumQ(ract)
+/\ attrs2 := attrs1, 
+             w4q: null, replyTo: msg0, numQ: nq1
+.             
+
+
+op tgenQuery : AttributeSet Address Nat
+                 -> AttributeSetMsgsMsgsNat .
+
+ceq tgenQuery(attrs, dAddr, rj) 
+        = {attrs2, msg, null, s rj}
+if attrs0, qnameBase: name1, lenNameDB: l, 
+           dnsClient: clientAddr := attrs
+/\ attrs1,  w4q: null := attrs
+**** /\ name := genQName(name1,"www",l,rj)
+/\ name := label(sampleUniWithIntX(rj, l)) . name1 
+/\ msg :=  (to clientAddr from dAddr : dnsQ(name))
+/\ attrs2 := attrs1, w4q: msg 
+.
+
+
+ceq[dnsResponse]:
+rCtr(rj)
+{T, (to dAddr from clientAddr : dnsR(response) )}
+< dAddr : DNSQgen-Eq | dnsClient: clientAddr, attrs >
+=
+< dAddr : DNSQgen-Eq |  attrs1 >
+rCtr(rj1)
+***** delayMsgs(msgs,null)
+activateDNSQMsgs(T,msgs)
+if attrs0, w4q: msg0 := attrs  
+/\ {attrs1,msgs,msgs0,rj1} :=
+    dnsQRcvResponse((dnsClient: clientAddr, attrs),
+                    dAddr, rj)
+[print "(" T ") DNSQgen  " dAddr " receives dnsResponse sends " msgs ]
+.
+
+
+op dnsQRcvResponse : AttributeSet Address Nat 
+                   -> AttributeSetMsgsMsgsNat .
+eq dnsQRcvResponse(attrs,addr,rj) 
+     = {attrs,null,null,rj} [owise] .
+     
+ceq dnsQRcvResponse((numQ: 0, attrs), dAddr, rj) 
+    = {attrs2,msg,null,rj}
+if attrs1, w4q: msg0, 
+   replyTo: (to dAddr from umAddr : ac)  := attrs
+/\ msg := (to umAddr from dAddr : actionR("ok"))   
+/\ attrs2 := attrs1, w4q: null, replyTo: null, numQ: 0 
+.
+
+eq dnsQRcvResponse((numQ: (s n), w4q: msg0, attrs), 
+                    dAddr, rj) 
+      = tgenQuery((numQ: n, w4q: null, attrs), 
+                   dAddr, rj)
+  .
+  
+endm
+
+mod TEST-DNS-QGEN-EQ is
+  inc DNS-QGEN-EQ .
+  inc DNS-MAMODEL .
+  
+*** dns-ma = ma("dns",dns-markov,dns-actions,dns-params) 
+  
+  eq defaultDelay = 1.5 .
+  eq noiseMin(msg:Msg) = 0.001 .
+  
+  ops umdA dnsQA dnsOA : -> Address .
+
+  op dnsQGenA : -> Actor .
+  eq dnsQGenA = 
+      mkDnsQgenEqA(dnsQA,dnsOA,1000,
+                 'internet . 'com . root) .
+
+**** red rCtr(1) dnsQGenA {5.9284461638890209e-6, to dnsQA from umdA : actionQ("type" |-> js("resolve_a"))} .
+   
+op dnsQGenA1 : -> Actor .
+eq dnsQGenA1 = 
+**** rCtr(3) 
+< dnsQA : DNSQgen-Eq | qnameBase: 'internet . 'com . root, lenNameDB: 1000, dnsClient: dnsOA, numQ: 0, w4q: (to dnsOA from dnsQA : dnsQ(label(239) . 'internet . 'com . root)), replyTo: (to dnsQA from umdA : actionQ("type" |-> js("resolve_a"))) > 
+.
+ 
+**** {5.9284461638890209e-6, to dnsOA from dnsQA : dnsQ(label(239) . 'internet . 'com . root)} 
+
+
+**** red rCtr(3) {1.0, (to dnsQA from dnsOA : dnsR(response(0,( 'internet . 'com .  root), nil,nil,nil,0) ))} dnsQGenA1 .
+***(
+ rCtr(3) {1.0, to umdA from dnsQA : actionR("ok")} < dnsQA : DNSQgen-Eq | qnameBase: 'internet . 'com . root, lenNameDB: 1000, dnsClient: dnsOA, numQ: 0, w4q: null, replyTo: null >
+)
+
+
+endm
+
+sload ua-actor-eq
+
+mod TEST-UM-DNS-QGEN-EQ is
+  inc UM-EQ-UNIT-TEST .
+  inc TEST-DNS-QGEN-EQ .
+
+**** red rCtr(100) umActD  dnsQGenA {1.0, (to umdA from umdA : actionR("ok"))} .
+
+op UD1 : -> Config .
+eq UD1 = 
+rCtr(104) 
+***({1.0, to dnsOA from dnsQA : dnsQ(label(156) . 'internet . 'com . root)}
+)
+{3.0, (to dnsQA from dnsOA : dnsR(response(0,( 'internet . 'com .  root), nil,nil,nil,0) ))}
+< umdA : UM-EQ | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(( "num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js( "uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo(("start" |-> jb( true), "type" |-> js("resolve_a"))), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js( "wait"))), "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait")))), curState: "wait_single", nsteps: 99, actAddress: dnsQA, w4: (to dnsQA from umdA : actionQ(( "start" |-> jb(true), "type" |-> js("resolve_a")))), default: "single", mSum: ( "batch" |-> 1.0, "single" |-> 1.0, "wait_batch" |-> 1.0, "wait_single" |-> 1.0), stateLM: ("batch" |-> jl(js("wait_batch")), "single" |-> jl(js("wait_single")), "wait_batch" |-> jl(js("batch") ; js("single")), "wait_single" |-> jl(js("batch") ; js("single"))), weightLM: ("batch" |-> jl(jf(1.0)), "single" |-> jl(jf(1.0)), "wait_batch" |-> jl(jf(5.0e-1) ; jf(1.0)), "wait_single" |-> jl(jf(5.0e-1) ; jf( 1.0))), stopTime: 3.0e+1 > < dnsQA : DNSQgen-Eq | qnameBase: 'internet . 'com . root, lenNameDB: 1000, dnsClient: dnsOA, numQ: 0, w4q: (to dnsOA from dnsQA : dnsQ(label(156) . 'internet . 'com . root)), replyTo: (to dnsQA from umdA : actionQ(("start" |-> jb(true), "type" |-> js("resolve_a")))) >
+.
+
+***(rCtr(111) {2.3559926834031792e+1, to dnsOA from dnsQA : dnsQ(label(108) . 'internet . 'com . root)} < umdA : UM-EQ | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(( "num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js( "uniform"))), "type" |-> js("resolve_a_batch"))), "single" |-> jo(("start" |-> jb( true), "type" |-> js("resolve_a"))), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js( "wait"))), "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf(2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait")))), curState: "wait_single", nsteps: 97, actAddress: dnsQA, w4: (to dnsQA from umdA : actionQ(( "start" |-> jb(true), "type" |-> js("resolve_a")))), default: "single", mSum: ( "batch" |-> 1.0, "single" |-> 1.0, "wait_batch" |-> 1.0, "wait_single" |-> 1.0), stateLM: ("batch" |-> jl(js("wait_batch")), "single" |-> jl(js("wait_single")), "wait_batch" |-> jl(js("batch") ; js("single")), "wait_single" |-> jl(js("batch") ; js("single"))), weightLM: ("batch" |-> jl(jf(1.0)), "single" |-> jl(jf(1.0)), "wait_batch" |-> jl(jf(5.0e-1) ; jf(1.0)), "wait_single" |-> jl(jf(5.0e-1) ; jf( 1.0))), stopTime: 3.0e+1 > < dnsQA : DNSQgen-Eq | qnameBase: 'internet . 'com . root, lenNameDB: 1000, dnsClient: dnsOA, numQ: 0, w4q: (to dnsOA from dnsQA : dnsQ(label(108) . 'internet . 'com . root)), replyTo: (to dnsQA from umdA : actionQ(("start" |-> jb(true), "type" |-> js("resolve_a")))) >
+)
+endm
+eof
+ 
+set print attribute on .
+
+
+
