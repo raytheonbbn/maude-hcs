@@ -1,0 +1,128 @@
+// grammar.lark
+// The Lark grammar for the proto-ir Protocol Modeling Language
+
+start: statement*
+
+?statement: import_stmt
+          | config_stmt
+          | type_decl
+          | struct_decl
+          | event_decl
+          | func_decl
+          | machine_decl
+          | test_decl
+
+// ----------------------------------------------------
+// Top Level Declarations
+import_stmt: "import" STRING
+config_stmt: "config" CNAME "." CNAME ":" type_expr
+type_decl: "type" CNAME ("=" type_expr)?
+struct_decl: "struct" CNAME "{" struct_field* "}"
+struct_field: CNAME ":" type_expr
+event_decl: "event" CNAME "(" [param_list] ")"
+NONDET: "nondet"
+func_decl: [NONDET] "function" CNAME "(" [param_list] ")" "->" type_expr block?
+
+// ----------------------------------------------------
+// Type expressions (supporting generics like Map[String, Int])
+type_expr: CNAME ("[" type_expr ("," type_expr)* "]")?
+
+param_list: param ("," param)*
+param: CNAME ":" type_expr
+
+// ----------------------------------------------------
+// Machine Definition
+machine_decl: "machine" CNAME ("(" [param_list] ")")? "{" machine_member* "}"
+
+?machine_member: var_decl
+               | state_decl
+               | initial_decl
+               | transition_decl
+               | func_decl
+               | event_decl
+
+var_decl: CNAME ":" type_expr ("=" expr)?
+state_decl: "state" CNAME
+initial_decl: "initial" CNAME
+
+// ----------------------------------------------------
+// Transitions
+transition_decl: "transition" CNAME "on" event_match ["[" guard "]"] "->" CNAME block
+
+event_match: CNAME "(" [event_args] ")"
+event_args: event_arg ("," event_arg)*
+?event_arg: CNAME
+          | STRING
+          | CNAME ":" CNAME
+          | struct_match
+
+struct_match: CNAME "{" [struct_match_fields] "}"
+struct_match_fields: struct_match_field ("," struct_match_field)*
+struct_match_field: CNAME ":" (CNAME | STRING | NUMBER | struct_match | list_expr)
+
+guard: expr
+
+// ----------------------------------------------------
+// Actions and Expressions
+?action_stmt: (assign_target "=" expr) -> assignment
+            | "return" expr -> return_stmt
+            | expr -> expr_stmt
+            | "for" CNAME "in" expr block -> for_stmt
+            | "if" expr block ["else" block] -> if_stmt
+
+block: "{" action_stmt* "}"
+
+assign_target: CNAME | CNAME "[" expr "]"
+
+
+?expr: logic_or
+
+?logic_or: logic_or OR_OP logic_and -> bin_op
+         | logic_and
+
+?logic_and: logic_and AND_OP comp_expr -> bin_op
+          | comp_expr
+
+?comp_expr: comp_expr COMP_OP math_expr -> bin_op
+          | math_expr
+
+?math_expr: math_expr MATH_OP term -> bin_op
+          | term
+
+?term: call_expr
+     | index_expr
+     | atom_expr
+     | list_expr
+     | "(" expr ")"
+
+index_expr: atom_expr "[" expr "]"
+
+call_expr: atom_expr "(" [expr_list] ")"
+atom_expr: CNAME ("." CNAME)* | STRING | NUMBER | "True" | "False"
+list_expr: "[" [expr_list] "]"
+
+expr_list: expr ("," expr)*
+
+COMP_OP: "==" | "!=" | "<" | ">" | "<=" | ">="
+MATH_OP: "+" | "-" | "*" | "/"
+AND_OP: "and"
+OR_OP: "or"
+
+// ----------------------------------------------------
+// Testing Framework
+test_decl: "test" STRING "{" test_stmt* "}"
+?test_stmt: action_stmt
+          | "assert" expr -> assert_stmt
+
+// ----------------------------------------------------
+// Terminals
+%import common.CNAME
+%import common.ESCAPED_STRING -> STRING
+%import common.SIGNED_NUMBER -> NUMBER
+%import common.WS
+%import common.C_COMMENT
+%import common.CPP_COMMENT
+
+%ignore WS
+%ignore C_COMMENT
+%ignore CPP_COMMENT
