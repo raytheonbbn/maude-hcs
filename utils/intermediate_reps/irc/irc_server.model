@@ -1,0 +1,40 @@
+import "common.model"
+
+machine IRCServer {
+
+    connections : List[IRCClient]
+    channels : Map[String, List[IRCClient]]
+   
+    event receive(client: IRCClient, msg: JoinLeaveChannelMessage)
+    event receive(client: IRCClient, msg: ChannelMessage)
+    event receive(client: IRCClient, msg: PrivMessage) 
+
+    initial START
+    transition START on receive(client: IRCClient, msg: JoinLeaveChannelMessage) [msg.command == "JOIN"] -> START {
+        connections = connections + [client]
+        channels[msg.channel] = channels[msg.channel] + [client]
+        client.receive(PrivMessage("Server", "Welcome to " + msg.channel))
+    }
+
+    transition START on receive(client: IRCClient, msg: JoinLeaveChannelMessage) [msg.command == "LEAVE"] -> START {
+        del(connections, client)
+        del(channels[msg.channel], client)
+        log(INFO, "Sever: {client.nick} left channel {msg.channel}")
+    }
+
+    transition START on receive(client: IRCClient, msg: ChannelMessage) -> START {
+        for peer in channels[msg.channel] {
+            if (peer != client) {
+                peer.receive(ChannelMessage(msg.channel, client.nick, msg.payload))
+            }
+        }
+    }
+    
+    transition START on receive(client: IRCClient, msg: PrivMessage) -> START {
+        for peer in connections {
+            if (peer.nick == msg.peer) {
+                peer.receive(PrivMessage(client.nick, msg.payload))
+            }
+        }
+    }
+}

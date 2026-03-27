@@ -1,0 +1,34 @@
+import "common.model"
+
+machine IRCClient (client_id: String) {
+
+    nick: String = client_id
+
+    event receive(server: IRCServer, msg: ChannelMessage)
+    event receive(server: IRCServer, msg: PrivMessage)
+
+    function joinChannel(server: IRCServer, channel: String) -> None {
+        server.receive(JoinLeaveChannelMessage("JOIN", channel))
+    }
+
+    function leaveChannel(server: IRCServer, channel: String) -> None {
+        server.receive(JoinLeaveChannelMessage("LEAVE", channel))
+    }
+
+    function sendToChannel(server: IRCServer, channel: String, message: String) -> None {
+        server.receive(ChannelMessage(channel, nick, message))
+    }
+
+    function privateMsg(server: IRCServer, peer: String, message: String) -> None {
+        server.receive(PrivMessage(peer, message))
+    }
+    
+    initial START
+    transition START on receive(server: IRCServer, msg: ChannelMessage) -> START {
+        log(INFO, "[{nick}] <{msg.channel}> {msg.sender}: {msg.payload}")
+    }
+
+    transition START on receive(server: IRCServer, msg: PrivMessage) -> START {
+        log(INFO, "[{nick}] {msg.peer}: {msg.payload}")
+    }
+}
