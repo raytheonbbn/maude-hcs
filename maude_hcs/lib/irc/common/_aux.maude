@@ -39,16 +39,18 @@ mod IRC_NODE is
   vars DST_ADDR SRC_ADDR APP_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR RB_ADDR : Address .
   vars IRC_CLIENT_ADDRS : AddrList .
   vars attrs attrsNext attrsTrans : AttributeSet .
+  vars CLIENT_TIMESTAMP_MAP timestampMap : ClientTimestampMap .
   vars IRC_NAME : IrcName .
   vars IRC_USER_NAME DST_IRC_USER_NAME SRC_IRC_USER_NAME : IrcUserName .
   vars IRC_USER_NAME_LIST : IrcUserNameList .
   vars CHANNEL_MAP : NameClientsMap .
   vars MSG_TEXT : String .
+  vars LAST_HEARD_TIME newHeardTime : Float .
 
   sorts AppChat .
   subsorts AppChat < Content .
 
-  ---                Dest        Text
+  ---              Dest        Text
   op makeAppChat : IrcUserName String -> AppChat .
 
   ----------------
@@ -94,7 +96,9 @@ mod IRC_NODE is
   op IrcServer : -> ActorType [ctor] .
   --- The channel name to user name map.
   op channelMap:_ : NameClientsMap -> Attribute [ctor] .
-  --- Common attributes.
+  --- The client timestamp map.
+  op clientTimestampMap:_ : ClientTimestampMap -> Attribute [ctor] .
+  --- Common attributes ---
   --- This server's address.
   ---op thisAddr:_ : Address -> Attribute [ctor] .
   --- The Raceboat address.
@@ -106,10 +110,17 @@ mod IRC_NODE is
     < IRC_SERVER_ADDR : IrcServer |
         thisAddr: IRC_SERVER_ADDR,
         raceboatAddr: RB_ADDR,
-        channelMap: emptyNameClientsMap
+        channelMap: emptyNameClientsMap,
+        clientTimestampMap: emptyClientTimestampMap
     >
   .
 
+  op getClientTimestampMap : AttributeSet -> ClientTimestampMap .
+  eq getClientTimestampMap(attrs, clientTimestampMap: CLIENT_TIMESTAMP_MAP)
+    = CLIENT_TIMESTAMP_MAP
+  .
+
+  --- Register an IRC user.
   op registerIrcUser : AttributeSet IrcChannelName Address -> AttributeSet .
   eq registerIrcUser((attrs, channelMap: CHANNEL_MAP),
                      IRC_CHANNEL_NAME:IrcChannelName,
@@ -128,6 +139,30 @@ mod IRC_NODE is
                                            IRC_CLIENT_ADDRS))
   .
 
+  --- Unregister IRC users (from all its channels).
+  op unregisterIrcUser : AttributeSet Address -> AttributeSet .
+  eq unregisterIrcUser((attrs, channelMap: CHANNEL_MAP, clientTimestampMap: timestampMap),
+                       IRC_CLIENT_ADDR)
+    = (attrs,
+        channelMap: unregisterIrcUser(CHANNEL_MAP,
+                                      IRC_CLIENT_ADDR),
+        clientTimestampMap: pruneUser(timestampMap, IRC_CLIENT_ADDR))
+    [ print "Unregister IRC user " IRC_CLIENT_ADDR ]
+  .
+
+  --- Handle a ping timeout for a user: check if stale, if so, unregister.
+  ---                           Attributes    Address Now
+  op handlePingTimeoutForUser : AttributeSet  Address Float -> AttributeSet .
+  eq handlePingTimeoutForUser(attrs,
+                              IRC_CLIENT_ADDR,
+                              now:Float)
+    = (if isUserStale(getClientTimestampMap(attrs),
+                      makeIrcUserName(IRC_CLIENT_ADDR),
+                      now:Float)
+        then unregisterIrcUser(attrs, IRC_CLIENT_ADDR)
+        else attrs
+      fi)
+  .
 
   --- Get the channel map.
   op getChannelMap : AttributeSet -> NameClientsMap .
@@ -182,12 +217,39 @@ mod IRC_NODE is
     = nullMsg [ owise ]
   .
 
+  --- Refresh the timestamp when server last heard from a client.
+  op refreshUser : AttributeSet IrcUserName Float -> AttributeSet .
+  eq refreshUser((attrs,
+                  clientTimestampMap: timestampMap),
+                 IRC_USER_NAME,
+                 newHeardTime)
+    = attrs,
+      clientTimestampMap: refreshUser(timestampMap, IRC_USER_NAME, newHeardTime)
+  .
+
+  op refreshUsers : AttributeSet AddrList Float -> AttributeSet .
+  eq refreshUsers((attrs,
+                    clientTimestampMap: timestampMap),
+                  IRC_CLIENT_ADDR ; IRC_CLIENT_ADDRS,
+                  newHeardTime)
+    = refreshUsers(refreshUser((attrs, clientTimestampMap: timestampMap),
+                               makeIrcUserName(IRC_CLIENT_ADDR),
+                               newHeardTime),
+                   IRC_CLIENT_ADDRS,
+                   newHeardTime)
+  .
 endm
 
 mod IRC_AUX is
   pr IRC_NAMES .
 
-  op JoinChannel : IrcChannelName AddrList -> Content .
+  --- Message to join a channel.
+  ---               Channel name    List of joiners
+  op JoinChannel :  IrcChannelName  AddrList -> Content .
+  --- Ping message to check if client still alive.
+  op Ping : IrcUserName Address -> Content .
+  op Pong : IrcUserName Address -> Content .
+  op PingTimeout : Address -> Content .
 endm
 
 
