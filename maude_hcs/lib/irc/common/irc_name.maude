@@ -32,20 +32,27 @@ sload ../../../deps/dns_formalization/Maude/common/actor
 
 mod IRC_NAMES is
   pr ACTOR-MODEL .
+  pr ADDRESS .
   
-  sorts IrcName IrcChannelName IrcUserName IrcUserNameList .
+  sorts IrcName IrcChannelName IrcUserName IrcUserNameList IrcChannelNameList .
   sorts NameClients NameClientsMap .
+  sorts ClientTimestamp ClientTimestampMap .
   sorts IrcMsg .
 
-  subsorts IrcName < IrcChannelName .
+  subsorts IrcName < IrcChannelName < IrcChannelNameList .
   subsorts IrcName < IrcUserName < IrcUserNameList .
   subsorts NameClients < NameClientsMap .
+  subsorts ClientTimestamp < ClientTimestampMap .
   subsorts IrcMsg < Content .
 
   op nilIrcUserName : -> IrcUserName .
   op emptyIrcUserNameList : -> IrcUserNameList [ctor] .
   op _:_ : IrcUserNameList IrcUserNameList -> IrcUserNameList [ctor assoc id: emptyIrcUserNameList] .
 
+  op nilIrcChannelName : -> IrcChannelName .
+  op emptyIrcChannelNameList : -> IrcChannelNameList [ctor] .
+  op _::_ : IrcChannelNameList IrcChannelNameList -> IrcChannelNameList [ctor assoc id: emptyIrcChannelNameList] .
+  
   op makeIrcChannelName : String -> IrcChannelName .
   op makeIrcName : IrcChannelName -> IrcName .
 ---  eq makeIrcName(makeIrcChannelName(IRC_CHANNEL_NAME:String)) = makeIrcName(IRC_CHANNEL_NAME:String) .
@@ -61,9 +68,18 @@ mod IRC_NAMES is
   op emptyNameClientsMap : -> NameClientsMap .
   op _:_ : NameClientsMap NameClientsMap -> NameClientsMap [ctor assoc comm id: emptyNameClientsMap] .
 
-  vars nameClientsMap : NameClientsMap .
+  op _~>_ : IrcUserName Float -> ClientTimestamp [ctor] .
+  op emptyClientTimestampMap : -> ClientTimestampMap .
+  op _:_ : ClientTimestampMap ClientTimestampMap -> ClientTimestampMap [ctor assoc comm id: emptyClientTimestampMap] .
+
+  vars clientTimestampMap CLIENT_TIMESTAMP_MAP : ClientTimestampMap .
+  vars IRC_USER_NAME : IrcUserName .
+  vars nameClientsMap NAME_CLIENTS_MAP : NameClientsMap .
   vars client : IrcUserName .
-  vars clientList : IrcUserNameList .
+  vars clientList clientListRight : IrcUserNameList .
+  
+  op IRC-STALE-DURATION-S : -> Float .
+  eq IRC-STALE-DURATION-S = 180. .
 
   op registerIrcUser : NameClientsMap IrcChannelName Address -> NameClientsMap .
   eq registerIrcUser(CHANNEL_MAP:NameClientsMap,
@@ -75,7 +91,7 @@ mod IRC_NAMES is
   .
   op registerIrcUser : NameClientsMap IrcChannelName IrcUserName -> NameClientsMap .
   --- Insert name (with a client).
-  --- If the already exist, add client to list.
+  --- If the channel already exists, add client to list.
   eq registerIrcUser((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> clientList)), 
                      IRC_CHANNEL_NAME:IrcChannelName,
                      client)
@@ -102,6 +118,68 @@ mod IRC_NAMES is
     = CHANNEL_MAP:NameClientsMap
   .
 
+  --- Prune the channels in the channel map.
+  op pruneChannels : NameClientsMap -> NameClientsMap .
+  eq pruneChannels(IRC_CLIENT_NAME:IrcChannelName ~> emptyIrcUserNameList) = emptyNameClientsMap .
+  eq pruneChannels(nameClientsMap : (IRC_CLIENT_NAME:IrcChannelName ~> emptyIrcUserNameList))
+    = nameClientsMap
+  .
+  eq pruneChannels(nameClientsMap) = nameClientsMap [owise] .
+
+  op pruneUser : ClientTimestampMap Address -> ClientTimestampMap .
+  eq pruneUser(clientTimestampMap, CLIENT_ADDR:Address)
+    = pruneUser(clientTimestampMap,
+                makeIrcUserName(CLIENT_ADDR:Address))
+  .
+  eq pruneUser(clientTimestampMap, nil) = clientTimestampMap .
+
+  --- Prune user.
+  op pruneUser : ClientTimestampMap IrcUserName -> ClientTimestampMap .
+  eq pruneUser(CLIENT_TIMESTAMP_MAP : client ~> LAST_HEARD_TIME:Float,
+               client)
+    = CLIENT_TIMESTAMP_MAP
+  .
+
+  --- Unregister a user by address.
+  op unregisterIrcUser : NameClientsMap Address -> NameClientsMap .
+  eq unregisterIrcUser(NAME_CLIENTS_MAP,
+                       CLIENT_ADDR:Address)
+    = unregisterIrcUserFromChannels(NAME_CLIENTS_MAP,
+                                    getChannels(NAME_CLIENTS_MAP, CLIENT_ADDR:Address),
+                                    CLIENT_ADDR:Address)
+  .
+
+  --- Unregister a user by address from specific channels.
+  op unregisterIrcUserFromChannels : NameClientsMap IrcChannelNameList Address -> NameClientsMap .
+  eq unregisterIrcUserFromChannels(NAME_CLIENTS_MAP,
+                       IRC_CHANNEL_NAME:IrcChannelName :: IRC_CHANNEL_NAME_LIST:IrcChannelNameList,
+                       CLIENT_ADDR:Address)
+    = unregisterIrcUserFromChannels(unregisterIrcUserFromChannel(NAME_CLIENTS_MAP,
+                                                                 IRC_CHANNEL_NAME:IrcChannelName,
+                                                                 CLIENT_ADDR:Address),
+                                    IRC_CHANNEL_NAME_LIST:IrcChannelNameList,
+                                    CLIENT_ADDR:Address)
+  .
+  eq unregisterIrcUserFromChannels(NAME_CLIENTS_MAP,
+                                   emptyIrcChannelNameList,
+                                   CLIENT_ADDR:Address)
+    = NAME_CLIENTS_MAP
+  .
+
+  --- Unregister a user by address from a single channel.
+  op unregisterIrcUserFromChannel : NameClientsMap IrcChannelName Address -> NameClientsMap .
+  eq unregisterIrcUserFromChannel((NAME_CLIENTS_MAP : (IRC_CHANNEL_NAME:IrcChannelName ~> (clientList : makeIrcUserName(CLIENT_ADDR:Address) : clientListRight))),
+                       IRC_CHANNEL_NAME:IrcChannelName,
+                       CLIENT_ADDR:Address)
+    = pruneChannels(NAME_CLIENTS_MAP : (IRC_CHANNEL_NAME:IrcChannelName ~> (clientList : clientListRight)))
+    [ print "Unregister prune " IRC_CHANNEL_NAME:IrcChannelName ]
+  .
+  eq unregisterIrcUserFromChannel(nameClientsMap,
+                       IRC_CHANNEL_NAME:IrcChannelName,
+                       CLIENT_ADDR:Address)
+    = nameClientsMap [owise]
+  .
+
   --- Server functions.
   --- Get all the clients / user names present in a channel.
   --- If the IRC name is a channel name (server will send to all users in channel).
@@ -116,32 +194,41 @@ mod IRC_NAMES is
 
   --- If the IRC name is a user name (server will send only to that user).
   op getClients : NameClientsMap IrcUserName -> IrcUserNameList .
-  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME:IrcUserName : clientList))),
-                IRC_USER_NAME:IrcUserName)
-    = IRC_USER_NAME:IrcUserName
-    [ print "Return " IRC_USER_NAME:IrcUserName ]
+  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME : clientList))),
+                IRC_USER_NAME)
+    = IRC_USER_NAME
   .
-  eq getClients(nameClientsMap, IRC_USER_NAME:IrcUserName) = emptyIrcUserNameList [owise] .
+  eq getClients(nameClientsMap, IRC_USER_NAME) = emptyIrcUserNameList [owise] .
 
   --- If the IRC name is just an IRC name built from something else.
   op getClients : NameClientsMap IrcName -> IrcUserNameList .
-  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME:IrcUserName : clientList))),
-                makeIrcName(IRC_USER_NAME:IrcUserName))
-    = getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME:IrcUserName : clientList))),
-                 IRC_USER_NAME:IrcUserName)
-    [ print "getClients User Name" ]
+  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME : clientList))),
+                makeIrcName(IRC_USER_NAME))
+    = getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME : clientList))),
+                 IRC_USER_NAME)
   .
   eq getClients(nameClientsMap,
-                makeIrcName(IRC_USER_NAME:IrcUserName)) = emptyIrcUserNameList [ owise print "empty from user name" ] .
+                makeIrcName(IRC_USER_NAME)) = emptyIrcUserNameList [ owise print "empty from user name" ] .
 
-  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME:IrcUserName : clientList))),
+  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME : clientList))),
                 makeIrcName(IRC_CHANNEL_NAME:IrcChannelName))
-    = getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME:IrcUserName : clientList))),
+    = getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (IRC_USER_NAME : clientList))),
                  IRC_CHANNEL_NAME:IrcChannelName)
-    [ print "getClients channel name move" ]
   .
   eq getClients(nameClientsMap,
-                makeIrcName(IRC_CHANNEL_NAME:IrcChannelName)) = emptyIrcUserNameList [ owise print "empty from channel name" ] .
+                makeIrcName(IRC_CHANNEL_NAME:IrcChannelName)) = emptyIrcUserNameList [ owise ] .
+
+  ---
+  op getChannels : NameClientsMap Address ->  IrcChannelNameList .
+  eq getChannels((IRC_CHANNEL_NAME:IrcChannelName ~> (clientList : makeIrcUserName(CLIENT:Address) : clientListRight)),
+                 CLIENT:Address)
+    = IRC_CHANNEL_NAME:IrcChannelName
+  .
+  eq getChannels(nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (clientList : makeIrcUserName(CLIENT:Address) : clientListRight)),
+                 CLIENT:Address)
+    = IRC_CHANNEL_NAME:IrcChannelName :: getChannels(nameClientsMap, CLIENT:Address)
+  .
+  eq getChannels(nameClientsMap, CLIENT:Address) = nilIrcChannelName [owise] .
 
   --- Check if an IRC Name is a channel name or user name.
   op isChannelName : NameClientsMap IrcName -> Bool .
@@ -154,5 +241,24 @@ mod IRC_NAMES is
     = true
   .
   eq isChannelName(nameClientsMap, IRC_NAME:IrcName) = false [owise] .
+
+  --- Update the timestamp on a user.
+  op refreshUser : ClientTimestampMap IrcUserName Float -> ClientTimestampMap .
+  eq refreshUser(CLIENT_TIMESTAMP_MAP : IRC_USER_NAME ~> LAST_HEARD_TIME:Float,
+                 IRC_USER_NAME,
+                 newHeardTime:Float)
+    = CLIENT_TIMESTAMP_MAP : IRC_USER_NAME ~> newHeardTime:Float
+  .
+  eq refreshUser(CLIENT_TIMESTAMP_MAP, IRC_USER_NAME, newHeardTime:Float)
+    = CLIENT_TIMESTAMP_MAP : IRC_USER_NAME ~> newHeardTime:Float [owise]
+  .
+
+  --- Check if a user is stale.
+  op isUserStale : ClientTimestampMap IrcUserName Float -> Bool .
+  eq isUserStale(CLIENT_TIMESTAMP_MAP : IRC_USER_NAME ~> LAST_HEARD_TIME:Float,
+                 IRC_USER_NAME,
+                 now:Float)
+    = (now:Float > LAST_HEARD_TIME:Float + IRC-STALE-DURATION-S)
+  .
 endm
 
