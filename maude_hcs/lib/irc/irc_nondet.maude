@@ -43,13 +43,16 @@ mod IRC is
   vars clientsMap CLIENTS_MAP : NameClientsMap .
   vars chatText ircDestination ircSource : String .
 
+  --------------------
+  --- Client Rules ---
+  --------------------
   rl [client-handle-outgoing-chat]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     (to IRC_CLIENT_ADDR from ALICE : makeAppChat(ircDestinationName, chatText))
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     (to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : makeIrcPrivMsg(ircDestinationName, getIrcName(attrs), chatText))
-  [ print "IRC Client handling outgoing chat " chatText " to " ircDestinationName ", sending to Raceboat." ]
+    [ print "IRC Client handling outgoing chat " chatText " to " ircDestinationName ", sending to Raceboat." ]
   .
 
   rl [client-handle-incoming-chat]:
@@ -58,9 +61,21 @@ mod IRC is
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     (to getAppAddr(attrs) from IRC_CLIENT_ADDR : makeAppChat(makeIrcUserName(ircSourceAddr), chatText))
-  [ print "IRC Client handling incoming chat " chatText " from " ircSourceAddr ]
+    [ print "IRC Client handling incoming chat " chatText " from " ircSourceAddr ]
   .
 
+  rl [client-handle-ping]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    (to IRC_CLIENT_ADDR from rbAddr : Ping(ircDestinationName, IRC_SERVER_ADDR))
+  =>
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    (to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : Pong(ircDestinationName, IRC_SERVER_ADDR))
+    [ print "IRC Client handling incoming ping from Server." ]
+  .
+
+  --------------------
+  --- Server Rules ---
+  --------------------
   crl [server-handle-incoming-chat]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
     (to IRC_SERVER_ADDR from rbAddr : makeIrcPrivMsg(ircName, ---makeIrcChannelName(ircDestination),
@@ -85,5 +100,14 @@ mod IRC is
   < IRC_SERVER_ADDR : IrcServer | registerIrcUsers(attrs, IRC_CHANNEL_NAME:IrcChannelName, channelClientAddrs) >
     [ print "IRC Server handling request for " channelClientAddrs " to join " IRC_CHANNEL_NAME:IrcChannelName " channel." ]
   .
+
+  rl [server-handle-pong]:
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    (to IRC_SERVER_ADDR from rbAddr : Pong(ircDestinationName, IRC_SERVER_ADDR))
+  =>
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    [ print "IRC Server handling incoming Pong from Client " ircDestinationName "." ]
+  .
+
 endm
 
