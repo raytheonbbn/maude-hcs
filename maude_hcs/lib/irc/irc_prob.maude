@@ -28,6 +28,11 @@
 ---
 --- MAUDE_HCS: end
 
+
+--- Per T&E: Clients join their channels during set up.
+--- They send messages.
+--- After sending the last message, a client sits around for receiving messages.
+
 sload ./common/irc_name
 sload ./common/_aux
 sload ../common/maude/cp2-interfaces
@@ -37,7 +42,7 @@ mod IRC is
   pr IRC_AUX .
   pr CP2-COMMON .
 
-  vars ALICE IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr : Address .
+  vars APP_ADDR ALICE_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr : Address .
   vars channelClientAddrs : AddrList .
   vars attrs attrsTrans attrsNext : AttributeSet .
   vars ircName  : IrcName .
@@ -46,40 +51,53 @@ mod IRC is
   vars chatText ircDestination ircSource : String .
   vars T : Float . ---timestamp
 
-  --------------------
-  --- Client Rules ---
-  --------------------
-  rl [client-handle-outgoing-chat]:
+  ------------------------
+  --- IRC Client Rules ---
+  ------------------------
+  rl [irc-client-handle-outgoing-chat]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
-    {T, (to IRC_CLIENT_ADDR from ALICE : makeAppChat(ircDestinationName, chatText))}
+    {T, (to IRC_CLIENT_ADDR from ALICE_ADDR : makeAppChat(ircDestinationName, chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     delayMsgs((to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : makeIrcPrivMsg(ircDestinationName, getIrcName(attrs), chatText)),
               null)
-    [ print "(" T ") IRC Client handling outgoing chat " chatText " to " ircDestinationName ", sending to Raceboat." ]
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling outgoing chat " chatText " to " ircDestinationName ", sending to Raceboat." ]
   .
 
-  rl [client-handle-incoming-chat]:
+  rl [irc-client-handle-incoming-chat]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     {T, (to IRC_CLIENT_ADDR from rbAddr : makeIrcPrivMsg(ircDestinationName, makeIrcUserName(ircSourceAddr), chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
-    delayMsgs((to getAppAddr(attrs) from IRC_CLIENT_ADDR : makeAppChat(makeIrcUserName(ircSourceAddr), chatText)), null)
-    [ print "(" T ") IRC Client handling incoming chat " chatText " from " ircSourceAddr ]
+---    delayMsgs((to getAppAddr(attrs) from IRC_CLIENT_ADDR : makeAppChat(makeIrcUserName(ircSourceAddr), chatText)), null)
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling incoming chat " chatText " from " ircSourceAddr ]
   .
 
-  rl [client-handle-ping]:
+  rl [irc-client-handle-ping]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     {T, (to IRC_CLIENT_ADDR from rbAddr : Ping(ircDestinationName, IRC_SERVER_ADDR))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
-    delayMsgs((to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : Pong(ircDestinationName, IRC_SERVER_ADDR)), null)
-    [ print "(" T ") IRC Client handling incoming ping from Server." ]
+    delayMsgs((to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : Pong(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), null)
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling incoming ping from Server." ]
   .
 
-  --------------------
-  --- Server Rules ---
-  --------------------
+  crl [irc-client-handle-channel-go]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from rbAddr : goMsg:Content)}
+  =>
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+  if isChannelGoMessage(goMsg:Content)
+--- TODO: Figure how to do this.  
+---    JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, ircSourceAddr) := goMsg:Content
+---    or (PartChannel(IRC_CHANNEL_NAME:IrcChannelName, ircSourceAddr) := goMsg:Content)
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received go channel message. (Ignore)." ]
+  .
+
+  ------------------------
+  --- IRC Server Rules ---
+  ------------------------
+  --- Handle incoming chat: forward to all users in the channel.
   crl [server-handle-incoming-chat]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
     {T, (to IRC_SERVER_ADDR from rbAddr : makeIrcPrivMsg(ircName,
@@ -99,30 +117,70 @@ mod IRC is
     [ print "(" T ") IRC Server handling incoming chat " chatText " from " ircSourceAddr " to " ircName ", turning chat around w/ msgs "  msgs:Config ]
   .
 
+  --- Handle a user joining a channel: tell all members of channel.
+  --- TODO: Forward topic, authors, list of users.
   crl [server-handle-join-channel]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
-    {T, (to IRC_SERVER_ADDR from rbAddr : JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, channelClientAddrs))}
+    {T, (to IRC_SERVER_ADDR from rbAddr : incomingContent:Content)}
   =>
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
-  if attrsTrans := registerIrcUsers(attrs, IRC_CHANNEL_NAME:IrcChannelName, channelClientAddrs) 
-    /\ attrsNext := refreshUsers(attrsTrans, channelClientAddrs, T)
-    [ print "(" T ") IRC Server handling request for " channelClientAddrs " to join " IRC_CHANNEL_NAME:IrcChannelName " channel." ]
+    delayMsgs(msgs:Config, null)
+    [IRC-STALE-DURATION-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR)), 0]
+  if JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) := incomingContent:Content
+    /\ attrsTrans := registerIrcUser(attrs, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) 
+    /\ attrsNext := refreshUser(attrsTrans, IRC_CLIENT_ADDR, T)
+    /\ CLIENTS_MAP := getChannelMap(attrsNext)
+    /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
+    /\ msgs:Config := createIrcMsg(attrsNext,
+                                   makeIrcUserName(IRC_CLIENT_ADDR),
+                                   clientList:IrcUserNameList,
+                                   incomingContent:Content)
+    [ print "(" T ") IRC Server handling request for " IRC_CLIENT_ADDR " to join " IRC_CHANNEL_NAME:IrcChannelName " channel." ]
+  .
+
+  --- Handle a user parting (leaving) a channel.
+  crl [server-handle-part-channel]:
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr : incomingContent:Content)}
+  =>
+  < IRC_SERVER_ADDR : IrcServer | attrsNext >
+    delayMsgs(msgs:Config, null)
+  if PartChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) := incomingContent:Content
+    /\ attrsNext := clearUser(attrs, IRC_CLIENT_ADDR)
+    /\ CLIENTS_MAP := getChannelMap(attrsNext)
+    /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
+    /\ msgs:Config := createIrcMsg(attrsNext,
+                                   makeIrcUserName(IRC_CLIENT_ADDR),
+                                   clientList:IrcUserNameList,
+                                   incomingContent:Content)
+  [ print "(" T ") IRC Server handling part channel for " IRC_CLIENT_ADDR ", sending " msgs:Config ]
+  .
+
+  rl [server-handle-ping-timeout]:
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR))}
+  =>
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    delayMsgs((to getRaceboatAddr(attrs) from IRC_SERVER_ADDR : Ping(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), null)
+    [(IRC-STALE-DURATION-S - IRC-PING-INTV-S), (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PongTimeout(IRC_CLIENT_ADDR)), 0]
+    [ print "(" T ") IRC Server handling ping timeout for " IRC_CLIENT_ADDR ", sending ping." ]
   .
 
   rl [server-handle-pong]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
-    {T, (to IRC_SERVER_ADDR from rbAddr : Pong(ircDestinationName, IRC_SERVER_ADDR))}
+    {T, (to IRC_SERVER_ADDR from rbAddr : Pong(ircDestinationName, IRC_CLIENT_ADDR))}
   =>
   < IRC_SERVER_ADDR : IrcServer | refreshUser(attrs, ircDestinationName, T) >
-    [ print "(" T ") IRC Server handling incoming Pong from Client " ircDestinationName "." ]
+    [ print "(" T ") IRC Server handling incoming Pong from Client " ircDestinationName ", refreshing." ]
   .
 
-  rl [server-ping-timeout]:
+  rl [server-pong-timeout]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
-    {T, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(ircSourceAddr))}
+    {T, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PongTimeout(ircSourceAddr))}
   =>
-  < IRC_SERVER_ADDR : IrcServer | handlePingTimeoutForUser(attrs, ircSourceAddr, T) >
-    [ print "(" T ") IRC Server handling ping timeout for " ircSourceAddr ]
+  < IRC_SERVER_ADDR : IrcServer | clearUser(attrs, ircSourceAddr, T) >
+    delayMsgs(createUserQuitMsgs(attrs, ircSourceAddr), null)
+    [ print "(" T ") IRC Server handling pong timeout for " ircSourceAddr " (consider quit)." ]
   .
 endm
 

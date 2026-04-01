@@ -1,0 +1,46 @@
+
+sload ./common/_aux
+
+mod IRC_AUX is
+  pr IRC_NAMES .
+
+  --- Message to join a channel.
+  ---               Channel name    Joiner
+  op JoinChannel :  IrcChannelName  Address -> IrcMsg .
+  --- Message to part a channel.
+  ---              Channel name    Leaver
+  op PartChannel : IrcChannelName  Address -> IrcMsg .
+  --- Message to quit.
+  ---       DestAddr  Quitter
+  op Quit : Address   Address -> IrcMsg .
+  --- Ping message to check if client still alive.
+  op PingTimeout : Address -> Content .
+  ---       User to ping  Server addr
+  op Ping : IrcUserName   Address -> IrcMsg .
+  ---       User ponging  Client addr
+  op Pong : IrcUserName   Address -> IrcMsg .
+  ---              Stale user
+  op PongTimeout : Address -> Content .
+
+  op setDest : IrcMsg Address -> Content .
+  eq setDest(Quit(destAddr:Address, quitter:Address),
+             newDestAddr:Address)
+    = Quit(newDestAddr:Address, quitter:Address)
+  .
+  eq setDest(ircMsg:IrcMsg, newDestAddr:Address)
+    = ircMsg:IrcMsg [owise]
+  . 
+
+  op isChannelGoMessage : Content -> Bool .
+  eq isChannelGoMessage(JoinChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                    IRC_CLIENT_ADDR:Address))
+    = true
+  .
+  eq isChannelGoMessage(PartChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                    IRC_CLIENT_ADDR:Address))
+    = true
+  .
+  eq isChannelGoMessage(AnyContent:Content) = false [owise] .
+endm
+
+

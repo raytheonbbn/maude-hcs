@@ -72,14 +72,27 @@ mod IRC_NAMES is
   op emptyClientTimestampMap : -> ClientTimestampMap .
   op _:_ : ClientTimestampMap ClientTimestampMap -> ClientTimestampMap [ctor assoc comm id: emptyClientTimestampMap] .
 
+  vars CLIENT_ADDR : Address .
+  vars CLIENT_ADDR_LIST : AddrList .
   vars clientTimestampMap CLIENT_TIMESTAMP_MAP : ClientTimestampMap .
   vars IRC_USER_NAME : IrcUserName .
-  vars nameClientsMap NAME_CLIENTS_MAP : NameClientsMap .
+  vars nameClientsMap NAME_CLIENTS_MAP NAME_CLIENTS_MAP_RIGHT : NameClientsMap .
   vars client : IrcUserName .
   vars clientList clientListRight : IrcUserNameList .
   
   op IRC-STALE-DURATION-S : -> Float .
   eq IRC-STALE-DURATION-S = 180. .
+
+  op IRC-PING-INTV-S : -> Float .
+  eq IRC-PING-INTV-S = 60. .
+
+  op getAddressFromUserName : IrcUserName -> Address .
+  eq getAddressFromUserName(makeIrcUserName(CLIENT_ADDR)) = CLIENT_ADDR .
+  eq getAddressFromUserName(IRC_USER_NAME) = nullAddr [owise] .
+  op getAddressesFromUserNames : IrcUserNameList -> AddrList .
+  eq getAddressesFromUserNames(IRC_USER_NAME : clientList)
+    = getAddressFromUserName(IRC_USER_NAME) ; getAddressesFromUserNames(clientList)
+  .
 
   op registerIrcUser : NameClientsMap IrcChannelName Address -> NameClientsMap .
   eq registerIrcUser(CHANNEL_MAP:NameClientsMap,
@@ -184,13 +197,13 @@ mod IRC_NAMES is
   --- Get all the clients / user names present in a channel.
   --- If the IRC name is a channel name (server will send to all users in channel).
   op getClients : NameClientsMap IrcChannelName -> IrcUserNameList .
-  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> clientList)),
+  eq getClients((NAME_CLIENTS_MAP : (IRC_CHANNEL_NAME:IrcChannelName ~> clientList) : NAME_CLIENTS_MAP_RIGHT),
                 IRC_CHANNEL_NAME:IrcChannelName)
     = clientList
   .
   eq getClients(emptyNameClientsMap, IRC_CHANNEL_NAME:IrcChannelName) = emptyIrcUserNameList .
-  eq getClients((nameClientsMap : (IRC_CHANNEL_NAME0:IrcChannelName ~> clientList)),
-                IRC_CHANNEL_NAME1:IrcChannelName) = emptyIrcUserNameList [owise print "owise" ] .
+  eq getClients(NAME_CLIENTS_MAP,
+                IRC_CHANNEL_NAME:IrcChannelName) = emptyIrcUserNameList [owise print "owise" ] .
 
   --- If the IRC name is a user name (server will send only to that user).
   op getClients : NameClientsMap IrcUserName -> IrcUserNameList .
@@ -216,7 +229,28 @@ mod IRC_NAMES is
                  IRC_CHANNEL_NAME:IrcChannelName)
   .
   eq getClients(nameClientsMap,
-                makeIrcName(IRC_CHANNEL_NAME:IrcChannelName)) = emptyIrcUserNameList [ owise ] .
+                makeIrcName(IRC_CHANNEL_NAME:IrcChannelName)) = emptyIrcUserNameList [ owise ]
+  .
+
+  op getAllClients : NameClientsMap IrcChannelNameList -> IrcUserNameList .
+  eq getAllClients(NAME_CLIENTS_MAP,
+                   (IRC_CHANNEL_NAME:IrcChannelName :: IRC_CHANNEL_NAME_LIST:IrcChannelNameList))
+    = getClients(NAME_CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
+      : getAllClients(NAME_CLIENTS_MAP,
+                      IRC_CHANNEL_NAME_LIST:IrcChannelNameList)
+  .
+  eq getAllClients(NAME_CLIENTS_MAP,
+                   IRC_CHANNEL_NAME:IrcChannelName)
+    = getClients(NAME_CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
+  .
+  eq getAllClients(NAME_CLIENTS_MAP, emptyIrcChannelNameList)
+    = emptyIrcUserNameList
+  .
+
+---  op getAllAddresses : NameClientsMap IrcChannelNameList -> AddrList .
+---  eq getAllAddresses(NAME_CLIENTS_MAP, IRC_CHANNEL_NAME_LIST:IrcChannelNameList)
+---    getAddressesFromUserNames(getAllClients(NAME_CLIENTS_MAP, IRC_CHANNEL_NAME_LIST:IrcChannelNameList))
+---  .
 
   ---
   op getChannels : NameClientsMap Address ->  IrcChannelNameList .
@@ -224,9 +258,9 @@ mod IRC_NAMES is
                  CLIENT:Address)
     = IRC_CHANNEL_NAME:IrcChannelName
   .
-  eq getChannels(nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> (clientList : makeIrcUserName(CLIENT:Address) : clientListRight)),
+  eq getChannels((NAME_CLIENTS_MAP : (IRC_CHANNEL_NAME:IrcChannelName ~> (clientList : makeIrcUserName(CLIENT:Address) : clientListRight)) : NAME_CLIENTS_MAP_RIGHT),
                  CLIENT:Address)
-    = IRC_CHANNEL_NAME:IrcChannelName :: getChannels(nameClientsMap, CLIENT:Address)
+    = IRC_CHANNEL_NAME:IrcChannelName :: getChannels(NAME_CLIENTS_MAP : NAME_CLIENTS_MAP_RIGHT, CLIENT:Address)
   .
   eq getChannels(nameClientsMap, CLIENT:Address) = nilIrcChannelName [owise] .
 
@@ -259,6 +293,12 @@ mod IRC_NAMES is
                  IRC_USER_NAME,
                  now:Float)
     = (now:Float > LAST_HEARD_TIME:Float + IRC-STALE-DURATION-S)
+  .
+  --- If the client cannot be found, then maybe it has already left. Ignore.
+  eq isUserStale(CLIENT_TIMESTAMP_MAP,
+                 IRC_USER_NAME,
+                 now:Float)
+    = false [owise]
   .
 endm
 
