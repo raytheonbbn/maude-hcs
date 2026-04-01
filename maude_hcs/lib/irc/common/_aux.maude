@@ -30,17 +30,20 @@
 
 sload ./irc_name
 sload ../../common/maude/_aux
+sload ../_irc_aux
 
 
 mod IRC_NODE is
   pr IRC_NAMES .
   pr CP2_SORTS .
+  pr IRC_AUX .
 
   vars DST_ADDR SRC_ADDR APP_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR RB_ADDR : Address .
-  vars IRC_CLIENT_ADDRS : AddrList .
+  vars ircClientAddrs IRC_CLIENT_ADDRS : AddrList .
   vars attrs attrsNext attrsTrans : AttributeSet .
   vars CLIENT_TIMESTAMP_MAP timestampMap : ClientTimestampMap .
   vars IRC_NAME : IrcName .
+  vars ircMsg IRC_MSG : IrcMsg .
   vars IRC_USER_NAME DST_IRC_USER_NAME SRC_IRC_USER_NAME : IrcUserName .
   vars IRC_USER_NAME_LIST : IrcUserNameList .
   vars CHANNEL_MAP : NameClientsMap .
@@ -151,11 +154,11 @@ mod IRC_NODE is
   .
 
   --- Handle a ping timeout for a user: check if stale, if so, unregister.
-  ---                           Attributes    Address Now
-  op handlePingTimeoutForUser : AttributeSet  Address Float -> AttributeSet .
-  eq handlePingTimeoutForUser(attrs,
-                              IRC_CLIENT_ADDR,
-                              now:Float)
+  ---            Attributes    Address Now
+  op clearUser : AttributeSet  Address Float -> AttributeSet .
+  eq clearUser(attrs,
+               IRC_CLIENT_ADDR,
+               now:Float)
     = (if isUserStale(getClientTimestampMap(attrs),
                       makeIrcUserName(IRC_CLIENT_ADDR),
                       now:Float)
@@ -163,6 +166,10 @@ mod IRC_NODE is
         else attrs
       fi)
   .
+
+  op clearUser : AttributeSet Address -> AttributeSet .
+  eq clearUser(attrs, IRC_CLIENT_ADDR) = unregisterIrcUser(attrs, IRC_CLIENT_ADDR) .
+
 
   --- Get the channel map.
   op getChannelMap : AttributeSet -> NameClientsMap .
@@ -189,11 +196,11 @@ mod IRC_NODE is
   ---                 Dest    Src     SourceUser  Text    User name list
   op $createPrivMsg : Address Address IrcUserName String  IrcUserNameList -> Config .
   ceq $createPrivMsg(DST_ADDR,
-                    SRC_ADDR,
-                    SRC_IRC_USER_NAME,
-                    MSG_TEXT,
-                    DST_IRC_USER_NAME : IRC_USER_NAME_LIST)
-    = msg:Msg
+                     SRC_ADDR,
+                     SRC_IRC_USER_NAME,
+                     MSG_TEXT,
+                     DST_IRC_USER_NAME : IRC_USER_NAME_LIST)
+    = (if msg:Msg == nullMsg then null else msg:Msg fi)
         $createPrivMsg(DST_ADDR,
                        SRC_ADDR,
                        SRC_IRC_USER_NAME,
@@ -214,8 +221,49 @@ mod IRC_NODE is
                     SRC_IRC_USER_NAME,
                     MSG_TEXT,
                     emptyIrcUserNameList)
-    = nullMsg [ owise ]
+    = null [ owise ]
   .
+
+  --- Src IRC User is the IRC user that sent the message originally (and does 
+  --- not need to receive it again).
+  ---                Attributes    Src IRC User  IRC dest users  IrcMsg
+  op createIrcMsg :  AttributeSet  IrcUserName   IrcUserNameList IrcMsg -> Config .
+  eq createIrcMsg(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST, ircMsg)
+    = $createIrcMsg(getRaceboatAddr(attrs),
+                    getThisAddr(attrs),
+                    SRC_IRC_USER_NAME,
+                    ircMsg,
+                    IRC_USER_NAME_LIST)
+  .
+
+  op $createIrcMsg : Address Address IrcUserName IrcMsg IrcUserNameList -> Config .
+  ceq $createIrcMsg(DST_ADDR,
+                       SRC_ADDR,
+                       SRC_IRC_USER_NAME,
+                       ircMsg,
+                       DST_IRC_USER_NAME : IRC_USER_NAME_LIST)
+    = (if msg:Msg == nullMsg then null else msg:Msg fi)
+      $createIrcMsg(DST_ADDR,
+                       SRC_ADDR,
+                       SRC_IRC_USER_NAME,
+                       ircMsg,
+                       IRC_USER_NAME_LIST)
+    if msg:Msg :=
+      (if DST_IRC_USER_NAME == SRC_IRC_USER_NAME
+        then nullMsg
+        else (to DST_ADDR from SRC_ADDR : setDest(ircMsg,
+                                                  getAddressFromUserName(DST_IRC_USER_NAME)))
+      fi)
+    [ print "Create IRC msg " ircMsg " " msg:Msg " > " DST_IRC_USER_NAME " < " SRC_IRC_USER_NAME ]
+  .
+  eq $createIrcMsg(DST_ADDR,
+                      SRC_ADDR,
+                      SRC_IRC_USER_NAME,
+                      ircMsg,
+                      emptyIrcUserNameList)
+    = null [ owise ]
+  .
+
 
   --- Refresh the timestamp when server last heard from a client.
   op refreshUser : AttributeSet IrcUserName Float -> AttributeSet .
@@ -225,6 +273,14 @@ mod IRC_NODE is
                  newHeardTime)
     = attrs,
       clientTimestampMap: refreshUser(timestampMap, IRC_USER_NAME, newHeardTime)
+  .
+
+  op refreshUser : AttributeSet Address Float -> AttributeSet .
+  eq refreshUser((attrs, clientTimestampMap: timestampMap),
+                 IRC_CLIENT_ADDR,
+                 newHeardTime)
+    = attrs,
+      clientTimestampMap: refreshUser(timestampMap, makeIrcUserName(IRC_CLIENT_ADDR), newHeardTime)
   .
 
   op refreshUsers : AttributeSet AddrList Float -> AttributeSet .
@@ -238,18 +294,21 @@ mod IRC_NODE is
                    IRC_CLIENT_ADDRS,
                    newHeardTime)
   .
-endm
 
-mod IRC_AUX is
-  pr IRC_NAMES .
+  op createUserQuitMsgs : AttributeSet Address -> Config .
+  ceq createUserQuitMsgs(attrs, IRC_CLIENT_ADDR)
+    = msgs:Config
+    if CHANNEL_MAP := getChannelMap(attrs)
+      /\ userChannels:IrcChannelNameList := getChannels(CHANNEL_MAP, IRC_CLIENT_ADDR)
+      /\ IRC_USER_NAME_LIST := getAllClients(CHANNEL_MAP, userChannels:IrcChannelNameList)
+      /\ msgs:Config := createIrcMsg(attrs,
+                                     makeIrcUserName(IRC_CLIENT_ADDR),
+                                     IRC_USER_NAME_LIST,
+                                     Quit(IRC_CLIENT_ADDR, IRC_CLIENT_ADDR))
+    [ print "Tell " IRC_USER_NAME_LIST " of " IRC_CLIENT_ADDR " quit." ]
+    .
+  eq createUserQuitMsgs(attrs, IRC_CLIENT_ADDR) = null [owise] .
 
-  --- Message to join a channel.
-  ---               Channel name    List of joiners
-  op JoinChannel :  IrcChannelName  AddrList -> Content .
-  --- Ping message to check if client still alive.
-  op Ping : IrcUserName Address -> Content .
-  op Pong : IrcUserName Address -> Content .
-  op PingTimeout : Address -> Content .
 endm
 
 
