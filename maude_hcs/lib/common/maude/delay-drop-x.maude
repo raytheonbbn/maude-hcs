@@ -1,0 +1,60 @@
+sload sampler-x.maude
+sload ../../../deps/dns_formalization/Maude/common/parameters.maude
+
+mod DELAY-X is
+ inc SAMPLER-X .
+ inc PARAMETERS-BASE-COMMON  .
+ inc RANDOM .
+ 
+vars j : Nat .
+vars Min Max R : Float .
+vars config msgs0 : Config .
+vars msg : Msg .
+
+
+
+**** translations of  dropParamdX, dropParamd from parameters.maude
+op dropXParamd : Nat Msg  -> Nat .  --- 0 or 1
+op dropXParamdX : Nat Msg -> Nat .  --- 0 or 1
+
+eq dropXParamd(j,msg) 
+ = if fakeDrop(msg) then 0 else dropXParamdX(j,msg) fi .
+----   = 0 .
+
+eq dropXParamdX(j,msg) =
+     (if canDrop(msg)
+      then (if sampleBerWithPX(j,dropProb(msg)) 
+            then 1   ---- drop
+            else 0 fi) ---- keep
+      else 0 fi) 
+.
+
+**** Translation of delayParamd to use explicit random index
+op delayParamdX : Nat Msg -> Float .
+eq delayParamdX(j,msg) =
+  overhead(msg) +
+  (if delayType(msg) == "Constant"
+    then delayConst(msg) + genRandomX(j,noiseMin(msg), noiseMax(msg))
+    else (if delayType(msg) == "Uniform"
+      then sampleUniformX(j,delayConst(msg), delayConstMax(msg))
+      else sampleNormalWithMeanSdX(delayMean(msg), delayStd(msg),j) 
+      fi)
+  fi)
+  .
+      
+**** uses one random call
+op delayMsgsX : Nat Config Config -> Config .
+eq delayMsgsX(j,null,config) = config .
+eq delayMsgsX(j, msg msgs0, config) =
+   delayMsgsX(j,msgs0, config [delayParamdX(j,msg),msg,0] )
+  .
+
+**** uses two random calls
+op delayDropMsgsX : Nat Config Config -> Config .
+eq delayDropMsgsX(j,null,config) = config .
+eq delayDropMsgsX(j, msg msgs0, config) =
+   delayDropMsgsX(j,msgs0, config 
+   [delayParamdX(j,msg),msg,dropXParamd(s j,msg)] )
+  .
+
+endm
