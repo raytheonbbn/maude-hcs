@@ -371,6 +371,38 @@ class DSLSimulator:
         mac_decl = self.machines[mac_name]
         evt_name = call_obj["name"]
         
+        sender_name = "Test"
+        if "__self__" in env and isinstance(env["__self__"], dict):
+            sender_name = env["__self__"].get("__name__", env["__self__"].get("name", env["__self__"]["__type__"]))
+            if isinstance(sender_name, dict): sender_name = "Unknown"
+            
+        receiver_name = target.get("__name__", target.get("name", target["__type__"]))
+        if isinstance(receiver_name, dict): receiver_name = "Unknown"
+        
+        def format_arg(a):
+            if not isinstance(a, dict):
+                if isinstance(a, str): return f'"{a}"'
+                return str(a)
+            if a.get("__is_machine__"):
+                return a.get("__name__", a.get("name", a.get("__type__", "Machine")))
+            t = a.get("__type__", "Struct")
+            parts = []
+            for k, v in a.items():
+                if not k.startswith("__"):
+                    v_str = f'"{v}"' if isinstance(v, str) else str(v)
+                    parts.append(f"{k}={v_str}")
+            return f"{t}({', '.join(parts)})"
+            
+        args_strs = [format_arg(a) for a in call_obj.get("args", [])[1:]]
+        
+        if hasattr(self, 'current_test_trace'):
+            self.current_test_trace.append({
+                "sender": sender_name,
+                "receiver": receiver_name,
+                "event": evt_name,
+                "args": args_strs
+            })
+        
         current_state = target.get("state")
         
         # Super simplified matching logic for MVP verification
@@ -447,9 +479,13 @@ class DSLSimulator:
                         idx = self.eval_expr(stmt.target.index, env)
                         if stmt.target.collection not in env or not isinstance(env[stmt.target.collection], dict):
                             env[stmt.target.collection] = {}
-                        env[stmt.target.collection][idx] = self.eval_expr(stmt.expr, env)
+                        val = self.eval_expr(stmt.expr, env)
+                        env[stmt.target.collection][idx] = val
                     else:
-                        env[stmt.target] = self.eval_expr(stmt.expr, env)
+                        val = self.eval_expr(stmt.expr, env)
+                        if isinstance(val, dict) and val.get("__is_machine__"):
+                            val["__name__"] = str(stmt.target)
+                        env[stmt.target] = val
 
                 elif isinstance(stmt, ExprStmt):
                     res = self.eval_expr(stmt.expr, env)
@@ -464,7 +500,6 @@ class DSLSimulator:
                             if isinstance(coll, dict) or isinstance(coll, list):
                                 coll[res["index"]] = new_val
                     elif isinstance(res, dict) and res.get("__type__") == "call":
-                        # Dynamically resolve target mapping machine dynamically smoothly natively
                         target = res.get("args", [None])[0] if res.get("args") else None
                         if isinstance(target, dict) and target.get("__is_machine__"):
                             self.event_queue.append((target, dict(env), res))
@@ -489,7 +524,6 @@ class DSLSimulator:
                             env[stmt.iter_var] = item
                             if not self._run_test_stmts(stmt.body, env, test_name): return False
 
-                # Flush the event queue exactly matching execution steps smoothly natively
                 while self.event_queue:
                     queue_tgt, queue_env, queue_event = self.event_queue.pop(0)
                     self.dispatch_event(queue_tgt, queue_env, queue_event)
@@ -502,8 +536,12 @@ class DSLSimulator:
     def run_test(self, test: TestDecl):
         env = {}
         self.current_test_nondets = set()
+        self.current_test_trace = []
+        if not hasattr(self, 'test_traces'):
+            self.test_traces = {}
         
         passed = self._run_test_stmts(test.stmts, env, test.name)
+        self.test_traces[test.name] = self.current_test_trace
                 
         if passed:
             nondet_warn = ""
