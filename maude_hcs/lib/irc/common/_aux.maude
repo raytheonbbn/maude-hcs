@@ -31,12 +31,13 @@
 sload ./irc_name
 sload ../../common/maude/_aux
 sload ../_irc_aux
-
+sload ./app_chat
 
 mod IRC_NODE is
   pr IRC_NAMES .
   pr CP2_SORTS .
   pr IRC_AUX .
+  pr APP_CHATS .
 
   vars DST_ADDR SRC_ADDR APP_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR RB_ADDR : Address .
   vars ircClientAddrs IRC_CLIENT_ADDRS : AddrList .
@@ -49,12 +50,6 @@ mod IRC_NODE is
   vars CHANNEL_MAP : NameClientsMap .
   vars MSG_TEXT : String .
   vars LAST_HEARD_TIME newHeardTime : Float .
-
-  sorts AppChat .
-  subsorts AppChat < Content .
-
-  ---              Dest        Text
-  op makeAppChat : IrcUserName String -> AppChat .
 
   ----------------
   --- [IRC Client]
@@ -69,6 +64,8 @@ mod IRC_NODE is
   op raceboatAddr:_ : Address -> Attribute [ctor] .
   --- The IRC name.
   op ircName:_ : IrcUserName -> Attribute [ctor] .
+  --- The App messages.
+  op aliceAppChatsMap:_ : AppChatsMap -> Attribute [ctor] .
 
   --- Make an IrcClient ItsAddr  AppAddr  RBAddr
   op makeIrcClient :    Address  Address  Address -> Actor .
@@ -77,7 +74,20 @@ mod IRC_NODE is
         thisAddr: IRC_CLIENT_ADDR,
         appAddr: APP_ADDR,
         raceboatAddr: RB_ADDR,
-        ircName: makeIrcUserName(IRC_CLIENT_ADDR)
+        ircName: makeIrcUserName(IRC_CLIENT_ADDR),
+        aliceAppChatsMap: emptyAppChatsMap
+    >
+  .
+
+  --- Make an IrcClient ItsAddr  AppAddr  RBAddr
+  op makeIrcClient :    Address  Address  Address AppChatsMap -> Actor .
+  eq makeIrcClient(IRC_CLIENT_ADDR, APP_ADDR, RB_ADDR, appChats:AppChatsMap) =
+    < IRC_CLIENT_ADDR : IrcClient |
+        thisAddr: IRC_CLIENT_ADDR,
+        appAddr: APP_ADDR,
+        raceboatAddr: RB_ADDR,
+        ircName: makeIrcUserName(IRC_CLIENT_ADDR),
+        aliceAppChatsMap: appChats:AppChatsMap
     >
   .
 
@@ -183,45 +193,10 @@ mod IRC_NODE is
   ---                 Attributes    Src IRC User  IRC dest users  Text
   op createPrivMsg :  AttributeSet  IrcUserName   IrcUserNameList String -> Config .
   eq createPrivMsg(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST, MSG_TEXT)
-    = $createPrivMsg(getRaceboatAddr(attrs),
-                     getThisAddr(attrs),
-                     SRC_IRC_USER_NAME,
-                     MSG_TEXT,
-                     IRC_USER_NAME_LIST)
-    [ print "Create IRC msg to " IRC_USER_NAME_LIST ]
-  .
-
-  --- Create a message to go from a client to another client or all clients in
-  --- a channel, recursively.  
-  ---                 Dest    Src     SourceUser  Text    User name list
-  op $createPrivMsg : Address Address IrcUserName String  IrcUserNameList -> Config .
-  ceq $createPrivMsg(DST_ADDR,
-                     SRC_ADDR,
-                     SRC_IRC_USER_NAME,
-                     MSG_TEXT,
-                     DST_IRC_USER_NAME : IRC_USER_NAME_LIST)
-    = (if msg:Msg == nullMsg then null else msg:Msg fi)
-        $createPrivMsg(DST_ADDR,
-                       SRC_ADDR,
-                       SRC_IRC_USER_NAME,
-                       MSG_TEXT,
-                       IRC_USER_NAME_LIST)
-    if msg:Msg :=
-      (if DST_IRC_USER_NAME == SRC_IRC_USER_NAME
-         then nullMsg
-         else (to DST_ADDR from SRC_ADDR : makeIrcPrivMsg(makeIrcName(DST_IRC_USER_NAME),
-                                                  SRC_IRC_USER_NAME,
-                                                  MSG_TEXT))
-      fi)
-    [ print "Create IRC msg from " SRC_IRC_USER_NAME " to " DST_IRC_USER_NAME " " IRC_USER_NAME_LIST ]
-  .
-
-  eq $createPrivMsg(DST_ADDR,
-                    SRC_ADDR,
-                    SRC_IRC_USER_NAME,
-                    MSG_TEXT,
-                    emptyIrcUserNameList)
-    = null [ owise ]
+    = createIrcMsg(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST,
+                   makeIrcPrivMsg(makeIrcName(SRC_IRC_USER_NAME),
+                                  SRC_IRC_USER_NAME,
+                                  MSG_TEXT))
   .
 
   --- Src IRC User is the IRC user that sent the message originally (and does 
@@ -238,29 +213,29 @@ mod IRC_NODE is
 
   op $createIrcMsg : Address Address IrcUserName IrcMsg IrcUserNameList -> Config .
   ceq $createIrcMsg(DST_ADDR,
-                       SRC_ADDR,
-                       SRC_IRC_USER_NAME,
-                       ircMsg,
-                       DST_IRC_USER_NAME : IRC_USER_NAME_LIST)
+                    SRC_ADDR,
+                    SRC_IRC_USER_NAME,
+                    ircMsg,
+                    DST_IRC_USER_NAME : IRC_USER_NAME_LIST)
     = (if msg:Msg == nullMsg then null else msg:Msg fi)
       $createIrcMsg(DST_ADDR,
-                       SRC_ADDR,
-                       SRC_IRC_USER_NAME,
-                       ircMsg,
-                       IRC_USER_NAME_LIST)
+                    SRC_ADDR,
+                    SRC_IRC_USER_NAME,
+                    ircMsg,
+                    IRC_USER_NAME_LIST)
     if msg:Msg :=
       (if DST_IRC_USER_NAME == SRC_IRC_USER_NAME
         then nullMsg
         else (to DST_ADDR from SRC_ADDR : setDest(ircMsg,
                                                   getAddressFromUserName(DST_IRC_USER_NAME)))
       fi)
-    [ print "Create IRC msg " ircMsg " " msg:Msg " > " DST_IRC_USER_NAME " < " SRC_IRC_USER_NAME ]
+    [ print "Create IRC msg " ircMsg " to " DST_IRC_USER_NAME ]
   .
   eq $createIrcMsg(DST_ADDR,
-                      SRC_ADDR,
-                      SRC_IRC_USER_NAME,
-                      ircMsg,
-                      emptyIrcUserNameList)
+                   SRC_ADDR,
+                   SRC_IRC_USER_NAME,
+                   ircMsg,
+                   emptyIrcUserNameList)
     = null [ owise ]
   .
 
