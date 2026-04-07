@@ -364,6 +364,17 @@ class MaudeTranspiler:
             if not expr.args:
                 return expr.name
             
+            if expr.name == "log" and len(expr.args) >= 2:
+                level = self.format_expr(expr.args[0], attr_vars, rand_subs, var_types)
+                args = [level]
+                for a in expr.args[1:]:
+                    fmt_a = self.format_expr(a, attr_vars, rand_subs, var_types)
+                    if fmt_a.startswith('"'):
+                        args.append(fmt_a)
+                    else:
+                        args.append(f"mToStr({fmt_a})")
+                return f"log({', '.join(args)})"
+            
             args = ", ".join(self.format_expr(a, attr_vars, rand_subs, var_types) for a in expr.args)
             return f"{expr.name}({args})"
         elif isinstance(expr, ListExpr):
@@ -693,7 +704,10 @@ class MaudeTranspiler:
         for test in self.prog.tests:
             for stmt in test.stmts:
                 if isinstance(stmt, Assignment):
-                    oid_names.add(stmt.target)
+                    if isinstance(stmt.expr, CallExpr):
+                        mac_name = stmt.expr.name
+                        if any(m.name == mac_name for m in self.prog.machines):
+                            oid_names.add(stmt.target)
                 elif isinstance(stmt, ExprStmt) and isinstance(stmt.expr, CallExpr):
                     for a in stmt.expr.args:
                         if isinstance(a, AtomExpr) and type(a.value) is str:
@@ -1171,6 +1185,9 @@ class MaudeTranspiler:
         if self.prog.tests:
             self.current_file = "PROTO-TESTS.maude"
             self.emit("\nomod PROTO-TESTS is")
+            self.emit("  protecting PROTO-SYSTEM .")
+            if self.prog.configs:
+                self.emit("  protecting PROTO-CONFIG .")
             if self.prog.machines:
                 for mac in self.prog.machines:
                     self.emit(f"  protecting {mac.name} .")
@@ -1222,156 +1239,178 @@ class MaudeTranspiler:
                 accumulated_config = [] # Messages/Triggers and Objects
                 has_asserts = False
 
+                test_local_vars = {} # Maps local identifiers to formatted values
+
                 # Track OIDs declared in this test to help with pattern matching
                 local_oids = {} # name -> machine type
                 object_attrs = {} # obj_id -> {attr_name -> val_maude}
                 self._oid_nicks = {} # name -> nick (from first arg of constructor)
 
-                for stmt in test.stmts:
-                    if isinstance(stmt, Assignment):
-                        if stmt.target in self._oid_names:
-                            val = self.format_expr(stmt.expr)
+                def process_test_stmts(stmts, current_local_vars):
+                    nonlocal has_asserts
+                    for stmt in stmts:
+                        if isinstance(stmt, Assignment):
+                            val = self.format_expr(stmt.expr, attr_vars=current_local_vars)
                             obj_type = val.split('(')[0]
-                            obj_id = stmt.target
-                            local_oids[obj_id] = obj_type
                             
-                            # Try to extract a nick from the first argument if it's a CallExpr
                             if isinstance(stmt.expr, CallExpr) and stmt.expr.args:
                                 nick_expr = stmt.expr.args[0]
-                                self._oid_nicks[obj_id] = self.format_expr(nick_expr)
+                                self._oid_nicks[stmt.target] = self.format_expr(nick_expr, attr_vars=current_local_vars)
 
                             mac = next((m for m in self.prog.machines if m.name == obj_type), None)
-                            attrs_prefix = ""
                             if mac:
-                                    attr_vals = {}
-                                    for idx, c in enumerate(mac.vars):
-                                        if isinstance(stmt.expr, CallExpr) and idx < len(stmt.expr.args):
-                                            attr_vals[c.name] = self.format_expr(stmt.expr.args[idx])
-                                        else:
-                                            attr_vals[c.name] = self._default_for_type(self._map_dsl_type(c.type_expr.name))
-                                    object_attrs[obj_id] = attr_vals
-                                    
-                                    for tr in mac.transitions:
-                                        for act in tr.actions:
-                                            if isinstance(act, Assignment):
-                                                target_name = act.target.collection if isinstance(act.target, IndexExpr) else act.target
-                                                if target_name not in attr_vals:
-                                                    attr_vals[target_name] = self._default_for_type(self._infer_expr_type(act.expr))
-                                    
-                                    if attr_vals:
-                                        defaults = ", ".join(f'{mac.name}{n[0].upper()}{n[1:]} : {v}' for n, v in attr_vals.items())
-                                        attrs_prefix = f", {defaults}"
-                            
-                            init_state = mac.initial_state if mac and mac.initial_state else "START"
-                            
-                            obj_id_q = obj_id
-                            if mac:
-                                init_conf_str = f'< {obj_id_q} : {mac.name} | currentState : ({init_state}).{mac.name}State{attrs_prefix} >'
-                            else: # Fallback for non-machine types (e.g., String)
-                                init_conf_str = f'< {obj_id_q} : {obj_type} | {attrs_prefix[2:]} >' if attrs_prefix else f'< {obj_id_q} : {obj_type} >'
-                            accumulated_config.append(init_conf_str)
-                        else:
-                            # Standard assignment or parameter
-                            accumulated_config.append(f"{stmt.target} : {self.format_expr(stmt.expr)}")
-
-                    elif isinstance(stmt, ExprStmt):
-                        # Event triggers or plain expressions
-                        trigger_expr = stmt.expr
-                        if isinstance(trigger_expr, CallExpr):
-                            # Identify rand calls in the MACHINE logic triggered by this event
-                            new_choices = []
-                            for mac in self.prog.machines:
+                                obj_id = stmt.target
+                                local_oids[obj_id] = obj_type
+                                
+                                attrs_prefix = ""
+                                attr_vals = {}
+                                for idx, c in enumerate(mac.vars):
+                                    if isinstance(stmt.expr, CallExpr) and idx < len(stmt.expr.args):
+                                        attr_vals[c.name] = self.format_expr(stmt.expr.args[idx], attr_vars=current_local_vars)
+                                    else:
+                                        attr_vals[c.name] = self._default_for_type(self._map_dsl_type(c.type_expr.name))
+                                object_attrs[obj_id] = attr_vals
+                                
                                 for tr in mac.transitions:
-                                    if tr.event.name == trigger_expr.name:
-                                        for act in tr.actions:
-                                            if isinstance(act, Assignment):
-                                                for rc in self._extract_rand_calls(act.expr):
-                                                    ret_sort = self._map_dsl_type(next((f.return_type.name for f in self.prog.funcs if f.name == rc.name), "Int"))
-                                                    if ret_sort == "Int":
-                                                        new_choices.append(f"choice({self._get_midpoint_for_call(rc)})")
-                                                    elif ret_sort == "String":
-                                                        new_choices.append(f'choice("rand")')
-                                                    else:
-                                                        new_choices.append(f"choice({self._default_for_type(ret_sort)})")
-
-                            # Test triggers use 'testOid' as Sender
-                            if "." in trigger_expr.name:
-                                obj_name, method_name = trigger_expr.name.split(".", 1)
-                                obj_type = local_oids.get(obj_name, "Oid")
-                                target_mac = next((m for m in self.prog.machines if m.name == obj_type), None)
+                                    for act in tr.actions:
+                                        if isinstance(act, Assignment):
+                                            target_name = act.target.collection if isinstance(act.target, IndexExpr) else act.target
+                                            if target_name not in attr_vals:
+                                                attr_vals[target_name] = self._default_for_type(self._infer_expr_type(act.expr))
                                 
-                                extra_args = []
-                                if target_mac:
-                                    m_func = next((f for f in target_mac.funcs if f.name == method_name), None)
-                                    if m_func:
-                                        method_name = f"{target_mac.name}-{method_name}"
-                                        # Prepend all attribute values
-                                        obj_vals = object_attrs.get(obj_name, {})
-                                        for v_def in target_mac.vars:
-                                            extra_args.append(obj_vals.get(v_def.name, self._default_for_type(self._map_dsl_type(v_def.type_expr))))
+                                if attr_vals:
+                                    defaults = ", ".join(f'{mac.name}{n[0].upper()}{n[1:]} : {v}' for n, v in attr_vals.items())
+                                    attrs_prefix = f", {defaults}"
                                 
-                                obj_id = obj_name
+                                init_state = mac.initial_state if mac and mac.initial_state else "START"
                                 obj_id_q = obj_id
-                                dsl_var_types = {k: TypeExpr(v) for k, v in local_oids.items()}
-                                args = [self.format_expr(a, var_types=dsl_var_types) for a in trigger_expr.args]
-                                
-                                final_args = [obj_id_q, "testOid"] + extra_args + args
-                                accumulated_config.append(f"{method_name}({', '.join(final_args)})")
+                                init_conf_str = f'< {obj_id_q} : {mac.name} | currentState : ({init_state}).{mac.name}State{attrs_prefix} >'
+                                accumulated_config.append(init_conf_str)
                             else:
-                                accumulated_config.append(self.format_expr(trigger_expr))
+                                current_local_vars[stmt.target] = val
 
-                            if new_choices:
-                                accumulated_config.extend(new_choices)
+                        elif isinstance(stmt, ExprStmt):
+                            trigger_expr = stmt.expr
+                            if isinstance(trigger_expr, CallExpr):
+                                new_choices = []
+                                for mac in self.prog.machines:
+                                    for tr in mac.transitions:
+                                        if tr.event.name == trigger_expr.name:
+                                            for act in tr.actions:
+                                                if isinstance(act, Assignment):
+                                                    for rc in self._extract_rand_calls(act.expr):
+                                                        ret_sort = self._map_dsl_type(next((f.return_type.name for f in self.prog.funcs if f.name == rc.name), "Int"))
+                                                        if ret_sort == "Int":
+                                                            new_choices.append(f"choice({self._get_midpoint_for_call(rc)})")
+                                                        elif ret_sort == "String":
+                                                            new_choices.append(f'choice("rand")')
+                                                        else:
+                                                            new_choices.append(f"choice({self._default_for_type(ret_sort)})")
 
-                    elif isinstance(stmt, AssertStmt):
-                        # Support complex assertions: extract all obj.attr and use such that condition
-                        self.emit(f"  --- Assert: {self.format_expr(stmt.expr)}")
-                        
-                        objs_to_match = {} # obj_id -> {attr_name -> var_name}
-                        
-                        def collect_and_replace_attrs(expr):
-                            if isinstance(expr, AtomExpr):
-                                val = str(expr.value)
-                                if "." in val:
-                                    parts = val.split(".")
-                                    obj_id = parts[0]
-                                    attr_raw = parts[1]
-                                    if obj_id in local_oids:
-                                        obj_type = local_oids[obj_id]
-                                        attr_name = "currentState" if attr_raw == "state" else f"{obj_type}{attr_raw[0].upper()}{attr_raw[1:]}"
-                                        var_name = f"V{obj_id}{attr_raw[0].upper()}{attr_raw[1:]}"
-                                        if obj_id not in objs_to_match: objs_to_match[obj_id] = {}
-                                        objs_to_match[obj_id][attr_name] = var_name
-                                        return var_name
-                            elif isinstance(expr, BinOp):
-                                return f"({collect_and_replace_attrs(expr.left)} {expr.op} {collect_and_replace_attrs(expr.right)})"
-                            elif isinstance(expr, CallExpr):
-                                mapped_args = [collect_and_replace_attrs(a) for a in expr.args]
-                                if expr.name == "len":
-                                    return f"size({mapped_args[0]})"
-                                return f"{expr.name}({', '.join(mapped_args)})"
-                            return self.format_expr(expr)
+                                if "." in trigger_expr.name:
+                                    obj_name, method_name = trigger_expr.name.split(".", 1)
+                                    obj_type = local_oids.get(obj_name, "Oid")
+                                    target_mac = next((m for m in self.prog.machines if m.name == obj_type), None)
+                                    
+                                    extra_args = []
+                                    if target_mac:
+                                        m_func = next((f for f in target_mac.funcs if f.name == method_name), None)
+                                        if m_func:
+                                            method_name = f"{target_mac.name}-{method_name}"
+                                            obj_vals = object_attrs.get(obj_name, {})
+                                            for v_def in target_mac.vars:
+                                                extra_args.append(obj_vals.get(v_def.name, self._default_for_type(self._map_dsl_type(v_def.type_expr))))
+                                    
+                                    obj_id = obj_name
+                                    obj_id_q = obj_id
+                                    dsl_var_types = {k: TypeExpr(v) for k, v in local_oids.items()}
+                                    args = [self.format_expr(a, attr_vars=current_local_vars, var_types=dsl_var_types) for a in trigger_expr.args]
+                                    
+                                    final_args = [obj_id_q, "testOid"] + extra_args + args
+                                    accumulated_config.append(f"{method_name}({', '.join(final_args)})")
+                                else:
+                                    accumulated_config.append(self.format_expr(trigger_expr, attr_vars=current_local_vars))
 
-                        cond_expr = collect_and_replace_attrs(stmt.expr)
-                        has_asserts = True
-                        
-                        pattern_parts = []
-                        for obj_id, attrs in objs_to_match.items():
-                            obj_type = local_oids[obj_id]
-                            obj_id_q = obj_id
-                            attrs_pattern = ", ".join(f"{n} : {v}" for n, v in attrs.items())
-                            pattern_parts.append(f"< {obj_id_q} : {obj_type} | {attrs_pattern}, AS-{obj_id}:AttributeSet >")
-                        
-                        pattern = " ".join(pattern_parts) + " REST:Configuration"
-                        if not pattern_parts:
-                            pattern = "REST:Configuration"
+                                if new_choices:
+                                    accumulated_config.extend(new_choices)
 
-                        init_conf = " ".join(accumulated_config)
-                        search_cmd = f"search [1] {init_conf} =>* {pattern} such that ({cond_expr}) = true"
-                        self.emit(f"{search_cmd} .")
+                        elif isinstance(stmt, AssertStmt):
+                            self.emit(f"  --- Assert: {self.format_expr(stmt.expr)}")
+                            objs_to_match = {}
+                            
+                            def collect_and_replace_attrs(expr):
+                                if isinstance(expr, AtomExpr):
+                                    val = str(expr.value)
+                                    if "." in val:
+                                        parts = val.split(".")
+                                        obj_id, attr_raw = parts[0], parts[1]
+                                        if obj_id in local_oids:
+                                            obj_type = local_oids[obj_id]
+                                            attr_name = "currentState" if attr_raw == "state" else f"{obj_type}{attr_raw[0].upper()}{attr_raw[1:]}"
+                                            var_name = f"V{obj_id}{attr_raw[0].upper()}{attr_raw[1:]}"
+                                            if obj_id not in objs_to_match: objs_to_match[obj_id] = {}
+                                            objs_to_match[obj_id][attr_name] = var_name
+                                            return var_name
+                                elif isinstance(expr, BinOp):
+                                    return f"({collect_and_replace_attrs(expr.left)} {expr.op} {collect_and_replace_attrs(expr.right)})"
+                                elif isinstance(expr, CallExpr):
+                                    mapped_args = [collect_and_replace_attrs(a) for a in expr.args]
+                                    if expr.name == "len": return f"size({mapped_args[0]})"
+                                    return f"{expr.name}({', '.join(mapped_args)})"
+                                return self.format_expr(expr, attr_vars=current_local_vars)
+
+                            cond_expr = collect_and_replace_attrs(stmt.expr)
+                            has_asserts = True
+                            
+                            pattern_parts = []
+                            for obj_id, attrs in objs_to_match.items():
+                                obj_type = local_oids[obj_id]
+                                obj_id_q = obj_id
+                                attrs_pattern = ", ".join(f"{n} : {v}" for n, v in attrs.items())
+                                pattern_parts.append(f"< {obj_id_q} : {obj_type} | {attrs_pattern}, AS-{obj_id}:AttributeSet >")
+                            
+                            pattern = " ".join(pattern_parts) + " REST:Configuration"
+                            if not pattern_parts: pattern = "REST:Configuration"
+
+                            init_conf = " ".join(accumulated_config)
+                            search_cmd = f"search [1] {init_conf} =>* {pattern} such that ({cond_expr}) = true"
+                            self.emit(f"{search_cmd} .")
+
+                        elif isinstance(stmt, IfStmt):
+                            cond_val = self.format_expr(stmt.condition, attr_vars=current_local_vars)
+                            if cond_val == "true":
+                                process_test_stmts(stmt.body, current_local_vars)
+                            elif cond_val == "false" and stmt.else_body:
+                                process_test_stmts(stmt.else_body, current_local_vars)
+
+                        elif isinstance(stmt, ForStmt):
+                            iterable_val = self.format_expr(stmt.iterable, attr_vars=current_local_vars)
+                            
+                            def split_maude_list(s):
+                                if s == "nil" or s == "": return []
+                                if s.startswith('(') and s.endswith(')'): s = s[1:-1]
+                                parts = []; cur = []; depth = 0; in_quote = False
+                                for ch in s.strip():
+                                    if ch == '"': in_quote = not in_quote; cur.append(ch)
+                                    elif ch == '(' and not in_quote: depth += 1; cur.append(ch)
+                                    elif ch == ')' and not in_quote: depth -= 1; cur.append(ch)
+                                    elif ch == ' ' and depth == 0 and not in_quote:
+                                        if cur: parts.append("".join(cur)); cur = []
+                                    else: cur.append(ch)
+                                if cur: parts.append("".join(cur))
+                                return parts
+                                
+                            for item in split_maude_list(iterable_val):
+                                next_vars = current_local_vars.copy()
+                                next_vars[stmt.iter_var] = item
+                                process_test_stmts(stmt.body, next_vars)
+                
+                process_test_stmts(test.stmts, test_local_vars)
 
                 if not has_asserts:
                     init_conf = " ".join(accumulated_config)
+                    if not init_conf.strip():
+                        init_conf = "none"
                     self.emit(f"rew {init_conf} .")
 
                 self.emit("")
