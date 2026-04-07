@@ -64,6 +64,31 @@ def main():
         from simulator.state_machine import DSLSimulator
         sim = DSLSimulator(program, config_params)
         sim.run_all()
+        
+        if args.graph and hasattr(sim, 'test_traces'):
+            from visualizer.graph_generator import generate_sequence_mermaid
+            from mermaid import Mermaid
+            from mermaid.graph import Graph
+
+            for test_name, trace in sim.test_traces.items():
+                mermaid_str = generate_sequence_mermaid(test_name, trace)
+                safe_name = test_name.replace(' ', '_').replace('/', '_')
+                out_name = f"{args.input_file}.{safe_name}.sequence.md"
+                with open(out_name, "w") as f:
+                    f.write(mermaid_str)
+                print(f"Saved sequence diagram for test '{test_name}' to {out_name}")
+                
+                # Render using mermaid-py library natively
+                try:
+                    # Strip markdown blocks for mermaid API syntax strictness
+                    raw_mermaid = mermaid_str.replace("```mermaid\n", "").replace("\n```", "").strip()
+                    graph = Graph(f"Sequence_{safe_name}", raw_mermaid)
+                    m = Mermaid(graph)
+                    png_out_name = f"{args.input_file}.{safe_name}.sequence.png"
+                    m.to_png(png_out_name)
+                    print(f"Saved PNG sequence diagram for test '{test_name}' to {png_out_name}")
+                except Exception as e:
+                    print(f"Warning: Failed to render PNG sequence diagram locally via mermaid-py for '{test_name}'. ({e})")
             
     maude_files = transpile_to_maude(program, config_params)
     
