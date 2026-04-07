@@ -35,15 +35,18 @@
 
 sload ./common/irc_name
 sload ./common/_aux
+sload ./common/app_chat
 sload ../common/maude/cp2-interfaces
 
 mod IRC is
   pr IRC_NODE .
   pr IRC_AUX .
   pr CP2-COMMON .
+  pr APP_CHATS .
 
-  vars APP_ADDR ALICE_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr : Address .
+  vars APP_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr : Address .
   vars channelClientAddrs : AddrList .
+  vars appChatsMap : AppChatsMap .
   vars attrs attrsTrans attrsNext : AttributeSet .
   vars ircName  : IrcName .
   vars ircDestinationName : IrcUserName .
@@ -54,16 +57,33 @@ mod IRC is
   ------------------------
   --- IRC Client Rules ---
   ------------------------
-  rl [irc-client-handle-outgoing-chat]:
-  < IRC_CLIENT_ADDR : IrcClient | attrs >
-    {T, (to IRC_CLIENT_ADDR from ALICE_ADDR : makeAppChat(ircDestinationName, chatText))}
+  --- Schedule the first app message.
+  rl [irc-client-start]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: appChatsMap >
+    {T, (to IRC_CLIENT_ADDR : StartIrc)}
   =>
-  < IRC_CLIENT_ADDR : IrcClient | attrs >
+  < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: popAppChat(appChatsMap) >
+    makeAppMsg(appChatsMap,
+               IRC_CLIENT_ADDR,
+               IRC_CLIENT_ADDR)
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " scheduling next app message." ]
+  .
+
+  --- Handle app messages, send them to IRC server.
+  rl [irc-client-handle-outgoing-chat]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: appChatsMap >
+    {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : makeAppChat(ircDestinationName, chatText))}
+  =>
+  < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: popAppChat(appChatsMap) >
     delayMsgs((to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : makeIrcPrivMsg(ircDestinationName, getIrcName(attrs), chatText)),
               null)
+    makeAppMsg(appChatsMap,
+               IRC_CLIENT_ADDR,
+               IRC_CLIENT_ADDR)
     [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling outgoing chat " chatText " to " ircDestinationName ", sending to Raceboat." ]
   .
 
+  --- Handle IRC messages from the server.
   rl [irc-client-handle-incoming-chat]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     {T, (to IRC_CLIENT_ADDR from rbAddr : makeIrcPrivMsg(ircDestinationName, makeIrcUserName(ircSourceAddr), chatText))}
@@ -73,6 +93,7 @@ mod IRC is
     [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling incoming chat " chatText " from " ircSourceAddr ]
   .
 
+  --- Handle server ping, respond with a pong if alive.
   rl [irc-client-handle-ping]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     {T, (to IRC_CLIENT_ADDR from rbAddr : Ping(ircDestinationName, IRC_SERVER_ADDR))}
@@ -82,6 +103,7 @@ mod IRC is
     [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling incoming ping from Server." ]
   .
 
+  --- Handle (ignore) server messages of other clients joining or leaving.
   crl [irc-client-handle-channel-go]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     {T, (to IRC_CLIENT_ADDR from rbAddr : goMsg:Content)}
@@ -183,6 +205,5 @@ mod IRC is
     [ print "(" T ") IRC Server handling pong timeout for " ircSourceAddr " (consider quit)." ]
   .
 endm
-
 
 
