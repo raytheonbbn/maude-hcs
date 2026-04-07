@@ -439,12 +439,8 @@ class DSLSimulator:
                 
         return False
 
-    def run_test(self, test: TestDecl):
-        env = {}
-        passed = True
-        self.current_test_nondets = set()
-        
-        for stmt in test.stmts:
+    def _run_test_stmts(self, stmts: list, env: dict, test_name: str) -> bool:
+        for stmt in stmts:
             try:
                 if isinstance(stmt, Assignment):
                     if isinstance(stmt.target, IndexExpr):
@@ -454,31 +450,60 @@ class DSLSimulator:
                         env[stmt.target.collection][idx] = self.eval_expr(stmt.expr, env)
                     else:
                         env[stmt.target] = self.eval_expr(stmt.expr, env)
-                    
-                elif isinstance(stmt, ExprStmt) and isinstance(stmt.expr, CallExpr):
-                    call_obj = self.eval_expr(stmt.expr, env)
-                    if isinstance(call_obj, dict):
+
+                elif isinstance(stmt, ExprStmt):
+                    res = self.eval_expr(stmt.expr, env)
+                    if isinstance(res, dict) and res.get("__type__") == "__del__":
+                        target_type = res["target_type"]
+                        new_val = res["value"]
+                        if target_type == "atom":
+                            env[res["name"]] = new_val
+                        elif target_type == "index":
+                            coll = env.get(res["coll"])
+                            if coll is None: coll = self.config_params.get(res["coll"])
+                            if isinstance(coll, dict) or isinstance(coll, list):
+                                coll[res["index"]] = new_val
+                    elif isinstance(res, dict) and res.get("__type__") == "call":
                         # Dynamically resolve target mapping machine dynamically smoothly natively
-                        target = call_obj.get("args", [None])[0] if call_obj.get("args") else None
+                        target = res.get("args", [None])[0] if res.get("args") else None
                         if isinstance(target, dict) and target.get("__is_machine__"):
-                            self.event_queue.append((target, dict(env), call_obj))
-                        
+                            self.event_queue.append((target, dict(env), res))
+
                 elif isinstance(stmt, AssertStmt):
                     res = self.eval_expr(stmt.expr, env)
                     if not res:
-                        print(f"  [FAIL] {test.name}: Assertion failed -> {stmt.expr.left.value if hasattr(stmt.expr, 'left') else stmt.expr}")
-                        passed = False
-                        break
+                        print(f"  [FAIL] {test_name}: Assertion failed -> {stmt.expr.left.value if hasattr(stmt.expr, 'left') else stmt.expr}")
+                        return False
                         
+                elif isinstance(stmt, IfStmt):
+                    cond = self.eval_expr(stmt.condition, env)
+                    if cond:
+                        if not self._run_test_stmts(stmt.body, env, test_name): return False
+                    elif stmt.else_body:
+                        if not self._run_test_stmts(stmt.else_body, env, test_name): return False
+                        
+                elif isinstance(stmt, ForStmt):
+                    iterable = self.eval_expr(stmt.iterable, env)
+                    if hasattr(iterable, '__iter__') and not isinstance(iterable, str):
+                        for item in iterable:
+                            env[stmt.iter_var] = item
+                            if not self._run_test_stmts(stmt.body, env, test_name): return False
+
                 # Flush the event queue exactly matching execution steps smoothly natively
                 while self.event_queue:
                     queue_tgt, queue_env, queue_event = self.event_queue.pop(0)
                     self.dispatch_event(queue_tgt, queue_env, queue_event)
 
             except Exception as e:
-                print(f"  [ERROR] {test.name}: {e}")
-                passed = False
-                break
+                print(f"  [ERROR] {test_name}: {e}")
+                return False
+        return True
+
+    def run_test(self, test: TestDecl):
+        env = {}
+        self.current_test_nondets = set()
+        
+        passed = self._run_test_stmts(test.stmts, env, test.name)
                 
         if passed:
             nondet_warn = ""
