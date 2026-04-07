@@ -298,7 +298,10 @@ def parse_and_resolve(filepath: str, parsed_files=None) -> Program:
     with open(abs_path, "r") as f:
         code = f.read()
         
-    prog = parse_dsl(code)
+    try:
+        prog = parse_dsl(code)
+    except Exception as e:
+        raise Exception(f"Error parsing file '{filepath}':\n{e}") from e
     
     merged_prog = Program(
         imports=[],
