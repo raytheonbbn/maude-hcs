@@ -30,12 +30,14 @@
 
 sload ./common/irc_name
 sload ./common/_aux
+sload ./_irc_aux
 sload ./irc_nondet
 
 mod IRC_TESTS is
   pr IRC_NAMES .
   pr IRC_NODE .
   pr IRC .
+  pr IRC_AUX .
 
   ops ircClientAddr ircServerAddr aliceAddr bobAddr carolynAddr rbAddr : -> Address .
   ops aliceIrcClient : -> Actor .
@@ -184,7 +186,7 @@ red unregisterIrcUser(makeIrcChannelName("bbn") ~> makeIrcUserName(bobAddr),
 rew aliceIrcClient
     (to ircClientAddr from aliceAddr : makeAppChat(makeIrcName(makeIrcUserName(bobAddr)), 
                                                                "Hello Bob!"))
----  == (to rbAddr from ircClientAddr : makeIrcPrivMsg(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(ircClientAddr), "Hello Bob!")) ircClient
+---  == (to rbAddr from ircClientAddr : PrivMsgReq(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(ircClientAddr), "Hello Bob!")) ircClient
 .
 
 rew ircServer
@@ -197,29 +199,29 @@ rew ircServer
 
 --- Server receive message for channel, forward to all users (Alice and Bob) in channel.
 rew preconfiguredIrcServer
-    (to ircServerAddr from rbAddr : makeIrcPrivMsg(makeIrcName(makeIrcChannelName("bbn")),
+    (to ircServerAddr from rbAddr : PrivMsgReq(makeIrcName(makeIrcChannelName("bbn")),
                                                    makeIrcUserName(carolynAddr),
                                                    "Hello All!"))
 ---  == nullMsg
----      (to rbAddr from ircServerAddr : makeIrcPrivMsg(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
----      (to rbAddr from ircServerAddr : makeIrcPrivMsg(makeIrcName(makeIrcUserName(aliceAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
+---      (to rbAddr from ircServerAddr : PrivMsgRes(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
+---      (to rbAddr from ircServerAddr : PrivMsgRes(makeIrcName(makeIrcUserName(aliceAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
 ---    ircServer
 .
 
 rew preconfiguredIrcServer
-    (to ircServerAddr from rbAddr : makeIrcPrivMsg(makeIrcName(makeIrcChannelName("bbn")),
+    (to ircServerAddr from rbAddr : PrivMsgReq(makeIrcName(makeIrcChannelName("bbn")),
                                                    makeIrcUserName(aliceAddr),
                                                    "Hello All!"))
 ---  == nullMsg
----      (to rbAddr from ircServerAddr : makeIrcPrivMsg(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
+---      (to rbAddr from ircServerAddr : PrivMsgRes(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
 ---      ircServer
 . 
 
 rew aliceIrcClient
     preconfiguredIrcServer
-    (to ircServerAddr from rbAddr : makeIrcPrivMsg(makeIrcName(makeIrcChannelName("bbn")),
-                                                   makeIrcUserName(carolynAddr),
-                                                   "Hello All!"))
+    (to ircServerAddr from rbAddr : PrivMsgReq(makeIrcName(makeIrcChannelName("bbn")),
+                                               makeIrcUserName(carolynAddr),
+                                               "Hello All!"))
 .
 
 rew aliceIrcClient

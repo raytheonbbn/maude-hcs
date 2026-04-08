@@ -51,13 +51,13 @@ mod IRC is
     (to IRC_CLIENT_ADDR from ALICE : makeAppChat(ircDestinationName, chatText))
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
-    (to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : makeIrcPrivMsg(ircDestinationName, getIrcName(attrs), chatText))
+    (to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : PrivMsgReq(ircDestinationName, getIrcName(attrs), chatText))
     [ print "IRC Client handling outgoing chat " chatText " to " ircDestinationName ", sending to Raceboat." ]
   .
 
   rl [client-handle-incoming-chat]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
-    (to IRC_CLIENT_ADDR from rbAddr : makeIrcPrivMsg(ircDestinationName, makeIrcUserName(ircSourceAddr), chatText))
+    (to IRC_CLIENT_ADDR from rbAddr : PrivMsgRes(ircDestinationName, makeIrcUserName(ircSourceAddr), chatText))
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     (to getAppAddr(attrs) from IRC_CLIENT_ADDR : makeAppChat(makeIrcUserName(ircSourceAddr), chatText))
@@ -78,18 +78,18 @@ mod IRC is
   --------------------
   crl [server-handle-incoming-chat]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
-    (to IRC_SERVER_ADDR from rbAddr : makeIrcPrivMsg(ircName, ---makeIrcChannelName(ircDestination),
-                                                     makeIrcUserName(ircSourceAddr),
-                                                     chatText))
+    (to IRC_SERVER_ADDR from rbAddr : PrivMsgReq(ircName, ---makeIrcChannelName(ircDestination),
+                                                 makeIrcUserName(ircSourceAddr),
+                                                 chatText))
   =>
   < IRC_SERVER_ADDR : IrcServer | attrs >
     msgs:Config
   if CLIENTS_MAP := getChannelMap(attrs)
     /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, ircName) ---makeIrcChannelName(ircDestination))
-    /\ msgs:Config := createPrivMsg(attrs, 
-                                    makeIrcUserName(ircSourceAddr),
-                                    clientList:IrcUserNameList,
-                                    chatText)
+    /\ msgs:Config := createPrivMsgRes(attrs, 
+                                       makeIrcUserName(ircSourceAddr),
+                                       clientList:IrcUserNameList,
+                                       chatText)
     [ print "IRC Server handling incoming chat " chatText " from " ircSourceAddr " to " ircName ", turning chat around w/ msgs "  msgs:Config ]
   .
 
