@@ -75,7 +75,8 @@ mod IRC is
     {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : makeAppChat(ircDestinationName, chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: popAppChat(appChatsMap) >
-    delayMsgs((to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : makeIrcPrivMsg(ircDestinationName, getIrcName(attrs), chatText)),
+    --- The client -> server delay will take about 2ms avg + 1.8ms std.
+    delayMsgs((to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : PrivMsgReq(ircDestinationName, getIrcName(attrs), chatText)),
               null)
     makeAppMsg(appChatsMap,
                IRC_CLIENT_ADDR,
@@ -86,11 +87,11 @@ mod IRC is
   --- Handle IRC messages from the server.
   rl [irc-client-handle-incoming-chat]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
-    {T, (to IRC_CLIENT_ADDR from rbAddr : makeIrcPrivMsg(ircDestinationName, makeIrcUserName(ircSourceAddr), chatText))}
+    {T, (to IRC_CLIENT_ADDR from rbAddr : PrivMsgRes(ircDestinationName, makeIrcUserName(ircSourceAddr), chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
 ---    delayMsgs((to getAppAddr(attrs) from IRC_CLIENT_ADDR : makeAppChat(makeIrcUserName(ircSourceAddr), chatText)), null)
-    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling incoming chat " chatText " from " ircSourceAddr ]
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received chat " chatText " from " ircSourceAddr ]
   .
 
   --- Handle server ping, respond with a pong if alive.
@@ -122,19 +123,19 @@ mod IRC is
   --- Handle incoming chat: forward to all users in the channel.
   crl [server-handle-incoming-chat]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
-    {T, (to IRC_SERVER_ADDR from rbAddr : makeIrcPrivMsg(ircName,
-                                                         makeIrcUserName(ircSourceAddr),
-                                                         chatText))}
+    {T, (to IRC_SERVER_ADDR from rbAddr : PrivMsgReq(ircName,
+                                                     makeIrcUserName(ircSourceAddr),
+                                                     chatText))}
   =>
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
     delayMsgs(msgs:Config, null)
     [IRC-STALE-DURATION-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(ircSourceAddr)), 0]
   if CLIENTS_MAP := getChannelMap(attrs)
     /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, ircName)
-    /\ msgs:Config := createPrivMsg(attrs, 
-                                    makeIrcUserName(ircSourceAddr),
-                                    clientList:IrcUserNameList,
-                                    chatText)
+    /\ msgs:Config := createPrivMsgRes(attrs, 
+                                       makeIrcUserName(ircSourceAddr),
+                                       clientList:IrcUserNameList,
+                                       chatText)
     /\ attrsNext := refreshUser(attrs, makeIrcUserName(ircSourceAddr), T)
     [ print "(" T ") IRC Server handling incoming chat " chatText " from " ircSourceAddr " to " ircName ", turning chat around w/ msgs "  msgs:Config ]
   .
@@ -147,7 +148,7 @@ mod IRC is
   =>
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
     delayMsgs(msgs:Config, null)
-    [IRC-STALE-DURATION-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR)), 0]
+    [IRC-PING-INTV-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR)), 0]
   if JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) := incomingContent:Content
     /\ attrsTrans := registerIrcUser(attrs, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) 
     /\ attrsNext := refreshUser(attrsTrans, IRC_CLIENT_ADDR, T)
