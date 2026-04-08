@@ -1,0 +1,71 @@
+import "common.model"
+
+machine SkyhookServer (minIO: MinIO, server: IRCServer, client_id: String, uuid_send: String, uuid_recv = String) {
+
+    id: String = client_id
+
+    event pollMinIO()
+    event responseMinIO()
+    event sendToIRCServer(msg: IRCMessage)
+    
+    event receiveFromIRCServer(msg: IRCMessage)
+    event sendToMinIO()
+    event sendToIRCClient(msg: IRCMessage)
+
+    event errorResp(msg: ErrorMessage)
+
+    inital START
+    transition START on pollMinIO() -> WAITINGDOWN {
+        log(LOG, "{id} - polling {uuid_recv} from MinIO")
+        PollMinIO(uuid_recv)
+    }
+
+    transition WAITINGDOWN on responseMinIO() -> RECVOK, RECVERROR {
+        result = RespFromMinIO()
+        log(LOG, "{id} - got {result} for {uuid_recv} from MinIO")
+        if (result.code == 200) transition RECVOK(result.message())
+        else transition RECVERROR(result.message())
+    }
+
+    transition RECVOK on sendToIRCServer(msg: IRCMessage) -> START {
+        log(LOG, "{id} - recieved {msg} from MinIO, forwarding to server")
+        deliverToIRCServer(server, msg)
+
+        // AH only
+        log(LOG, "{id} - deleting {uuid_recv} from MinIO")
+        deleteMinIOEntry(uuid_recv)
+
+        uuid_recv = hash(uuid_recv)
+        log(LOG, "{id} - creating {uuid_recv} on MinIO")
+        createMinIOEntry(uuid_recv)
+    }
+    
+    transition START on receiveFromIRCServer(msg: IRCMessage) -> WAITINGUP {
+        log(LOG, "{id} - recieved {msg} from IRCServer, forwarding to MinIO")
+        sendToMinIO(uuid_send)
+    }
+
+    transition WAITINGUP on responseMinIO() -> SENDOK, SENDERROR {
+        result = RespFromMinIO()
+        log(LOG, "{id} - got {result} for {uuid_send} from MinIO")
+        if (result.code == 200) transition GETOK
+        else transition GETERROR
+    }
+
+    transition GETOK on sendToMinIO(msg: Message) -> START {
+        deliverToMinIO(msg, uuid_recv)
+        log(LOG, "{id} - forwarding {msg} at {uuid_recv} to MinIO")
+        
+        // AH only
+        log(LOG, "{id} - deleting {uuid_recv} from MinIO")
+        deleteMinIOEntry(uuid_recv)
+
+        uuid_recv = hash(uuid_recv)
+        log(LOG, "{id} - creating {uuid_recv} on MinIO")
+        createMinIOEntry(uuid_recv)
+    }
+
+    transition RECVERR, SENDERROR on errorResp(msg: ErrorMessage) -> START {
+
+    }
+}
