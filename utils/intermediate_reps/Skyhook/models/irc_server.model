@@ -1,0 +1,44 @@
+import "common.model"
+
+machine IRCServer (server_id: String) {
+
+    id: String = server_id
+
+    /* dir       room      users   */
+    let auths: Map[String, List(String)]
+    let present: Map[String, List(String)]
+
+    event channelJoin(room: String, user: IRCUser)
+    event channelLeave(room: String, user: IRCUser)
+
+    receiveFromSkyhook(room: String, requestor: IRCUser, msg: IRCMessage)
+
+    transition LISTENING on channelJoin(room: String, requestor: IRCUser) -> LISTENING {
+        if (requestor is in auths[room]) {
+            allowEntry(requestor)
+            present[room].add(requestor)
+            log(LOG, "{requestor} joined {room}")
+            // Consume requestor from auth?
+        } else {
+            //???
+        }
+    }
+
+    transition LISTENING on channelLeave(room: String, requestor: IRCUser) -> LISTENING {
+        remove(requestor)
+        present[room].remove(requestor)
+        log(LOG, "{requestor} left {room}")
+    }
+
+    transition LISTENING on receiveFromSkyhook(room: String, speaker: IRCUser, msg: IRCMessage) -> LISTENING {
+        if (speaker is in auths[room] && speaker is in present[room]) {
+            let mut broadcast = present[room]
+            final broadcast.remove(speaker)
+            for listener in broadcast {
+                sendMsg(msg)
+            }
+        } else {
+            //???
+        }
+    }
+}
