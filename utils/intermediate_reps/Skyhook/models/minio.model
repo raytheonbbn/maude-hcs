@@ -4,13 +4,13 @@ machine MinIO {
 
     id: String = "MinIO"
 
-    /*                uuid     auth users     msg */
+    /*                uuid     auth users    entry*/
     let storage: Map[String][(List(string), string)]
 
     function put(requestor: MinIOClient, MinIOMessage: msg)
-    function fetch(requestor: MinIOClient, MinIOMessage: msg)
+    function get(requestor: MinIOClient, MinIOMessage: msg)
 
-    function newBucket(requestor: MinIOClient)
+    function newEntry(requestor: MinIOClient)
     function delete(requestor: MinIOClient)
 
     event logOk(requestor: MinIOClient, action: String, msguuid: String)
@@ -32,9 +32,9 @@ machine MinIO {
         }
     }
 
-    function fetch(requestor: MinIOClient, MinIOMessage: msg) {
+    function get(requestor: MinIOClient, MinIOMessage: msg) {
         if (storage[msg.uuid]) {
-            if (requestor in storage[msg.uuid][1]) {
+            if (requestor in storage[msg.uuid][0]) {
                 if (storage[msg.uuid][1]) {
                     requestor.minioAck(storage[msg.uuid][1])
                     log(LOG, "{id} - {requestor} fetched {msg} from {msg.uuid}")
@@ -52,7 +52,7 @@ machine MinIO {
         }
     }
 
-    function newBucket(requestor: MinIOClient){
+    function newEntry(requestor: MinIOClient, MinIOMessage: msg){
         if (!storage[msg.uuid]) {
             if (requestor.isAccountHolder()) {
                 // Should AHs have a limit on owned buckets?
@@ -69,9 +69,9 @@ machine MinIO {
         }
     }
 
-    function delete(requestor: MinIOClient){
+    function delete(requestor: MinIOClient, MinIOMessage: msg){
         if (storage[msg.uuid]) {
-            if (requestor in storage[msg.uuid][1] and requestor.isAccountHolder()) {
+            if (requestor in storage[msg.uuid][0] and requestor.isAccountHolder()) {
                 requestor.minioAck()
                 log(LOG, "{id} - {requestor} deleted {msg.uuid}")
             } else {
