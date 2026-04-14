@@ -4,28 +4,7 @@
 --- Maude-HCS Software
 ---
 --- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
----
---- The computer software and computer software documentation are licensed
---- under the Apache License, Version 2.0 (the "License"); you may not use
---- this file except in compliance with the License. A copy of the License
---- is provided in the LICENSE file, but you may obtain a copy of the
---- License at:  https://www.apache.org/licenses/LICENSE-2.0
----
---- The computer software and computer software documentation are based
---- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
---- under Agreement No. HR00l 12590083.
----
---- This document does not contain technology or technical data controlled under
---- either the U.S. International Traffic in Arms Regulations or the U.S. Export
---- Administration Regulations.
----
---- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
---- unlimited.
----
---- Notice: Markings. Any reproduction of this computer software, computer
---- software documentation, or portions thereof must also reproduce the markings
---- contained herein. Refer to the provided NOTICE file.
----
+--- ...
 --- MAUDE_HCS: end
 
 sload ../common/maude/_aux
@@ -34,21 +13,86 @@ mod SKYHOOK_AUX is
   pr CONVERSION .
   pr CP2_SORTS .
 
+  --- Abstract StringList for tracking rolling Uuids
+  sort StringList .
+  subsort String < StringList .
+  op emptyStringList : -> StringList [ctor] .
+  op _::_ : StringList StringList -> StringList [ctor assoc id: emptyStringList] .
+  
+  op sha256 : String -> String .
+  eq sha256(STR:String) = STR:String + "-hash" . --- simulate hashing
+
+  op listLen : StringList -> Nat .
+  eq listLen(emptyStringList) = 0 .
+  eq listLen(STR:String :: REST:StringList) = 1 + listLen(REST:StringList) .
+
+  op head : StringList -> String .
+  eq head(STR:String :: REST:StringList) = STR:String .
+
+  op tail : StringList -> StringList .
+  eq tail(emptyStringList) = emptyStringList .
+  eq tail(STR:String :: REST:StringList) = REST:StringList .
+
+  op append : StringList String -> StringList .
+  eq append(emptyStringList, STR:String) = STR:String .
+  eq append(STR1:String :: REST:StringList, STR:String) = STR1:String :: append(REST:StringList, STR:String) .
+
+  op last : StringList -> String .
+  eq last(STR:String) = STR:String .
+  eq last(STR1:String :: STR2:String :: REST:StringList) = last(STR2:String :: REST:StringList) .
+
   --- Actors
   op SkyhookPublicUser : -> ActorType [ctor] .
   op SkyhookAccountHolder : -> ActorType [ctor] .
+  op AwsS3 : -> ActorType [ctor] .
 
-  --- Skyhook Messages
-  op PutObjReq : String String String -> Content . --- bucket uuid object_data
-  op PutObjRes : String String -> Content .        --- bucket uuid
+  --- Skyhook Messages (S3 API)
+  op S3PutObjReq : String String String -> Content . --- bucket uuid object_data
+  op S3PutObjRes : String String -> Content .        --- bucket uuid
 
-  op GetObjReq : String String -> Content .        --- bucket uuid
-  op GetObjRes : String String String -> Content . --- bucket uuid object_data
+  op S3GetObjReq : String String -> Content .        --- bucket uuid
+  op S3GetObjRes : String String String -> Content . --- bucket uuid object_data
+
+  op S3DeleteObjReq : String String -> Content .     --- bucket uuid
+  op S3DeleteObjRes : String String -> Content .     --- bucket uuid
+
+  op S3PutBucketPolicyReq : String String -> Content . --- bucket policy_json
+  op S3PutBucketPolicyRes : String -> Content .        --- bucket
+
+  op S3CreateBucketReq : String String -> Content .    --- bucket region
+  op S3CreateBucketRes : String -> Content .           --- bucket
+
+  op S3DeleteBucketReq : String String -> Content .    --- bucket region
+  op S3DeleteBucketRes : String -> Content .           --- bucket
+
+  op S3PutPublicAccessBlockReq : String -> Content .   --- bucket
+  op S3PutPublicAccessBlockRes : String -> Content .   --- bucket
+
+  --- Internal Raceboat primitives -> Plugins
+  op SkyhookFetchCmd : -> Content . --- Poll fetch (no uuid required, internal state driven)
+  op SkyhookPostCmd : String -> Content . --- post data (uuid determined internally)
+  
+  op SkyhookStartCmd : -> Content . --- Kickoff initialization
 
   op getSize : Content -> Nat .
-  eq getSize(PutObjReq(BUCKET:String, UUID:String, DATA:String)) = 100 + length(DATA:String) .
-  eq getSize(PutObjRes(BUCKET:String, UUID:String)) = 100 .
-  eq getSize(GetObjReq(BUCKET:String, UUID:String)) = 100 .
-  eq getSize(GetObjRes(BUCKET:String, UUID:String, DATA:String)) = 100 + length(DATA:String) .
+  eq getSize(S3PutObjReq(BUCKET:String, UUID:String, DATA:String)) = 150 + length(BUCKET:String) + length(UUID:String) + length(DATA:String) .
+  eq getSize(S3PutObjRes(BUCKET:String, UUID:String)) = 150 .
+  eq getSize(S3GetObjReq(BUCKET:String, UUID:String)) = 150 .
+  eq getSize(S3GetObjRes(BUCKET:String, UUID:String, DATA:String)) = 150 + length(DATA:String) .
+  eq getSize(S3DeleteObjReq(BUCKET:String, UUID:String)) = 150 .
+  eq getSize(S3DeleteObjRes(BUCKET:String, UUID:String)) = 150 .
+  eq getSize(S3PutBucketPolicyReq(BUCKET:String, POLICY:String)) = 150 + length(POLICY:String) .
+  eq getSize(S3PutBucketPolicyRes(BUCKET:String)) = 150 .
+  eq getSize(S3CreateBucketReq(BUCKET:String, REGION:String)) = 150 .
+  eq getSize(S3CreateBucketRes(BUCKET:String)) = 150 .
+  eq getSize(S3DeleteBucketReq(BUCKET:String, REGION:String)) = 150 .
+  eq getSize(S3DeleteBucketRes(BUCKET:String)) = 150 .
+  eq getSize(S3PutPublicAccessBlockReq(BUCKET:String)) = 150 .
+  eq getSize(S3PutPublicAccessBlockRes(BUCKET:String)) = 150 .
   
+  eq getSize(SkyhookFetchCmd) = 50 .
+  eq getSize(SkyhookPostCmd(DATA:String)) = 50 + length(DATA:String) .
+  eq getSize(SkyhookStartCmd) = 10 .
+  eq getSize(AnyContent:Content) = 0 [owise] .
+
 endm

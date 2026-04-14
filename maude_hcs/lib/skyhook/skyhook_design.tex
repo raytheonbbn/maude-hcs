@@ -1,0 +1,645 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.multipart,fit}
+\usepackage{float}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!70!black,
+  citecolor=green!50!black,
+  urlcolor=blue!60!black,
+}
+
+% Maude listing style
+\lstdefinelanguage{Maude}{
+  morekeywords={mod,endm,pr,sort,subsort,op,ops,eq,ceq,rl,crl,if,sload,rew,vars,var},
+  sensitive=true,
+  morecomment=[l]{---},
+  morestring=[b]",
+  literate={->}{{$\rightarrow$}}2 {=>}{{$\Rightarrow$}}2,
+}
+
+\lstset{
+  language=Maude,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\bfseries\color{blue!70!black},
+  commentstyle=\itshape\color{gray},
+  stringstyle=\color{red!60!black},
+  breaklines=true,
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+  backgroundcolor=\color{gray!5},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=6pt,
+  captionpos=b,
+  aboveskip=10pt,
+  belowskip=10pt,
+}
+
+\title{
+  \textbf{Skyhook Protocol Model for Maude-HCS} \\[6pt]
+  \large Design Document and Integration Guide
+}
+\author{Generated for the Maude-HCS Framework}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document describes the Maude rewriting-logic model of the
+\emph{Skyhook} protocol, a Raceboat transport plugin that relays messages
+through AWS~S3 cloud storage.  The model captures the full lifecycle
+of S3 interactions---bucket creation, public-access-block configuration,
+bucket-policy management, and the rolling UUID object-permission
+scheme---as they appear in the reference C++ implementation.  Two
+module variants are provided: a \emph{nondeterministic} variant for
+exhaustive state-space exploration and a \emph{probabilistic/timed}
+variant for quantitative simulation within the Maude-HCS experiment
+pipeline.  The document is intended for Maude practitioners who wish to
+compose the Skyhook model with other protocol models or extend it for
+new experimental scenarios.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%% ================================================================
+\section{Introduction}\label{sec:intro}
+
+Skyhook is a transport plugin for the RACE / Raceboat system.  It enables
+two parties---an \emph{Account Holder} who owns AWS credentials and a
+\emph{Public User} who does not---to exchange messages via objects stored
+in S3 buckets.  Access control is maintained by continuously updating
+S3 bucket policies so that only the ``current'' object UUID is readable
+or writable by the public, while consumed objects are deleted and their
+permissions revoked.
+
+The Maude model presented here abstracts the low-level HTTP/\texttt{curl}
+operations into typed S3~API messages and captures:
+
+\begin{itemize}
+  \item The \textbf{initialization} sequence (bucket creation,
+        \texttt{PutPublicAccessBlock}, baseline policy installation).
+  \item The \textbf{rolling UUID queue} that the Account Holder
+        maintains for both ``puttable'' and ``fetchable'' object
+        permissions.
+  \item The \textbf{PublicUser\'{}s stateless S3 interactions}
+        (anonymous \texttt{GET}/\texttt{PUT} via pre-signed object
+        UUIDs), where the next UUID is derived by hashing the current
+        one.
+  \item A \textbf{mock AWS~S3 actor} that stands in for the cloud
+        service, allowing closed-world simulation.
+\end{itemize}
+
+%% ================================================================
+\section{Source-Code Provenance}\label{sec:provenance}
+
+The model was derived from the following C++ source files in the
+\texttt{tst-race/skyhook} repository:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Source File} & \textbf{Modeled Aspect} \\
+\midrule
+\texttt{S3Manager.cpp / .h}
+  & All S3 API calls; policy JSON construction \\
+\texttt{LinkAccountHolder.cpp / .h}
+  & Rolling puttable/fetchable UUID queues \\
+\texttt{LinkAccountHolderSingleReceive.cpp}
+  & Simplified single-receive variant \\
+\texttt{Link.cpp / .h}
+  & PublicUser fetch/post via \texttt{curl}; UUID hashing \\
+\texttt{SkyhookTransport.cpp / .h}
+  & Link creation, address flipping, role dispatch \\
+\texttt{SkyhookTransportAccountHolder.cpp}
+  & AccountHolder initialization entry point \\
+\texttt{SkyhookTransportPublicUser.cpp}
+  & PublicUser factory (delegates to \texttt{Link}) \\
+\texttt{LinkAddress.cpp / .h}
+  & Address JSON schema \\
+\bottomrule
+\end{tabular}
+\caption{C++ source files and their corresponding modeled behaviors.}
+\label{tab:provenance}
+\end{table}
+
+%% ================================================================
+\section{File Layout}\label{sec:layout}
+
+All Skyhook model files reside under
+\texttt{maude\_hcs/lib/skyhook/}:
+
+\medskip
+\begin{tabular}{@{}lp{9cm}@{}}
+\toprule
+\textbf{File} & \textbf{Purpose} \\
+\midrule
+\texttt{\_skyhook\_aux.maude}
+  & Auxiliary module \texttt{SKYHOOK\_AUX}: sorts, message constructors,
+    \texttt{StringList} data type, \texttt{sha256} abstraction, and
+    \texttt{getSize} equations. \\
+\texttt{skyhook\_nondet.maude}
+  & Module \texttt{SKYHOOK} (nondeterministic): rewrite rules for all
+    three actor types without timing. \\
+\texttt{skyhook\_prob.maude}
+  & Module \texttt{SKYHOOK} (probabilistic): identical logic wrapped in
+    \texttt{CP2-COMMON} timed-message infrastructure
+    (\texttt{delayMsgs}). \\
+\texttt{test\_skyhook.maude}
+  & Module \texttt{TEST\_SKYHOOK}: concrete initial configurations and
+    \texttt{rew} commands for validating each rule. \\
+\texttt{skyhook\_design.tex}
+  & This document. \\
+\bottomrule
+\end{tabular}
+
+\paragraph{Load order.}
+The dependency chain is:
+\[
+  \texttt{\_aux.maude} \;\longleftarrow\;
+  \texttt{\_skyhook\_aux.maude} \;\longleftarrow\;
+  \texttt{skyhook\_nondet.maude}
+  \quad\text{or}\quad
+  \texttt{skyhook\_prob.maude}
+\]
+The probabilistic variant additionally loads
+\texttt{../common/maude/cp2-interfaces} for the \texttt{CP2-COMMON}
+infrastructure.
+
+%% ================================================================
+\section{Data Structures}\label{sec:data}
+
+\subsection{StringList}
+
+The C++ implementation maintains \texttt{std::deque<std::string>}
+structures for tracking rolling object UUIDs.  In Maude these are
+modeled as an associative list with identity:
+
+\begin{lstlisting}[caption={StringList sort},label={lst:stringlist}]
+sort StringList .
+subsort String < StringList .
+op emptyStringList : -> StringList [ctor] .
+op _::_ : StringList StringList -> StringList
+           [ctor assoc id: emptyStringList] .
+\end{lstlisting}
+
+Helper functions mirror the C++ deque interface:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}llp{7cm}@{}}
+\toprule
+\textbf{Operator} & \textbf{Signature} & \textbf{C++ Equivalent} \\
+\midrule
+\texttt{head}    & $\texttt{StringList} \to \texttt{String}$      & \texttt{deque::front()} \\
+\texttt{tail}    & $\texttt{StringList} \to \texttt{StringList}$   & pop front, return rest \\
+\texttt{append}  & $\texttt{StringList} \times \texttt{String} \to \texttt{StringList}$ & \texttt{deque::push\_back()} \\
+\texttt{last}    & $\texttt{StringList} \to \texttt{String}$       & \texttt{deque::back()} \\
+\texttt{listLen} & $\texttt{StringList} \to \texttt{Nat}$          & \texttt{deque::size()} \\
+\bottomrule
+\end{tabular}
+\caption{StringList helper functions.}
+\end{table}
+
+\subsection{UUID Hashing Abstraction}
+
+The C++ code derives the next object UUID by computing
+\texttt{SHA-256(currentUuid)}.  The model abstracts this as:
+
+\begin{lstlisting}[caption={sha256 abstraction}]
+op sha256 : String -> String .
+eq sha256(STR:String) = STR:String + "-hash" .
+\end{lstlisting}
+
+This is a sound abstraction for protocol-level reasoning: it preserves
+the key property that successive UUIDs form a deterministic chain from
+a given seed, while remaining human-readable in traces.
+
+%% ================================================================
+\section{Actor Types and Attributes}\label{sec:actors}
+
+The model defines three actor types:
+
+\begin{lstlisting}[caption={Actor type constructors}]
+op SkyhookPublicUser   : -> ActorType [ctor] .
+op SkyhookAccountHolder : -> ActorType [ctor] .
+op AwsS3               : -> ActorType [ctor] .
+\end{lstlisting}
+
+\subsection{Common Attributes}
+
+All Skyhook actors carry:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}llp{7cm}@{}}
+\toprule
+\textbf{Attribute} & \textbf{Sort} & \textbf{Description} \\
+\midrule
+\texttt{thisAddr}      & \texttt{Address} & The actor's own address. \\
+\texttt{raceboatAddr}  & \texttt{Address} & Address of the Raceboat runtime. \\
+\texttt{awsAddr}       & \texttt{Address} & Address of the \texttt{AwsS3} mock actor. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{PublicUser Attributes}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}llp{7cm}@{}}
+\toprule
+\textbf{Attribute} & \textbf{Sort} & \textbf{Description} \\
+\midrule
+\texttt{fetchBucket}   & \texttt{String} & S3 bucket to fetch (GET) objects from. \\
+\texttt{postBucket}    & \texttt{String} & S3 bucket to post (PUT) objects to. \\
+\texttt{fetchObjUuid}  & \texttt{String} & Current UUID for the next fetch. Updated to \texttt{sha256(uuid)} after each successful fetch. \\
+\texttt{postObjUuid}   & \texttt{String} & Current UUID for the next post. Updated to \texttt{sha256(uuid)} after each successful post. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{AccountHolder Attributes}
+
+In addition to the common and bucket attributes, the AccountHolder
+maintains the rolling-window state:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}llp{6.5cm}@{}}
+\toprule
+\textbf{Attribute} & \textbf{Sort} & \textbf{Description} \\
+\midrule
+\texttt{region}              & \texttt{String}     & AWS region (e.g.\ \texttt{"us-east-1"}). \\
+\texttt{puttableUuids}       & \texttt{StringList} & Queue of UUIDs that the public is currently permitted to \texttt{PUT} to. Managed on the \emph{fetch} side. \\
+\texttt{fetchableUuids}      & \texttt{StringList} & Queue of UUIDs that the public is currently permitted to \texttt{GET}. Managed on the \emph{post} side. \\
+\texttt{openObjects}         & \texttt{Nat}        & Maximum number of concurrent fetchable/puttable UUIDs (the ``window size''). \\
+\texttt{initialFetchObjUuid} & \texttt{String}     & Seed UUID from the link address for fetch-side hashing. \\
+\texttt{initialPostObjUuid}  & \texttt{String}     & Seed UUID from the link address for post-side hashing. \\
+\texttt{postObjUuid}         & \texttt{String}     & Current UUID for the AccountHolder's next outgoing post. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% ================================================================
+\section{Message Types}\label{sec:messages}
+
+\subsection{S3 API Messages}
+
+Each AWS S3 SDK call in the C++ code maps to a request/response message
+pair:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Request Message} & \textbf{Response Message} & \textbf{S3 SDK Call} \\
+\midrule
+\texttt{S3CreateBucketReq(bucket, region)}       & \texttt{S3CreateBucketRes(bucket)}             & \texttt{CreateBucket} \\
+\texttt{S3PutPublicAccessBlockReq(bucket)}       & \texttt{S3PutPublicAccessBlockRes(bucket)}     & \texttt{PutPublicAccessBlock} \\
+\texttt{S3PutBucketPolicyReq(bucket, policy)}    & \texttt{S3PutBucketPolicyRes(bucket)}          & \texttt{PutBucketPolicy} \\
+\texttt{S3PutObjReq(bucket, uuid, data)}         & \texttt{S3PutObjRes(bucket, uuid)}             & \texttt{PutObject} \\
+\texttt{S3GetObjReq(bucket, uuid)}               & \texttt{S3GetObjRes(bucket, uuid, data)}       & \texttt{GetObject} \\
+\texttt{S3DeleteObjReq(bucket, uuid)}            & \texttt{S3DeleteObjRes(bucket, uuid)}           & \texttt{DeleteObject} \\
+\texttt{S3DeleteBucketReq(bucket, region)}       & \texttt{S3DeleteBucketRes(bucket)}             & \texttt{DeleteBucket} \\
+\bottomrule
+\end{tabular}
+\caption{S3 API message mapping.}
+\label{tab:s3messages}
+\end{table}
+
+\subsection{Internal Raceboat Messages}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lp{8cm}@{}}
+\toprule
+\textbf{Message} & \textbf{Description} \\
+\midrule
+\texttt{SkyhookStartCmd}   & Triggers link initialization (bucket creation, policy setup). Sent by Raceboat to AccountHolder. \\
+\texttt{SkyhookFetchCmd}   & Instructs the plugin to poll for a new object. \\
+\texttt{SkyhookPostCmd(data)} & Instructs the plugin to upload \texttt{data} to S3 (or delivers received data back to Raceboat). \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% ================================================================
+\section{Rewrite Rules}\label{sec:rules}
+
+This section documents every rewrite rule, grouped by actor.  Each rule
+is labeled with its Maude rule name.
+
+\subsection{PublicUser Rules}
+
+The PublicUser is the ``unauthenticated'' side.  It uses anonymous HTTP
+to read/write S3 objects at UUIDs that the AccountHolder has made
+publicly accessible.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lp{8.5cm}@{}}
+\toprule
+\textbf{Rule Label} & \textbf{Behavior} \\
+\midrule
+\texttt{pu-handle-fetch-cmd}
+  & On receiving \texttt{SkyhookFetchCmd}, emits \texttt{S3GetObjReq} for the current \texttt{fetchObjUuid}. \\
+\texttt{pu-handle-incoming-get-res}
+  & On \texttt{S3GetObjRes}, advances \texttt{fetchObjUuid} to \texttt{sha256(fetchObjUuid)} and forwards the data to Raceboat via \texttt{SkyhookPostCmd}. \\
+\texttt{pu-handle-post-cmd}
+  & On receiving \texttt{SkyhookPostCmd(data)}, emits \texttt{S3PutObjReq} at the current \texttt{postObjUuid}. \\
+\texttt{pu-handle-incoming-put-res}
+  & On \texttt{S3PutObjRes}, advances \texttt{postObjUuid} to \texttt{sha256(postObjUuid)}. \\
+\bottomrule
+\end{tabular}
+\caption{PublicUser rewrite rules.}
+\end{table}
+
+\paragraph{UUID chain property.} After $n$ successful fetches starting
+from seed $u_0$, the PublicUser's fetch UUID is
+$\text{sha256}^{(n)}(u_0)$.  The AccountHolder must have pre-authorized
+this exact UUID, so the two sides stay synchronized through the
+deterministic hash chain.
+
+\subsection{AccountHolder Rules}
+
+\subsubsection{Initialization}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lp{8.5cm}@{}}
+\toprule
+\textbf{Rule} & \textbf{Behavior (mirrors \texttt{LinkAccountHolder} constructor)} \\
+\midrule
+\texttt{ah-handle-start-cmd}
+  & Fires when \texttt{puttableUuids} is empty and \texttt{SkyhookStartCmd} arrives from Raceboat.  Emits six messages to \texttt{AwsS3}:
+    (1)~\texttt{S3CreateBucketReq} for each bucket,
+    (2)~\texttt{S3PutPublicAccessBlockReq} for each bucket,
+    (3)~\texttt{S3PutBucketPolicyReq} installing baseline puttable/gettable policies.
+    Seeds \texttt{puttableUuids} with \texttt{sha256(initialFetchObjUuid)}. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Fetch Path (Receiving Data)}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lp{8.5cm}@{}}
+\toprule
+\textbf{Rule} & \textbf{Behavior (mirrors \texttt{fetchOnActionThread})} \\
+\midrule
+\texttt{ah-handle-fetch-cmd}
+  & Emits \texttt{S3GetObjReq} for \texttt{head(puttableUuids)}, the oldest UUID the public is permitted to write to. \\
+\texttt{ah-handle-incoming-get-res}
+  & On successful get: (1)~pops the oldest UUID from \texttt{puttableUuids}, (2)~appends a newly hashed UUID, (3)~sends \texttt{S3DeleteObjReq} for the consumed object, (4)~sends two \texttt{S3PutBucketPolicyReq} messages (revoke old, authorize new), (5)~delivers data to Raceboat. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Post Path (Sending Data)}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lp{8.5cm}@{}}
+\toprule
+\textbf{Rule} & \textbf{Behavior (mirrors \texttt{postOnActionThread})} \\
+\midrule
+\texttt{ah-handle-post-cmd}
+  & Emits \texttt{S3PutObjReq} at the current \texttt{postObjUuid}. \\
+\texttt{ah-handle-incoming-put-res-overflow}
+  & Fires when \texttt{listLen(fetchableUuids) $\geq$ openObjects}.  Drops the oldest fetchable UUID, revokes its GET permission, and grants GET permission for the newly posted UUID.  Advances \texttt{postObjUuid}. \\
+\texttt{ah-handle-incoming-put-res-underflow}
+  & Fires when \texttt{listLen(fetchableUuids) $<$ openObjects}.  Simply grants GET permission for the posted UUID without revoking any.  Advances \texttt{postObjUuid}. \\
+\bottomrule
+\end{tabular}
+\caption{AccountHolder post-path rules implementing the fetchable UUID sliding window.}
+\end{table}
+
+\subsubsection{Acknowledgment Sinks}
+
+Rules \texttt{ah-handle-aws-res} through \texttt{ah-handle-aws-res-4}
+consume AWS response messages (\texttt{S3DeleteObjRes},
+\texttt{S3PutBucketPolicyRes}, \texttt{S3CreateBucketRes},
+\texttt{S3PutPublicAccessBlockRes}) that require no further state
+change.
+
+\subsection{AwsS3 Mock Rules}
+
+The \texttt{AwsS3} actor simply reflects every request as the
+corresponding success response.  For \texttt{S3GetObjReq}, it returns
+the constant payload \texttt{"mock-s3-aws-data"}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Rule} & \textbf{Request $\to$ Response} \\
+\midrule
+\texttt{aws-handle-put-obj}                & \texttt{S3PutObjReq} $\to$ \texttt{S3PutObjRes} \\
+\texttt{aws-handle-get-obj}                & \texttt{S3GetObjReq} $\to$ \texttt{S3GetObjRes} \\
+\texttt{aws-handle-delete-obj}             & \texttt{S3DeleteObjReq} $\to$ \texttt{S3DeleteObjRes} \\
+\texttt{aws-handle-create-bucket}          & \texttt{S3CreateBucketReq} $\to$ \texttt{S3CreateBucketRes} \\
+\texttt{aws-handle-put-policy}             & \texttt{S3PutBucketPolicyReq} $\to$ \texttt{S3PutBucketPolicyRes} \\
+\texttt{aws-handle-put-public-access-block}& \texttt{S3PutPublicAccessBlockReq} $\to$ \texttt{S3PutPublicAccessBlockRes} \\
+\bottomrule
+\end{tabular}
+\caption{AwsS3 mock rules.}
+\end{table}
+
+%% ================================================================
+\section{Architecture Diagram}\label{sec:diagram}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  actor/.style={draw, rounded corners, minimum width=3.2cm, minimum height=1.8cm, align=center, thick},
+  msg/.style={-{Stealth[length=3mm]}, thick},
+  label/.style={font=\footnotesize\ttfamily, fill=white, inner sep=1pt},
+]
+
+% Actors
+\node[actor, fill=blue!10]   (pu)  at (0,0)    {SkyhookPublicUser\\{\scriptsize (anonymous)}};
+\node[actor, fill=orange!10] (aws) at (5.5,0)   {AwsS3\\{\scriptsize (mock cloud)}};
+\node[actor, fill=green!10]  (ah)  at (11,0)    {SkyhookAccountHolder\\{\scriptsize (credentialed)}};
+\node[actor, fill=gray!10]   (rb)  at (5.5,-3.5) {Raceboat\\{\scriptsize (runtime)}};
+
+% PU <-> AWS
+\draw[msg] (pu.east) ++(0,0.3) -- node[label,above] {S3GetObjReq}   ($(aws.west)+(0,0.3)$);
+\draw[msg] ($(aws.west)+(0,-0.3)$) -- node[label,below] {S3GetObjRes} ($(pu.east)+(0,-0.3)$);
+
+% AH <-> AWS
+\draw[msg] (ah.west) ++(0,0.3) -- node[label,above] {S3PutObjReq}   ($(aws.east)+(0,0.3)$);
+\draw[msg] ($(aws.east)+(0,-0.3)$) -- node[label,below] {S3PutObjRes} ($(ah.west)+(0,-0.3)$);
+
+% PU <-> Raceboat
+\draw[msg] (rb.north west) ++(0.3,0) -- node[label,left,pos=0.4] {FetchCmd} ($(pu.south)+(0.3,0)$);
+\draw[msg] ($(pu.south)+(-0.3,0)$) -- node[label,right,pos=0.6] {PostCmd} ($(rb.north west)+(-0.3,0)$);
+
+% AH <-> Raceboat
+\draw[msg] (rb.north east) ++(-0.3,0) -- node[label,right,pos=0.4] {StartCmd} ($(ah.south)+(-0.3,0)$);
+\draw[msg] ($(ah.south)+(0.3,0)$) -- node[label,left,pos=0.6] {PostCmd} ($(rb.north east)+(0.3,0)$);
+
+\end{tikzpicture}
+\caption{High-level message flow between Skyhook actors and the Raceboat runtime.  All S3 traffic passes through the \texttt{AwsS3} mock.}
+\label{fig:arch}
+\end{figure}
+
+%% ================================================================
+\section{Nondeterministic vs.\ Probabilistic Variants}\label{sec:variants}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Aspect} & \textbf{Nondeterministic} & \textbf{Probabilistic} \\
+\midrule
+File           & \texttt{skyhook\_nondet.maude} & \texttt{skyhook\_prob.maude} \\
+Message format & bare \texttt{(to A from B : C)} & timed \texttt{\{T, (to A from B : C)\}} \\
+Response wrap  & direct message production & \texttt{delayMsgs(msg, null)} \\
+Extra import   & --- & \texttt{CP2-COMMON} \\
+Use case       & \texttt{search}, \texttt{rew}, model checking & Monte Carlo simulation, throughput analysis \\
+\bottomrule
+\end{tabular}
+\caption{Key differences between the two module variants.}
+\end{table}
+
+When integrating with the Maude-HCS experiment runner, use the
+probabilistic variant.  For stand-alone verification or
+\texttt{search}-based property checking, use the nondeterministic
+variant.
+
+%% ================================================================
+\section{Integration Guide}\label{sec:integration}
+
+\subsection{Instantiating Actors}
+
+To add Skyhook actors to an existing experiment configuration, define
+concrete \texttt{Address} constants and construct the actors with the
+required \texttt{AttributeSet}:
+
+\begin{lstlisting}[caption={Minimal actor instantiation}]
+ops puAddr ahAddr awsAddr rbAddr : -> Address .
+
+eq myConfig =
+  < puAddr : SkyhookPublicUser |
+      thisAddr: puAddr,
+      raceboatAddr: rbAddr,
+      awsAddr: awsAddr,
+      fetchBucket: "my-fetch-bucket",
+      postBucket: "my-post-bucket",
+      fetchObjUuid: "seed-uuid-pu-fetch",
+      postObjUuid:  "seed-uuid-pu-post" >
+
+  < ahAddr : SkyhookAccountHolder |
+      thisAddr: ahAddr,
+      raceboatAddr: rbAddr,
+      awsAddr: awsAddr,
+      fetchBucket: "my-fetch-bucket",
+      postBucket:  "my-post-bucket",
+      region: "us-east-1",
+      puttableUuids: emptyStringList,
+      fetchableUuids: emptyStringList,
+      initialFetchObjUuid: "seed-uuid-ah-fetch",
+      initialPostObjUuid:  "seed-uuid-ah-post",
+      openObjects: 3,
+      postObjUuid: "seed-uuid-ah-post" >
+
+  < awsAddr : AwsS3 | thisAddr: awsAddr > .
+\end{lstlisting}
+
+\paragraph{Important.}  The \texttt{SkyhookStartCmd} must be sent to the
+AccountHolder \emph{before} any fetch or post commands, as it
+initializes the \texttt{puttableUuids} queue.
+
+\subsection{Composing with Other Protocols}
+
+Because Skyhook actors communicate through the standard
+\texttt{(to~A from~B : Content)} message format, they can be freely
+composed with other protocol actors (IRC, DNS, Mastodon, etc.) in the
+same configuration soup.  The Raceboat actor dispatches
+\texttt{SkyhookFetchCmd}, \texttt{SkyhookPostCmd}, and
+\texttt{SkyhookStartCmd} to the appropriate Skyhook endpoints.
+
+%% ================================================================
+\section{Test Harness}\label{sec:tests}
+
+The file \texttt{test\_skyhook.maude} defines eight \texttt{rew}
+commands covering the key state transitions:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}clp{7cm}@{}}
+\toprule
+\textbf{\#} & \textbf{Rule Exercised} & \textbf{What Is Verified} \\
+\midrule
+1 & \texttt{ah-handle-start-cmd}                & Bucket creation \& policy initialization. \\
+2 & \texttt{ah-handle-fetch-cmd}                & Fetch dispatched using \texttt{head(puttableUuids)}. \\
+3 & \texttt{ah-handle-incoming-get-res}          & UUID queue rotation after successful fetch. \\
+4 & \texttt{ah-handle-incoming-put-res-underflow}& Fetchable queue grows when under capacity. \\
+5 & \texttt{ah-handle-incoming-put-res-overflow} & Oldest fetchable evicted when at capacity. \\
+6 & \texttt{pu-handle-fetch-cmd}                & PublicUser issues anonymous GET. \\
+7 & \texttt{pu-handle-post-cmd}                 & PublicUser issues anonymous PUT. \\
+8 & \texttt{pu-handle-incoming-get-res}          & PublicUser advances \texttt{fetchObjUuid} hash chain. \\
+\bottomrule
+\end{tabular}
+\caption{Test cases in \texttt{test\_skyhook.maude}.}
+\end{table}
+
+Run the test suite with:
+\begin{verbatim}
+  maude maude_hcs/lib/skyhook/test_skyhook.maude
+\end{verbatim}
+
+%% ================================================================
+\section{Invariants for Model Checking}\label{sec:invariants}
+
+The following properties can be checked with Maude's \texttt{search}
+command on the nondeterministic variant:
+
+\begin{enumerate}
+  \item \textbf{Queue boundedness:}
+    $\texttt{listLen(puttableUuids)} \leq \texttt{openObjects} + 1$
+    after any reachable state.
+  \item \textbf{UUID uniqueness:} No UUID appears simultaneously in
+    both \texttt{puttableUuids} and \texttt{fetchableUuids}.
+  \item \textbf{Liveness:} From any state where a
+    \texttt{SkyhookFetchCmd} is pending and data exists at the expected
+    UUID, the AccountHolder eventually delivers
+    \texttt{SkyhookPostCmd(data)} to Raceboat.
+\end{enumerate}
+
+%% ================================================================
+\section{Conclusion}
+
+This document has presented a complete Maude rewriting-logic model of
+the Skyhook protocol at full S3-interaction fidelity.  The model
+captures the rolling-UUID permission scheme, the asymmetric roles of
+PublicUser and AccountHolder, and the full suite of AWS S3 API
+interactions observed in the reference implementation.  Both
+nondeterministic and timed variants are provided for different analysis
+purposes.  The standard Maude-HCS actor-message conventions ensure
+seamless composition with other protocol models in multi-protocol
+simulation experiments.
+
+\end{document}

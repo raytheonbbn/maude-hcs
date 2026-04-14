@@ -13,41 +13,130 @@ sload ./skyhook_nondet
 mod TEST_SKYHOOK is
   pr SKYHOOK .
 
-  ops puAddr ahAddr rbAddr userAddr : -> Address .
-  ops skyhookPU skyhookAH : -> Actor .
+  ops puAddr ahAddr rbAddr userAddr awsAddr : -> Address .
+  ops skyhookPU skyhookAH awsMock : -> Actor .
 
   eq skyhookPU =
     < puAddr : SkyhookPublicUser |
         thisAddr: puAddr,
         raceboatAddr: rbAddr,
-        bucket: "test-bucket"
+        awsAddr: awsAddr,
+        fetchBucket: "test-fetch-bucket",
+        postBucket: "test-post-bucket",
+        fetchObjUuid: "fetch-uuid-1",
+        postObjUuid: "post-uuid-1"
     > .
 
   eq skyhookAH =
     < ahAddr : SkyhookAccountHolder |
         thisAddr: ahAddr,
         raceboatAddr: rbAddr,
-        bucket: "test-bucket"
+        awsAddr: awsAddr,
+        fetchBucket: "test-fetch-bucket",
+        postBucket: "test-post-bucket",
+        region: "us-east-1",
+        puttableUuids: emptyStringList,
+        fetchableUuids: emptyStringList,
+        initialFetchObjUuid: "initial-fetch-1",
+        initialPostObjUuid: "initial-post-1",
+        openObjects: 3,
+        postObjUuid: "post-uuid-1"
     > .
+    
+  eq awsMock =
+    < awsAddr : AwsS3 | thisAddr: awsAddr > .
 
 endm
 
---- Test 1: PublicUser sending PutObjReq
-rew skyhookPU
-    (to puAddr from userAddr : PutObjReq("test-bucket", "uuid-1234", "skyhook-msg"))
+--- Test 1: AccountHolder receives initial StartCmd, initializes internal queue to 1 element `sha256(initial)`
+rew skyhookAH awsMock
+    (to ahAddr from rbAddr : SkyhookStartCmd)
   .
 
---- Test 2: AccountHolder handling PutObjReq from Raceboat
-rew skyhookAH
-    (to ahAddr from rbAddr : PutObjReq("test-bucket", "uuid-1234", "skyhook-msg"))
+--- Test 2: AccountHolder handling FetchCmd from Raceboat using internal puttable queue
+rew < ahAddr : SkyhookAccountHolder |
+        thisAddr: ahAddr,
+        raceboatAddr: rbAddr,
+        awsAddr: awsAddr,
+        fetchBucket: "test-fetch-bucket",
+        postBucket: "test-post-bucket",
+        region: "us-east-1",
+        puttableUuids: "mock-s3-uuid",
+        fetchableUuids: emptyStringList,
+        initialFetchObjUuid: "initial-fetch-1",
+        initialPostObjUuid: "initial-post-1",
+        openObjects: 3,
+        postObjUuid: "post-uuid-1"
+    > awsMock
+    (to ahAddr from rbAddr : SkyhookFetchCmd)
   .
 
---- Test 3: PublicUser sending GetObjReq
-rew skyhookPU
-    (to puAddr from userAddr : GetObjReq("test-bucket", "uuid-5678"))
+--- Test 3: AccountHolder handles returned S3GetObjRes -> Rotate UUIDs, delete oldest, propagate backward
+rew < ahAddr : SkyhookAccountHolder |
+        thisAddr: ahAddr,
+        raceboatAddr: rbAddr,
+        awsAddr: awsAddr,
+        fetchBucket: "test-fetch-bucket",
+        postBucket: "test-post-bucket",
+        region: "us-east-1",
+        puttableUuids: ("popped-uuid" :: emptyStringList),
+        fetchableUuids: emptyStringList,
+        initialFetchObjUuid: "initial-fetch-1",
+        initialPostObjUuid: "initial-post-1",
+        openObjects: 3,
+        postObjUuid: "post-uuid-1"
+    > awsMock
+    (to ahAddr from awsAddr : S3GetObjRes("test-fetch-bucket", "popped-uuid", "s3-mock-data"))
   .
 
---- Test 4: AccountHolder handling GetObjReq from Raceboat
-rew skyhookAH
-    (to ahAddr from rbAddr : GetObjReq("test-bucket", "uuid-5678"))
+
+--- Test 4: AccountHolder underflow test (adds fetchable via successful put)
+rew < ahAddr : SkyhookAccountHolder |
+        thisAddr: ahAddr,
+        raceboatAddr: rbAddr,
+        awsAddr: awsAddr,
+        fetchBucket: "test-fetch-bucket",
+        postBucket: "test-post-bucket",
+        region: "us-east-1",
+        puttableUuids: emptyStringList,
+        fetchableUuids: ("first-fetchable-uuid" :: emptyStringList),
+        initialFetchObjUuid: "initial-fetch-1",
+        initialPostObjUuid: "initial-post-1",
+        openObjects: 3,
+        postObjUuid: "post-uuid-1"
+    > awsMock
+    (to ahAddr from awsAddr : S3PutObjRes("test-post-bucket", "post-uuid-1"))
+  .
+
+--- Test 5: AccountHolder overflow test (drops oldest fetchable and adds newest via successful put)
+rew < ahAddr : SkyhookAccountHolder |
+        thisAddr: ahAddr,
+        raceboatAddr: rbAddr,
+        awsAddr: awsAddr,
+        fetchBucket: "test-fetch-bucket",
+        postBucket: "test-post-bucket",
+        region: "us-east-1",
+        puttableUuids: emptyStringList,
+        fetchableUuids: ("first" :: "second" :: "third" :: emptyStringList),
+        initialFetchObjUuid: "initial-fetch-1",
+        initialPostObjUuid: "initial-post-1",
+        openObjects: 3,
+        postObjUuid: "post-uuid-1"
+    > awsMock
+    (to ahAddr from awsAddr : S3PutObjRes("test-post-bucket", "post-uuid-1"))
+  .
+
+--- Test 6: PublicUser fetch
+rew skyhookPU awsMock
+    (to puAddr from userAddr : SkyhookFetchCmd)
+  .
+
+--- Test 7: PublicUser post
+rew skyhookPU awsMock
+    (to puAddr from userAddr : SkyhookPostCmd("hello_data"))
+  .
+
+--- Test 8: Public User successful fetch updates state tracking
+rew skyhookPU awsMock
+    (to puAddr from awsAddr : S3GetObjRes("test-fetch-bucket", "fetch-uuid-1", "mock-data"))
   .
