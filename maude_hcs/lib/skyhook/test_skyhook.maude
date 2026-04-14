@@ -1,0 +1,53 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- ...
+--- MAUDE_HCS: end
+
+sload ./skyhook_nondet
+
+mod TEST_SKYHOOK is
+  pr SKYHOOK .
+
+  ops puAddr ahAddr rbAddr userAddr : -> Address .
+  ops skyhookPU skyhookAH : -> Actor .
+
+  eq skyhookPU =
+    < puAddr : SkyhookPublicUser |
+        thisAddr: puAddr,
+        raceboatAddr: rbAddr,
+        bucket: "test-bucket"
+    > .
+
+  eq skyhookAH =
+    < ahAddr : SkyhookAccountHolder |
+        thisAddr: ahAddr,
+        raceboatAddr: rbAddr,
+        bucket: "test-bucket"
+    > .
+
+endm
+
+--- Test 1: PublicUser sending PutObjReq
+rew skyhookPU
+    (to puAddr from userAddr : PutObjReq("test-bucket", "uuid-1234", "skyhook-msg"))
+  .
+
+--- Test 2: AccountHolder handling PutObjReq from Raceboat
+rew skyhookAH
+    (to ahAddr from rbAddr : PutObjReq("test-bucket", "uuid-1234", "skyhook-msg"))
+  .
+
+--- Test 3: PublicUser sending GetObjReq
+rew skyhookPU
+    (to puAddr from userAddr : GetObjReq("test-bucket", "uuid-5678"))
+  .
+
+--- Test 4: AccountHolder handling GetObjReq from Raceboat
+rew skyhookAH
+    (to ahAddr from rbAddr : GetObjReq("test-bucket", "uuid-5678"))
+  .
