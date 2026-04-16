@@ -1,0 +1,175 @@
+set show advisories off .
+
+sload ../../../deps/dns_formalization/Maude/dns/common/prelim.maude
+
+sload ../../../deps/dns_formalization/Maude/common/parameters
+
+sload ../../common/maude/sampler-x
+sload ../../common/maude/cp2-interfaces 
+sload ../../common/maude/adversary
+sload ../../tgen/maude/dns-mamodel
+
+  
+ mod DNS-OBSERVER-EQ is
+   inc CP2-COMMON  . 
+               --- SCHEDULER+ACTOR-MODEL+PARAMETERS 
+   inc SAMPLER-X .   
+   inc MSG .   ---- prelim dns content sorts
+   inc TGEN-INTERFACE .
+   inc DNS-CLIENT-INTERFACE .
+   inc PARAMETERS-BASE-COMMON .
+   inc ADVERSARY .
+
+vars T T1 dd : Float .
+vars myaddr adv dqaddr rsvaddr : Address .
+vars msg msg0 msg1 : Msg .
+vars tmsg : TimeMsg .
+vars tml : TimeMsgList .
+vars id : Id .
+vars name : Name .
+vars j i : Nat .
+vars oattrs oattrs0 oattrs1 aattrs aattrs1  attrs
+     : AttributeSet .
+
+ op DNSObserver : -> ActorType .
+ 
+ op rsvAddr:_ : Address -> Attribute [ctor] .
+ op ctr:_ : Nat -> Attribute [ctor] .
+ 
+ op dnsQuery:_ : TimeMsgList -> Attribute [ctor] .
+ op dnsResponse:_ : TimeMsgList -> Attribute [ctor] .
+ 
+ op logQuery : AttributeSet TimeMsg -> AttributeSet .
+ op logResponse : AttributeSet TimeMsg -> AttributeSet .
+ eq logQuery((attrs, dnsQuery: tml), tmsg) =
+      attrs, dnsQuery: (tml ; tmsg) .
+ eq logQuery(attrs, tmsg) 
+      = attrs, dnsQuery: tmsg [owise] .
+ 
+ eq logResponse(aattrs, tmsg)  = aattrs .
+ 
+***(
+ eq logResponse((aattrs, dnsResponse: tml), tmsg) =
+      aattrs, dnsResponse: (tml ; tmsg) .
+ eq logResponse(aattrs, tmsg) 
+      = aattrs, dnsResponse: tmsg [owise] .
+ )
+ 
+ op mkDNSObs : Address Address -> Actor .
+ eq mkDNSObs(myaddr,rsvaddr) =
+   < myaddr : DNSObserver | 
+    rsvAddr: rsvaddr, ctr: 0 > .
+
+
+***** place holder
+op dnsDelay : Nat -> Float .
+eq dnsDelay(j) = dnsRtt(j) * (1.0 + probDrop(s j)) .
+op dnsRtt : Nat -> Float .
+eq dnsRtt(j) = genRandomX(j, .03, .09) .
+
+op probDrop : Nat -> Float .
+eq probDrop(j) = sampleNormalWithMeanSdX(.025,.01, j) .
+
+ceq [rcvName] :
+   rCtr(j)
+   {T, (to  myaddr from dqaddr : dnsQ(name))}
+   < myaddr : DNSObserver | oattrs >
+   < adv : Adversary | aattrs >
+   =
+ rCtr(s s j)
+ [dd, msg, 0]
+ < myaddr : DNSObserver | oattrs1 >
+ < adv : Adversary | aattrs1 >
+ if oattrs0, ctr: i, rsvAddr: rsvaddr := oattrs
+ /\ msg0 := to rsvaddr from myaddr : query(i,name,a)
+ /\ msg1 := to myaddr from rsvaddr : 
+             response(i,name,nil,nil,nil,0)
+ /\ msg := to dqaddr from myaddr : 
+             dnsR(response(i,name,nil,nil,nil,0)) 
+ /\ dd := dnsDelay(j)
+ /\ T1 := T + dd
+ /\ aattrs1 := logResponse( 
+                   logQuery(aattrs, tm(T,msg0)),
+                   tm(T1,msg1)) 
+ /\ oattrs1 := oattrs0, ctr: s i, rsvAddr: rsvaddr
+ [print "(" T ") DNSObserver " myaddr " response time " T1]
+ .
+    
+ endm
+
+ 
+mod TEST-DNS-OBSERVER-EQ is
+ inc DNS-OBSERVER-EQ  .
+
+op dnsQA : -> Address .
+
+ops dnsOA rsvA  advA : -> Address .
+op dnsObs : -> Actor .
+eq dnsObs = mkDNSObs(dnsOA,rsvA) .
+
+op iCO : -> Config .
+eq iCO =
+  {0.0 | nil}
+  rCtr(50) 
+  [0.0005, (to dnsOA from dnsQA : 
+       dnsQ(label(239) . 'internet . 'com . root)),0]
+  dnsObs
+  < advA : Adversary | dnsQuery: nilTML,
+                       dnsResponse: nilTML >
+  .                                    
+
+***(
+red run(iCO,22.) .
+ run(rCtr(52) 
+ {6.9985957180530703e-2, to dnsQA from dnsOA : dnsR(response(0, label(239) . 'internet . 'com . root, nil, nil, nil, 0))} 
+ {6.9985957180530703e-2 | nil} 
+ < dnsOA : DNSObserver | rsvAddr: rsvA, ctr: 1 > 
+ < advA : Adversary | dnsQuery: tm(5.0000000000000001e-4, to rsvA from dnsOA : query(0, label(239) . 'internet . 'com . root, a)), dnsResponse: tm( 6.9985957180530703e-2, to dnsOA from rsvA : response(0, label(239) . 'internet . 'com . root, nil, nil, nil, 0)) >, 
+ 2.2e+1)
+)
+
+endm
+
+sload ua-actor-eq
+sload dnsQgen-actor-eq
+
+mod TEST-DNS-TGEN-EQ is
+ inc TEST-DNS-OBSERVER-EQ  .
+ inc  TEST-UM-DNS-QGEN-EQ  .
+
+ops  dnsQA dnsOA rsvA  advA : -> Address .
+op dnsObs : -> Actor .
+eq dnsObs = mkDNSObs(dnsOA,rsvA) .
+
+op iC : -> Config .
+eq iC =
+  rCtr(50) 
+  {0.0 | nil}
+  [0.0001, (to umdA from umdA : actionR("ok")),0]
+  umActD  
+  dnsQGenA 
+  dnsObs
+  < advA : Adversary | dnsQuery: nilTML,
+                       dnsResponse: nilTML >
+ . 
+ 
+
+ 
+
+endm 
+
+eof
+***(
+red run(iC, 100.) . 
+
+result Config: rCtr(91)
+{3.7081706743084254e+1 | nil} 
+< dnsQA : DNSQgen-Eq | qnameBase: 'internet . 'com . root, lenNameDB: 1000, dnsClient: dnsOA, numQ: 0, w4q: null, replyTo: null > 
+< dnsOA : DNSObserver | rsvAddr: rsvA, ctr: 7 > 
+< advA : Adversary | dnsQuery: (tm(1.1119393019471318e-4, to rsvA from dnsOA : query(0, label(673) . 'internet . 'com . root, a)) ; tm( 1.7807700070642149e+1, to rsvA from dnsOA : query(1, label(474) . 'internet . 'com . root, a)) ; tm(1.7851352732585806e+1, to rsvA from dnsOA : query(2, label(632) . 'internet . 'com . root, a)) ; tm( 1.7901684764322145e+1, to rsvA from dnsOA : query(3, label(645) . 'internet . 'com . root, a)) ; tm(1.7945800897386423e+1, to rsvA from dnsOA : query(4, label(521) . 'internet . 'com . root, a)) ; tm( 1.8031758340050448e+1, to rsvA from dnsOA : query(5, label(490) . 'internet . 'com . root, a)) ; tm(1.8099425817079833e+1, to rsvA from dnsOA : query(6, label(633) . 'internet . 'com . root, a))), dnsResponse: (tm(8.8993194073582457e-2, to dnsOA from rsvA : response(0, label(673) . 'internet . 'com . root, nil, nil, nil, 0)) ; tm( 1.7851352544687824e+1, to dnsOA from rsvA : response(1, label(474) . 'internet . 'com . root, nil, nil, nil, 0)) ; tm(1.7901678643364921e+1, to dnsOA from rsvA : response(2, label(632) . 'internet . 'com . root, nil, nil, nil, 0)) ; tm(1.7945791459905671e+1, to dnsOA from rsvA : response(3, label(645) . 'internet . 'com . root, nil, nil, nil, 0)) ; tm(1.8031754744971426e+1, to dnsOA from rsvA : response(4, label(521) . 'internet . 'com . root, nil, nil, nil, 0)) ; tm(1.8099418840767878e+1, to dnsOA from rsvA : response(5, label(490) . 'internet . 'com . root, nil, nil, nil, 0)) ; tm(1.813707361788142e+1, to dnsOA from rsvA : response(6, label(633) . 'internet . 'com . root, nil, nil, nil, 0))) > 
+< umdA : UM-EQ | markov: ("batch" |-> "wait_batch" |-> 1.0, "single" |-> "wait_single" |-> 1.0, "wait_batch" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1), "wait_single" |-> ("batch" |-> 5.0e-1, "single" |-> 5.0e-1)), actions: ("batch" |-> jo(("num_to_resolve" |-> jo(("max" |-> jn(10), "min" |-> jn(2), "random" |-> js("uniform"))), "type" |-> js( "resolve_a_batch"))), "single" |-> jo(("start" |-> jb(true), "type" |-> js("resolve_a"))), "wait_batch" |-> jo(("sleep" |-> jo(("mean" |-> jf( 2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait"))), "wait_single" |-> jo(("sleep" |-> jo(("mean" |-> jf( 2.0e+1), "random" |-> js("gaussian"), "std" |-> jf(2.0))), "type" |-> js("wait")))), curState: "single", nsteps: 96, actAddress: dnsQA, w4: ( to umdA from umdA : actionR("ok")), default: "single", mSum: ("batch" |-> 1.0, "single" |-> 1.0, "wait_batch" |-> 1.0, "wait_single" |-> 1.0), stateLM: ("batch" |-> jl(js("wait_batch")), "single" |-> jl(js( "wait_single")), "wait_batch" |-> jl(js("batch") ; js("single")), "wait_single" |-> jl(js("batch") ; js("single"))), weightLM: ("batch" |-> jl(jf(1.0)), "single" |-> jl(jf(1.0)), "wait_batch" |-> jl(jf( 5.0e-1) ; jf(1.0)), "wait_single" |-> jl(jf(5.0e-1) ; jf(1.0))), stopTime: 3.0e+1 >
+)
+
+
+
+      

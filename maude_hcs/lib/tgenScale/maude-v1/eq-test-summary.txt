@@ -1,0 +1,238 @@
+Preliminary results of comparing rule based TGen and equational TGen
+in 3 CP2 scenarios.   There is a big difference in 
+rewrites and time for DNS, very little for Mastodon.
+The reason appears to be that the rate of sending 
+for the DNS user models is 10-20 times that of Mastodon,
+making the Mastodon TGen have very little effect.
+
+NGT -- number of traffic generator actors
+NFi -- the number of files transmitted
+<...>O  --- original specification using rules 
+<...>E  --- with rules replaced by equations
+1131 sec = 19min
+
+DNS TGen
+Scenario NTG  Nfi Start    NrewO in timeO   LastFileO 
+                           NrewE in timeE   LastFileE
+1 slow    8   10  300.   2179465 in    956ms    515.0
+                         1661138 in    724ms    522.0
+5 norm   15    5  60.   10449635 in   8816ms    347.3
+                         1670132 in    724ms    317.3  
+6 fast   24    5  30.   99766614 in 1131262ms   311.0                
+                         9202316 in    6282ms   350.7  
+                        
+Mastodon TGen
+Scenario NTG  Nfi Start    NrewO in timeO   LastFileO 
+                           NrewE in timeE   LastFileE
+ 1 lurker     8  10 300.    1487372 in 701ms     491.5
+                            1665767 in 758ms     522.0
+ 5 normal     15  5  60.    1775268 in 1231ms    353.91
+                            1587453 in 1027ms    317.3  
+ 6 influencer 24  5  30.    1785792 in 1463ms    305.72   
+                            2034701 in 1724ms    350.67
+            
+                        
+6eq
+ 32883 tgen queries
+   822 alice queries sent
+   612 alice queries rcvd
+   547 nm(frag
+   110 http
+   165 'mastodon
+   
+6orig
+ 32429 total sent:   
+ 
+ 
+
+*****************************************************************
+-------------------------------------------
+Scenario 1 DNS normal model
+
+ooo1dns.txt
+rewrites: 2179465 in 956ms cpu (956ms real) (2279674 rewrites/second)
+result Config: rCtr(707) {5.4553252405375486e+2 | ... }
+file1 sent 300.00 file9 rcvd 514.96
+sent: pre+post
+  494 pp nm(frag
+  218    clientId
+  
+qqq1dns.txt
+rewrites: 1661138 in 724ms cpu (725ms real) (2294066 rewrites/second)
+result Config: rCtr(1199)  {5.5277435963113771e+2 | ... }
+file1 sent 300.00 file9 rcvd 514.96
+
+sent: 
+873 total
+508  nm(frag 
+219 'mastodon
+146 mastodon-proxy
+
+dnsQuery: 
+  137 query 
+  
+bbb1.txt
+cp2_scenario_1 testing 8 tgens each"
+rewrites: 1708625 in 1011ms cpu (1014ms real) (1689558 rewrites/second)
+result Config: rCtr(839)  {5.1037433415769448e+2 | ...}
+file1 sent 300.00 file9 rcvd 479.61
+sent:
+  426 nm(frag
+  222  clientId
+  206 'mastodon .
+  206 http
+  
+-------------------------------------------
+Scenario 5 DNS normal model
+
+ooo5dns.txt
+rewrites: 10449635 in 8816ms cpu (8818ms real) (1185272 rewrites/second)
+result Config: rCtr(4073)  {3.6816468244303496e+2 | ...}
+file1 sent 60.00 file5 rcvd 347.34
+sent:
+  481 nm(frag
+ 3286 clientId  
+  124 'mastodon
+   90 http
+
+qqq5dns.txt
+rewrites: 1670132 in 724ms cpu (725ms real) (2303741 rewrites/second)
+result Config: rCtr(8600) 
+{3.3831683787547456e+2 |
+file1 sent 60.00 file5 rcvd 317.31
+sent:
+  446 nm(frag
+  120 'mastodon .
+   80 http  
+
+dnsQuery
+ 1576 dnsOA
+ 
+zzz5.txt
+cp2_scenario_5 testing fakedrop" 
+rewrites: 3294999 in 4536ms cpu (4543ms real) (726283 rewrites/second)
+result Config: rCtr(2527) {2.1289618734264491e+2 | ... }
+file1 sent 60.00 file5 rcvd 192.17
+sent:
+  336 'wwwwwwwwwwwww
+  240 nm(frag
+ 1578 clientId
+  716 'mastodon .
+  728 http
+ 
+-------------------------------------------
+Scenario 6 DNS fast model wait single .5
+
+ooo6dns.txt scenario 6 dns only tgen rules
+rewrites: 99766614 in 1131262ms cpu (1131463ms real) (88190 rewrites/second)
+result Config: rCtr(46750)  {3.4156155891766025e+2 | ... }
+file1 sent 30.00 file5 rcvd 311.00
+sent:
+  30k pp  clientId
+  488 pp   nm(fragment
+
+qqq6dns.txt scenario 6 dns only tgen eq
+rewrites: 9202316 in 6282ms cpu (6288ms real) (1464712 rewrites/second)
+result Config: rCtr(193700)  {3.8109085249495274e+2 | ... }
+file1 sent 30.00 file5 rcvd 350.66
+sent: 
+   547 pp nm(frag
+dnsQuery:
+ 32833 pp 
+
+bbb6.txt  full scenario 6
+rewrites: 18830136 in 101270ms cpu (101296ms real) (185939 rewrites/second)
+result Config: rCtr(15456)  {2.028095202107713e+2 | ...}
+file1 sent 30.00 file5 rcvd 171.83
+sent:  prepost nat sauf 'wwwwwwwwwwwwwwww
+ 1379  'wwwwwwww
+  355  nm(frag 
+11257  clientId
+ 1570 'mastodon  -- dnsQ -- inserted for post and pre
+ 1584  mastodon-proxy,  http
+ 1421  UM-client  
+
+
+uuu6nd.txt
+rcvd 149.35
+sent:
+ 1379  'wwwwwwww
+  254 nm(frag
+21728 clientId
+ 1052 'mastodon .
+ 1054 http
+ 1900 UM-Client, tgen-mas counts http twice and dns once
+
+************************* masTGen ****************************************
+--------------------------------------
+ooo1mas.txt
+rewrites: 1487372 in 701ms cpu (702ms real) (2119325 rewrites/second)
+result Config: rCtr(439) {5.217563405674249e+2 | ... }
+file1 sent 300.00 file9 rcvd 491.47
+sent:
+  448 nm(frag
+  168 'mastodon .
+  246 http
+  124 tgen-mas
+  
+qqq1mas.txt
+rewrites: 1665767 in 758ms cpu (766ms real) (2195840 rewrites/second)
+result Config: rCtr(573)  {5.5277435963113771e+2 | ... }
+file1 sent 300.00 file9 rcvd 522.02
+sent:
+  508 nm(frag
+  203 'mastodon . 
+  148 http
+
+masSent:
+   53  tgen-mas
+
+
+--------------------------------------
+ooo5mas.txt
+rewrites: 1775268 in 1231ms cpu (1231ms real) (1441895 rewrites/second)
+result Config: rCtr(753) {3.7505164195076475e+2 | ...}
+file1 sent 60.00 file5 rcvd 353.91
+sent:
+  505 nm(frag
+  126 'mastodon .
+  725  http
+  636 tgen-mas
+
+
+qqq5mas.txt
+rewrites: 1587453 in 1027ms cpu (1029ms real) (1545216 rewrites/second)
+result Config: rCtr(1611)  {3.3831683787547456e+2 | ... }
+file1 sent 60.00 file5 rcvd  317.31
+sent:
+  446 nm(frag
+  120 'mastodon
+   80 http
+
+masSent:
+  308 msAddr
+
+
+--------------------------------------
+ooo6mas.txt
+rewrites: 1785792 in 1463ms cpu (1464ms real) (1220490 rewrites/second)
+result Config: rCtr(739) 
+{3.366807555153124e+2 |  ...}
+file1 sent 30.00 file5 rcvd  305.72
+sent:
+  492 nm(frag
+  130 'mastodon .
+  862 http
+  768 tgen-mas, UM-client 
+
+qqq6mas.txt
+rewrites: 2034701 in 1724ms cpu (1725ms real) (1179839 rewrites/second)
+result Config: rCtr(2074)  {3.8109085249495274e+2 | ... }
+file1 sent 30.00 file5 rcvd 350.665
+sent:
+  547 nm(frag
+  165 'mastodon
+  110 http
+  
+masSent:  
+  541 msAddr
