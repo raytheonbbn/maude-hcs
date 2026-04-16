@@ -1,0 +1,122 @@
+set show advisories off .
+set clear rules off .
+
+sload ../../common/maude/markov-action-model.maude
+sload ../../common/maude/cp2-interfaces
+sload ../../common/maude/_aux  ---- CP2_SORTS  attrsmsgs
+sload ../../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
+
+*** sload ../../tgen/maude/dns-mamodel.maude
+*** sload /Users/clt/Repositories/PWNDD-CP2/maude-hcs/maude_hcs/lib/tgen/maude/dnsprofiles/markov/config_slow_1.maude
+*** sload /Users/clt/Repositories/PWNDD-CP2/maude-hcs/maude_hcs/lib/tgen/maude/dnsprofiles/markov/config_slow_2.maude
+
+sload ua-actor-eq
+sload dnsQgen-actor-eq
+sload dnsObs-actor-eq
+sload ../../common/maude/adversary
+
+
+mod MULTI-DNS-TGEN-AUX is
+  inc USER-ACTION-ACTOR-EQ .
+  inc DNS-QGEN-EQ .
+  inc DNS-OBSERVER-EQ  .
+
+vars addr : Address .
+vars attrs : AttributeSet .
+vars conf : Config .
+vars j : Nat .
+vars GT : Float .
+vars SL : ScheduleList .
+
+**** detecting that the tgenConfig has been executed
+op tgenDone:_ : Bool -> Attribute [ctor] .
+op isTgenDone : AttributeSet -> Bool .
+eq isTgenDone (attrs, tgenDone: b:Bool) = b:Bool  .
+eq isTgenDone (attrs) = false [owise]  .
+op setTgenDone : AttributeSet Bool -> AttributeSet .
+eq setTgenDone ((attrs, tgenDone: b0:Bool),b:Bool) 
+       = (attrs, (tgenDone: b:Bool)) .
+eq setTgenDone (attrs,b:Bool) 
+    = (attrs, tgenDone: b:Bool) [owise]  .
+
+---- the tgen actors
+op tgenConfig : Nat  Float -> Config .
+
+op extractAdvCtr : Config -> Config .
+eq extractAdvCtr(conf rCtr(j) 
+                 < addr : Adversary | attrs >) 
+  = rCtr(j) < addr : Adversary | attrs >  .
+  
+eq finalize(conf {GT | SL} rCtr(j) 
+            < addr : Adversary | attrs >) 
+ = (if isTgenDone(attrs)
+   then conf {GT | SL} rCtr(j) < addr : Adversary | attrs >
+   else conf {GT | SL} extractAdvCtr(
+         run(tgenConfig(j,GT) 
+              < addr : Adversary | 
+                  setTgenDone(attrs, true),
+                  dnsQuery: nilTML, 
+                  dnsResponse: nilTML >, 1000.) ) 
+   fi)   .      
+      
+endm
+  
+eof  
+  mod MULTI-DNS-TGEN is
+    inc MULTI-DNS-TGEN-AUX  .
+    inc DNS-MAMODEL . ---- dns-ma
+    inc DNS-CONFIG-SLOW-1-MAMODEL .
+    inc DNS-CONFIG-SLOW-2-MAMODEL .
+    
+  vars Tstart Tstop GT : Float .
+  vars j : Nat .
+  
+  ops rsvA  advA dnsOA : -> Address .
+  ops umdA0 dnsQA0  : -> Address .
+  ops umdA1 dnsQA1  : -> Address .
+
+  ops umActD0 umActD1  : Float -> Actor .
+
+  eq umActD0(Tstop) = 
+        mkUMactor (umdA0,dns-config-slow-1-ma,dnsQA0,Tstop) .
+  eq umActD1(Tstop)
+        = mkUMactor (umdA1,dns-config-slow-2-ma,dnsQA1,Tstop) .
+
+  ops dnsQGenA0 dnsQGenA1 : -> Actor .
+  eq dnsQGenA0 = 
+      mkDnsQgenEqA(dnsQA0,dnsOA,1000,
+                 'internet . 'com . root) .
+  eq dnsQGenA1 = 
+      mkDnsQgenEqA(dnsQA1,dnsOA,1000,
+                 'internet . 'com . root) .
+  
+  ops dnsObs  : -> Actor .
+  eq dnsObs = mkDNSObs(dnsOA,rsvA) .
+  
+
+op iCtwo : Nat Float Float  -> Config .
+eq iCtwo(j,Tstart,Tstop) =
+   rCtr(s s j)
+   {0.0 | nil}
+   [Tstart + genRandomX(j,0.0, 0.0001),
+    (to umdA0 from umdA0 : actionR("ok")),0]
+   [Tstart + genRandomX(s j,0.0, 0.0001),
+     (to umdA1 from umdA1 : actionR("ok")),0]
+   umActD0(Tstop) dnsQGenA0
+   umActD1(Tstop) dnsQGenA1
+   dnsObs
+***(
+   < advA : Adversary | dnsQuery: nilTML,
+                        dnsResponse: nilTML >
+)
+.   
+
+eq  tgenConfig(j,GT) = iCtwo(j,0.,GT) .
+
+endm  
+eof
+**** red run(iCtwo(1,30.),100.) .
+red run({ 30.0 | nil } rCtr(200) < advA : Adversary | noneAS >, 100.) .
+
+
