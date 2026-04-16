@@ -1,0 +1,132 @@
+set show advisories off .
+set clear rules off .
+
+sload ../../common/maude/markov-action-model.maude
+sload ../../common/maude/cp2-interfaces
+sload ../../common/maude/_aux  ---- CP2_SORTS  attrsmsgs
+sload ../../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
+
+sload ../../../lib/tgen/maude/mastodonprofiles/markov/config_lurker_1.maude
+sload ../../../lib/tgen/maude/mastodonprofiles/markov/config_lurker_2.maude
+sload ../../tgen/maude/mas-mamodel.maude
+
+sload ua-actor-eq
+sload masTGen-actor-eq
+sload mastodon-eq
+sload masObs-actor-eq
+sload ../../common/maude/adversary
+
+
+mod MULTI-MAS-TGEN-AUX is
+  inc USER-ACTION-ACTOR-EQ .
+  inc MAS-TGEN-EQ .
+  inc MASTODON-EQ .
+  inc MAS-OBS-EQ .
+
+vars addr : Address .
+vars attrs : AttributeSet .
+vars conf : Config .
+vars j : Nat .
+vars GT : Float .
+vars SL : ScheduleList .
+
+**** detecting that the tgenConfig has been executed
+op tgenDone:_ : Bool -> Attribute [ctor] .
+op isTgenDone : AttributeSet -> Bool .
+eq isTgenDone (attrs, tgenDone: b:Bool) = b:Bool  .
+eq isTgenDone (attrs) = false [owise]  .
+op setTgenDone : AttributeSet Bool -> AttributeSet .
+eq setTgenDone ((attrs, tgenDone: b0:Bool),b:Bool) 
+       = (attrs, (tgenDone: b:Bool)) .
+eq setTgenDone (attrs,b:Bool) 
+    = (attrs, tgenDone: b:Bool) [owise]  .
+
+---- the tgen actors
+op tgenConfig : Nat  Float -> Config .
+
+op extractAdvCtr : Config -> Config .
+eq extractAdvCtr(conf rCtr(j) 
+                 < addr : Adversary | attrs >) 
+  = rCtr(j) < addr : Adversary | attrs >  .
+  
+eq finalize(conf {GT | SL} rCtr(j) 
+            < addr : Adversary | attrs >) 
+ = (if isTgenDone(attrs)
+   then conf {GT | SL} rCtr(j) < addr : Adversary | attrs >
+   else conf {GT | SL} extractAdvCtr(
+         run(tgenConfig(j,GT) 
+              < addr : Adversary | 
+                  setTgenDone(attrs, true),
+                  masSent: nilTML
+                  >, 1000.) ) 
+   fi)   .      
+endm  
+eof  
+
+mod MULTI-MAS-TGEN is
+    inc MULTI-MAS-TGEN-AUX  .
+    inc MAS-MAMODEL . ---- dns-ma
+    inc MASTODON-CONFIG-LURKER-1-MAMODEL .
+    inc MASTODON-CONFIG-LURKER-2-MAMODEL .
+    
+  vars Tstart Tstop GT : Float .
+  vars j : Nat .
+  
+  ops msAddr mobsAddr advAddr : -> Address .
+  ops ummAddr0 masTgenAddr0 mcAddr0  : -> Address .
+  ops ummAddr1 masTgenAddr1 mcAddr1  : -> Address .
+
+  ops ummAct0 ummAct1  : Float -> Actor .
+  ops masTGenAct0 masTGenAct1 : -> Actor .
+  ops masObs0 masObs1 : -> Actor .
+  ops mcAct0 mcAct1 : -> Actor .
+  ops advAct msAct : -> Actor .
+  
+
+eq ummAct0(Tstop) =
+  mkUMactor(ummAct0,mastodon-config-lurker-1-ma,masTgenAddr0, Tstop)
+  .
+eq ummAct1(Tstop) =  
+  mkUMactor(ummAct1,mastodon-config-lurker-2-ma,masTgenAddr1, Tstop)
+ .
+ 
+eq masTGenAct0 =
+   mkMasTGenActor(masTgenAddr0, mcAddr0, images,
+                  mastodon-config-lurker-1-ma)
+  .
+
+eq mcAct0 = makeMastodonClient(mcAddr0, mobsAddr, masTgenAddr0) .
+
+eq mcAct1 = makeMastodonClient(mcAddr1, mobsAddr, masTgenAddr1) .
+
+eq masObs0 = mkMasObsAct(masObs0,mcAddr0,msAddr) .
+eq masObs1 = mkMasObsAct(masObs1,mcAddr1,msAddr) .
+
+eq msAct = makeMastodonServer(msAddr) .
+
+
+
+op iCtwo : Nat Float Float  -> Config .
+eq iCtwo(j,Tstart,Tstop) =
+   rCtr(s s j)
+   {0.0 | nil}
+   [Tstart + genRandomX(j,0.0, 0.0001),
+    (to ummAct0 from ummAct0 : actionR("ok")),0]
+   [Tstart + genRandomX(s j,0.0, 0.0001),
+     (to ummAct1 from ummAct1 : actionR("ok")),0]
+
+   ummAct0(Tstop) masTGenAct0 mcAct0 masObsAct0
+   ummAct1(Tstop) masTGenAct1 mcAct1 masObsAct1
+   msAct
+**** advAct
+.   
+
+eq  tgenConfig(j,GT) = iCtwo(j,0.,GT) .
+
+endm  
+eof
+**** red run(iCtwo(1,30.),100.) .
+red run({ 30.0 | nil } rCtr(200) < advA : Adversary | noneAS >, 100.) .
+
+

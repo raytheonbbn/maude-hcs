@@ -1,0 +1,151 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+
+**** load ../../common/_mas_aux
+sload ../../mastodon/maude/common/_mas_aux
+
+sload delay-x
+
+mod MASTODON-AUX-EQ is
+  inc MASAUX .
+
+ops MasClientEq MasServerEq : -> ActorType .
+vars MAS_CLIENT_ADDR MAS_SERVER_ADDR FROM-ADDR :  Address .
+
+  --- Make a MasClient:   its_addr srver_addr requester_addr
+  op makeMastodonClientEq : Address  Address    Address -> Actor .
+  ---   requester addr is addr of Raceboat / TGEN.
+  eq makeMastodonClientEq(MAS_CLIENT_ADDR, MAS_SERVER_ADDR,
+                         FROM-ADDR) =
+    < MAS_CLIENT_ADDR : MasClient |
+        thisAddr: MAS_CLIENT_ADDR,
+        masServerAddr: MAS_SERVER_ADDR,
+        requesterAddr: FROM-ADDR,
+        opStack: emptyOpStack,
+        postingMedia: emptyMediaFileList,
+        postingMediaIds: emptyMasIdList,
+        postingText: "",
+        gettingMediaUrls: emptyUrlList,
+        gettingMedias: emptyMediaFileList,
+        gettingTag: nilTag,
+        gettingPosts: emptyMasIdList
+    >
+    .
+
+  --- Make a MasServer:   its_addr
+  op makeMastodonServerEq : Address -> Actor .
+  eq makeMastodonServerEq(MAS_SERVER_ADDR) =
+    < MAS_SERVER_ADDR : MasServer |
+      thisAddr: MAS_SERVER_ADDR,
+      currentMapId: 0,
+      tootMap: emptyIdTootMap,
+      mediaMap: emptyIdMediaMap,
+      tagMap: emptyTagPostIdsMap
+    >
+    .
+
+endm
+
+mod MASTODON-EQ is
+  inc MASTODON-AUX-EQ .
+  inc CP2-COMMON .
+  inc DELAY-X .
+ *** inc DNS .
+  
+  vars raceboatCl ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
+  vars attrs attrsNext : AttributeSet .
+  vars raceboatReq : Content .
+  vars httpRequest : HttpRequest .
+  vars httpResponse : HttpResponse .
+  vars MEDIA : MediaFile .
+  vars MEDIA_LIST : MediaFileList .
+  vars POST_ID : MasId .
+  vars msgIn msgOut : Msg .
+  vars N  j : Nat .
+  vars TEXT : String .
+  vars HASHTAG TAG : Tag .
+  vars T : Float . ---timestamp
+  vars URL : Url .
+
+  -------------------------------
+  --- [Mastodon Client] --- Rules
+  -------------------------------
+  --- Receive HTTP Response from server.
+  **** crl >> ceq
+  ceq [mascl-receive-http-resp]:
+  rCtr(j)
+  < MAS_CLIENT_ADDR : MasClientEq | attrs >
+    {T, (to MAS_CLIENT_ADDR from MAS_SERVER_ADDR : httpResponse)}
+  = 
+  rCtr(s j)
+  < MAS_CLIENT_ADDR : MasClientEq | attrsNext >
+  (if msgOut == nullMsg then null else delayMsgsX(j,msgOut, null) fi)
+  if {attrsNext, msgOut} := handleReply(httpResponse, attrs)
+    /\ opStack:OpStack := getOpStack(attrsNext)
+  [print "(" T ") Mastodon Client handling HTTP Response from Server, sending " msgOut " | OPS: " opStack:OpStack ]
+  .
+
+  --- Receive Command from Raceboat or TGEN.
+  ceq [mascl-receive-requester-req]:
+  rCtr(j)
+  < MAS_CLIENT_ADDR : MasClientEq | attrs >
+    {T, (to MAS_CLIENT_ADDR from raceboatCl : raceboatReq)}
+  =
+  rCtr(s j)
+  < MAS_CLIENT_ADDR : MasClientEq | attrsNext >
+    --- TODO: Figure out what the correct delay should be.
+    delayMsgsX(j,msgOut, null)
+  if { attrsNext, msgOut } := dispatchRaceboatCommand(attrs, raceboatReq)
+    /\ opStack:OpStack := getOpStack(attrsNext)
+  [ print "(" T ") Mastodon Client handling command " raceboatReq " from Raceboat, sending " msgOut " | OPS: " opStack:OpStack ]
+  .  
+
+
+  -------------------------------
+  --- [Mastodon Server] --- Rules
+  -------------------------------
+
+  --- Receive HTTP request from the client.
+  ceq [massrv-receive-http-req]:
+  rCtr(j)
+  < MAS_SERVER_ADDR : MasServerEq | attrs >
+    {T, (to MAS_SERVER_ADDR from MAS_CLIENT_ADDR : REQ:Content)}
+  =
+  rCtr(s j)
+  < MAS_SERVER_ADDR : MasServerEq | attrsNext >
+    --- TODO: Figure out what the correct delay should be.
+    delayMsgsX(j,msgOut, null)
+  if { attrsNext, msgOut } := handleRequest((to MAS_SERVER_ADDR from MAS_CLIENT_ADDR : REQ:Content), attrs)
+  [print "(" T ") Mastodon Server handling HTTP Request, sending " msgOut]
+  .
+
+endm
+

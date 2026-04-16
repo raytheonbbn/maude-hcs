@@ -1,0 +1,42 @@
+sload ../../common/maude/sampler-x.maude
+sload ../../../deps/dns_formalization/Maude/common/parameters.maude
+
+mod DELAY-X is
+ inc SAMPLER-X .
+ inc PARAMETERS-BASE-COMMON  .
+ inc RANDOM .
+ 
+vars j : Nat .
+vars Min Max : Float .
+vars config msgs0 : Config .
+vars msg : Msg .
+
+
+**** put in sampler-x
+op sampleUniformX : Nat Float Float -> [Float] .
+eq sampleUniformX(j,Min, Max) = 
+ (if (Min == Max) 
+  then Min 
+  else Min +  (float(random(j) / 4294967296) * (Max - Min))
+  fi) .
+
+
+op delayMsgsX : Nat Config Config -> Config .
+eq delayMsgsX(j,null,config) = config .
+eq delayMsgsX(j, msg msgs0, config) =
+   delayMsgsX(j,msgs0, config [delayParamdX(j,msg),msg,0] )
+  .
+
+op delayParamdX : Nat Msg -> Float .
+eq delayParamdX(j,msg) =
+  overhead(msg) +
+  (if delayType(msg) == "Constant"
+    then delayConst(msg) + genRandomX(j,noiseMin(msg), noiseMax(msg))
+    else (if delayType(msg) == "Uniform"
+      then sampleUniformX(j,delayConst(msg), delayConstMax(msg))
+      else sampleNormalWithMeanSdX(delayMean(msg), delayStd(msg),j) 
+      fi)
+  fi)
+  .
+      
+endm
