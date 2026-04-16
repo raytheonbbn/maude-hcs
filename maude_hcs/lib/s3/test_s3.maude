@@ -1,0 +1,66 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- ...
+--- MAUDE_HCS: end
+
+sload ./s3_protocol
+
+mod TEST_S3 is
+  pr S3_PROTOCOL .
+
+  ops clientAddr sdkAddr awsAddr : -> Address .
+  ops awsSdkActor awsServer : -> Actor .
+
+  eq awsSdkActor =
+    < sdkAddr : S3SdkClient | realAwsAddr: awsAddr, nextId: 1, pendingReqs: emptyS3ReqMap > .
+
+  eq awsServer =
+    < awsAddr : AwsS3HttpServer | thisAddr: awsAddr, s3DataMap: emptyS3DataMap > .
+endm
+
+--- Test 1: Bucket Creation End-to-End
+--- Expectation: The SDK handles the abstract S3CreateBucketReq, issues a PUT /bucket HttpS3Req, 
+--- the Server replies with a 200 OK HttpS3Res, and the SDK resolves this back into S3CreateBucketRes.
+rew awsSdkActor awsServer
+    (to sdkAddr from clientAddr : S3CreateBucketReq("test-bucket", "us-east-1"))
+  .
+
+--- Test 2: Put Public Access Block End-to-End
+--- Expectation: The SDK translates this into a PUT /bucket?publicAccessBlock HttpS3Req,
+--- the Server returns 200 OK HttpS3Res, and the SDK resolves this back to S3PutPublicAccessBlockRes.
+rew awsSdkActor awsServer
+    (to sdkAddr from clientAddr : S3PutPublicAccessBlockReq("test-bucket"))
+  .
+
+--- Test 3: Put Bucket Policy End-to-End
+--- Expectation: The SDK translates this into a PUT /bucket?policy HttpS3Req,
+--- the Server returns 200 OK HttpS3Res, and the SDK resolves this back to S3PutBucketPolicyRes.
+rew awsSdkActor awsServer
+    (to sdkAddr from clientAddr : S3PutBucketPolicyReq("test-bucket", "policy-initializes-bucket"))
+  .
+
+--- Test 4: Put Object End-to-End
+--- Expectation: The SDK translates this into a PUT /bucket/uuid HttpS3Req containing the body,
+--- the Server returns 200 OK HttpS3Res, and the SDK resolves this back to S3PutObjRes.
+rew awsSdkActor awsServer
+    (to sdkAddr from clientAddr : S3PutObjReq("test-bucket", "uuid-1", "my-payload-data"))
+  .
+
+--- Test 5: Get Object End-to-End
+--- Expectation: The SDK translates this into a GET /bucket/uuid HttpS3Req,
+--- the Server pulls the data from memory, returns 200 OK HttpS3Res, and the SDK resolves this back to S3GetObjRes.
+rew awsSdkActor < awsAddr : AwsS3HttpServer | thisAddr: awsAddr, s3DataMap: ("/test-bucket/uuid-1" -> "mock-s3-aws-data") >
+    (to sdkAddr from clientAddr : S3GetObjReq("test-bucket", "uuid-1"))
+  .
+
+--- Test 6: Delete Object End-to-End
+--- Expectation: The SDK translates this into a DELETE /bucket/uuid HttpS3Req,
+--- the Server removes the data, returns 204 No Content HttpS3Res, and the SDK resolves this back to S3DeleteObjRes.
+rew awsSdkActor < awsAddr : AwsS3HttpServer | thisAddr: awsAddr, s3DataMap: ("/test-bucket/uuid-1" -> "mock-s3-aws-data") >
+    (to sdkAddr from clientAddr : S3DeleteObjReq("test-bucket", "uuid-1"))
+  .

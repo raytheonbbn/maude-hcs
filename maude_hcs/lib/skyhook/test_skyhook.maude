@@ -9,18 +9,20 @@
 --- MAUDE_HCS: end
 
 sload ./skyhook_nondet
+sload ../s3/s3_protocol
 
 mod TEST_SKYHOOK is
   pr SKYHOOK .
+  pr S3_PROTOCOL .
 
-  ops puAddr ahAddr rbAddr userAddr awsAddr : -> Address .
-  ops skyhookPU skyhookAH awsMock : -> Actor .
+  ops puAddr ahAddr rbAddr userAddr awsAddr sdkAddr : -> Address .
+  ops skyhookPU skyhookAH awsServer awsSdkActor : -> Actor .
 
   eq skyhookPU =
     < puAddr : SkyhookPublicUser |
         thisAddr: puAddr,
         raceboatAddr: rbAddr,
-        awsAddr: awsAddr,
+        awsAddr: sdkAddr,
         fetchBucket: "test-fetch-bucket",
         postBucket: "test-post-bucket",
         fetchObjUuid: "fetch-uuid-1",
@@ -31,7 +33,7 @@ mod TEST_SKYHOOK is
     < ahAddr : SkyhookAccountHolder |
         thisAddr: ahAddr,
         raceboatAddr: rbAddr,
-        awsAddr: awsAddr,
+        awsAddr: sdkAddr,
         fetchBucket: "test-fetch-bucket",
         postBucket: "test-post-bucket",
         region: "us-east-1",
@@ -43,13 +45,16 @@ mod TEST_SKYHOOK is
         postObjUuid: "post-uuid-1"
     > .
     
-  eq awsMock =
-    < awsAddr : AwsS3 | thisAddr: awsAddr > .
+  eq awsServer =
+    < awsAddr : AwsS3HttpServer | thisAddr: awsAddr, s3DataMap: emptyS3DataMap > .
+
+  eq awsSdkActor =
+    < sdkAddr : S3SdkClient | realAwsAddr: awsAddr, nextId: 1, pendingReqs: emptyS3ReqMap > .
 
 endm
 
 --- Test 1: AccountHolder receives initial StartCmd, initializes internal queue to 1 element `sha256(initial)`
-rew skyhookAH awsMock
+rew skyhookAH awsSdkActor awsServer
     (to ahAddr from rbAddr : SkyhookStartCmd)
   .
 
@@ -57,7 +62,7 @@ rew skyhookAH awsMock
 rew < ahAddr : SkyhookAccountHolder |
         thisAddr: ahAddr,
         raceboatAddr: rbAddr,
-        awsAddr: awsAddr,
+        awsAddr: sdkAddr,
         fetchBucket: "test-fetch-bucket",
         postBucket: "test-post-bucket",
         region: "us-east-1",
@@ -67,7 +72,7 @@ rew < ahAddr : SkyhookAccountHolder |
         initialPostObjUuid: "initial-post-1",
         openObjects: 3,
         postObjUuid: "post-uuid-1"
-    > awsMock
+    > awsSdkActor awsServer
     (to ahAddr from rbAddr : SkyhookFetchCmd)
   .
 
@@ -75,7 +80,7 @@ rew < ahAddr : SkyhookAccountHolder |
 rew < ahAddr : SkyhookAccountHolder |
         thisAddr: ahAddr,
         raceboatAddr: rbAddr,
-        awsAddr: awsAddr,
+        awsAddr: sdkAddr,
         fetchBucket: "test-fetch-bucket",
         postBucket: "test-post-bucket",
         region: "us-east-1",
@@ -85,8 +90,8 @@ rew < ahAddr : SkyhookAccountHolder |
         initialPostObjUuid: "initial-post-1",
         openObjects: 3,
         postObjUuid: "post-uuid-1"
-    > awsMock
-    (to ahAddr from awsAddr : S3GetObjRes("test-fetch-bucket", "popped-uuid", "s3-mock-data"))
+    > awsSdkActor awsServer
+    (to ahAddr from sdkAddr : S3GetObjRes("test-fetch-bucket", "popped-uuid", "s3-mock-data"))
   .
 
 
@@ -94,7 +99,7 @@ rew < ahAddr : SkyhookAccountHolder |
 rew < ahAddr : SkyhookAccountHolder |
         thisAddr: ahAddr,
         raceboatAddr: rbAddr,
-        awsAddr: awsAddr,
+        awsAddr: sdkAddr,
         fetchBucket: "test-fetch-bucket",
         postBucket: "test-post-bucket",
         region: "us-east-1",
@@ -104,15 +109,15 @@ rew < ahAddr : SkyhookAccountHolder |
         initialPostObjUuid: "initial-post-1",
         openObjects: 3,
         postObjUuid: "post-uuid-1"
-    > awsMock
-    (to ahAddr from awsAddr : S3PutObjRes("test-post-bucket", "post-uuid-1"))
+    > awsSdkActor awsServer
+    (to ahAddr from sdkAddr : S3PutObjRes("test-post-bucket", "post-uuid-1"))
   .
 
 --- Test 5: AccountHolder overflow test (drops oldest fetchable and adds newest via successful put)
 rew < ahAddr : SkyhookAccountHolder |
         thisAddr: ahAddr,
         raceboatAddr: rbAddr,
-        awsAddr: awsAddr,
+        awsAddr: sdkAddr,
         fetchBucket: "test-fetch-bucket",
         postBucket: "test-post-bucket",
         region: "us-east-1",
@@ -122,21 +127,21 @@ rew < ahAddr : SkyhookAccountHolder |
         initialPostObjUuid: "initial-post-1",
         openObjects: 3,
         postObjUuid: "post-uuid-1"
-    > awsMock
-    (to ahAddr from awsAddr : S3PutObjRes("test-post-bucket", "post-uuid-1"))
+    > awsSdkActor awsServer
+    (to ahAddr from sdkAddr : S3PutObjRes("test-post-bucket", "post-uuid-1"))
   .
 
 --- Test 6: PublicUser fetch
-rew skyhookPU awsMock
+rew skyhookPU awsSdkActor awsServer
     (to puAddr from userAddr : SkyhookFetchCmd)
   .
 
 --- Test 7: PublicUser post
-rew skyhookPU awsMock
+rew skyhookPU awsSdkActor awsServer
     (to puAddr from userAddr : SkyhookPostCmd("hello_data"))
   .
 
 --- Test 8: Public User successful fetch updates state tracking
-rew skyhookPU awsMock
-    (to puAddr from awsAddr : S3GetObjRes("test-fetch-bucket", "fetch-uuid-1", "mock-data"))
+rew skyhookPU awsSdkActor awsServer
+    (to puAddr from sdkAddr : S3GetObjRes("test-fetch-bucket", "fetch-uuid-1", "mock-data"))
   .
