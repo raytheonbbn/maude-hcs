@@ -126,6 +126,16 @@ mod SKYHOOK is
     [ print "Skyhook AccountHolder fetched " OLD_UUID "; rolling puttable Uuid queue, pushing data back to Raceboat." ]
   .
 
+  crl [ah-handle-incoming-get-err]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, fetchBucket: FETCH_BUCKET, puttableUuids: (OLD_UUID :: PUTTABLE_UUIDS) >
+    (to SKYHOOK_AH_ADDR from AWS_ADDR : S3GetObjErr(FETCH_BUCKET, OLD_UUID))
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, fetchBucket: FETCH_BUCKET, puttableUuids: (OLD_UUID :: PUTTABLE_UUIDS) >
+    (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR : SkyhookFetchErr)
+  if getAwsAddr(attrs) == AWS_ADDR
+    [ print "Skyhook AccountHolder fetch for " OLD_UUID " failed with HTTP 404. Waiting." ]
+  .
+
   --- Post on Action Thread
   crl [ah-handle-post-cmd]:
   < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, postBucket: POST_BUCKET, postObjUuid: POST_UUID >

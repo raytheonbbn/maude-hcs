@@ -149,6 +149,15 @@ mod S3_PROTOCOL is
   if REQ_ID == string(ID, 10)
     [ print "<<< AWS -> SDK: [HttpS3Res] 200 OK (Request-ID: " ID ") (Received Payload)" ] .
 
+  crl [sdk-handle-get-err-res]:
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3GetObjReq(BUCKET, UUID) [ ADDR ])), attrs >
+    (to CLIENT from AWS_ADDR : HttpS3Res(404, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
+    (to ADDR from CLIENT : S3GetObjErr(BUCKET, UUID))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 404 Not Found (Request-ID: " ID ")" ] .
+
   crl [sdk-handle-delete-res]:
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3DeleteObjReq(BUCKET, UUID) [ ADDR ])), attrs >
     (to CLIENT from AWS_ADDR : HttpS3Res(204, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
@@ -212,6 +221,15 @@ mod S3_PROTOCOL is
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
     (to ADDR from AWS_ADDR : HttpS3Res(200, "HTTP/1.1", header("x-amz-request-id", REQ_ID), BODY))
     [ print "=== AWS SERVER: Looked up Node ID " URI ". Responding 200 OK w/ payload body." ] .
+
+  crl [server-handle-get-obj-not-found]:
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: DATA_MAP, attrs >
+    (to AWS_ADDR from ADDR : HttpS3Req("GET", URI, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, REQ_BODY))
+  =>
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: DATA_MAP, attrs >
+    (to ADDR from AWS_ADDR : HttpS3Res(404, "HTTP/1.1", header("x-amz-request-id", REQ_ID), ""))
+  if not hasKey(DATA_MAP, URI)
+    [ print "=== AWS SERVER: Looked up Node ID " URI " but not found. Responding 404 Not Found." ] .
 
   rl [server-handle-delete-obj]:
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >

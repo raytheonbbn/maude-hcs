@@ -52,6 +52,7 @@ mod SKYHOOK_AUX is
 
   op S3GetObjReq : String String -> Content .        --- bucket uuid
   op S3GetObjRes : String String String -> Content . --- bucket uuid object_data
+  op S3GetObjErr : String String -> Content .        --- bucket uuid
 
   op S3DeleteObjReq : String String -> Content .     --- bucket uuid
   op S3DeleteObjRes : String String -> Content .     --- bucket uuid
@@ -70,6 +71,7 @@ mod SKYHOOK_AUX is
 
   --- Internal Raceboat primitives -> Plugins
   op SkyhookFetchCmd : -> Content . --- Poll fetch (no uuid required, internal state driven)
+  op SkyhookFetchErr : -> Content . --- Not found
   op SkyhookPostCmd : String -> Content . --- post data (uuid determined internally)
   
   op SkyhookStartCmd : -> Content . --- Kickoff initialization
@@ -79,6 +81,7 @@ mod SKYHOOK_AUX is
   eq getSize(S3PutObjRes(BUCKET:String, UUID:String)) = 150 .
   eq getSize(S3GetObjReq(BUCKET:String, UUID:String)) = 150 .
   eq getSize(S3GetObjRes(BUCKET:String, UUID:String, DATA:String)) = 150 + length(DATA:String) .
+  eq getSize(S3GetObjErr(BUCKET:String, UUID:String)) = 150 .
   eq getSize(S3DeleteObjReq(BUCKET:String, UUID:String)) = 150 .
   eq getSize(S3DeleteObjRes(BUCKET:String, UUID:String)) = 150 .
   eq getSize(S3PutBucketPolicyReq(BUCKET:String, POLICY:String)) = 150 + length(POLICY:String) .
@@ -91,6 +94,7 @@ mod SKYHOOK_AUX is
   eq getSize(S3PutPublicAccessBlockRes(BUCKET:String)) = 150 .
   
   eq getSize(SkyhookFetchCmd) = 50 .
+  eq getSize(SkyhookFetchErr) = 50 .
   eq getSize(SkyhookPostCmd(DATA:String)) = 50 + length(DATA:String) .
   eq getSize(SkyhookStartCmd) = 10 .
   eq getSize(AnyContent:Content) = 0 [owise] .
