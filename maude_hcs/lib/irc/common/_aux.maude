@@ -43,7 +43,7 @@ mod IRC_NODE is
   vars ircClientAddrs IRC_CLIENT_ADDRS : AddrList .
   vars attrs attrsNext attrsTrans : AttributeSet .
   vars CLIENT_TIMESTAMP_MAP timestampMap : ClientTimestampMap .
-  vars IRC_NAME : IrcName .
+  vars IRC_NAME ircName : IrcName .
   vars ircMsg IRC_MSG : IrcMsg .
   vars IRC_USER_NAME DST_IRC_USER_NAME SRC_IRC_USER_NAME : IrcUserName .
   vars IRC_USER_NAME_LIST : IrcUserNameList .
@@ -51,6 +51,8 @@ mod IRC_NODE is
   vars MSG_TEXT : String .
   vars LAST_HEARD_TIME newHeardTime : Float .
 
+  vars CLIENT_ADDRESS_MAP  clientAddressMap : ClientAddressMap .
+  
   ----------------
   --- [IRC Client]
   ----------------
@@ -111,7 +113,9 @@ mod IRC_NODE is
   op channelMap:_ : NameClientsMap -> Attribute [ctor] .
   --- The client timestamp map.
   op clientTimestampMap:_ : ClientTimestampMap -> Attribute [ctor] .
-  --- Common attributes ---
+  --- The map of IRC name to address for multi client responses.
+  op clientAddressMap:_ : ClientAddressMap -> Attribute [ctor] .
+  --- Other common attributes ---
   --- This server's address.
   ---op thisAddr:_ : Address -> Attribute [ctor] .
   --- The Raceboat address.
@@ -122,9 +126,9 @@ mod IRC_NODE is
   eq makeIrcServer(IRC_SERVER_ADDR, RB_ADDR) =
     < IRC_SERVER_ADDR : IrcServer |
         thisAddr: IRC_SERVER_ADDR,
-        raceboatAddr: RB_ADDR,
         channelMap: emptyNameClientsMap,
-        clientTimestampMap: emptyClientTimestampMap
+        clientTimestampMap: emptyClientTimestampMap,
+        clientAddressMap: emptyClientAddressMap
     >
   .
 
@@ -132,6 +136,13 @@ mod IRC_NODE is
   eq getClientTimestampMap(attrs, clientTimestampMap: CLIENT_TIMESTAMP_MAP)
     = CLIENT_TIMESTAMP_MAP
   .
+
+  op getClientAddressMap : AttributeSet -> ClientAddressMap .
+  eq getClientAddressMap((attrs, 
+                          clientAddressMap: CLIENT_ADDRESS_MAP))
+    = CLIENT_ADDRESS_MAP
+  .
+*** eq getClientAddressMap(attrs) = emptyClientAddressMap [owise] .
 
   --- Register an IRC user.
   op registerIrcUser : AttributeSet IrcChannelName Address -> AttributeSet .
@@ -147,19 +158,35 @@ mod IRC_NODE is
   eq registerIrcUsers((attrs, channelMap: CHANNEL_MAP),
                       IRC_CHANNEL_NAME:IrcChannelName,
                       IRC_CLIENT_ADDRS)
-    = (attrs, channelMap: registerIrcUsers(CHANNEL_MAP,
-                                           IRC_CHANNEL_NAME:IrcChannelName,
-                                           IRC_CLIENT_ADDRS))
+    = (attrs, 
+       channelMap: registerIrcUsers(CHANNEL_MAP,
+                           IRC_CHANNEL_NAME:IrcChannelName,
+                           IRC_CLIENT_ADDRS))
   .
+
+**** CLT Register  the connection address of an IRC user.
+  op registerIrcUserAddress : AttributeSet IrcUserName Address -> AttributeSet .
+  eq registerIrcUserAddress((attrs, 
+                            clientAddressMap: clientAddressMap),
+                           IRC_USER_NAME,
+                           IRC_CLIENT_ADDR)
+    = (attrs, clientAddressMap:  
+                registerIrcUserAddress(clientAddressMap,
+                                       IRC_USER_NAME,IRC_CLIENT_ADDR))
+  .
+
 
   --- Unregister IRC users (from all its channels).
   op unregisterIrcUser : AttributeSet Address -> AttributeSet .
-  eq unregisterIrcUser((attrs, channelMap: CHANNEL_MAP, clientTimestampMap: timestampMap),
+  eq unregisterIrcUser((attrs, 
+                        channelMap: CHANNEL_MAP,
+                        clientTimestampMap: timestampMap,
+                        clientAddressMap: clientAddressMap),
                        IRC_CLIENT_ADDR)
-    = (attrs,
-        channelMap: unregisterIrcUser(CHANNEL_MAP,
-                                      IRC_CLIENT_ADDR),
-        clientTimestampMap: pruneUser(timestampMap, IRC_CLIENT_ADDR))
+    =  (attrs,
+        channelMap: unregisterIrcUser(CHANNEL_MAP,IRC_CLIENT_ADDR),
+        clientTimestampMap: pruneUser(timestampMap, IRC_CLIENT_ADDR),
+        clientAddressMap: pruneUserAddr(clientAddressMap,IRC_CLIENT_ADDR))
     [ print "Unregister IRC user " IRC_CLIENT_ADDR ]
   .
 
@@ -191,17 +218,22 @@ mod IRC_NODE is
   --- Create a message to go from a client to another client or all clients in 
   --- a channel.
   ---                    Attributes    Src IRC User  IRC dest users  Text
+***** CLT NOT USED  
   op createPrivMsgReq :  AttributeSet  IrcUserName   IrcUserNameList String -> Config .
   eq createPrivMsgReq(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST, MSG_TEXT)
     = createIrcMsg(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST,
-                   PrivMsgReq(makeIrcName(SRC_IRC_USER_NAME),
+                   PrivMsgReq(SRC_IRC_USER_NAME,
                               SRC_IRC_USER_NAME,
                               MSG_TEXT))
   .
-  op createPrivMsgRes :  AttributeSet  IrcUserName   IrcUserNameList String -> Config .
-  eq createPrivMsgRes(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST, MSG_TEXT)
+  ---                   Attributes    IrcNameDest IrcUseSrc   IRC User Dests  
+  op createPrivMsgRes : AttributeSet  IrcName     IrcUserName IrcUserNameList 
+  ---                   Text
+                        String -> Config .
+  eq createPrivMsgRes(attrs, ircName,
+           SRC_IRC_USER_NAME, IRC_USER_NAME_LIST, MSG_TEXT)
     = createIrcMsg(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST,
-                   PrivMsgRes(makeIrcName(SRC_IRC_USER_NAME),
+                   PrivMsgRes(ircName,
                               SRC_IRC_USER_NAME,
                               MSG_TEXT))
   .
@@ -212,41 +244,45 @@ mod IRC_NODE is
   ---                Attributes    Src IRC User  IRC dest users  IrcMsg
   op createIrcMsg :  AttributeSet  IrcUserName   IrcUserNameList IrcMsg -> Config .
   eq createIrcMsg(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST, ircMsg)
-    = $createIrcMsg(getRaceboatAddr(attrs),
+    = $createIrcMsg(getClientAddressMap(attrs),
                     getThisAddr(attrs),
                     SRC_IRC_USER_NAME,
                     ircMsg,
                     IRC_USER_NAME_LIST)
   .
 
-  op $createIrcMsg : Address Address IrcUserName IrcMsg IrcUserNameList -> Config .
-  ceq $createIrcMsg(DST_ADDR,
+  op $createIrcMsg : ClientAddressMap Address IrcUserName IrcMsg IrcUserNameList -> Config .
+  ceq $createIrcMsg(clientAddressMap,  ----to lookup DST_ADDR,
                     SRC_ADDR,
                     SRC_IRC_USER_NAME,
                     ircMsg,
                     DST_IRC_USER_NAME : IRC_USER_NAME_LIST)
     = (if msg:Msg == nullMsg then null else msg:Msg fi)
-      $createIrcMsg(DST_ADDR,
+      $createIrcMsg(clientAddressMap,  ---- DST_ADDR,
                     SRC_ADDR,
                     SRC_IRC_USER_NAME,
                     ircMsg,
                     IRC_USER_NAME_LIST)
-    if msg:Msg :=
+    if DST_ADDR := getClientAddr(clientAddressMap, 
+                                     DST_IRC_USER_NAME)
+    /\ msg:Msg :=
       (if DST_IRC_USER_NAME == SRC_IRC_USER_NAME
         then nullMsg
-        else (to DST_ADDR from SRC_ADDR : setDest(ircMsg,
-                                                  getAddressFromUserName(DST_IRC_USER_NAME)))
+        else (to DST_ADDR from SRC_ADDR : 
+        setDest(ircMsg,                                              
+                getAddressFromUserName(DST_IRC_USER_NAME)))
       fi)
     [ print "Create IRC msg " ircMsg " to " DST_IRC_USER_NAME ]
   .
-  eq $createIrcMsg(DST_ADDR,
+
+  eq $createIrcMsg(clientAddressMap, ----- DST_ADDR,
                    SRC_ADDR,
                    SRC_IRC_USER_NAME,
                    ircMsg,
                    emptyIrcUserNameList)
-    = null [ owise ]
+    = null
+**** No [owise], this is the iteration end case
   .
-
 
   --- Refresh the timestamp when server last heard from a client.
   op refreshUser : AttributeSet IrcUserName Float -> AttributeSet .
@@ -266,6 +302,7 @@ mod IRC_NODE is
       clientTimestampMap: refreshUser(timestampMap, makeIrcUserName(IRC_CLIENT_ADDR), newHeardTime)
   .
 
+**** CLT nicer would be call to function AddrList -> IrcUserNameList .
   op refreshUsers : AttributeSet AddrList Float -> AttributeSet .
   eq refreshUsers((attrs,
                     clientTimestampMap: timestampMap),

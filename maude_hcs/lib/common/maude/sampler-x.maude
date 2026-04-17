@@ -28,17 +28,32 @@
 ---
 --- MAUDE_HCS: end
 
+**** translation of SAMPLER to use explicit random indices
+
 fmod SAMPLER-X is
   pr RANDOM .
   pr CONVERSION .
   inc MAP{String,Float} .
   
 
-  vars MEAN SD RAND  Min Max : Float .  
+  vars MEAN SD RAND R Min Max : Float .  
   var j n : Nat .
   var weights : Map{String,Float} .
   vars wt wtsum rnd : Float .
   vars sid : String .
+  
+  op randX : Nat -> [Float] .
+  eq randX(j) = float(random(j) / 4294967296) .
+
+  op sampleBerWithPX :  Nat Float -> [Bool] .
+  eq sampleBerWithPX(j,R) = if randX(j) < R then true else false fi .
+
+  op sampleUniformX : Nat Float Float -> [Float] .
+  eq sampleUniformX(j,Min, Max) = 
+   (if (Min == Max) 
+    then Min 
+    else Min +  (float(random(j) / 4294967296) * (Max - Min))
+    fi) .
   
   op sampleNormalX : Nat -> [Float] .
   op $sampleNormalX : Float -> [Float] .

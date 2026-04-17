@@ -37,6 +37,7 @@ sload ./common/irc_name
 sload ./common/_aux
 sload ./common/app_chat
 sload ../common/maude/cp2-interfaces
+sload ../common/maude/delay-drop-x
 
 mod IRC is
   pr IRC_NODE .
@@ -44,12 +45,12 @@ mod IRC is
   pr CP2-COMMON .
   pr APP_CHATS .
 
-  vars APP_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr : Address .
+  vars APP_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr  addr : Address .
   vars channelClientAddrs : AddrList .
   vars appChatsMap : AppChatsMap .
-  vars attrs attrsTrans attrsNext : AttributeSet .
+  vars attrs attrsTrans attrsTrans1 attrsNext : AttributeSet .
   vars ircName  : IrcName .
-  vars ircDestinationName : IrcUserName .
+  vars ircDestinationName  IRC_CLIENT_NAME : IrcUserName .
   vars clientsMap CLIENTS_MAP : NameClientsMap .
   vars chatText ircDestination ircSource : String .
   vars T : Float . ---timestamp
@@ -68,26 +69,26 @@ mod IRC is
                IRC_CLIENT_ADDR)
     [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " scheduling next app message." ]
   .
-
+**** CLT replaced ircDestinationName by ircName since appchat arg is either
   --- Handle app messages, send them to IRC server.
   rl [irc-client-handle-outgoing-chat]:
   < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: appChatsMap >
-    {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : makeAppChat(ircDestinationName, chatText))}
+    {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : makeAppChat(ircName, chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: popAppChat(appChatsMap) >
     --- The client -> server delay will take about 2ms avg + 1.8ms std.
-    delayMsgs((to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : PrivMsgReq(ircDestinationName, getIrcName(attrs), chatText)),
+    delayMsgs((to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : PrivMsgReq(ircName, getIrcName(attrs), chatText)),
               null)
     makeAppMsg(appChatsMap,
                IRC_CLIENT_ADDR,
                IRC_CLIENT_ADDR)
-    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling outgoing chat " chatText " to " ircDestinationName ", sending to Raceboat." ]
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling outgoing chat " chatText " to " ircName ", sending to Raceboat." ]
   .
-
+****HERE  ircDestinationName >> ircName
   --- Handle IRC messages from the server.
   rl [irc-client-handle-incoming-chat]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
-    {T, (to IRC_CLIENT_ADDR from rbAddr : PrivMsgRes(ircDestinationName, makeIrcUserName(ircSourceAddr), chatText))}
+    {T, (to IRC_CLIENT_ADDR from rbAddr : PrivMsgRes(ircName, makeIrcUserName(ircSourceAddr), chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
 ---    delayMsgs((to getAppAddr(attrs) from IRC_CLIENT_ADDR : makeAppChat(makeIrcUserName(ircSourceAddr), chatText)), null)
@@ -123,16 +124,18 @@ mod IRC is
   --- Handle incoming chat: forward to all users in the channel.
   crl [server-handle-incoming-chat]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
-    {T, (to IRC_SERVER_ADDR from rbAddr : PrivMsgReq(ircName,
-                                                     makeIrcUserName(ircSourceAddr),
-                                                     chatText))}
+    {T, (to IRC_SERVER_ADDR from rbAddr : 
+         PrivMsgReq(ircName,
+                    makeIrcUserName(ircSourceAddr),
+                    chatText))}
   =>
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
     delayMsgs(msgs:Config, null)
     [IRC-STALE-DURATION-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(ircSourceAddr)), 0]
   if CLIENTS_MAP := getChannelMap(attrs)
     /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, ircName)
-    /\ msgs:Config := createPrivMsgRes(attrs, 
+    /\ msgs:Config := createPrivMsgRes(attrs,
+                                       ircName, **** CLT fix
                                        makeIrcUserName(ircSourceAddr),
                                        clientList:IrcUserNameList,
                                        chatText)
@@ -142,6 +145,9 @@ mod IRC is
 
   --- Handle a user joining a channel: tell all members of channel.
   --- TODO: Forward topic, authors, list of users.
+  **** CLT  the joiner doesn't get confirmation?
+  **** TODO: Currently the plan is to have joins as part of initial setup
+  **** (unmeasured) and to ensure joins are successful (T&E via Slack).
   crl [server-handle-join-channel]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
     {T, (to IRC_SERVER_ADDR from rbAddr : incomingContent:Content)}
@@ -151,7 +157,10 @@ mod IRC is
     [IRC-PING-INTV-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR)), 0]
   if JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) := incomingContent:Content
     /\ attrsTrans := registerIrcUser(attrs, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) 
-    /\ attrsNext := refreshUser(attrsTrans, IRC_CLIENT_ADDR, T)
+**** recording user connection address    
+    /\ attrsTrans1 := registerIrcUserAddress(attrsTrans,
+                        makeIrcUserName(IRC_CLIENT_ADDR),rbAddr)
+    /\ attrsNext := refreshUser(attrsTrans1, IRC_CLIENT_ADDR, T)
     /\ CLIENTS_MAP := getChannelMap(attrsNext)
     /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
     --- This config should include other messages too; the server sends 
@@ -183,14 +192,26 @@ mod IRC is
   [ print "(" T ") IRC Server handling part channel for " IRC_CLIENT_ADDR ", sending " msgs:Config ]
   .
 
-  rl [server-handle-ping-timeout]:
+**** CLT lookup rbAddr associated to client
+  crl [server-handle-ping-timeout]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
     {T, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR))}
   =>
   < IRC_SERVER_ADDR : IrcServer | attrs >
-    delayMsgs((to getRaceboatAddr(attrs) from IRC_SERVER_ADDR : Ping(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), null)
-    [(IRC-STALE-DURATION-S - IRC-PING-INTV-S), (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PongTimeout(IRC_CLIENT_ADDR)), 0]
-    [ print "(" T ") IRC Server handling ping timeout for " IRC_CLIENT_ADDR ", sending ping." ]
+    (if (addr == nullAddr)
+      then null
+      else delayMsgs(
+        (to addr from IRC_SERVER_ADDR : --- getRaceboatAddr(attrs) 
+          Ping(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), 
+        null)
+    fi)      
+    [(IRC-STALE-DURATION-S - IRC-PING-INTV-S), 
+      (to IRC_SERVER_ADDR from IRC_SERVER_ADDR :
+         PongTimeout(IRC_CLIENT_ADDR)), 0]
+  if IRC_CLIENT_NAME := makeIrcUserName(IRC_CLIENT_ADDR)
+  /\ addr := getClientAddr(getClientAddressMap(attrs), 
+                           IRC_CLIENT_NAME)
+  [ print "(" T ") IRC Server handling ping timeout for " IRC_CLIENT_ADDR ", sending ping." ]
   .
 
   rl [server-handle-pong]:
@@ -198,17 +219,23 @@ mod IRC is
     {T, (to IRC_SERVER_ADDR from rbAddr : Pong(ircDestinationName, IRC_CLIENT_ADDR))}
   =>
   < IRC_SERVER_ADDR : IrcServer | refreshUser(attrs, ircDestinationName, T) >
-    [ print "(" T ") IRC Server handling incoming Pong from Client " ircDestinationName ", refreshing." ]
+  [ print "(" T ") IRC Server handling incoming Pong from Client " ircDestinationName ", refreshing." ]
   .
 
-  rl [server-pong-timeout]:
+  crl [server-pong-timeout]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
     {T, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PongTimeout(ircSourceAddr))}
   =>
+  ---                             clear user checks for staleness.
   < IRC_SERVER_ADDR : IrcServer | clearUser(attrs, ircSourceAddr, T) >
-    delayMsgs(createUserQuitMsgs(attrs, ircSourceAddr), null)
-    [ print "(" T ") IRC Server handling pong timeout for " ircSourceAddr " (consider quit)." ]
+    (if isStale:Bool
+      then delayMsgs(createUserQuitMsgs(attrs, ircSourceAddr), null)
+      else null
+    fi)
+  if isStale:Bool := isUserStale(getClientTimestampMap(attrs),
+                                 makeIrcUserName(ircSourceAddr),
+                                 T)
+  [ print "(" T ") IRC Server handling pong timeout for " ircSourceAddr ". If stale true consider clearing, otherwise ignore: " isStale:Bool "." ]
   .
+
 endm
-
-
