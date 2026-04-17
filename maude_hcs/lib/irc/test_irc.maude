@@ -43,7 +43,6 @@ mod IRC_TESTS is
   ops aliceIrcClient : -> Actor .
   ops ircServer preconfiguredIrcServer : -> Actor .
 
-
   eq aliceIrcClient = makeIrcClient(ircClientAddr, aliceAddr, ircServerAddr) .
   eq ircServer = makeIrcServer(ircServerAddr, rbAddr) .
 
@@ -62,32 +61,32 @@ red getClients(emptyNameClientsMap, makeIrcChannelName("bbn"))
   == emptyIrcUserNameList
 .
 
-red getClients(makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice") : makeIrcUserName("Bob")),
+red getClients(makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr)),
                makeIrcChannelName("bbn"))
-  == (makeIrcUserName("Alice") : makeIrcUserName("Bob"))
+  == (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr))
 .
 
-red getClients(makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice") : makeIrcUserName("Bob")),
-               makeIrcName(makeIrcChannelName("bbn")))
-  == (makeIrcUserName("Alice") : makeIrcUserName("Bob"))
+red getClients(makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr)),
+               makeIrcChannelName("bbn"))
+  == (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr))
 .
 
-red getClients(makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice") : makeIrcUserName("Bob")),
-               makeIrcName(makeIrcChannelName("att")))
+red getClients(makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr)),
+               makeIrcChannelName("att"))
   == emptyIrcUserNameList
 .
 
-red getClients(makeIrcChannelName("bbn") ~> makeIrcUserName("Alice"), makeIrcUserName("Alice"))
-  == makeIrcUserName("Alice")
+red getClients(makeIrcChannelName("bbn") ~> makeIrcUserName(aliceAddr), makeIrcUserName(aliceAddr))
+  == makeIrcUserName(aliceAddr)
 .
 
-red getClients(makeIrcChannelName("bbn") ~> makeIrcUserName("Alice"),
-               makeIrcName(makeIrcUserName("Alice"))) 
-  == makeIrcUserName("Alice")
+red getClients(makeIrcChannelName("bbn") ~> makeIrcUserName(aliceAddr),
+               makeIrcUserName(aliceAddr))
+  == makeIrcUserName(aliceAddr)
 .
 
-red getClients(makeIrcChannelName("bbn") ~> makeIrcUserName("Bob"),
-               makeIrcName(makeIrcUserName("Alice")))
+red getClients(makeIrcChannelName("bbn") ~> makeIrcUserName(bobAddr),
+               makeIrcUserName(aliceAddr))
   == emptyIrcUserNameList
 .
 
@@ -96,9 +95,9 @@ red getAllClients((makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : ma
                   (makeIrcChannelName("bbn") : makeIrcChannelName("sri")))
 .
 
-red getChannels(makeIrcChannelName("bbn") ~> makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr) : makeIrcUserName(carolynAddr),
+red getChannels(makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr) : makeIrcUserName(carolynAddr)),
                 bobAddr)
-  == makeIrcChannelName("bbn")
+  == makeIrcChannelName("bbn") :: nilIrcChannelName
 .
 
 red getChannels((makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr) : makeIrcUserName(carolynAddr)))
@@ -110,21 +109,16 @@ red getChannels((makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : make
 red getChannels((makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr) : makeIrcUserName(carolynAddr)))
                 : (makeIrcChannelName("sri") ~> (makeIrcUserName(aliceAddr))),
                 aliceAddr)
-  == makeIrcChannelName("bbn") :: makeIrcChannelName("sri")
+  == makeIrcChannelName("bbn") :: makeIrcChannelName("sri") :: nilIrcChannelName 
 .
 
-red isChannelName(makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice")),
-                  makeIrcName("bbn"))
-  == true
-.
+red isChannelName(emptyNameClientsMap, makeIrcChannelName("bbn")) == false .
 
-red isChannelName(emptyNameClientsMap, makeIrcName("bbn")) == false .
-
-red registerIrcUser(makeIrcChannelName("bbn") ~> makeIrcUserName("Alice") : makeIrcUserName("Bob"),
+red registerIrcUser(makeIrcChannelName("bbn") ~> makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr),
                     makeIrcChannelName("sri"),
-                    makeIrcUserName("Carolyn"))
-  == (makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice") : makeIrcUserName("Bob")))
-      : (makeIrcChannelName("sri") ~> makeIrcUserName("Carolyn"))
+                    makeIrcUserName(carolynAddr))
+  == (makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr)))
+      : (makeIrcChannelName("sri") ~> makeIrcUserName(carolynAddr))
 .
 
 red registerIrcUsers(emptyNameClientsMap,
@@ -145,14 +139,14 @@ red registerIrcUsers((makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) :
 
 red registerIrcUser(emptyNameClientsMap, 
                     makeIrcChannelName("bbn"),
-                    makeIrcUserName("Bob"))
-  == (makeIrcChannelName("bbn") ~> makeIrcUserName("Bob"))
+                    makeIrcUserName(bobAddr))
+  == (makeIrcChannelName("bbn") ~> makeIrcUserName(bobAddr))
 .
 
-red registerIrcUser(makeIrcChannelName("bbn") ~> makeIrcUserName("Alice"),
+red registerIrcUser(makeIrcChannelName("bbn") ~> makeIrcUserName(aliceAddr),
                     makeIrcChannelName("bbn"),
-                    makeIrcUserName("Bob"))
-  == (makeIrcChannelName("bbn") ~> (makeIrcUserName("Alice") : makeIrcUserName("Bob")))
+                    makeIrcUserName(bobAddr))
+  == (makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceAddr) : makeIrcUserName(bobAddr)))
 .
 
 red registerIrcUsers(emptyNameClientsMap,
@@ -184,8 +178,8 @@ red unregisterIrcUser(makeIrcChannelName("bbn") ~> makeIrcUserName(bobAddr),
 .
 
 rew aliceIrcClient
-    (to ircClientAddr from aliceAddr : makeAppChat(makeIrcName(makeIrcUserName(bobAddr)), 
-                                                               "Hello Bob!"))
+    (to ircClientAddr from aliceAddr : makeAppChat(makeIrcUserName(bobAddr),
+                                                   "Hello Bob!"))
 ---  == (to rbAddr from ircClientAddr : PrivMsgReq(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(ircClientAddr), "Hello Bob!")) ircClient
 .
 
@@ -199,9 +193,9 @@ rew ircServer
 
 --- Server receive message for channel, forward to all users (Alice and Bob) in channel.
 rew preconfiguredIrcServer
-    (to ircServerAddr from rbAddr : PrivMsgReq(makeIrcName(makeIrcChannelName("bbn")),
-                                                   makeIrcUserName(carolynAddr),
-                                                   "Hello All!"))
+    (to ircServerAddr from rbAddr : PrivMsgReq(makeIrcChannelName("bbn"),
+                                               makeIrcUserName(carolynAddr),
+                                               "Hello All!"))
 ---  == nullMsg
 ---      (to rbAddr from ircServerAddr : PrivMsgRes(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
 ---      (to rbAddr from ircServerAddr : PrivMsgRes(makeIrcName(makeIrcUserName(aliceAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
@@ -209,9 +203,9 @@ rew preconfiguredIrcServer
 .
 
 rew preconfiguredIrcServer
-    (to ircServerAddr from rbAddr : PrivMsgReq(makeIrcName(makeIrcChannelName("bbn")),
-                                                   makeIrcUserName(aliceAddr),
-                                                   "Hello All!"))
+    (to ircServerAddr from rbAddr : PrivMsgReq(makeIrcChannelName("bbn"),
+                                               makeIrcUserName(aliceAddr),
+                                               "Hello All!"))
 ---  == nullMsg
 ---      (to rbAddr from ircServerAddr : PrivMsgRes(makeIrcName(makeIrcUserName(bobAddr)), makeIrcUserName(carolynAddr), "Hello All!"))
 ---      ircServer
@@ -219,7 +213,7 @@ rew preconfiguredIrcServer
 
 rew aliceIrcClient
     preconfiguredIrcServer
-    (to ircServerAddr from rbAddr : PrivMsgReq(makeIrcName(makeIrcChannelName("bbn")),
+    (to ircServerAddr from rbAddr : PrivMsgReq(makeIrcChannelName("bbn"),
                                                makeIrcUserName(carolynAddr),
                                                "Hello All!"))
 .
