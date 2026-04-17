@@ -1,0 +1,334 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ./irc_name
+sload ../../common/maude/_aux
+sload ../_irc_aux
+sload ./app_chat
+
+mod IRC_NODE is
+  pr IRC_NAMES .
+  pr CP2_SORTS .
+  pr IRC_AUX .
+  pr APP_CHATS .
+
+  vars DST_ADDR SRC_ADDR APP_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR RB_ADDR : Address .
+  vars ircClientAddrs IRC_CLIENT_ADDRS : AddrList .
+  vars attrs attrsNext attrsTrans : AttributeSet .
+  vars CLIENT_TIMESTAMP_MAP timestampMap : ClientTimestampMap .
+  vars IRC_NAME ircName : IrcName .
+  vars ircMsg IRC_MSG : IrcMsg .
+  vars IRC_USER_NAME DST_IRC_USER_NAME SRC_IRC_USER_NAME : IrcUserName .
+  vars IRC_USER_NAME_LIST : IrcUserNameList .
+  vars CHANNEL_MAP : NameClientsMap .
+  vars MSG_TEXT : String .
+  vars LAST_HEARD_TIME newHeardTime : Float .
+
+  vars CLIENT_ADDRESS_MAP  clientAddressMap : ClientAddressMap .
+  
+  ----------------
+  --- [IRC Client]
+  ----------------
+  --- Attributes ---
+  op IrcClient : -> ActorType [ctor] .
+  --- This client's address.
+  op thisAddr:_ : Address -> Attribute [ctor] .
+  --- The App address.
+  op appAddr:_ : Address -> Attribute [ctor] .
+  --- The Raceboat address.
+  op raceboatAddr:_ : Address -> Attribute [ctor] .
+  --- The IRC name.
+  op ircName:_ : IrcUserName -> Attribute [ctor] .
+  --- The App messages.
+  op aliceAppChatsMap:_ : AppChatsMap -> Attribute [ctor] .
+
+  --- Make an IrcClient ItsAddr  AppAddr  RBAddr
+  op makeIrcClient :    Address  Address  Address -> Actor .
+  eq makeIrcClient(IRC_CLIENT_ADDR, APP_ADDR, RB_ADDR) =
+    < IRC_CLIENT_ADDR : IrcClient |
+        thisAddr: IRC_CLIENT_ADDR,
+        appAddr: APP_ADDR,
+        raceboatAddr: RB_ADDR,
+        ircName: makeIrcUserName(IRC_CLIENT_ADDR),
+        aliceAppChatsMap: emptyAppChatsMap
+    >
+  .
+
+  --- Make an IrcClient ItsAddr  AppAddr  RBAddr
+  op makeIrcClient :    Address  Address  Address AppChatsMap -> Actor .
+  eq makeIrcClient(IRC_CLIENT_ADDR, APP_ADDR, RB_ADDR, appChats:AppChatsMap) =
+    < IRC_CLIENT_ADDR : IrcClient |
+        thisAddr: IRC_CLIENT_ADDR,
+        appAddr: APP_ADDR,
+        raceboatAddr: RB_ADDR,
+        ircName: makeIrcUserName(IRC_CLIENT_ADDR),
+        aliceAppChatsMap: appChats:AppChatsMap
+    >
+  .
+
+  op getThisAddr : AttributeSet -> Address .
+  eq getThisAddr(attrs, thisAddr: IRC_CLIENT_ADDR) = IRC_CLIENT_ADDR .
+
+  op getAppAddr : AttributeSet -> Address .
+  eq getAppAddr(attrs, appAddr: APP_ADDR) = APP_ADDR .
+
+  op getRaceboatAddr : AttributeSet -> Address .
+  eq getRaceboatAddr(attrs, raceboatAddr: RB_ADDR) = RB_ADDR .
+
+  op getIrcName : AttributeSet -> IrcUserName .
+  eq getIrcName(attrs, ircName: IRC_USER_NAME) = IRC_USER_NAME .
+  
+  ----------------
+  --- [IRC Server]
+  ----------------
+  op IrcServer : -> ActorType [ctor] .
+  --- The channel name to user name map.
+  op channelMap:_ : NameClientsMap -> Attribute [ctor] .
+  --- The client timestamp map.
+  op clientTimestampMap:_ : ClientTimestampMap -> Attribute [ctor] .
+  --- The map of IRC name to address for multi client responses.
+  op clientAddressMap:_ : ClientAddressMap -> Attribute [ctor] .
+  --- Other common attributes ---
+  --- This server's address.
+  ---op thisAddr:_ : Address -> Attribute [ctor] .
+  --- The Raceboat address.
+  ---op raceboatAddr:_ : Address -> Attribute [ctor] .
+
+  --- Make an IrcServer ItsAddr RBAddr
+  op makeIrcServer :    Address Address -> Actor .
+  eq makeIrcServer(IRC_SERVER_ADDR, RB_ADDR) =
+    < IRC_SERVER_ADDR : IrcServer |
+        thisAddr: IRC_SERVER_ADDR,
+        channelMap: emptyNameClientsMap,
+        clientTimestampMap: emptyClientTimestampMap,
+        clientAddressMap: emptyClientAddressMap
+    >
+  .
+
+  op getClientTimestampMap : AttributeSet -> ClientTimestampMap .
+  eq getClientTimestampMap(attrs, clientTimestampMap: CLIENT_TIMESTAMP_MAP)
+    = CLIENT_TIMESTAMP_MAP
+  .
+
+  op getClientAddressMap : AttributeSet -> ClientAddressMap .
+  eq getClientAddressMap((attrs, 
+                          clientAddressMap: CLIENT_ADDRESS_MAP))
+    = CLIENT_ADDRESS_MAP
+  .
+*** eq getClientAddressMap(attrs) = emptyClientAddressMap [owise] .
+
+  --- Register an IRC user.
+  op registerIrcUser : AttributeSet IrcChannelName Address -> AttributeSet .
+  eq registerIrcUser((attrs, channelMap: CHANNEL_MAP),
+                     IRC_CHANNEL_NAME:IrcChannelName,
+                     IRC_CLIENT_ADDR)
+    = (attrs, channelMap: registerIrcUser(CHANNEL_MAP,
+                                          IRC_CHANNEL_NAME:IrcChannelName,
+                                          IRC_CLIENT_ADDR))
+  .
+
+  op registerIrcUsers : AttributeSet IrcChannelName AddrList -> AttributeSet .
+  eq registerIrcUsers((attrs, channelMap: CHANNEL_MAP),
+                      IRC_CHANNEL_NAME:IrcChannelName,
+                      IRC_CLIENT_ADDRS)
+    = (attrs, 
+       channelMap: registerIrcUsers(CHANNEL_MAP,
+                           IRC_CHANNEL_NAME:IrcChannelName,
+                           IRC_CLIENT_ADDRS))
+  .
+
+**** CLT Register  the connection address of an IRC user.
+  op registerIrcUserAddress : AttributeSet IrcUserName Address -> AttributeSet .
+  eq registerIrcUserAddress((attrs, 
+                            clientAddressMap: clientAddressMap),
+                           IRC_USER_NAME,
+                           IRC_CLIENT_ADDR)
+    = (attrs, clientAddressMap:  
+                registerIrcUserAddress(clientAddressMap,
+                                       IRC_USER_NAME,IRC_CLIENT_ADDR))
+  .
+
+
+  --- Unregister IRC users (from all its channels).
+  op unregisterIrcUser : AttributeSet Address -> AttributeSet .
+  eq unregisterIrcUser((attrs, 
+                        channelMap: CHANNEL_MAP,
+                        clientTimestampMap: timestampMap,
+                        clientAddressMap: clientAddressMap),
+                       IRC_CLIENT_ADDR)
+    =  (attrs,
+        channelMap: unregisterIrcUser(CHANNEL_MAP,IRC_CLIENT_ADDR),
+        clientTimestampMap: pruneUser(timestampMap, IRC_CLIENT_ADDR),
+        clientAddressMap: pruneUserAddr(clientAddressMap,IRC_CLIENT_ADDR))
+    [ print "Unregister IRC user " IRC_CLIENT_ADDR ]
+  .
+
+  --- Handle a ping timeout for a user: check if stale, if so, unregister.
+  ---            Attributes    Address Now
+  op clearUser : AttributeSet  Address Float -> AttributeSet .
+  eq clearUser(attrs,
+               IRC_CLIENT_ADDR,
+               now:Float)
+    = (if isUserStale(getClientTimestampMap(attrs),
+                      makeIrcUserName(IRC_CLIENT_ADDR),
+                      now:Float)
+        then unregisterIrcUser(attrs, IRC_CLIENT_ADDR)
+        else attrs
+      fi)
+  .
+
+  op clearUser : AttributeSet Address -> AttributeSet .
+  eq clearUser(attrs, IRC_CLIENT_ADDR) = unregisterIrcUser(attrs, IRC_CLIENT_ADDR) .
+
+
+  --- Get the channel map.
+  op getChannelMap : AttributeSet -> NameClientsMap .
+  eq getChannelMap(attrs, channelMap: CHANNEL_MAP:NameClientsMap)
+    = CHANNEL_MAP:NameClientsMap
+  .
+
+
+  --- Create a message to go from a client to another client or all clients in 
+  --- a channel.
+  ---                    Attributes    Src IRC User  IRC dest users  Text
+***** CLT NOT USED  
+  op createPrivMsgReq :  AttributeSet  IrcUserName   IrcUserNameList String -> Config .
+  eq createPrivMsgReq(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST, MSG_TEXT)
+    = createIrcMsg(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST,
+                   PrivMsgReq(SRC_IRC_USER_NAME,
+                              SRC_IRC_USER_NAME,
+                              MSG_TEXT))
+  .
+  ---                   Attributes    IrcNameDest IrcUseSrc   IRC User Dests  
+  op createPrivMsgRes : AttributeSet  IrcName     IrcUserName IrcUserNameList 
+  ---                   Text
+                        String -> Config .
+  eq createPrivMsgRes(attrs, ircName,
+           SRC_IRC_USER_NAME, IRC_USER_NAME_LIST, MSG_TEXT)
+    = createIrcMsg(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST,
+                   PrivMsgRes(ircName,
+                              SRC_IRC_USER_NAME,
+                              MSG_TEXT))
+  .
+
+
+  --- Src IRC User is the IRC user that sent the message originally (and does 
+  --- not need to receive it again).
+  ---                Attributes    Src IRC User  IRC dest users  IrcMsg
+  op createIrcMsg :  AttributeSet  IrcUserName   IrcUserNameList IrcMsg -> Config .
+  eq createIrcMsg(attrs, SRC_IRC_USER_NAME, IRC_USER_NAME_LIST, ircMsg)
+    = $createIrcMsg(getClientAddressMap(attrs),
+                    getThisAddr(attrs),
+                    SRC_IRC_USER_NAME,
+                    ircMsg,
+                    IRC_USER_NAME_LIST)
+  .
+
+  op $createIrcMsg : ClientAddressMap Address IrcUserName IrcMsg IrcUserNameList -> Config .
+  ceq $createIrcMsg(clientAddressMap,  ----to lookup DST_ADDR,
+                    SRC_ADDR,
+                    SRC_IRC_USER_NAME,
+                    ircMsg,
+                    DST_IRC_USER_NAME : IRC_USER_NAME_LIST)
+    = (if msg:Msg == nullMsg then null else msg:Msg fi)
+      $createIrcMsg(clientAddressMap,  ---- DST_ADDR,
+                    SRC_ADDR,
+                    SRC_IRC_USER_NAME,
+                    ircMsg,
+                    IRC_USER_NAME_LIST)
+    if DST_ADDR := getClientAddr(clientAddressMap, 
+                                     DST_IRC_USER_NAME)
+    /\ msg:Msg :=
+      (if DST_IRC_USER_NAME == SRC_IRC_USER_NAME
+        then nullMsg
+        else (to DST_ADDR from SRC_ADDR : 
+        setDest(ircMsg,                                              
+                getAddressFromUserName(DST_IRC_USER_NAME)))
+      fi)
+    [ print "Create IRC msg " ircMsg " to " DST_IRC_USER_NAME ]
+  .
+
+  eq $createIrcMsg(clientAddressMap, ----- DST_ADDR,
+                   SRC_ADDR,
+                   SRC_IRC_USER_NAME,
+                   ircMsg,
+                   emptyIrcUserNameList)
+    = null
+**** No [owise], this is the iteration end case
+  .
+
+  --- Refresh the timestamp when server last heard from a client.
+  op refreshUser : AttributeSet IrcUserName Float -> AttributeSet .
+  eq refreshUser((attrs,
+                  clientTimestampMap: timestampMap),
+                 IRC_USER_NAME,
+                 newHeardTime)
+    = attrs,
+      clientTimestampMap: refreshUser(timestampMap, IRC_USER_NAME, newHeardTime)
+  .
+
+  op refreshUser : AttributeSet Address Float -> AttributeSet .
+  eq refreshUser((attrs, clientTimestampMap: timestampMap),
+                 IRC_CLIENT_ADDR,
+                 newHeardTime)
+    = attrs,
+      clientTimestampMap: refreshUser(timestampMap, makeIrcUserName(IRC_CLIENT_ADDR), newHeardTime)
+  .
+
+**** CLT nicer would be call to function AddrList -> IrcUserNameList .
+  op refreshUsers : AttributeSet AddrList Float -> AttributeSet .
+  eq refreshUsers((attrs,
+                    clientTimestampMap: timestampMap),
+                  IRC_CLIENT_ADDR ; IRC_CLIENT_ADDRS,
+                  newHeardTime)
+    = refreshUsers(refreshUser((attrs, clientTimestampMap: timestampMap),
+                               makeIrcUserName(IRC_CLIENT_ADDR),
+                               newHeardTime),
+                   IRC_CLIENT_ADDRS,
+                   newHeardTime)
+  .
+
+  op createUserQuitMsgs : AttributeSet Address -> Config .
+  ceq createUserQuitMsgs(attrs, IRC_CLIENT_ADDR)
+    = msgs:Config
+    if CHANNEL_MAP := getChannelMap(attrs)
+      /\ userChannels:IrcChannelNameList := getChannels(CHANNEL_MAP, IRC_CLIENT_ADDR)
+      /\ IRC_USER_NAME_LIST := getAllClients(CHANNEL_MAP, userChannels:IrcChannelNameList)
+      /\ msgs:Config := createIrcMsg(attrs,
+                                     makeIrcUserName(IRC_CLIENT_ADDR),
+                                     IRC_USER_NAME_LIST,
+                                     Quit(IRC_CLIENT_ADDR, IRC_CLIENT_ADDR))
+    [ print "Tell " IRC_USER_NAME_LIST " of " IRC_CLIENT_ADDR " quit." ]
+    .
+  eq createUserQuitMsgs(attrs, IRC_CLIENT_ADDR) = null [owise] .
+
+endm
+
+

@@ -1,0 +1,105 @@
+
+**** sload ./common/_aux
+sload common/irc_name.maude
+
+mod IRC_AUX is
+  pr CONVERSION .
+  pr IRC_NAMES .
+
+  op StartIrc : -> Content .
+  --- IRC Priv message.
+  --- Req: Client -> Server
+  --- Res: Server -> Client
+  --- We need 2 types because their size on the wire is different.
+  --- IRC Priv Msg Req   Dest    SourceUser  Text
+  ---             Dest    SourceUser  Text
+  op PrivMsgReq : IrcName IrcUserName String -> IrcMsg .
+  op PrivMsgRes : IrcName IrcUserName String -> IrcMsg .
+  --- Message to join a channel.
+  ---               Channel name    Joiner
+  op JoinChannel :  IrcChannelName  Address -> IrcMsg .
+  --- Message to part a channel.
+  ---              Channel name    Leaver
+  op PartChannel : IrcChannelName  Address -> IrcMsg .
+  --- Message to quit.
+  ---       DestAddr  Quitter
+  op Quit : Address   Address -> IrcMsg .
+  --- Ping message to check if client still alive.
+  op PingTimeout : Address -> Content .
+  ---       User to ping  Server addr
+  op Ping : IrcUserName   Address -> IrcMsg .
+  ---       User ponging  Client addr
+  op Pong : IrcUserName   Address -> IrcMsg .
+  ---              Stale user
+  op PongTimeout : Address -> Content .
+
+  op setDest : IrcMsg Address -> IrcMsg .
+  eq setDest(Quit(destAddr:Address, quitter:Address),
+             newDestAddr:Address)
+    = Quit(newDestAddr:Address, quitter:Address)
+  .
+  eq setDest(ircMsg:IrcMsg, newDestAddr:Address)
+    = ircMsg:IrcMsg [owise]
+  . 
+
+  op isChannelGoMessage : Content -> Bool .
+  eq isChannelGoMessage(JoinChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                    IRC_CLIENT_ADDR:Address))
+    = true
+  .
+  eq isChannelGoMessage(PartChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                    IRC_CLIENT_ADDR:Address))
+    = true
+  .
+  eq isChannelGoMessage(AnyContent:Content) = false [owise] .
+
+  op getSize : IrcMsg -> Nat .
+  --- 109 + len(room_name) + len(msg) where, for example:
+  --- room_name is "#room1"
+  --- msg is "hello"
+  eq getSize(PrivMsgReq(makeIrcChannelName(CHANNEL_NAME:String),
+                        makeIrcUserName(SRC:Address),
+                        TEXT:String))
+    = 109 + length(CHANNEL_NAME:String) + length(TEXT:String)
+  .
+  --- 110 + len(room_name) + len(msg) + len(prefix) where, for example:
+  --- room_name is "#room1"
+  --- msg is "hello"
+  --- prefix is "client1!~client1@localhost"
+  eq getSize(PrivMsgRes(makeIrcChannelName(CHANNEL_NAME:String),
+                        makeIrcUserName(SRC:Address),
+                        TEXT:String))
+    = 110 + length(CHANNEL_NAME:String) + length(TEXT:String)
+  .
+**** CLT guess -- replace 10 by address size
+  eq getSize(PrivMsgRes(makeIrcUserName(DST:Address),
+                        makeIrcUserName(SRC:Address),
+                        TEXT:String))
+    = 110 + 10 + length(TEXT:String) 
+  .
+
+  eq getSize(Ping(IRC_USER_NAME:IrcUserName, DEST:Address)) = 117 .
+  eq getSize(Pong(IRC_USER_NAME:IrcUserName, DEST:Address)) = 116 . 
+  --- [Gemini]
+  --- Here is the breakdown of the message structure as it appears on the wire:
+  --- Prefix (:client_name ) includes the leading colon and trailing space).
+  --- Command (JOIN ): 5 characters (includes the trailing space).
+  --- Channel (#channel_name).
+  --- Terminator (\r\n): 2 characters.
+  eq getSize(JoinChannel(makeIrcChannelName(CHANNEL_NAME:String),
+                         joiner:Address))
+    = 5 + length(CHANNEL_NAME:String) + 1 + 2 + 10 --- This last part is not correct.
+  .
+  --- [Gemini]
+  --- Here is the breakdown of the message structure as it appears on the wire:
+  --- Prefix (:client_name ) includes the leading colon and trailing space).
+  --- Command (PART ): 5 characters (includes the trailing space).
+  --- Channel (#channel_name).
+  --- Terminator (\r\n): 2 characters.
+  eq getSize(PartChannel(makeIrcChannelName(CHANNEL_NAME:String),
+                         parter:Address))
+    = 5 + length(CHANNEL_NAME:String) + 1 + 2 + 10 --- This last part is not correct.
+  .
+endm
+
+
