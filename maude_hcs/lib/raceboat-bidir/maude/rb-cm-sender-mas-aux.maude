@@ -1,0 +1,367 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../../common/maude/markov-action-model
+sload ../../common/maude/cp2-interfaces 
+sload ../../common/maude/_aux
+sload cm-aux.maude
+**** sload ../common/maude/sampler-x
+sload cp3-hashtag-manager
+
+
+---- {attrs,conf} defined in lib/.../common/_aux.maude
+mod CONTENT-MANAGER-SENDER-AUX is
+  inc CONTENT-MANAGER .
+  inc CP2_SORTS .  ---- AttributeSetMsgs from _aux
+  inc CP2-COMMON .  
+  inc MC-INTERFACE  .
+  inc ED-INTERFACE .
+  inc HASHTAG-MANAGER .
+
+  inc TGEN-INTERFACE .
+  inc MARKOV-ACTION-MODEL .
+****  inc SAMPLER-X .
+  
+vars attrs attrs0 attrs1 attrs2 attrsTrans attrsNext : AttributeSet .
+vars cmcAtts cmcAtts1 cmcAtts2 : AttributeSet .
+vars msg msg0 capacityMsg encodeMsg lastMsg : Msg .
+vars msgs msgs0 config config0 : Config .
+vars j j1 i k l n n0 n1 cap randCtr randCtr' : Nat .
+vars tot remains remains0 ix  id : Nat .
+vars aAddr cmcAddr umAddr edAddr mcAddr mastodonClientAddr : Address .
+vars T : Float .
+vars mcResponse : Content .
+vars efile efrag efrag0 efrag1 image ht hashtag bytes EFRAG : ByteSeq .
+vars efilel efragl hashtagl images FILES IMAGES cachedhashtagl 
+      : ByteSeqL .
+vars str : String .
+vars ract : Map{String,JV} .
+vars tag : Tag .
+vars mediaFileList : MediaFileList .
+
+vars natstr : Map{Nat,String} .
+vars mamodel : MAModel .
+
+
+--- Get the capacity need the current fragment.
+op getEncodingSizeNeed : AttributeSet -> Nat .
+eq getEncodingSizeNeed(attrs, currentFrags: efrag(efile, tot, ix, n0)) = n0 .
+eq getEncodingSizeNeed(attrs) = 0 [owise] .
+
+--- Get the next encoded fragment to send.
+op getNextEncodedFrag : AttributeSet -> AttributeSet .
+**** case have efile that is ready to exfile
+eq getNextEncodedFrag(attrs,
+                      (postingWeird: true),
+                      (pendingFiles: (efile :: efilel)),
+                      (currentFrags: nilBS))
+  = attrs,
+    (postingWeird: true),  
+    pendingFiles: (efile :: efilel),
+    currentFrags: efrag(efile, 0, 0, getSize(efile))
+[print "getNextEncodedFrag: postingWeird true currentFrags nilBS"]    
+  .
+
+**** postingWeird is true and frags is set
+**** or postingWeird is false
+eq getNextEncodedFrag(attrs) = attrs 
+[owise print "getNextEncodedFrag: owise"] .  --- ready to continue
+
+
+---- called when MC confirms Toot
+---- moveToNextFrag(resetTxState(attrs) 
+op moveToNextFrag : AttributeSet -> AttributeSet .
+
+--- Default, which also includes A WEIRD TRANSMISSION that is NOT FINISHED.
+eq moveToNextFrag(attrs) = attrs [owise] .
+
+--- Move hashtag for benign case (no pending weird transmission).
+ceq moveToNextFrag(attrs) = nextBHashtag(attrs)
+  if (attrsTrans, currentFrags: nilBS, pendingFiles: nilBS) := attrs
+  .
+
+--- Move at end of current file for weird case.
+--- Only if frags are done (note: 0):
+eq moveToNextFrag(attrs,
+                   currentFrags: efrag(efile, tot, ix, 0),
+                   pendingFiles: (efile :: efilel))
+  = nextWHashtag(attrs),
+    currentFrags: nilBS,
+    pendingFiles: (efilel)
+  . 
+
+--- Reset the transmit state of the client.
+op resetTxState : AttributeSet -> AttributeSet .
+eq resetTxState(attrs) = attrs [owise] .
+--- Clear fields related to sending one batch of images.
+eq resetTxState(attrs,
+                (numPendingImages: n),
+                (encodedImages: images),
+                (w4c: msg),
+                (replyTo: msg0))
+  = attrs,
+    (numPendingImages: 0),
+    (encodedImages: nilBS),
+    (w4c: null),
+    (replyTo: null)
+  .
+
+--- Send a request to encode media with bytes.
+op requestMediaEncode : AttributeSet Address -> AttributeSetMsgs .
+
+--- Benign case. postingWeird is false 
+ceq requestMediaEncode((attrs, w4c: null, postingWeird: false), cmcAddr)
+  = {attrsNext, msg}
+  if (attrsTrans, edAddress: edAddr) := attrs
+    /\ msg := (to edAddr from cmcAddr : encQ(noBytes))
+    /\ attrsNext := (attrs, w4c: msg, postingWeird: false)
+  [ print "Raceboat client has no weird bytes, encoding directly." ]
+  .
+--- Weird case.
+ceq requestMediaEncode((attrs, w4c: null, postingWeird: true), cmcAddr)
+  = {attrsNext, msg}
+  if (attrsTrans, edAddress: edAddr) := attrs
+    /\ msg := (to edAddr from cmcAddr : capQ(getEncodingSizeNeed(attrs)))
+    /\ attrsNext := (attrs, w4c: msg, postingWeird: true)
+  [ print "Raceboat client has weird bytes ready to encode, requesting capacity." ]
+  .
+
+--- Get the next hashtag, assume has been generated/set
+op getNextHashtag : AttributeSet -> ByteSeq .
+**** replace by hashtag interface lookup
+**** implementing Raceboat hashtag bug.
+
+***--- Get the next hashtag, 
+op getNextHashtag : AttributeSet -> ByteSeq .
+***--- Benign case 
+****26mar04 clt used cachedTag if any
+eq getNextHashtag(attrs, (currentFrags: nilBS), (pendingFiles: nilBS), cachedTag: cachedhashtagl)
+= (if (cachedhashtagl :: ByteSeq)
+   then cachedhashtagl
+   else getBHashtag(attrs)
+   fi)
+  [ print "Posting with benign hashtag" ]   .
+  
+eq getNextHashtag(attrs, postingWeird: false,
+                  cachedTag: cachedhashtagl)
+= (if (cachedhashtagl :: ByteSeq)
+   then cachedhashtagl
+   else getBHashtag(attrs)
+   fi)
+[ print "Posting with benign hashtag (pending files but not posting weird)." ]   .
+  
+***--- From the one provided by Alice.
+eq getNextHashtag(attrs, postingWeird: true) = getWHashtag(attrs)
+[ print "Posting with weird hashtag." ].
+
+eq getNextHashtag(attrs) = hashTag("tagError") 
+[owise print "getNextHashTag error"] .
+
+  
+--- Send a batched post request to Mastodon Client.
+op sendPostRequest : AttributeSet Address -> AttributeSetMsgs .
+eq sendPostRequest(attrs, cmcAddr) = {attrs, null}
+  [owise print "Error: Raceboat client found no send match" attrs ]
+  .
+ceq sendPostRequest((attrs, (w4c: null)), cmcAddr)
+  = {(attrs, 
+     (w4c: (to mastodonClientAddr from cmcAddr : 
+             tootQ(hashtag, IMAGES)))),
+     (to mastodonClientAddr from cmcAddr :
+              translateTootQ(tootQ(hashtag, IMAGES))) }
+  if hashtag := getNextHashtag(attrs)
+  /\ attrsTrans, mcAddress: mastodonClientAddr, (encodedImages: IMAGES) := attrs
+  [ print "Raceboat client sending post request with hashtag " hashtag ]
+  .
+
+--- Handle an encoding response.
+op handleFragEncoding : AttributeSet Msg -> AttributeSetMsgs .
+--- Handle an encoding response, no match.
+eq handleFragEncoding(attrs, (to cmcAddr from edAddr : encR(image)))
+  = {attrs, null}
+  [owise print "Error: Raceboat client did not expect message." ]
+  .
+
+ceq handleFragEncoding((attrs,
+                        numPendingImages: s n,
+                        encodedImages: IMAGES,
+                        w4c: (to edAddr from cmcAddr : encQ(efrag))),
+                  (to cmcAddr from edAddr : encR(image)))
+  = (if n == 0
+      then sendPostRequest(attrsTrans, cmcAddr)
+      else requestMediaEncode(attrsTrans, cmcAddr)
+    fi)
+  if attrsTrans := (attrs,
+                    numPendingImages: n,
+                    encodedImages: (IMAGES :: image),
+                    w4c: null)
+  [ print "Raceboat client handling fragment encoding, " n " left. "]
+  .
+
+*****HERE
+--- ht := bHashtag(cur); inc  ctr mod k
+--- msg = (to mcAddr from cmcAddr : fetchQ(ht))
+--- w4c: null >> w4c(msg)
+---- drop msg if w4c, replyTo not null
+op crcvActionQ : AttributeSet String Msg  -> AttributeSetMsgs . 
+
+ceq crcvActionQ(attrs, str, msg) = {attrs,msgs}
+if (to cmcAddr from umAddr : actionQ(ract)) := msg
+/\ msgs := (to umAddr from cmcAddr : actionR("notRecognized"))
+ [owise print "Raceboat client failing to match action " attrs ] .
+**** Do we need to check replyTo null to reply failure?
+
+ceq crcvActionQ(attrs,"download",
+                (to cmcAddr from umAddr : actionQ(ract)))
+     = {attrs2, msg}
+if attrs0, (w4c: null), (replyTo: null) := attrs
+/\ attrs1, mcAddress: mcAddr := attrs
+/\ ht := getBHashtag(attrs)
+/\ msg0 := (to mcAddr from cmcAddr : fetchQ(ht) )
+/\ msg := (to mcAddr from cmcAddr : 
+                translateFetchQ(fetchQ(ht))) 
+/\ attrs2 := attrs0, (w4c: msg0),  
+             replyTo: (to cmcAddr from umAddr : actionQ(ract))
+.
+
+ceq crcvActionQ((attrs,
+                  (numPendingImages: n),
+                  (encodedImages: IMAGES),
+                  (replyTo: null)),
+                "media",
+                (to cmcAddr from umAddr : actionQ(ract)) )
+  = requestMediaEncode(attrsTrans, cmcAddr)
+    if n0 := getNumImages(ract)
+    /\ attrsTrans := getNextEncodedFrag(attrs),
+                        (numPendingImages: n0),
+                        (encodedImages: nilBS),
+                 (replyTo: (to cmcAddr from umAddr : actionQ(ract)))
+    [ print "Raceboat client getting media action for " n0 " pending images." ]
+  .
+
+op getNumImages : Map{String,JV} -> Nat .
+eq getNumImages(("numImages" |-> jn(n), ract)) =  n .
+eq getNumImages(ract) = 1 [owise] .
+
+
+op crcvCapR : AttributeSet Msg -> AttributeSetMsgs .
+ ---- if w4c(capR) then gen frag, 
+ ----  call reqEnc
+ ----  ow msgs = null, attrs unchanged
+ 
+----- assume this only happens if postingWeird: true 
+eq crcvCapR(attrs,msg) = {attrs,null} [owise] .
+
+ceq crcvCapR(attrs,(to cmcAddr from edAddr : capR(cap)))
+    = {attrs1,msg}
+if w4c: (to edAddr from cmcAddr : capQ(n0)), 
+   pendingFiles: (efile :: efilel), 
+   currentFrags: efrag(efile,tot,ix,n0),  
+   attrs0  := attrs
+/\ l := min(cap,n0)
+/\ efrag0 := efrag(efile,tot + l,ix,l)
+/\ n1 := (if cap < n0 
+                then n0 + (- cap)
+                else 0 fi)
+/\ efrag1 := efrag(efile,tot + l,s ix,n1)
+/\ msg := (to edAddr from cmcAddr : encQ(efrag0))
+/\ attrs1 := attrs0,  w4c: msg,
+        pendingFiles: (efile :: efilel) ,
+        currentFrags: efrag1
+.        
+
+op crcvEncR : AttributeSet Msg -> AttributeSetMsgs .
+
+eq crcvEncR(attrs,msg) = {attrs,null}
+  [owise print "Error: Raceboat client did not expect msg " msg ]
+  .
+
+eq crcvEncR(attrs, msg) = handleFragEncoding(attrs, msg) .
+
+
+
+---- remove matching req from w4c if any
+---- send status to replyTo umAddr and clear replyTo if pending
+---- If there is not a matching w4c, just drop.
+op crcvMCResponse : AttributeSet  Msg ->
+                   AttributeSetMsgs . 
+----- generic response w4 fetch or no w4
+----- any response with no w4                   
+eq crcvMCResponse(attrs, msg) = {attrs,null} [owise] .
+
+---- waiting for tootQ/Post ack
+--- Clear context.
+eq crcvMCResponse((attrs,
+          (w4c: (to mcAddr from cmcAddr : tootQ(ht, IMAGES))),
+          (replyTo: (to cmcAddr from umAddr : c1:Content))),
+         (to cmcAddr from mcAddr :
+           mkRequestResponse(str)))
+  = { moveToNextFrag(resetTxState(attrs,
+                     (w4c: null), (replyTo: null))),
+     (to umAddr from cmcAddr : actionR("ok")) }
+  [ print "Raceboat client handling response, ready for next action." ]
+  .
+
+---- waiting for fetch/get results ???? should not happen?
+ceq crcvMCResponse(attrs,
+                  (to cmcAddr from mcAddr : 
+                       ResponseMediaList(tag,mediaFileList) ))
+  = {attrs1,msg}
+if attrs0, (w4c: (to mcAddr from cmcAddr : fetchQ(ht))),
+          (replyTo: (to cmcAddr from umAddr : c1:Content))
+   := attrs
+/\ attrs1 := attrs0, (w4c: null), (replyTo: null)
+/\ msg := (to umAddr from cmcAddr : actionR("ok"))
+.
+
+
+endm  
+eof
+
+sload ../tgen/maude/mas-mamodel
+mod CM-SENDER-AUX-TEST is
+  inc CONTENT-MANAGER-SENDER-AUX . 
+  inc MAS-MAMODEL .
+
+
+ops edAd mcAd sndAd : -> Address .
+op CMSendAtts : -> AttributeSet .
+eq CMSendAtts = mkCMSenderAttrs(edAd,mcAd,smdAd, "snd0") .
+
+
+endm  
+eof
+
+
+red initHashtagAttrs("snd0") .
+red CMSendAtts .
+
+set print attribute on .
+
