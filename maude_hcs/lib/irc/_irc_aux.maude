@@ -1,5 +1,6 @@
 
-sload ./common/_aux
+**** sload ./common/_aux
+sload common/irc_name.maude
 
 mod IRC_AUX is
   pr CONVERSION .
@@ -11,7 +12,7 @@ mod IRC_AUX is
   --- Res: Server -> Client
   --- We need 2 types because their size on the wire is different.
   --- IRC Priv Msg Req   Dest    SourceUser  Text
-  ---              Dest    SourceUser  Text
+  ---             Dest    SourceUser  Text
   op PrivMsgReq : IrcName IrcUserName String -> IrcMsg .
   op PrivMsgRes : IrcName IrcUserName String -> IrcMsg .
   --- Message to join a channel.
@@ -56,7 +57,7 @@ mod IRC_AUX is
   --- 109 + len(room_name) + len(msg) where, for example:
   --- room_name is "#room1"
   --- msg is "hello"
-  eq getSize(PrivMsgReq(makeIrcName(makeIrcChannelName(CHANNEL_NAME:String)),
+  eq getSize(PrivMsgReq(makeIrcChannelName(CHANNEL_NAME:String),
                         makeIrcUserName(SRC:Address),
                         TEXT:String))
     = 109 + length(CHANNEL_NAME:String) + length(TEXT:String)
@@ -65,11 +66,18 @@ mod IRC_AUX is
   --- room_name is "#room1"
   --- msg is "hello"
   --- prefix is "client1!~client1@localhost"
-  eq getSize(PrivMsgReq(makeIrcName(makeIrcChannelName(CHANNEL_NAME:String)),
+  eq getSize(PrivMsgRes(makeIrcChannelName(CHANNEL_NAME:String),
                         makeIrcUserName(SRC:Address),
                         TEXT:String))
     = 110 + length(CHANNEL_NAME:String) + length(TEXT:String)
   .
+**** CLT guess -- replace 10 by address size
+  eq getSize(PrivMsgRes(makeIrcUserName(DST:Address),
+                        makeIrcUserName(SRC:Address),
+                        TEXT:String))
+    = 110 + 10 + length(TEXT:String) 
+  .
+
   eq getSize(Ping(IRC_USER_NAME:IrcUserName, DEST:Address)) = 117 .
   eq getSize(Pong(IRC_USER_NAME:IrcUserName, DEST:Address)) = 116 . 
   --- [Gemini]

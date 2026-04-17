@@ -156,16 +156,57 @@ eq decrypt(bytes, key(j,k)) = noBytes [owise] .
 ****       file len 
 op hash : ByteSeq Nat -> ByteSeq .
 
+op getId : ByteSeq -> Nat .
+eq getId(bytes) = 0 [owise] .
+
+eq getId(efile(id,n,j,k)) = id .
+eq getId(file(id,n)) = id .
+eq getId(text(id,n)) = id .
+eq getId(key(id,n)) = id .
+
+***(
+getSize defined for
+hashTag
+hash(file:ByteSeq)
+ccFile
+ackFile
+image
+getSize equated explicitly to nbytes for missing cases
+
+nbytes defined for
+noBytes
+key(j,k)
+file(id,n)
+ccFile >> getSize
+text(id,n)
+efile(id,n,j,k)
+hash(file(id,n),k)
+hash(bytes,k)
+efrag(bytes,last,ix,l)
+image(j,n,k)
+)
+
 **** computing len/size of ByteSeq terms
 op nbytes : ByteSeq -> Nat .
 
 eq nbytes(noBytes) = 0 .
 eq nbytes(key(j,k)) = k .
 eq nbytes(file(id,n)) = n .
+
+
 eq nbytes(ccFile(key:Nat, hash:Nat, hashtag:String)) = getSize(ccFile(key:Nat, hash:Nat, hashtag:String)) .
 eq nbytes(text(id,n)) = n .
 
 op getSize : ByteSeq -> Nat .
+**** reducing to nbytes 
+eq getSize(noBytes) = nbytes(noBytes) .
+eq getSize(key(j,k)) = nbytes(key(j,k)) .
+eq getSize(file(id,n)) = nbytes(file(id,n)) .
+eq getSize(text(id,n)) = nbytes(text(id,n)) .
+eq getSize(efile(id,n,j,k)) = nbytes(efile(id,n,j,k)) .
+eq getSize(efrag(bytes,last,ix,l)) 
+         = nbytes(efrag(bytes,last,ix,l)) .
+
 --- TODO: Change when hashtags are strings.
 ---eq getSize(wHashTag(index:Nat)) = 2 .
 eq getSize(hashTag(hashtag:String)) = length(hashtag:String) .
@@ -180,7 +221,7 @@ eq getSize(ccFile(key(index:Nat, keySize:Nat), hash(FILE:ByteSeq, hashSize:Nat),
   keySize:Nat + hashSize:Nat + 2
   .
 eq getSize(ackFile(status:String, hashtag:ByteSeq)) = length(status:String) + getSize(hashtag:ByteSeq) .
-eq getSize(image(fragNum:Nat, cap:Nat, size:Nat)) = size:Nat .
+eq getSize(image(fragNum:Nat, size:Nat, cap:Nat)) = size:Nat .
 
 --- Get a filename.
 op getFilename : ByteSeq -> String .
@@ -232,6 +273,7 @@ eq getFragmentNumber(image(fragNum:Nat, cap:Nat, size:Nat)) = fragNum:Nat .
 op encOH : Nat Nat -> Nat .
 eq nbytes(efile(id,n,j,k))  = n + encOH(n,k) .
 eq nbytes(hash(file(id,n),k)) = k .
+eq nbytes(hash(bytes,k)) = k [owise].
 
 ****  efile fragment constructor
 ***(  
@@ -285,7 +327,7 @@ eq isWeird(encode(img:ByteSeq, noBytes, bpf, nf, d1)) = false .
 eq isWeird(encodedImg:ByteSeq) = true [owise] .
 
 eq nbytes(encode(image(j,n,k),
-         efrag(efile(id,n1,j1,k1),n0,ix,l),bpf,nf,d1))
+         efrag(efile,n0,ix,l),bpf,nf,d1))
      =  n + bloat(n,k,l) .
 
 **** bloat(k,n,l) is the increase in size of an image of
@@ -298,7 +340,7 @@ eq bloat(n,k,l) = 0 [owise] .
 op imageId : ByteSeq -> Nat .
 eq imageId(image(j,n,k)) = j .
 eq imageId(encode(image(j,n,k),
-         efrag(efile(id,n1,j1,k1),n0,ix,l),bpf,nf,d))
+                   efrag(efile,n0,ix,l),bpf,nf,d))
      = j .
 eq imageId(bytes)  = 0 [owise] .
 
