@@ -49,13 +49,6 @@ mod MASTODON_NODE is
   pr URLS .
   pr MC-INTERFACE .
 
-  --- A client Program Counter operation.
-  sorts Op .
-  subsort String < Op .
-  --- A client Program Counter.
-  sorts OpStack .
-  subsort Op < OpStack .
-
   --- ----------
   --- [Messages]
   --- ----------
@@ -77,23 +70,7 @@ mod MASTODON_NODE is
   ---   A json-formatted response of posts
   ---     For POST request, post will include new media or status Id
   ---     For GET request, post will include a list of posts with attachment urls
-  sorts HttpMsg HttpRequest HttpResponse .
-  sorts GetRequest PostRequest .
 
-  --- Tell Maude this is compatible with being a message.
-  subsorts HttpRequest HttpResponse < Content .
-  subsort HttpMsg < Msg .
-
-  op postRequest  : -> PostRequest .
-  op getRequest : -> GetRequest .
-
-  op makeHttpMsg : HttpRequest Address Address -> HttpMsg .
-  eq makeHttpMsg(httpRequest, toAddr, fromAddr) =
-    (to toAddr from fromAddr : httpRequest) .
-
-  op makeHttpMsg : HttpResponse Address Address -> HttpMsg .
-  eq makeHttpMsg(httpResponse, toAddr, fromAddr) =
-    (to toAddr from fromAddr : httpResponse) .
   --- Create an HTTP Request to download a file by Url.
   op makeHttpRequest : GetRequest Url -> HttpRequest .
   --- Create an HTTP Request to download a file by Mastodon Id.
@@ -125,10 +102,6 @@ mod MASTODON_NODE is
   vars httpMsg HTTP_MSG : HttpMsg .
   vars httpRequest HTTP_REQUEST : HttpRequest .
   vars httpResponse HTTP_RESPONSE : HttpResponse .
-
-  op emptyOpStack : -> OpStack [ctor] .
-  op _:_ : OpStack OpStack -> OpStack [ctor assoc id: emptyOpStack] .
-  op nilOp : -> Op .
 
   --- Op strings ---
   op GET-STATUS-OP : -> Op .
@@ -222,22 +195,6 @@ mod MASTODON_NODE is
     .
 
   --- Eqs ---
-  ----- For Messages -----
-  op getSrcAddr : HttpMsg -> Address .
-  eq getSrcAddr(makeHttpMsg(HTTP_REQUEST, TO-ADDR, FROM-ADDR)) = FROM-ADDR .
-  eq getSrcAddr(makeHttpMsg(HTTP_RESPONSE, TO-ADDR, FROM-ADDR)) = FROM-ADDR .
-  eq getSrcAddr((to TO-ADDR from FROM-ADDR : HTTP_REQUEST)) = FROM-ADDR .
-  eq getSrcAddr((to TO-ADDR from FROM-ADDR : HTTP_RESPONSE)) = FROM-ADDR .
-
-  op getHttpResponse : HttpMsg -> HttpResponse .
-  eq getHttpResponse(makeHttpMsg(HTTP_RESPONSE, TO-ADDR, FROM-ADDR)) = HTTP_RESPONSE .
-  eq getHttpResponse((to TO-ADDR from FROM-ADDR : HTTP_RESPONSE)) = HTTP_RESPONSE .
-
-  op getHttpRequest : HttpMsg -> HttpRequest .
-  eq getHttpRequest(makeHttpMsg(HTTP_REQUEST, TO-ADDR, FROM-ADDR)) = HTTP_REQUEST .
-  eq getHttpRequest((to TO-ADDR from FROM-ADDR : HTTP_REQUEST)) = HTTP_REQUEST .
-
-
   ----- For Client attributes -----
   op getThisAddr : AttributeSet -> Address .
   eq getThisAddr(masClAttrs, thisAddr: MAS_CLIENT_ADDR) = MAS_CLIENT_ADDR .
@@ -270,25 +227,15 @@ mod MASTODON_NODE is
   eq peekOp(masClAttrs, opStack: (CURRENT_OP : OP_STACK)) = CURRENT_OP .
   eq peekOp(masClAttrs) = nilOp [owise] .
 
-  op peekOp : OpStack -> Op .
-  eq peekOp((CURRENT_OP : OP_STACK)) = CURRENT_OP .
-  eq peekOp(emptyOpStack) = nilOp [owise] .
-
   op popOp : AttributeSet -> AttributeSet .
   eq popOp(masClAttrs, opStack: (CURRENT_OP : OP_STACK)) = (masClAttrs, opStack: OP_STACK) .
   eq popOp(masClAttrs, opStack: emptyOpStack) = (masClAttrs, opStack: emptyOpStack) .
-
-  op popOp : OpStack -> OpStack .
-  eq popOp(CURRENT_OP : OP_STACK) = OP_STACK .
 
   op pushOp : AttributeSet Op -> AttributeSet .
   eq pushOp((masClAttrs, opStack: OP_STACK), CURRENT_OP) = (masClAttrs, opStack: (CURRENT_OP : OP_STACK)) .
 
   op pushOp : AttributeSet OpStack -> AttributeSet .
   eq pushOp((masClAttrs, opStack: currentOpStack), OP_STACK) = (masClAttrs, opStack: (currentOpStack : OP_STACK)) .
-
-  op pushOp : OpStack Op -> OpStack .
-  eq pushOp(OP_STACK, CURRENT_OP) = (CURRENT_OP : OP_STACK) .
 
   op popMediaIdList : MasIdList -> MasIdList .
   eq popMediaIdList(postId : MAS_ID_LIST) = MAS_ID_LIST .
@@ -733,17 +680,11 @@ mod MASTODON_NODE is
   --- Server functions
   --------------------
   --- Handle an HTTP Msg request from a client.
-  op handleRequest : HttpMsg AttributeSet -> AttributeSetMsgs .
-  eq handleRequest(HTTP_MSG, masServerAttrs) =
-    handleRequest(getSrcAddr(HTTP_MSG), getHttpRequest(HTTP_MSG), masServerAttrs)
-    .
-
   eq handleRequest((to MAS_SERVER_ADDR from MAS_CLIENT_ADDR : HTTP_REQUEST), masServerAttrs) =
     handleRequest(MAS_CLIENT_ADDR, HTTP_REQUEST, masServerAttrs)
     .
 
   --- Handle a request from a given address.
-  op handleRequest : Address HttpRequest AttributeSet -> AttributeSetMsgs .
   eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(postRequest, POST_TEXT, MAS_ID_LIST), masServerAttrs) =
     handleStatusPostRequest(MAS_CLIENT_ADDR, POST_TEXT, MAS_ID_LIST, masServerAttrs)
     .

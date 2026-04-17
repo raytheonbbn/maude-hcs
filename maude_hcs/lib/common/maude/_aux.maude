@@ -65,8 +65,96 @@ endfm
 mod CP2_SORTS is
   inc ACTOR-MODEL .
 
-  var msg : Config .
-  var Attrs : AttributeSet .
+  --- A client Program Counter operation.
+  sorts Op .
+  subsort String < Op .
+  --- A client Program Counter.
+  sorts OpStack .
+  subsort Op < OpStack .
+
+  vars fromAddr toAddr FROM-ADDR TO-ADDR : Address .
+  vars attrs : AttributeSet .
+  vars msg : Config .
+  vars currentOp CURRENT_OP : Op .
+  vars currentOpStack OP_STACK : OpStack .
+  vars HTTP_MSG : HttpMsg .
+  vars httpRequest HTTP_REQUEST : HttpRequest .
+  vars httpResponse HTTP_RESPONSE  : HttpResponse .
+
+  op emptyOpStack : -> OpStack [ctor] .
+  op _:_ : OpStack OpStack -> OpStack [ctor assoc id: emptyOpStack] .
+  op nilOp : -> Op .
+
+  op peekOp : OpStack -> Op .
+  eq peekOp((CURRENT_OP : OP_STACK)) = CURRENT_OP .
+  eq peekOp(emptyOpStack) = nilOp [owise] .
+
+  op popOp : OpStack -> OpStack .
+  eq popOp(CURRENT_OP : OP_STACK) = OP_STACK .
+
+  op pushOp : OpStack Op -> OpStack .
+  eq pushOp(OP_STACK, CURRENT_OP) = (CURRENT_OP : OP_STACK) .
+
+  --- HTTP Messages.
+  --- An HTTP request has:
+  --- A direction: GET, POST
+  ---   GETs have a type (url, statuses, media, search, timelines, etc.)
+  ---     Each type has different options
+  ---       Getting a file: url
+  ---       statuses: string of toot message
+  ---       timelines: hashtag, limit (optional)
+
+  ---   POSTs have a type (statuses, media, etc.)
+  ---     statuses: have a text, may have attachment Ids
+  ---     media: have an image
+
+
+  --- An HTTP response has:
+  ---   A status (OK, ACCEPTED, etc.)
+  ---   A json-formatted response of posts
+  ---     For POST request, post will include new media or status Id
+  ---     For GET request, post will include a list of posts with attachment urls
+  sorts HttpMsg HttpRequest HttpResponse .
+  sorts GetRequest PostRequest PutRequest DelRequest .
+
+  --- Tell Maude this is compatible with being a message.
+  subsorts HttpRequest HttpResponse < Content .
+  subsort HttpMsg < Msg .
+
+  op postRequest  : -> PostRequest .
+  op getRequest   : -> GetRequest .
+  op putRequest   : -> PutRequest .
+  op delRequest   : -> DelRequest .
+
+  op makeHttpMsg : HttpRequest Address Address -> HttpMsg .
+  eq makeHttpMsg(httpRequest, toAddr, fromAddr) =
+    (to toAddr from fromAddr : httpRequest) .
+
+  op makeHttpMsg : HttpResponse Address Address -> HttpMsg .
+  eq makeHttpMsg(httpResponse, toAddr, fromAddr) =
+    (to toAddr from fromAddr : httpResponse) .
+
+  ----- For Messages -----
+  op getSrcAddr : HttpMsg -> Address .
+  eq getSrcAddr(makeHttpMsg(HTTP_REQUEST, TO-ADDR, FROM-ADDR)) = FROM-ADDR .
+  eq getSrcAddr(makeHttpMsg(HTTP_RESPONSE, TO-ADDR, FROM-ADDR)) = FROM-ADDR .
+  eq getSrcAddr((to TO-ADDR from FROM-ADDR : HTTP_REQUEST)) = FROM-ADDR .
+  eq getSrcAddr((to TO-ADDR from FROM-ADDR : HTTP_RESPONSE)) = FROM-ADDR .
+
+  op getHttpResponse : HttpMsg -> HttpResponse .
+  eq getHttpResponse(makeHttpMsg(HTTP_RESPONSE, TO-ADDR, FROM-ADDR)) = HTTP_RESPONSE .
+  eq getHttpResponse((to TO-ADDR from FROM-ADDR : HTTP_RESPONSE)) = HTTP_RESPONSE .
+
+  op getHttpRequest : HttpMsg -> HttpRequest .
+  eq getHttpRequest(makeHttpMsg(HTTP_REQUEST, TO-ADDR, FROM-ADDR)) = HTTP_REQUEST .
+  eq getHttpRequest((to TO-ADDR from FROM-ADDR : HTTP_REQUEST)) = HTTP_REQUEST .
+
+  op handleRequest : HttpMsg AttributeSet -> AttributeSetMsgs .
+  eq handleRequest(HTTP_MSG, attrs) =
+    handleRequest(getSrcAddr(HTTP_MSG), getHttpRequest(HTTP_MSG), attrs)
+    .
+
+  op handleRequest : Address HttpRequest AttributeSet -> AttributeSetMsgs .
 
   op nullMsg : -> Msg .
 
@@ -79,13 +167,13 @@ mod CP2_SORTS is
   op `{_`,_`} : AttributeSet AttributeSet -> AttributeSetPair [ctor] .
   ---
   op concatenate : AttributeSetMsgs Nat -> AttributeSetMsgsNat .
-  eq concatenate({Attrs, msg}, n:Nat) = {Attrs, msg, n:Nat} .
+  eq concatenate({attrs, msg}, n:Nat) = {attrs, msg, n:Nat} .
 
   op getAttributes : AttributeSetMsgs -> AttributeSet .
-  eq getAttributes({Attrs, msg}) = Attrs .
+  eq getAttributes({attrs, msg}) = attrs .
 
   op getMessage : AttributeSetMsgs -> Msg .
-  eq getMessage({Attrs, msg}) = msg .
+  eq getMessage({attrs, msg}) = msg .
 endm
 
 ---- @CHRIS: does this belong under app/?
