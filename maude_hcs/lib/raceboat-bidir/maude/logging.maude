@@ -1,0 +1,92 @@
+set show advisories off .
+
+sload ../../../deps/dns_formalization/Maude/common/actor
+sload ../../../deps/dns_formalization/Maude/common/apmaude
+
+
+mod LOGGING is
+  inc ACTOR-MODEL .
+  inc SCHEDULER .
+  
+***(
+  op ept : -> AddrSet [ctor] .
+  op _;;_ : AddrSet AddrSet -> AddrSet 
+      [ctor comm assoc id: ept] .
+)  
+**** from Adversary  
+  vars attrs attrs1 : AttributeSet .
+  vars tml tml1 : TimeMsgList .
+  vars tmsg : TimeMsg .
+  vars SL  : ScheduleList .
+  vars M1 M2 : Msg .
+  vars GT t1 : Float .
+  vars addr addr0 addr1 : Address .
+  vars addrs : AddrSet .
+  vars AC : ActorConfig .
+      
+  ***(
+   IRC client log [clientAddr]
+     sent T,msg  (to rbS nd from ircC ircMsg)
+     rcv T,msg  (to ircC from rbRcv : ircMsg)
+  Note  PrivMsgReq (pars) = PrivMsgRsp (pars)
+  )
+
+  sorts TimeMsg TimeMsgList .
+  subsort TimeMsg < TimeMsgList .
+  op nilTML : -> TimeMsgList [ctor] .
+  op _;_ : TimeMsgList TimeMsgList -> TimeMsgList
+           [ctor assoc id: nilTML] .
+  op tm : Float Msg -> TimeMsg [ctor] .
+
+  op MsgLog : -> ActorType .
+
+  op sent:_ : TimeMsgList -> Attribute [ctor] .
+  op rcvd:_ : TimeMsgList -> Attribute [ctor] .
+  op toLog:_ : AddrSet -> Attribute [ctor] .
+  
+  op addSent : AttributeSet TimeMsg -> AttributeSet .
+  eq addSent((attrs,sent: tml),tmsg) 
+       = (attrs,sent: (tml ; tmsg)) .
+  eq addSent(attrs,tmsg) = attrs [owise] .
+
+  op addRcvd : AttributeSet TimeMsg -> AttributeSet .
+  eq addRcvd((attrs,rcvd: tml),tmsg) 
+       = (attrs,rcvd: (tml ; tmsg)) .
+  eq addRcvd(attrs,tmsg) = attrs [owise] .
+
+****** logging eqns
+  --- send time insert a schedule msg to the scheduler
+  eq [ t1, M1, 0 ] {GT | SL}
+     < addr : MsgLog | attrs >
+  = insert({GT | SL}, [ t1, M1, 0 ]) 
+     < addr : MsgLog | logSent(attrs,GT,M1) >  .
+ 
+  ---- Receive Time
+  eq step(AC < addr : MsgLog | attrs > 
+          {GT | [ t1 , M1, 0 ] ; SL}) 
+   = { t1 , M1 } AC 
+  < addr : MsgLog | logRcvd(attrs,t1,M1) > 
+  {t1 | SL} 
+    .
+
+  op logSent : AttributeSet Float Msg -> AttributeSet .
+ ceq logSent(attrs,GT,M1) = addSent(attrs,tm(GT,M1))
+  if (to addr0 from addr1 : c:Content) := M1
+  /\ addr0 =/= addr1
+  /\ attrs1, (toLog: (addrs ;; addr1)) := attrs 
+   .
+ eq logSent(attrs,GT,M1) = attrs [owise] .
+
+**** collected at receive time
+  op logRcvd : AttributeSet Float Msg -> AttributeSet .
+ ceq logRcvd(attrs,GT,M1) = addRcvd(attrs,tm(GT,M1))
+  if (to addr0 from addr1 : c:Content) := M1
+  /\ addr0 =/= addr1
+  /\ attrs1, (toLog: (addrs ;; addr0)) := attrs 
+   .
+ eq logRcvd(attrs,GT,M1) = attrs [owise] .
+  
+
+
+
+endm  

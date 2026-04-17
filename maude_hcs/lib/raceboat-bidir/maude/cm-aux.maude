@@ -1,0 +1,145 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set show advisories off .
+
+sload ../../common/maude/byteseq.maude
+sload ../../../deps/dns_formalization/Maude/common/actor.maude
+
+**** sload ../../../deps/dns_formalization/Maude/dns/probabilistic-model/parameters.maude
+
+sload ../../common/maude/_aux.maude  ---- AttributeSetMsgs
+sload ../../common/maude/cp2-interfaces
+sload cp3-hashtag-manager
+
+---- {attrs,conf} defined in lib/.../common/_aux.maude
+mod CONTENT-MANAGER is
+  inc BYTESEQ .
+  inc ACTOR-MODEL .
+  inc HASHTAG-MANAGER .
+
+
+vars cmcAddr cmsAddr edAddr mcAddr senderAddr receiverAddr
+     addr : Address .
+vars str : String .
+vars attrs : AttributeSet .
+
+  
+ops CMSender CMReceiver  : -> ActorType .
+
+**** Attributes
+op pendingFiles:_ : ByteSeqL -> Attribute [ctor] .
+op currentFrags:_   : ByteSeqL -> Attribute [ctor] .
+--- The number of images that have still to be encoded in the batch.
+op numPendingImages:_ : Nat -> Attribute [ctor] .
+--- The encoded images to be sent as a batch.
+op encodedImages:_ : ByteSeqL -> Attribute [ctor] .
+
+op edAddress:_  : Address -> Attribute [ctor] .
+op mcAddress:_ : Address -> Attribute [ctor] .
+op senderAddress:_  : Address -> Attribute [ctor] .
+op receiverAddress:_  : Address -> Attribute [ctor] .
+op w4c:_ : Config -> Attribute [ctor] . ---msg or null
+op replyTo:_ : Config -> Attribute [ctor] . ---- ""
+
+---- clt added 
+op cachedTag:_ : ByteSeqL -> Attribute [ctor] .
+op postingWeird:_ : Bool -> Attribute [ctor] .
+--- The time the last exfil file (contract) was received in Raceboat.
+--- It must be at least 5s before the next POST opportunity.
+op weirdFileRcvTime:_ : Float -> Attribute [ctor] .
+
+
+**********  CM SENDER
+
+---             Destini MasClient  HashTagMgr
+op mkCMSenderAttrs : Address Address Address String  -> AttributeSet .
+eq mkCMSenderAttrs(edAddr, mcAddr,senderAddr, str) =
+     initHashtagAttrs(str),
+     pendingFiles: nilBS,
+   --- The number of images to send via media post, done if 0.
+     numPendingImages: 0,
+   --- The accumulating encoded images to batch send to Mastodon.
+     encodedImages: nilBS,
+     currentFrags: nilBS,
+     edAddress: edAddr,
+     mcAddress: mcAddr,
+     senderAddress: senderAddr,
+     postingWeird: false, 
+     weirdFileRcvTime: 0.0 ,
+     cachedTag: nilBS,
+     w4c: null,
+     replyTo: null
+.
+
+---             This   Destini MastodonC Sender  Hashtag
+op mkCMSender : Address Address Address Address  String -> Actor .
+eq mkCMSender(cmcAddr, edAddr, mcAddr, senderAddr, str) =
+< cmcAddr : CMSender | 
+  mkCMSenderAttrs(edAddr, mcAddr, senderAddr, str) > .
+
+
+**********  CM RECEIVER
+
+---          Destini  MastodonClient  Bob   
+op mkCMReceiverAttrs : Address Address Address String
+                 -> AttributeSet .
+eq mkCMReceiverAttrs(edAddr,mcAddr,receiverAddr,str) =
+   initHashtagAttrs(str),
+   pendingFiles: nilBS,
+   currentFrags: nilBS,
+   edAddress:  edAddr,
+   mcAddress: mcAddr,
+   receiverAddress: receiverAddr,
+   w4c: null,
+   replyTo: null
+ .
+ 
+ op getReceiverAddress : AttributeSet -> Address .
+ eq getReceiverAddress(attrs, receiverAddress: addr)
+    = addr .
+ eq getReceiverAddress(attrs) = nullAddr [owise] .
+
+
+op mkCMReceiver : Address Address Address Address String
+                -> Actor .
+eq mkCMReceiver(cmsAddr, edAddr,mcAddr,receiverAddr,str) =
+  < cmsAddr : CMReceiver | 
+  mkCMReceiverAttrs(edAddr,mcAddr,receiverAddr,str)  >
+ .
+ 
+
+endm
+
+
+eof
+
+
+
