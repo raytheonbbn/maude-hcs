@@ -1,0 +1,170 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+
+sload ./s3store
+
+mod BUCKETS is
+  pr STRING .
+  pr S3STORE .
+
+  sorts Bucket NamedBucket BucketMap .
+  sorts BucketProperty .
+  subsort NamedBucket < BucketMap .
+
+  op nilBucket : -> Bucket .
+
+  op _~>(_ , _) : String BucketProperty S3StoreMap -> NamedBucket .
+  op emptyBucketMap : -> BucketMap [ctor] .
+  op _:_ : BucketMap BucketMap -> BucketMap [ctor assoc comm id: emptyBucketMap] .
+
+  vars data DATA : ByteSeq .
+  vars BUCKET_MAP BUCKET_MAP_RIGHT BUCKET_MAP_LEFT bucketMap newBucketMap : BucketMap .
+  vars BUCKET_PROPERTY NEW_BUCKET_PROPERTY : BucketProperty .
+  vars NAMED_BUCKET namedBucket : NamedBucket .
+  vars s3Store S3_STORE : S3StoreMap .
+  vars bucket_property BUCKET_NAME bucketName UUID : String .
+
+  op writeable : -> BucketProperty .
+  op readable :  -> BucketProperty .
+  op bucketProperty : String -> BucketProperty [ctor] .
+
+  op getBucketPropertyAsString : BucketProperty -> String .
+  eq getBucketPropertyAsString(bucketProperty(bucket_property))
+    = bucket_property
+  .
+  eq getBucketPropertyAsString(BUCKET_PROPERTY)
+    = "" [owise]
+  .
+
+  --- Check if bucket is writeable.
+  op isWriteable : BucketProperty -> Bool .
+  eq isWriteable(bucketProperty(bucket_property))
+    = find(bucket_property, "w", 0) =/= notFound
+  .
+  --- Check if bucket is readable.
+  op isReadable : BucketProperty -> Bool .
+  eq isReadable(bucketProperty(bucket_property))
+    = find(bucket_property, "r", 0) =/= notFound 
+  .
+  --- Make bucket writeable.
+  op makeWriteable : BucketProperty -> BucketProperty .
+  eq makeWriteable(BUCKET_PROPERTY)
+    = (if isWriteable(BUCKET_PROPERTY)
+        then BUCKET_PROPERTY
+        else bucketProperty(getBucketPropertyAsString(BUCKET_PROPERTY) + "w")
+      fi)
+  .
+  --- Make bucket readable.
+  op makeReadable : BucketProperty -> BucketProperty .
+  eq makeReadable(BUCKET_PROPERTY)
+    = (if isReadable(BUCKET_PROPERTY)
+        then BUCKET_PROPERTY
+        else bucketProperty(getBucketPropertyAsString(BUCKET_PROPERTY) + "r")
+      fi)
+  .
+  ---               Map       Name    Property
+  op insertBucket : BucketMap String  BucketProperty -> BucketMap .
+  eq insertBucket((BUCKET_MAP_LEFT
+                    : (bucketName ~> (BUCKET_PROPERTY, S3_STORE))
+                    : BUCKET_MAP_RIGHT),
+                  bucketName,
+                  NEW_BUCKET_PROPERTY)
+    = BUCKET_MAP_LEFT : (bucketName ~> (BUCKET_PROPERTY, S3_STORE)) : BUCKET_MAP_RIGHT
+    [ print "Error: Cannot insert bucket " bucketName ", already present." ]
+  .
+  eq insertBucket(BUCKET_MAP, bucketName, NEW_BUCKET_PROPERTY)
+    = BUCKET_MAP : (bucketName ~> (NEW_BUCKET_PROPERTY, emptyS3StoreMap)) [owise]
+  .
+
+  --- There is no support for deleting a bucket (it does not happen in runtime).
+
+  --- Checks if data is puttable at a bucket.
+  ---                 BucketMap BucketName
+  op isDataPuttable : BucketMap String -> Bool .
+  eq isDataPuttable((BUCKET_MAP_LEFT
+                      : (bucketName ~> (BUCKET_PROPERTY, s3Store))
+                      : BUCKET_MAP_RIGHT),
+                    bucketName)
+    = isWriteable(BUCKET_PROPERTY)
+  .
+  eq isDataPuttable(bucketMap, bucketName) = false [owise] .
+
+  ---           BucketMap BucketName  UUID    Data
+  op putData :  BucketMap String      String  ByteSeq -> BucketMap .
+  ceq putData(bucketMap, bucketName, UUID, DATA) = newBucketMap
+    if (BUCKET_MAP_LEFT
+         : (bucketName ~> (BUCKET_PROPERTY, s3Store))
+         : BUCKET_MAP_RIGHT)
+        := bucketMap
+      /\ newBucketMap :=
+          (if isWriteable(BUCKET_PROPERTY)
+            then (BUCKET_MAP_LEFT
+                    : (bucketName ~> (BUCKET_PROPERTY, insertS3Object(s3Store, UUID, DATA)))
+                    : BUCKET_MAP_RIGHT)
+            else bucketMap
+          fi)
+    .
+  eq putData(bucketMap, bucketName, UUID, DATA) = bucketMap [owise] .
+
+  ---           BucketMap BucketName  UUID
+  op getData :  BucketMap String      String -> ByteSeq .
+  ceq getData(bucketMap, bucketName, UUID) = DATA
+    if (BUCKET_MAP_LEFT
+         : (bucketName ~> (BUCKET_PROPERTY, s3Store))
+         : BUCKET_MAP_RIGHT)
+        := bucketMap
+      /\ DATA :=
+          (if isReadable(BUCKET_PROPERTY)
+            then getData(s3Store, UUID)
+            else noBytes
+          fi)
+  .
+  eq getData(bucketMap, bucketName, UUID) = noBytes [owise] .
+
+  --- Delete an object at a UUID.
+  ---             BucketMap BucketName  UUID
+  op deleteData : BucketMap String      String -> BucketMap .
+  ceq deleteData(bucketMap, bucketName, UUID) = newBucketMap
+    if (BUCKET_MAP_LEFT
+         : (bucketName ~> (BUCKET_PROPERTY, s3Store))
+         : BUCKET_MAP_RIGHT)
+        := bucketMap
+    /\ newBucketMap :=
+      (if isWriteable(BUCKET_PROPERTY)
+          then (BUCKET_MAP_LEFT
+                  : (bucketName ~> (BUCKET_PROPERTY, deleteS3Object(s3Store, UUID)))
+                  : BUCKET_MAP_RIGHT)
+          else bucketMap
+      fi)
+  .
+  eq deleteData(bucketMap, bucketName, UUID) = bucketMap [owise] .
+endm
+

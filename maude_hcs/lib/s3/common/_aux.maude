@@ -1,0 +1,162 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../../common/maude/_aux
+sload ./bucket
+
+mod S3_NODE is
+  pr CP2_SORTS .
+  pr BUCKETS .
+
+  ---------------
+  --- [S3 Client]
+  ---------------
+  --- Attributes ---
+  op S3Client : -> ActorType [ctor] .
+  --- This agent's address.
+  op thisAddr:_ : Address -> Attribute [ctor] .
+
+
+  ---------------
+  --- [S3 Server]
+  ---------------
+  --- Attributes ---
+  op S3Server : -> ActorType [ctor] .
+  --- This agent's address.
+  --- op thisAddr:_ : Address -> Attribute [ctor] .
+  op buckets:_ : BucketMap -> Attribute [ctor] .  
+
+  vars agentAddr ADDR SRC_ADDR S3_CLIENT_ADDR S3_SERVER_ADDR : Address . 
+  vars attrs, attrsNext : AttributeSet .
+  vars bucketMap newBucketMap BUCKET_MAP : BucketMap .
+  vars data DATA : ByteSeq .
+  vars httpMsg HTTPS_MSG : HttpMsg .
+  vars status BUCKET_NAME PUT_TYPE UUID : String .
+
+  op makeS3Server : Address -> Actor .
+  eq makeS3Server(S3_SERVER_ADDR) =
+    < S3_SERVER_ADDR : S3Server |
+        thisAddr: S3_SERVER_ADDR,
+        buckets: emptyBucketMap
+    >
+  .
+
+  op getThisAddr : AttributeSet -> Address .
+  eq getThisAddr(attrs, thisAddr: ADDR) = ADDR .
+
+  op getBuckets : AttributeSet -> BucketMap .
+  eq getBuckets(attrs, buckets: BUCKET_MAP) = BUCKET_MAP .
+
+  op getData  : AttributeSet  String  String -> ByteSeq .
+  eq getData(attrs, BUCKET_NAME, UUID) = getData(getBuckets(attrs), BUCKET_NAME, UUID) .
+
+  ---             Attributes    BucketName  UUID
+  op deleteData : AttributeSet  String      String -> AttributeSet .
+  eq deleteData((attrs, buckets: bucketMap), BUCKET_NAME, UUID)
+    = (attrs, buckets: deleteData(bucketMap, BUCKET_NAME, UUID))
+  .
+
+  --- Make a get object HTTP request.
+  ---                   Request     BucketName  UUID
+  op makeHttpRequest  : GetRequest  String      String -> HttpRequest .
+  --- Make a put data request HTTP request.
+  ---                   Request     BucketName  UUID    Data
+  op makeHttpRequest  : PutRequest  String      String  ByteSeq -> HttpRequest .
+  --- Make a put data HTTP request.
+  --- Make a put policy HTTP request.
+  --- Make a delete object HTTP request.
+  op makeHttpRequest  : DelRequest  String      String -> HttpRequest .
+
+  --- Make an HTTP response for a get data request.
+  op makeHttpResponse : String    ByteSeq -> HttpResponse .
+  --- Make an HTTP response for a put request.
+  --- Make an HTTP response for a del data or put data request.
+  ---                   Status
+  op makeHttpResponse : String -> HttpResponse .
+
+  eq handleRequest(SRC_ADDR, makeHttpRequest(getRequest, BUCKET_NAME, UUID), attrs)
+    = handleGetRequest(SRC_ADDR, BUCKET_NAME, UUID, attrs)
+  .
+  eq handleRequest(SRC_ADDR, makeHttpRequest(putRequest, BUCKET_NAME, UUID, DATA), attrs)
+    = handlePutRequest(SRC_ADDR, BUCKET_NAME, UUID, DATA, attrs)
+  .
+  eq handleRequest(SRC_ADDR, makeHttpRequest(delRequest, BUCKET_NAME, UUID), attrs)
+    = handleDelRequest(SRC_ADDR, BUCKET_NAME, UUID, attrs)
+  .
+
+  ---                   Src     BucketName  UUID    Attributes
+  op handleGetRequest : Address String      String  AttributeSet -> AttributeSetMsgs .
+  ceq handleGetRequest(SRC_ADDR, BUCKET_NAME, UUID, attrs) =
+    {attrs, httpMsg}
+    if data := getData(getBuckets(attrs), BUCKET_NAME, UUID)
+      /\ status := (if data =/= noBytes
+                        then "104"
+                        else "404"
+                    fi)
+      /\ httpMsg := makeHttpMsg(makeHttpResponse(status, data),
+                                SRC_ADDR,
+                                getThisAddr(attrs))
+  .
+
+  ---                   Src     BucketName  UUID    Data    Attributes
+  op handlePutRequest : Address String      String  ByteSeq AttributeSet -> AttributeSetMsgs .
+  ceq handlePutRequest(SRC_ADDR, BUCKET_NAME, UUID, DATA, (attrs, buckets: bucketMap)) =
+    {(attrs, buckets: newBucketMap), httpMsg}
+    if newBucketMap := 
+        (if DATA =/= noBytes
+              then putData(getBuckets(attrs), BUCKET_NAME, UUID, DATA)
+              else bucketMap
+        fi)
+      --- Status needs to be a real check on whether something was written.
+      /\ status := (if DATA =/= noBytes
+                      then "100"
+                      else "Fail"
+                    fi)
+      /\ httpMsg := makeHttpMsg(makeHttpResponse(status),
+                                SRC_ADDR,
+                                getThisAddr(attrs))
+  .
+
+  ---                   Src     BucketName  UUID    Attributes
+  op handleDelRequest : Address String      String  AttributeSet -> AttributeSetMsgs .
+  ceq handleDelRequest(SRC_ADDR, BUCKET_NAME, UUID, (attrs, buckets: bucketMap))
+    = {(attrs, buckets: newBucketMap),
+        httpMsg}
+    if newBucketMap := deleteData(getBuckets(attrs), BUCKET_NAME, UUID)
+      /\ status := (if bucketMap =/= newBucketMap
+                        then "Fail"
+                        else "100"
+                    fi)
+      /\ httpMsg := makeHttpMsg(makeHttpResponse(status),
+                                SRC_ADDR,
+                                getThisAddr(attrs))
+  .
+
+endm

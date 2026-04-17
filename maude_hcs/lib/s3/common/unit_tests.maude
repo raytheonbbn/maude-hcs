@@ -1,0 +1,38 @@
+
+sload _aux
+
+mod S3_TEST is
+  pr S3_NODE .
+
+
+endm
+
+--- Test create object.
+red insertS3Object(emptyS3StoreMap, "e453") == "e453" ~> noBytes .
+
+--- Test no overwrite.
+red insertS3Object("e453" ~> noBytes, "e453", hashTag("data")) == "e453" ~> noBytes .
+
+--- Test insert object not already there.
+red insertS3Object(("e453" ~> noBytes), "123a", hashTag("data"))
+  == ("e453" ~> noBytes) : ("123a" ~> hashTag("data"))
+  .
+red deleteS3Object((("e453" ~> noBytes)
+                      : ("123a" ~> hashTag("data1")) 
+                      : ("8b99" ~> hashTag("data2"))),
+                   "e453")
+  == (("123a" ~> hashTag("data1")) : ("8b99" ~> hashTag("data2")))
+.
+red deleteS3Object((("e453" ~> noBytes)
+                      : ("123a" ~> hashTag("data1")) 
+                      : ("8b99" ~> hashTag("data2"))),
+                   "123a")
+  == (("e453" ~> noBytes)
+       : ("8b99" ~> hashTag("data2")))
+.
+red deleteS3Object((("e453" ~> noBytes)
+                      : ("123a" ~> hashTag("data1")) 
+                      : ("8b99" ~> hashTag("data2"))),
+                   "8b99")
+  == (("e453" ~> noBytes) : ("123a" ~> hashTag("data1")))
+.
