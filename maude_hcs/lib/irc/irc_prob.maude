@@ -33,6 +33,7 @@
 --- They send messages.
 --- After sending the last message, a client sits around for receiving messages.
 
+sload ./irc_monitor
 sload ./common/irc_name
 sload ./common/_aux
 sload ./common/app_chat
@@ -44,13 +45,16 @@ mod IRC is
   pr IRC_AUX .
   pr CP2-COMMON .
   pr APP_CHATS .
+  pr IRC_MONITOR .
 
   vars APP_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr  addr : Address .
+  vars monitorAddr : Address .
   vars channelClientAddrs : AddrList .
   vars appChatsMap : AppChatsMap .
-  vars attrs attrsTrans attrsTrans1 attrsNext : AttributeSet .
+  vars attrs attrsTrans attrsTrans1 attrsNext monitorAttrs monitorAttrsNext : AttributeSet .
   vars ircName  : IrcName .
   vars ircDestinationName  IRC_CLIENT_NAME : IrcUserName .
+  vars msgSentList msgRcvdList : MessageTimestampList .
   vars clientsMap CLIENTS_MAP : NameClientsMap .
   vars chatText ircDestination ircSource : String .
   vars T : Float . ---timestamp
@@ -61,9 +65,11 @@ mod IRC is
   --- Schedule the first app message.
   rl [irc-client-start]:
   < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: appChatsMap >
+  < monitorAddr : IrcMonitor | monitorAttrs >
     {T, (to IRC_CLIENT_ADDR : StartIrc)}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: popAppChat(appChatsMap) >
+  < monitorAddr : IrcMonitor | monitorAttrs >
     makeAppMsg(appChatsMap,
                IRC_CLIENT_ADDR,
                IRC_CLIENT_ADDR)
@@ -73,9 +79,11 @@ mod IRC is
   --- Handle app messages, send them to IRC server.
   rl [irc-client-handle-outgoing-chat]:
   < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: appChatsMap >
+  < monitorAddr : IrcMonitor | monitorAttrs, msgSent: msgSentList >
     {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : makeAppChat(ircName, chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: popAppChat(appChatsMap) >
+  < monitorAddr : IrcMonitor | monitorAttrs, msgSent: (msgSentList ; messageTimestamp(T, 1, ircName, stringHash(chatText))) >
     --- The client -> server delay will take about 2ms avg + 1.8ms std.
     delayMsgs((to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : PrivMsgReq(ircName, getIrcName(attrs), chatText)),
               null)
@@ -88,9 +96,11 @@ mod IRC is
   --- Handle IRC messages from the server.
   rl [irc-client-handle-incoming-chat]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
+  < monitorAddr : IrcMonitor | monitorAttrs, msgRcvd: msgRcvdList >
     {T, (to IRC_CLIENT_ADDR from rbAddr : PrivMsgRes(ircName, makeIrcUserName(ircSourceAddr), chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
+  < monitorAddr : IrcMonitor | monitorAttrs, msgRcvd: (msgRcvdList ; messageTimestamp(T, 1, ircName, stringHash(chatText))) >
 ---    delayMsgs((to getAppAddr(attrs) from IRC_CLIENT_ADDR : makeAppChat(makeIrcUserName(ircSourceAddr), chatText)), null)
     [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received chat " chatText " from " ircSourceAddr ]
   .
@@ -124,12 +134,18 @@ mod IRC is
   --- Handle incoming chat: forward to all users in the channel.
   crl [server-handle-incoming-chat]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
+  < monitorAddr : IrcMonitor | monitorAttrs, msgSent: msgSentList, msgRcvd: msgRcvdList >
     {T, (to IRC_SERVER_ADDR from rbAddr : 
          PrivMsgReq(ircName,
                     makeIrcUserName(ircSourceAddr),
                     chatText))}
   =>
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
+  < monitorAddr : IrcMonitor |
+      monitorAttrs,
+      msgSent: (msgSentList),
+      msgRcvd: (msgRcvdList ; messageTimestamp(T, 1, ircName, stringHash(chatText)))
+  >
     delayMsgs(msgs:Config, null)
     [IRC-STALE-DURATION-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(ircSourceAddr)), 0]
   if CLIENTS_MAP := getChannelMap(attrs)
