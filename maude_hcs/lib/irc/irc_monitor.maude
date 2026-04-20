@@ -1,0 +1,55 @@
+
+sload ./common/_aux
+
+mod IRC_MONITOR is
+  pr IRC_NODE .
+
+  op IrcMonitor : -> ActorType .
+
+  sorts MessageTimestamp MessageTimestampList .
+  subsorts MessageTimestamp < MessageTimestampList .
+  ---                   Irc Msg Time  Size  IrcDest Identifier
+  op messageTimestamp : Float Nat   IrcName Nat -> MessageTimestamp .
+  op nilMessageTimestamp : -> MessageTimestampList [ctor] .
+  op _;_ : MessageTimestampList MessageTimestampList -> MessageTimestampList [ctor assoc id: nilMessageTimestamp] .
+
+  op msgSent:_ : MessageTimestampList -> Attribute [format (nss d d)] .
+  op msgRcvd:_ : MessageTimestampList -> Attribute [format (nss d d)] .
+
+  op makeIrcMonitor : Address -> Actor .
+  eq makeIrcMonitor(monitorAddr:Address) =
+    < monitorAddr:Address : IrcMonitor |
+        msgSent: nilMessageTimestamp,
+        msgRcvd: nilMessageTimestamp
+    >
+.
+  
+  vars S : String .
+  vars H : Nat .
+
+  --- Public interface: stringHash("myString")
+  op stringHash : String -> Nat .
+  --- Internal worker: $hash(Remainder, CurrentHash)
+  op $hash : String Nat -> Nat .
+
+  --- Initialize with the DJB2 magic constant 5381
+  eq stringHash(S) = $hash(S, 5381) .
+
+  --- Base case: empty string returns the accumulated hash
+  eq $hash("", H) = H .
+
+  --- Recursive step:
+  **** (Hash * 33) + current character's ASCII value
+  eq $hash(S, H) = 
+    if length(S) == 0 then 
+      H 
+    else 
+      $hash(
+        substr(S, 1, length(S)), 
+        (H * 33) + ascii(substr(S, 0, 1))
+      )
+    fi
+  .
+
+endm
+
