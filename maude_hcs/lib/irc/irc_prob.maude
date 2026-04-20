@@ -35,6 +35,7 @@
 
 set show advisories off .
 
+sload ./irc_monitor
 sload ./common/irc_name
 sload ./common/_aux
 sload ./common/irc-msg-model
@@ -47,12 +48,17 @@ mod IRC is
   pr CP2-COMMON .
   inc IRC-MSG-MODEL .
   inc DELAY-X .
+  pr IRC_MONITOR .
 
   vars IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr  addr : Address .
+  vars monitorAddr : Address .
+  vars APP_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr  addr : Address .
   vars channelClientAddrs : AddrList .
-  vars attrs attrsTrans attrsTrans1 attrsNext : AttributeSet .
+  vars appChatsMap : AppChatsMap .
+  vars attrs attrsTrans attrsTrans1 attrsNext monitorAttrs monitorAttrsNext : AttributeSet .
   vars ircName  : IrcName .
   vars ircDestinationName  IRC_CLIENT_NAME ircUserName : IrcUserName .
+  vars msgSentList msgRcvdList : MessageTimestampList .
   vars clientsMap CLIENTS_MAP : NameClientsMap .
   vars chatText ircDestination ircSource : String .
   vars T : Float . ---timestamp
@@ -83,10 +89,12 @@ mod IRC is
   crl [irc-client-send-time]:
   rCtr(j)
   < IRC_CLIENT_ADDR : IrcClient | attrs >
+  < monitorAddr : IrcMonitor | monitorAttrs >
     {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ircMsgSendTime)}
   =>
   rCtr(j1)
   < IRC_CLIENT_ADDR : IrcClient | attrs1 >
+  < monitorAddr : IrcMonitor | monitorAttrs >
     msgs
     if {attrs1, msgs, j1} := ircSendMsg(attrs, IRC_CLIENT_ADDR, j)
   [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " time for IrcMsg, sending " msgs "." ]
@@ -139,9 +147,11 @@ mod IRC is
   --- Handle IRC messages from the server.
   rl [irc-client-handle-incoming-chat]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
+  < monitorAddr : IrcMonitor | monitorAttrs, msgRcvd: msgRcvdList >
     {T, (to IRC_CLIENT_ADDR from rbAddr : PrivMsgRes(ircName, makeIrcUserName(ircSourceAddr), chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
+  < monitorAddr : IrcMonitor | monitorAttrs, msgRcvd: (msgRcvdList ; messageTimestamp(T, 1, ircName, stringHash(chatText))) >
 [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received chat >>>" chatText "<<< from " ircSourceAddr ]
   .
 
@@ -178,6 +188,7 @@ if {smsgs,j1} :=  delayMsgsX(j,(to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR :
   crl [server-handle-incoming-chat]:
   rCtr(j)
   < IRC_SERVER_ADDR : IrcServer | attrs >
+  < monitorAddr : IrcMonitor | monitorAttrs, msgSent: msgSentList, msgRcvd: msgRcvdList >
     {T, (to IRC_SERVER_ADDR from rbAddr : 
          PrivMsgReq(ircName,
                     makeIrcUserName(ircSourceAddr),
@@ -185,6 +196,11 @@ if {smsgs,j1} :=  delayMsgsX(j,(to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR :
   =>
   rCtr(j1)
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
+  < monitorAddr : IrcMonitor |
+      monitorAttrs,
+      msgSent: (msgSentList),
+      msgRcvd: (msgRcvdList ; messageTimestamp(T, 1, ircName, stringHash(chatText)))
+  >
   smsgs
   [IRC-STALE-DURATION-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(ircSourceAddr)), 0]
   if CLIENTS_MAP := getChannelMap(attrs)
