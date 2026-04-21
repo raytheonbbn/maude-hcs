@@ -8,10 +8,10 @@ mod IRC_MONITOR is
 
   sorts MessageTimestamp MessageTimestampList .
   subsorts MessageTimestamp < MessageTimestampList .
-  ---                   Irc Msg Time  Size  IrcDest Identifier
-  op messageTimestamp : Float Nat   IrcName Nat -> MessageTimestamp .
-  op nilMessageTimestamp : -> MessageTimestampList [ctor] .
-  op _;_ : MessageTimestampList MessageTimestampList -> MessageTimestampList [ctor assoc id: nilMessageTimestamp] .
+  ---                   Time  Node    Size  IrcDest Identifier
+  op messageTimestamp : Float Address Nat   IrcName Nat -> MessageTimestamp .
+  op nilMessageTimestampList : -> MessageTimestampList [ctor] .
+  op _;_ : MessageTimestampList MessageTimestampList -> MessageTimestampList [ctor assoc id: nilMessageTimestampList] .
 
   op msgSent:_ : MessageTimestampList -> Attribute [format (nss d d)] .
   op msgRcvd:_ : MessageTimestampList -> Attribute [format (nss d d)] .
@@ -19,13 +19,28 @@ mod IRC_MONITOR is
   op makeIrcMonitor : Address -> Actor .
   eq makeIrcMonitor(monitorAddr:Address) =
     < monitorAddr:Address : IrcMonitor |
-        msgSent: nilMessageTimestamp,
-        msgRcvd: nilMessageTimestamp
+        msgSent: nilMessageTimestampList,
+        msgRcvd: nilMessageTimestampList
     >
-.
+  .
   
-  vars S : String .
-  vars H : Nat .
+  vars TO_ADDR FROM_ADDR : Address .
+  vars msgs : Config .
+  vars T : Float .
+  vars ircMsg : IrcMsg .
+  vars currentHash size : Nat .
+  vars currentStr : String .
+
+  op extractMessageTimestamps : Float Config -> MessageTimestampList .
+  eq extractMessageTimestamps(T, (msgs (to TO_ADDR from FROM_ADDR : ircMsg))) =
+    extractMessageTimestamps(T, msgs) ;
+      messageTimestamp(T,
+                       FROM_ADDR,
+                       getSize(ircMsg),
+                       getIrcDest(ircMsg),
+                       stringHash(getText(ircMsg)))
+  .
+  eq extractMessageTimestamps(T, null) = nilMessageTimestampList .
 
   --- Public interface: stringHash("myString")
   op stringHash : String -> Nat .
@@ -33,20 +48,20 @@ mod IRC_MONITOR is
   op $hash : String Nat -> Nat .
 
   --- Initialize with the DJB2 magic constant 5381
-  eq stringHash(S) = $hash(S, 5381) .
+  eq stringHash(currentStr) = $hash(currentStr, 5381) .
 
   --- Base case: empty string returns the accumulated hash
-  eq $hash("", H) = H .
+  eq $hash("", currentHash) = currentHash .
 
   --- Recursive step:
   **** (Hash * 33) + current character's ASCII value
-  eq $hash(S, H) = 
-    if length(S) == 0 then 
-      H 
+  eq $hash(currentStr, currentHash) = 
+    if length(currentStr) == 0 then 
+      currentHash 
     else 
       $hash(
-        substr(S, 1, length(S)), 
-        (H * 33) + ascii(substr(S, 0, 1))
+        substr(currentStr, 1, length(currentStr)), 
+        (currentHash * 33) + ascii(substr(currentStr, 0, 1))
       )
     fi
   .
