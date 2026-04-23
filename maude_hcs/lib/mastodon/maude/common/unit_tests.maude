@@ -284,6 +284,7 @@ red handleReply(makeHttpResponse("OK",
 *** Test handling a media post request.
 red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(postRequest, makeMediaFile("img0.jpg", TEST-SIZE)),
+                  1,
                   (masServerTestAttrs,
                     thisAddr: TEST-TO-ADDR,
                     currentMapId: 10,
@@ -291,11 +292,12 @@ red handleRequest(TEST-FROM-ADDR,
   == { (masServerTestAttrs,
           thisAddr: TEST-TO-ADDR,
           currentMapId: 11,
-          mediaMap: (11 ~> (makeMediaFile("img0.jpg", TEST-SIZE), makeUrl(makeMediaFile("img0.jpg", TEST-SIZE))))),
+          mediaMap: (11 ~> (makeMediaFile("img0.jpg", TEST-SIZE), makeUrl(1, makeMediaFile("img0.jpg", TEST-SIZE))))),
        (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
   .
 
 red handleRequest((to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postRequest, makeMediaFile("img0.jpg", TEST-SIZE))),
+                  1, 
                   (masServerTestAttrs,
                     thisAddr: TEST-TO-ADDR,
                     currentMapId: 10,
@@ -303,13 +305,14 @@ red handleRequest((to TEST-TO-ADDR from TEST-FROM-ADDR : makeHttpRequest(postReq
   == { (masServerTestAttrs,
           thisAddr: TEST-TO-ADDR,
           currentMapId: 11,
-          mediaMap: (11 ~> (makeMediaFile("img0.jpg", TEST-SIZE), makeUrl(makeMediaFile("img0.jpg", TEST-SIZE))))),
+          mediaMap: (11 ~> (makeMediaFile("img0.jpg", TEST-SIZE), makeUrl(1, makeMediaFile("img0.jpg", TEST-SIZE))))),
        (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("OK", makeResponseToot(11))) }
   .
 
 *** Test handling a status post (with nothing else).
 red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(postRequest, "A new toot with attachments"),
+                  1, 
                   (masServerTestAttrs,
                     thisAddr: TEST-TO-ADDR,
                     currentMapId: 10,
@@ -326,6 +329,7 @@ red handleRequest(TEST-FROM-ADDR,
 *** Test handling a status post with media Ids.
 red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(postRequest, "A new toot with attachments", (88 : 46)),
+                  1,
                   (masServerTestAttrs,
                     thisAddr: TEST-TO-ADDR,
                     currentMapId: 10,
@@ -342,6 +346,7 @@ red handleRequest(TEST-FROM-ADDR,
 --- Test handle a status get request by post Id.
 red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(getRequest, 8),
+                  1,
                   (masServerTestAttrs,
                    thisAddr: TEST-TO-ADDR,
                    tootMap: ((40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com", 40)) : (8 ~> makeToot("Other too", emptyUrlList, emptyMasIdList)))))
@@ -354,6 +359,7 @@ red handleRequest(TEST-FROM-ADDR,
 --- Test handling a media get request from URL -- not found.
 red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(getRequest, "url0.com"),
+                  1,
                   (masServerTestAttrs, thisAddr: TEST-TO-ADDR, mediaMap: emptyIdMediaMap))
   == { (masServerTestAttrs, thisAddr: TEST-TO-ADDR, mediaMap: emptyIdMediaMap),
         (to TEST-FROM-ADDR from TEST-TO-ADDR : makeHttpResponse("NOT_FOUND")) }
@@ -362,6 +368,7 @@ red handleRequest(TEST-FROM-ADDR,
 --- Test handling a media get request from URL -- found and returned.
 red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(getRequest, "url0.com"),
+                  1,
                   (masServerTestAttrs,
                     thisAddr: TEST-TO-ADDR,
                     mediaMap: ((88 ~> (makeMediaFile("img0.jpg", TEST-SIZE), "url0.com")) : (46 ~> (makeMediaFile("img1.jpg", TEST-SIZE), "url1.com")))))
@@ -374,6 +381,7 @@ red handleRequest(TEST-FROM-ADDR,
 --- Test handle a status search by hashtag.
 red handleRequest(TEST-FROM-ADDR,
                   makeHttpRequest(getRequest, makeTag("Tag")),
+                  1,
                   ((masServerTestAttrs,
                       thisAddr: TEST-TO-ADDR,
                       tootMap: (40 ~> makeToot("Toot with hashtag #Tag", "www.catimg.com", 39)),
@@ -432,8 +440,6 @@ red $extractTag("This string has no hashtag.") == emptyTagList .
 --- URL Tests ---
 -----------------
 red rand .
-red generateRandUrlString .
-red makeUrl .
-red makeUrl("img0.jpg") == url("randimg0.com") .
-red makeUrl("img0") == url("randimg0.com") .
+red generateRandUrlString(10) .
+
 

@@ -31,39 +31,74 @@
 
 *** A module for creating and handling media filename and files (eventually).
 sload ./media_file
+sload ../../../common/maude/sampler-x
 
 mod URLS is
   pr CONVERSION .
   pr COUNTER .
   pr RANDOM .
   pr STRING .
+  pr SAMPLER-X .
 
   pr MEDIA_FILES .
 
   sorts Url UrlList .
   subsort String < Url < UrlList .
 
-  op generateRandUrlString : -> String .
-  eq generateRandUrlString = "rand" . ---string(rand, 10) .
+  vars currentStr : String .
+  vars currentNat seed strLen : Nat .
+
+  --- Usage: randomString(Seed, Length)
+  op randomString : Nat Nat -> String .
+  op $randomString : Nat Nat String -> String .
+
+  --- Base case: length reached
+  eq randomString(seed, strLen) = $randomString(seed, strLen, "")
+  [print "rand str " seed " " strLen ]
+  .
+  
+  --- Recursive step: 
+  --- 1. Get a random number from the current seed
+  --- 2. Map it to a lowercase char (97-122)
+  --- 3. Use the new random number as the next seed
+  ceq $randomString(seed, s(strLen), currentStr) = 
+    $randomString(randm:Nat,
+                  strLen,
+                  currentStr + char(97 + (randm:Nat rem 26)))
+    if randm:Nat := sampleUniWithIntX(seed, seed + 26)
+    .
+
+  eq $randomString(seed, 0, currentStr) = currentStr 
+    [ print "Done at " currentStr ]
+  .
+
+  --- Generate a random 10char URL string from a seed.
+  --- TODO: Change to something other than 10chars if needed.
+  op generateRandUrlString : Nat -> String .
+  eq generateRandUrlString(seed) = "rand" + randomString(seed, 10) 
+  [print "Gen from seed " seed]
+  .
 
   op url : String -> Url .
   op makeUrl : -> Url .
-  eq makeUrl =
-    url(generateRandUrlString + ".com") .
+  eq makeUrl = url(generateRandUrlString(1) + ".com") .
 
-  op makeUrl : MediaFile -> Url .
-  eq makeUrl(mediaFile:MediaFile) =
-    makeUrl(getName(mediaFile:MediaFile))
+  op makeUrl : Nat MediaFile -> Url .
+  eq makeUrl(seed, mediaFile:MediaFile) =
+    makeUrl(seed, getName(mediaFile:MediaFile))
   .
-  op makeUrl : String -> Url .
+  op makeUrl : Nat String -> Url .
   --- Make URL from filename, but remove extension.
-  ceq makeUrl(mediaFilename:String) =
-    url(generateRandUrlString + subName:String + ".com")
+  ceq makeUrl(seed, mediaFilename:String) =
+    url(generateRandUrlString(seed) + subName:String + ".com")
     if I:Nat := find(mediaFilename:String, ".", 0)
       /\ subName:String := substr(mediaFilename:String, 0, I:Nat)
+    [ print "Make URL on " mediaFilename:String  ]
     .
-  eq makeUrl(mediaFilename:String) =
-    url(generateRandUrlString + mediaFilename:String + ".com") [owise] .
+  eq makeUrl(seed, mediaFilename:String) =
+    url(generateRandUrlString(seed) + mediaFilename:String + ".com")
+    [print " Owise " owise]
+  .
 
   op emptyUrlList : -> UrlList [ctor] .
   op _;_ : UrlList UrlList -> UrlList [ctor assoc id: emptyUrlList] .
