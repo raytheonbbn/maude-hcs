@@ -1,0 +1,91 @@
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+sload ../../common/maude/user-action-actor
+sload enc-dec-actor
+sload rb-cm-sender-mas
+sload rb-cm-receiver-mas
+sload ../../mastodon/maude/probabilistic/mastodon
+ ---- raceboat models
+sload ../../raceboat/maude/mastodonprofiles/client_config_cp2_scenario_1_new.maude
+sload ../../raceboat/maude/mastodonprofiles/server_config_cp2_scenario_1_new.maude
+
+**** sload ../../../../lib/common/maude/http-overhead
+sload user-interface 
+
+mod TEST-RB-BI-MAS-USERENDPOINT is
+  inc USER-ACTION-ACTOR .
+  inc ENC-DEC .
+  inc CONTENT-MANAGER-SENDER .
+  inc CONTENT-MANAGER-RECEIVER . 
+  inc MASTODON .
+ ---- raceboat model includes
+ inc MASTODON-CLIENT-CONFIG-CP2-SCENARIO-1-NEW-MAMODEL .
+ inc MASTODON-SERVER-CONFIG-CP2-SCENARIO-1-NEW-MAMODEL .
+ inc SCHEDULER .
+ inc IRC-INTERFACE .
+ 
+vars j : Nat .
+
+eq encOH(fsize:Nat,ksize:Nat)  = 0 .
+eq noiseMin(msg:Msg) = 0.001 .
+
+op ed-images : -> ByteSeqL .
+eq ed-images = image(1, 3779, 500) :: image(2, 2405, 1000) :: image(3, 36861, 1000) :: image(4, 25377, 500) :: image(5, 2440, 300) :: image(6, 1275, 300) :: image(7, 7710, 1000) :: image(8, 3577, 500) :: image(9, 3415, 300) :: image(10, 74123, 600) .
+
+
+ops umSndAddr  cmSndAddr mcSndAddr : -> Address .
+ops umRcvAddr  cmRcvAddr mcRcvAddr : -> Address .
+ops edAddr masSrvAddr : -> Address .
+ops sndAddr rcvAddr : -> Address .
+
+ops umSndAct  cmSndAct mcSndAct : -> Actor .
+ops umRcvAct  cmRcvAct mcRcvAct : -> Actor .
+ops edAct masSrvAct : -> Actor .
+
+eq umSndAct = 
+  mkUMactor(umSndAddr, 
+            mastodon-client-config-cp2-scenario-1-new-ma,
+            cmSndAddr) .
+eq cmSndAct =
+  mkCMSender(cmSndAddr,edAddr,mcSndAddr,sndAddr,"snd0") .
+eq mcSndAct =
+  makeMastodonClient(mcSndAddr, masSrvAddr,cmSndAddr).
+
+eq umRcvAct = 
+  mkUMactor(umRcvAddr, 
+            mastodon-server-config-cp2-scenario-1-new-ma,
+            cmRcvAddr) .
+eq cmRcvAct =
+  mkCMReceiver(cmRcvAddr,edAddr,mcRcvAddr,rcvAddr,"snd0") .
+eq mcRcvAct =
+  makeMastodonClient(mcRcvAddr, masSrvAddr,cmRcvAddr).
+
+eq edAct =  makeDestiniActor(edAddr, ed-images) .
+eq masSrvAct = makeMastodonServer(masSrvAddr) .
+
+
+op initState : Nat -> Config .
+eq initState(j ) =
+     rCtr(s s j)
+     umSndAct cmSndAct mcSndAct
+     umRcvAct cmRcvAct mcRcvAct
+     edAct
+     masSrvAct
+     [1.0 + genRandomX(j,0.0, 0.0001),
+       (to umSndAddr from umSndAddr : actionR("ok")),0]
+     [1.0  + genRandomX(s j,0.0, 0.0001),
+       (to umRcvAddr from umRcvAddr : actionR("ok")),0]
+.
+
+op slimit : -> Float .
+eq slimit = 30.0 .
+
+op initConfig : -> Config .
+rl[init]: initConfig 
+   => run({0.0 | nil} initState(counter),slimit) .
+
+end
+**** rew [10] initConfig .
+

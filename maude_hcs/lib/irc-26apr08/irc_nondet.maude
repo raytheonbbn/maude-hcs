@@ -1,0 +1,113 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ./common/irc_name
+sload ./common/_aux
+
+mod IRC is
+  pr IRC_NODE .
+  pr IRC_AUX .
+
+  vars ALICE IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr : Address .
+  vars channelClientAddrs : AddrList .
+  vars attrs attrsNext : AttributeSet .
+  vars ircName  : IrcName .
+  vars ircDestinationName : IrcUserName .
+  vars clientsMap CLIENTS_MAP : NameClientsMap .
+  vars chatText ircDestination ircSource : String .
+
+  --------------------
+  --- Client Rules ---
+  --------------------
+  rl [client-handle-outgoing-chat]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    (to IRC_CLIENT_ADDR from ALICE : makeAppChat(ircDestinationName, chatText))
+  =>
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    (to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : PrivMsgReq(ircDestinationName, getIrcName(attrs), chatText))
+    [ print "IRC Client handling outgoing chat " chatText " to " ircDestinationName ", sending to Raceboat." ]
+  .
+
+  rl [client-handle-incoming-chat]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    (to IRC_CLIENT_ADDR from rbAddr : PrivMsgRes(ircDestinationName, makeIrcUserName(ircSourceAddr), chatText))
+  =>
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    (to getAppAddr(attrs) from IRC_CLIENT_ADDR : makeAppChat(makeIrcUserName(ircSourceAddr), chatText))
+    [ print "IRC Client handling incoming chat " chatText " from " ircSourceAddr ]
+  .
+
+  rl [client-handle-ping]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    (to IRC_CLIENT_ADDR from rbAddr : Ping(ircDestinationName, IRC_SERVER_ADDR))
+  =>
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    (to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : Pong(ircDestinationName, IRC_SERVER_ADDR))
+    [ print "IRC Client handling incoming ping from Server." ]
+  .
+
+  --------------------
+  --- Server Rules ---
+  --------------------
+  crl [server-handle-incoming-chat]:
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    (to IRC_SERVER_ADDR from rbAddr : PrivMsgReq(ircName, ---makeIrcChannelName(ircDestination),
+                                                 makeIrcUserName(ircSourceAddr),
+                                                 chatText))
+  =>
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    msgs:Config
+  if CLIENTS_MAP := getChannelMap(attrs)
+    /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, ircName) ---makeIrcChannelName(ircDestination))
+    /\ msgs:Config := createPrivMsgRes(attrs, 
+                                       makeIrcUserName(ircSourceAddr),
+                                       clientList:IrcUserNameList,
+                                       chatText)
+    [ print "IRC Server handling incoming chat " chatText " from " ircSourceAddr " to " ircName ", turning chat around w/ msgs "  msgs:Config ]
+  .
+
+  rl [server-handle-join-channel]:
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    (to IRC_SERVER_ADDR from rbAddr : JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR))
+  =>
+  < IRC_SERVER_ADDR : IrcServer | registerIrcUsers(attrs, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) >
+    [ print "IRC Server handling request for " IRC_CLIENT_ADDR " to join " IRC_CHANNEL_NAME:IrcChannelName " channel." ]
+  .
+
+  rl [server-handle-pong]:
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    (to IRC_SERVER_ADDR from rbAddr : Pong(ircDestinationName, IRC_SERVER_ADDR))
+  =>
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    [ print "IRC Server handling incoming Pong from Client " ircDestinationName "." ]
+  .
+
+endm
+

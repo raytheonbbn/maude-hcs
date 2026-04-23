@@ -1,0 +1,109 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ./irc_name
+sload ./_aux
+sload ../../common/maude/cp2-interfaces
+
+--- App chats are messages that would be coming down from an app agent, if one
+--- actually existed. It formats the message correctly and helps manage their
+--- schedule.
+mod APP_CHATS is
+  pr CP2-COMMON .
+  pr IRC_NAMES .
+  pr CP2_SORTS .
+
+  sorts AppChat .
+  sorts AppChats AppChatsMap .
+  
+  subsorts AppChats < AppChatsMap .
+  subsort AppChat < Content .
+
+  --- App chats are messages that a user would be typing to an IRC destination.
+  ---              Dest    Text
+  op makeAppChat : IrcName String -> AppChat .
+
+**** CLT drop the comm if you want a list
+**** ow may get T and msg bits that don't correspond
+
+  --- An app chat is a time, string, and IRC name.
+  op _~>(_, _) : Float String IrcName -> AppChats [ctor] .
+  op emptyAppChatsMap : -> AppChatsMap .
+  op _:_ : AppChatsMap AppChatsMap -> AppChatsMap [ctor assoc comm id: emptyAppChatsMap] .
+
+**** CLT not well define as the maps is a (mulit) set 
+  --- Get the next app chat time.
+  op getNextChatTime : AppChatsMap -> Float .
+  eq getNextChatTime((T:Float ~> (chat:String, name:IrcName))
+                      : appChatsMap:AppChatsMap)
+    = T:Float
+  .
+  eq getNextChatTime(emptyAppChatsMap) = 0. .
+
+  --- Get the next app chat as a proper message.
+  op getNextAppChat : AppChatsMap -> AppChat .
+  eq getNextAppChat((T:Float ~> (chat:String, name:IrcName))
+                      : appChatsMap:AppChatsMap)
+    = makeAppChat(name:IrcName, chat:String)
+  .
+  eq getNextAppChat(emptyAppChatsMap)
+    = makeAppChat(makeIrcChannelName("no_room"), "Error")
+  .
+
+  --- Remove the next app chat.
+  op popAppChat : AppChatsMap -> AppChatsMap .
+  eq popAppChat((T:Float ~> (chat:String, name:IrcName))
+                 : appChatsMap:AppChatsMap)
+    = appChatsMap:AppChatsMap
+  .
+  eq popAppChat(T:Float ~> (chat:String, name:IrcName))
+    = emptyAppChatsMap
+  .
+  eq popAppChat(emptyAppChatsMap) = emptyAppChatsMap .
+
+  --- Make a proper app message that IRC client can understand.
+  op makeAppMsg : AppChatsMap Address Address -> Config .
+  eq makeAppMsg(emptyAppChatsMap,
+                TO_ADDR:Address,
+                FROM_ADDR:Address)
+    = null
+  .
+  eq makeAppMsg(appChatsMap:AppChatsMap,
+                TO_ADDR:Address,
+                FROM_ADDR:Address)
+    = [getNextChatTime(appChatsMap:AppChatsMap),
+        (to TO_ADDR:Address from FROM_ADDR:Address : getNextAppChat(appChatsMap:AppChatsMap)),
+        0]
+  .
+endm
+
+
+
+

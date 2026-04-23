@@ -1,0 +1,379 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+**** sload ../common/maude/markov-action-model.maude
+**** sload ../common/maude/cp2-interfaces 
+sload cm-aux.maude
+sload rb-cm-sender-mas-aux
+sload ../../common/maude/sampler-x
+sload ../../common/maude/delay-drop-x
+sload user-interface
+
+***(
+user -appMsg:ByteSeq-> CMSender
+user <-appMsg:ByteSeq- CMReceiver
+
+CM - ED message content 
+ capQ(fsize-remaining), capR(fragsize)  --- next frag
+ encQ(frag), encR(image)
+ decQ(imagel), decR(fragl)
+
+)
+***(
+-----------------
+[case no files
+UM -actionQ(mediaAct(n))-> CM
+ for i in [1,n]
+    CM -encQ(noBytes)-> ED
+    CM <-encR(image)- ED
+  CM -tootQ(ht,imagel)-> MC
+  CM <-tootR(...)- MC
+UM <-actionR("ok")- CMC   
+)
+
+***(
+-----------------
+[case file list has one or more files ]
+  if nofrag, initiate and set curht
+UM -actionA(mediaAct(n))-> CM
+ for i in [1,n]
+    CMC -capQ(fsize)-> ED
+    CMC <-capR(cap)- ED
+     [split off frag, i]     
+ 
+    CM -encQ(frag)-> ED
+    CM <-encR(image)- ED
+  CM -tootQ(ht,imagel)-> MC
+  CM <-tootR(...)- MC
+UM <-actionR("ok")- CMC   
+)
+
+
+---- {attrs,conf} defined in lib/.../common/_aux.maude
+mod CONTENT-MANAGER-SENDER is
+  inc CONTENT-MANAGER-SENDER-AUX .
+  ***(
+  inc CONTENT-MANAGER .
+  inc HASHTAG-MANAGER .
+  inc MARKOV-ACTION-MODEL .
+  inc CP2-COMMON .
+  inc MC-INTERFACE  .
+  inc ED-INTERFACE .
+  inc TGEN-INTERFACE .
+)
+  inc SAMPLER-X .
+  inc DELAY-X .
+  inc USER-INTERFACE .
+
+vars attrs attrs0 attrs1 attrs2 attrsTrans attrsNext : AttributeSet .
+vars cmcAtts cmcAtts1 cmcAtts2 : AttributeSet .
+vars msg msg0 capacityMsg encodeMsg lastMsg : Msg .
+vars msgs msgs0 config config0 dmsgs : Config .
+vars j j1 i k l n n0 n1 cap randCtr randCtr' : Nat .
+vars tot remains remains0 ix  id : Nat .
+vars aAddr cmcAddr umAddr edAddr mcAddr mastodonClientAddr : Address .
+vars T : Float .
+vars mcResponse : Content .
+vars efile efrag efrag0 efrag1 image ht hashtag bytes EFRAG : ByteSeq .
+vars efilel efragl hashtagl images FILES IMAGES
+       cachedhashtagl : ByteSeqL .
+vars str : String .
+vars ract : Map{String,JV} .
+vars tag : Tag .
+vars mediaFileList : MediaFileList .
+
+vars natstr : Map{Nat,String} .
+vars mamodel : MAModel .
+
+
+------------ Sender interface rule  --------------------------
+----- rcv user content and convert to byteseq
+rl [rbc-rcv-file] :
+{T, (to cmcAddr from aAddr :  c:Content)}
+< cmcAddr : CMSender | cmcAtts, 
+                       senderAddress: aAddr,
+                       cachedTag: cachedhashtagl,
+                       pendingFiles: efilel,
+                       weirdFileRcvTime: rcvTime:Float >
+=>
+< cmcAddr : CMSender | cmcAtts, 
+       senderAddress: aAddr,
+       pendingFiles: (efilel :: toByteseq(c:Content) ),
+       cachedTag: getWHashtag(cmcAtts),
+       weirdFileRcvTime: T >
+[print "(" T ") Raceboat client " cmcAddr " got " c:Content " from " aAddr " adding to pending, setting weirdFileRcvTime."]
+.
+***(
+----- rcv user content  assumed to have sort ByteSeq
+rl [rbc-rcv-file] :
+{T, (to cmcAddr from aAddr :  efile)}
+< cmcAddr : CMSender | cmcAtts, 
+                       senderAddress: aAddr,
+                       cachedTag: cachedhashtagl,
+                       pendingFiles: efilel,
+                       weirdFileRcvTime: rcvTime:Float >
+=>
+< cmcAddr : CMSender | cmcAtts, 
+                       senderAddress: aAddr,
+                       pendingFiles: (efilel :: efile) ,
+                       cachedTag: getWHashtag(cmcAtts),
+                       weirdFileRcvTime: T >
+[print "(" T ") Raceboat client got " efile " from " aAddr " adding to pending setting weirdFileRcvTime."]
+.
+)
+------------ Client rules --------------------------
+
+--- action requests  from UM
+crl [rbc-rcv-action] :
+rCtr(j)
+{T,(to cmcAddr from umAddr :  actionQ(ract) )}
+< cmcAddr : CMSender | cmcAtts,
+                      (weirdFileRcvTime: rcvTime:Float),
+                      postingWeird: b:Bool,
+                      pendingFiles: efilel >
+=>
+rCtr(j1)
+< cmcAddr : CMSender | cmcAtts1 >
+dmsgs
+if b0:Bool :=  rcvTime:Float + 5.0 <= T and efilel =/= nilBS  --- no file ready
+/\ attrsTrans := cmcAtts,
+                 (weirdFileRcvTime: rcvTime:Float),
+                 postingWeird: b0:Bool,
+                 pendingFiles: efilel
+/\ {cmcAtts1,msgs} :=
+    crcvActionQ(attrsTrans,getType(ract),
+               (to cmcAddr from umAddr : actionQ(ract) ))
+/\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
+               
+ [print "(" T ") Raceboat client " cmcAddr " got action request " ract ",  setting postingWeird : " b0:Bool " sending " msgs]
+   .
+
+
+crl [rbc-rcv-mc-response] :
+rCtr(j)
+{T,(to cmcAddr from mcAddr :  mcResponse )}
+< cmcAddr : CMSender | cmcAtts, mcAddress: mcAddr >
+=>
+rCtr(j1)
+< cmcAddr : CMSender | cmcAtts1, mcAddress: mcAddr >
+dmsgs
+if {cmcAtts1,msgs} := crcvMCResponse(cmcAtts,
+               (to cmcAddr from mcAddr :  mcResponse ))  
+/\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat client " cmcAddr " got Mastodon client response " mcResponse ", sends " msgs]
+.
+
+crl [rbc-rcv-capR] :
+rCtr(j)
+{T,(to cmcAddr from edAddr :  capR(cap) )}
+< cmcAddr : CMSender | cmcAtts >
+=>
+rCtr(j1)
+< cmcAddr : CMSender | cmcAtts1 >
+dmsgs
+if {cmcAtts1,msgs} := 
+  crcvCapR(cmcAtts,(to cmcAddr from edAddr : capR(cap)))
+/\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat client " cmcAddr " received capacity " cap " limit from Destini, sending " msgs ]
+.
+
+
+crl [rbc-rcv-encR] :
+rCtr(j)
+{T,(to cmcAddr from edAddr :  encR(image) )}
+< cmcAddr : CMSender | cmcAtts >
+=>
+rCtr(j1)
+< cmcAddr : CMSender | cmcAtts1 >
+dmsgs 
+if {cmcAtts1,msgs} := 
+  crcvEncR(cmcAtts,(to cmcAddr from edAddr : encR(image)))
+/\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat client " cmcAddr " got encoded " image " from Destini, POST operation." ].
+
+endm  
+
+
+
+**** sload ../../tgen/maude/mas-mamodel
+
+mod CM-SENDER-TEST is
+  inc CONTENT-MANAGER-SENDER . 
+***  inc MAS-MAMODEL .
+  inc IRC-INTERFACE .
+
+vars T : Float .
+vars ract : Map{String,JV} .
+vars k : Nat .
+vars image : ByteSeq .
+
+eq encOH(fsize:Nat,ksize:Nat)  = 0 .
+eq noiseMin(msg:Msg) = 0.001 .
+
+ops cmsndAd edAd mcsndAd sndAd umAd : -> Address .
+op CMsnd : -> Actor .
+eq CMsnd = mkCMSender(cmsndAd,edAd,mcsndAd,sndAd,"snd0") .
+
+ops ract1 ract2 : -> Map{String,JV} .
+eq ract1 = (("contentType" |-> js("image"),
+             "numImages" |-> jn(1), 
+             "type" |-> js("media"))) .
+eq ract2 = (("contentType" |-> js("image"), 
+             "numImages" |-> jn(2), 
+             "type" |-> js("media"))) .
+
+ops IM0 IM1 : -> ByteSeq .
+eq IM0 = image(0,2000,1000) .
+eq IM1 = image(1,2000,100) .
+
+op msgIrc : -> ActiveMsg . 
+eq msgIrc = {1.0, (to cmsndAd from sndAd :  ircMsg)} .
+
+op msgActQ : Float Map{String,JV} -> ActiveMsg . 
+eq msgActQ(T,ract) 
+    = {T , to cmsndAd from umAd :  actionQ(ract)} .
+
+op msgRR : Float -> ActiveMsg . 
+eq msgRR(T) 
+ = {T, (to cmsndAd from mcsndAd : mkRequestResponse("ok") ) } .
+
+op msgCapR : Float Nat -> ActiveMsg . 
+op msgEncR : Float ByteSeq -> ActiveMsg .
+eq msgCapR (T,k) = {T, (to cmsndAd from edAd : capR(k))} .
+eq msgEncR(T,image)
+     = {T, (to cmsndAd from edAd : encR(image))} .
+
+  
+***(
+CMsnd msgIrc CMs1
+CMs1 msgActQ(1.5) CMs1.5 send encq
+CMs1 msgActQ(7.0) CMs7   send capq
+CMs1.5 msgEncR(T,IM0) CMs1.5encR send post
+CMs7 msgCapR(T,1000) CM7capR send encq
+CMs7capR msgEncR(T,eIM0) CM7encR  send post
+CMs1.5encR msgPostResp
+CMs7encR msgPostResp
+)    
+     
+ops CMs1  CMs1.5  CMs7  CMs1.5encR  CMs7capR  CMs7encR 
+    : -> Actor .
+
+op msgPostResp : Float -> ActiveMsg .
+eq msgPostResp(T) = {T, to cmsndAd from mcsndAd : 
+                      mkRequestResponse("ok")} .
+
+
+---- rew CMsnd msgIrc rCtr(9) .
+eq CMs1 = 
+*** rCtr(9)
+< cmsndAd : CMSender | bHashtag: hashTag("snd0B0"), wHashtag: hashTag( "snd0W0"), hashStr: "snd0", bHashCtr: 0, wHashCtr: 0, pendingFiles: toByteseq(ircMsg), currentFrags: nilBS, numPendingImages: 0, encodedImages: nilBS, edAddress: edAd, mcAddress: mcsndAd, senderAddress: sndAd, w4c: null, replyTo: null, cachedTag: hashTag( "snd0W0"), postingWeird: false, weirdFileRcvTime: 1.0 >
+
+.
+
+--- rew rCtr(9) CMs1 msgActQ(1.5,ract1) .
+eq CMs1.5 =
+*** rCtr(10)
+< cmsndAd : CMSender | bHashtag: hashTag("snd0B0"), wHashtag: hashTag( "snd0W0"), hashStr: "snd0", bHashCtr: 0, wHashCtr: 0, pendingFiles: toByteseq(ircMsg), currentFrags: nilBS, numPendingImages: 1, encodedImages: nilBS, edAddress: edAd, mcAddress: mcsndAd, senderAddress: sndAd, w4c: (to edAd from cmsndAd : encQ(noBytes)), replyTo: (to cmsndAd from umAd : actionQ(("contentType" |-> js( "image"), "numImages" |-> jn(1), "type" |-> js("media")))), cachedTag: hashTag("snd0W0"), postingWeird: false, weirdFileRcvTime: 1.0 > 
+.
+**** [ 3.7643630360253153e-4, to edAd from cmsndAd : encQ(noBytes), 0].
+
+--- rew rCtr(9) CMs1 msgActQ(7.0,ract1) .
+eq CMs7 =
+*** rCtr(10)
+< cmsndAd : CMSender | bHashtag: hashTag("snd0B0"), wHashtag: hashTag( "snd0W0"), hashStr: "snd0", bHashCtr: 0, wHashCtr: 0, pendingFiles: toByteseq(ircMsg), currentFrags: efrag(toByteseq(ircMsg), 0, 0, 500), numPendingImages: 1, encodedImages: nilBS, edAddress: edAd, mcAddress: mcsndAd, senderAddress: sndAd, w4c: (to edAd from cmsndAd : capQ(500)), replyTo: (to cmsndAd from umAd : actionQ(("contentType" |-> js( "image"), "numImages" |-> jn(1), "type" |-> js("media")))), cachedTag: hashTag("snd0W0"), postingWeird: true, weirdFileRcvTime: 1.0 > 
+.
+
+**** [ 3.7643630360253153e-4, to edAd from cmsndAd : capQ(500), 0]
+
+--- rew rCtr(10) CMs1.5 msgEncR(1.5,IM0) .
+eq CMs1.5encR =
+*** rCtr(11)
+< cmsndAd : CMSender | bHashtag: hashTag("snd0B0"), wHashtag: hashTag( "snd0W0"), hashStr: "snd0", bHashCtr: 0, wHashCtr: 0, pendingFiles: ircMsg, currentFrags: nilBS, numPendingImages: 0, encodedImages: image( 0, 2000, 1000), edAddress: edAd, mcAddress: mcsndAd, senderAddress: sndAd, w4c: (to mcsndAd from cmsndAd : tootQ(hashTag("snd0W0"), image(0, 2000, 1000))), replyTo: (to cmsndAd from umAd : actionQ(("contentType" |-> js("image"), "numImages" |-> jn(1), "type" |-> js("media")))), cachedTag: hashTag("snd0W0"), postingWeird: false, weirdFileRcvTime: 1.0 > 
+.
+***( 
+[3.5410588490776714e-4, to mcsndAd from cmsndAd :
+ PostStatus("hashtag is #snd0W0",             
+            makeMediaFile("image:I-0-2000-1000", 2000, 
+            image( 0, 2000, 1000))), 0]
+)
+
+--- rew rCtr(10) CMs7 msgCapR(7.1,1000) .
+eq CMs7capR =
+*** rCtr(11)
+< cmsndAd : CMSender | bHashtag: hashTag("snd0B0"), wHashtag: hashTag( "snd0W0"), hashStr: "snd0", bHashCtr: 0, wHashCtr: 0, pendingFiles: toByteseq(ircMsg), currentFrags: efrag(toByteseq(ircMsg), 500, 1, 0), numPendingImages: 1, encodedImages: nilBS, edAddress: edAd, mcAddress: mcsndAd, senderAddress: sndAd, w4c: (to edAd from cmsndAd : encQ(efrag( toByteseq(ircMsg), 500, 0, 500))), replyTo: (to cmsndAd from umAd : actionQ(("contentType" |-> js("image"), "numImages" |-> jn(1), "type" |-> js("media")))), cachedTag: hashTag("snd0W0"), postingWeird: true, weirdFileRcvTime: 1.0 > 
+.
+
+**** [3.5410588490776714e-4, to edAd from cmsndAd : encQ(efrag(toByteseq(ircMsg), 500, 0, 500)), 0]
+
+
+--- rew rCtr(11) CMs7capR msgEncR(7.3,encode(image(0, 2000, 1000), efrag(toByteseq(ircMsg), 500, 0, 500), 1, 4, 1/10) ) .
+
+eq CMs7encR = 
+*** rCtr(12)
+< cmsndAd : CMSender | bHashtag: hashTag("snd0B0"), wHashtag: hashTag( "snd0W0"), hashStr: "snd0", bHashCtr: 0, wHashCtr: 0, pendingFiles: toByteseq(ircMsg), currentFrags: efrag(toByteseq(ircMsg), 500, 1, 0), numPendingImages: 0, encodedImages: encode(image(0, 2000, 1000), efrag( toByteseq(ircMsg), 500, 0, 500), 1, 4, 1/10), edAddress: edAd, mcAddress: mcsndAd, senderAddress: sndAd, w4c: (to mcsndAd from cmsndAd : tootQ(hashTag("snd0W0"), encode(image(0, 2000, 1000), efrag( toByteseq(ircMsg), 500, 0, 500), 1, 4, 1/10))), replyTo: (to cmsndAd from umAd : actionQ(("contentType" |-> js("image"), "numImages" |-> jn( 1), "type" |-> js("media")))), cachedTag: hashTag("snd0W0"), postingWeird: true, weirdFileRcvTime: 1.0 >
+.
+**** [6.1561829177662734e-4, to mcsndAd from cmsndAd : PostStatus("hashtag is #snd0W0", makeMediaFile( "eimage:I-0-2000-1000:EF-0:FR-500-0-500", 2000, encode(image(0, 2000, 1000), efrag(toByteseq(ircMsg), 500, 0, 500), 1, 4, 1/10))), 0]
+    
+
+--- rew rCtr(12) CMs1.5encR msgPostResp(4.0) .
+***( 
+rCtr(12) < cmsndAd : CMSender | bHashtag: hashTag("snd0B0"), wHashtag: hashTag( "snd0W0"), hashStr: "snd0", bHashCtr: 0, wHashCtr: 0, pendingFiles: ircMsg, currentFrags: nilBS, numPendingImages: 0, encodedImages: image( 0, 2000, 1000), edAddress: edAd, mcAddress: mcsndAd, senderAddress: sndAd, w4c: null, replyTo: null, cachedTag: hashTag("snd0W0"), postingWeird: false, weirdFileRcvTime: 1.0 > 
+[6.1561829177662734e-4, to umAd from cmsndAd : actionR("ok"), 0]
+)
+--- rew rCtr(12) CMs7encR msgPostResp(9.0) .
+***(
+rCtr(13)
+< cmsndAd : CMSender | bHashtag: hashTag("snd0B0"), wHashtag: hashTag( "snd0W1"), hashStr: "snd0", bHashCtr: 0, wHashCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, numPendingImages: 0, encodedImages: encode( image(0, 2000, 1000), efrag(toByteseq(ircMsg), 500, 0, 500), 1, 4, 1/10), edAddress: edAd, mcAddress: mcsndAd, senderAddress: sndAd, w4c: null, replyTo: null, cachedTag: hashTag("snd0W0"), postingWeird: true, weirdFileRcvTime: 1.0 > [5.6241279002279044e-4, to umAd from cmsndAd : actionR("ok"), 0]
+)
+    
+
+  
+endm  
+eof
+
+**(
+CMsnd msgIrc CMs1
+CMs1 msgActQ(1.5) CMs1.5 send encq
+CMs1 msgActQ(7.0) CMs7   send capq
+CMs1.5 msgEncR(T,IM0) CMs1.5encR send post
+CMs7 msgCapR(T,1000) CM7capR send encq
+CMs7capR msgEncR(T,eIM0) CM7encR  send post
+CMs1.5encR msgPostResp
+CMs7encR msgPostResp
+)    
+
+
+--------------------------------------------------
+set print attribute on .
+

@@ -1,0 +1,293 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../../common/maude/markov-action-model
+sload ../../common/maude/delay-drop-x
+**** sload ../common/maude/cp2-interfaces 
+**** sload cm-aux.maude
+sload rb-cm-receiver-mas-aux
+
+***(
+req/rsp for CMReceiver
+
+UM -actionQ(downloadAct)-> CMC 
+    (replyTo: ummsg)
+            [ht := curHashtag]  --- pend if any, ow bHash
+            CMC -fetchQ(ht)-> MC
+    (w4c: mcmsg)
+            CMC <fetchR(images) - MC
+            [process fetch results ]
+    (if file complete
+     then [Bob <file,ht- CMS]
+     else null fi)
+    (w4c: null)            
+UM <actionR("ok")- CMC   
+    (replyTo: null)
+
+-----------------
+[post image same as Client case no files, no frags]
+)
+
+mod CONTENT-MANAGER-RECEIVER is
+  inc MARKOV-ACTION-MODEL .
+  inc CONTENT-MANAGER-RECEIVER-AUX .
+  inc DELAY-X .
+***(
+  inc CONTENT-MANAGER .
+  inc CP2-COMMON .
+  inc MC-INTERFACE  .
+  inc ED-INTERFACE .
+  inc TGEN-INTERFACE .
+)
+
+vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+vars cmsAtts cmsAtts1 cmsAtts2 : AttributeSet .
+vars msg msg0 msg1 : Msg .
+vars msgs msgs0 config config0  smsgs : Config .
+vars j j1 i k l n cap : Nat .
+vars bAddr cmsAddr umAddr edAddr mcAddr : Address .
+vars T : Float .
+vars mcResponse : Content .
+vars efile efrag image ht hashtag bytes : ByteSeq .
+vars efilel efragl efragl0 efragl1 efragl3 imagel hashtagl : ByteSeqL .
+vars str : String .
+vars ract : Map{String,JV} .
+vars mamodel : MAModel .
+vars natstr : Map{Nat,String} .
+
+
+crl [rbs-rcv-actionQ] :
+rCtr(j)
+{T,(to cmsAddr from umAddr :  actionQ(ract) )}
+< cmsAddr : CMReceiver | cmsAtts >
+=>
+< cmsAddr : CMReceiver | cmsAtts1 >
+rCtr(j1)
+smsgs
+if {cmsAtts1,msgs} := 
+  srcvActionQ(cmsAtts,getType(ract),
+              (to cmsAddr from umAddr : actionQ(ract))) 
+/\ {smsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat server " cmsAddr " received action request " ract ", sending " msgs ]
+ .
+
+vars  mediaFileList : MediaFileList .
+vars  tag : Tag .
+
+---- rcv fetch response from mcAddr
+crl [rbs-rcv-fetchR] :
+rCtr(j)
+{T,(to cmsAddr from mcAddr :  
+       ResponseMediaList(tag,mediaFileList) )}
+< cmsAddr : CMReceiver | cmsAtts >
+=>
+< cmsAddr : CMReceiver | cmsAtts1 >
+rCtr(j1)
+smsgs
+if  c:Content := translate2FetchR( 
+                  ResponseMediaList(tag,mediaFileList))
+/\ {cmsAtts1,msgs} := 
+  srcvFetchR(cmsAtts, (to cmsAddr from mcAddr : c:Content))
+/\ {smsgs,j1} := delayMsgsX(j,msgs,null)
+[ print "(" T ") Raceboat server " cmsAddr " got fetch response " c:Content " for tag " tag ", sending " msgs ]
+.
+
+---- rcv dec response from edAddr
+crl [rbs-rcv-decR] :
+rCtr(j)
+{T,(to cmsAddr from edAddr :  decR(efragl))}
+< cmsAddr : CMReceiver | cmsAtts >
+=>
+< cmsAddr : CMReceiver | cmsAtts1 >
+rCtr(j1)
+smsgs
+if {cmsAtts1,msgs} :=
+    srcvDecR(cmsAtts,
+             (to cmsAddr from edAddr : decR(efragl)) )   
+/\ {smsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat server " cmsAddr " got decoded image from Destini, sending " msgs ]
+.
+
+***(
+crl [rbs-rcv-encR] :
+rCtr(j)
+{T,(to cmsAddr from edAddr :  encR(image) )}
+< cmsAddr : CMReceiver | cmsAtts >
+=>
+< cmsAddr : CMReceiver | cmsAtts1 >
+rCtr(j1)
+smsgs
+if {cmsAtts1,msgs} := srcvEncR(cmsAtts,
+           (to cmsAddr from edAddr : encR(image)) )
+/\ {smsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat server got encoded image " image " from Destini, sending " msgs ]
+.
+)
+
+***(
+ crl [rbs-rcv-tootR] :
+ rCtr(j)
+ {T,(to cmsAddr from mcAddr :  mkRequestResponse(str) )}
+ < cmsAddr : CMReceiver | cmsAtts >
+ =>
+ < cmsAddr : CMReceiver | cmsAtts1 >
+ rCtr(j1)
+ smsgs
+ if {cmsAtts1,msgs} := srcvRequestR(cmsAtts,
+        (to cmsAddr from mcAddr :  mkRequestResponse(str)) ) 
+/\ {smsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat server got request response " str " from Mastodon Client:  sending " msgs ]
+ .
+)
+endm
+
+sload ../../tgen/maude/mas-mamodel
+**** sload ../../tgen/maude/mas-mamodel
+sload user-interface
+
+mod CM-RECEIVER-TEST is
+  inc CONTENT-MANAGER-RECEIVER .
+  inc MAS-MAMODEL .
+  inc IRC-INTERFACE .
+
+eq encOH(fsize:Nat,ksize:Nat)  = 0 .
+eq noiseMin(msg:Msg) = 0.001 .
+eq nbytes(ircMsg) = 500 .
+
+op ract3 : -> Map{String,JV} .
+eq ract3 = ("type" |-> js("download")) .
+
+ops cmrcvAd edAd mcrcvAd rcvAd umrcvAd : -> Address .
+
+op CMrcv : -> Actor .
+eq CMrcv 
+    = mkCMReceiver(cmrcvAd,edAd,mcrcvAd,rcvAd,"rcv0") .
+
+ops IM0 IM00 : -> ByteSeq .
+eq IM0 = image(0,2000,1000)  .
+eq IM00 = encode(IM0,FR0,1,4,1/10) .
+
+**** encode(image(0, 2000, 1000), efrag(toByteseq(ircMsg), 500, 0, 500), 1, 4, 1/10)))
+op F0 : -> ByteSeq .
+eq F0 = toByteseq(ircMsg) .
+op FR0 : -> ByteSeq .
+eq FR0 =  efrag(F0,500,0,500) .     
+
+ops MF0 MF00 : -> MediaFile .
+eq MF0 = image2mediafile(IM0) .
+eq MF00 = image2mediafile(IM00) .
+
+vars T : Float .
+vars ract :  Map{String,JV} .
+vars mfl : MediaFileList .
+vars byteseql : ByteSeqL .
+
+op msgActQ : Float Map{String,JV} -> ActiveMsg . 
+eq msgActQ(T,ract) 
+    = {T , to cmrcvAd from umrcvAd :  actionQ(ract)} .
+op msgFR : Float MediaFileList -> ActiveMsg . 
+eq msgFR(T,mfl) 
+   = {T, (to cmrcvAd from mcrcvAd : 
+          ResponseMediaList(makeTag("rcv0W0"),mfl) ) } .
+
+op msgDecR : Float ByteSeqL -> ActiveMsg .
+eq msgDecR(T,byteseql) =
+   {T,(to cmrcvAd from edAd :  decR(byteseql))} .
+
+op CMrfw  : -> Actor .
+
+***(
+CMrcv -msgActQ-> CMrfw send fetchReq
+CMrfw  -msgFR0-> CMrfw0  rcvnilbytes 
+CMrfw  -msgFR00-> CMrfw1  rcv empty image
+CMrfw1 -msgDecR IM0
+CMrfw  -msgFR01-> CMrfw1  rcv ircMsg send to rcvrAd
+CMrfw1 -msgDecR IM00
+
+msgFR(2.2,emptyMediaFileList)
+msgFR(2.2,MF0)
+msgFR(2.2,MF00)
+
+)
+
+---- rew rCtr(8) CMrcv msgActQ(0.2,ract3)  .  
+eq CMrfw =
+*** rCtr(9)
+< cmrcvAd : CMReceiver | bHashtag: hashTag("rcv0B0"), wHashtag: hashTag( "rcv0W0"), hashStr: "rcv0", bHashCtr: 0, wHashCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, edAddress: edAd, mcAddress: mcrcvAd, receiverAddress: rcvAd, w4c: (to mcrcvAd from cmrcvAd : fetchQ(hashTag( "rcv0W0"))), replyTo: (to cmrcvAd from umrcvAd : actionQ("type" |-> js( "download"))) > 
+.
+
+**** [5.7634520321153107e-4, to mcrcvAd from cmrcvAd : GetMediaHashtag(makeTag("rcv0W0")), 0]
+
+
+---- rew rCtr(9) CMrfw msgFR(2.2,emptyMediaFileList) .   
+***(
+rCtr(10) < cmrcvAd : CMReceiver | bHashtag: hashTag("rcv0B0"), wHashtag: hashTag( "rcv0W0"), hashStr: "rcv0", bHashCtr: 0, wHashCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, edAddress: edAd, mcAddress: mcrcvAd, receiverAddress: rcvAd, w4c: null, replyTo: null > 
+
+[ 3.7643630360253153e-4, to umrcvAd from cmrcvAd : actionR("ok"), 0]
+  )
+
+
+---- rew rCtr(9) CMrfw msgFR(2.2,MF0) .   
+op CMrfw0 : -> Actor .
+eq CMrfw0 =
+*** rCtr(10)
+< cmrcvAd : CMReceiver | bHashtag: hashTag("rcv0B0"), wHashtag: hashTag( "rcv0W0"), hashStr: "rcv0", bHashCtr: 0, wHashCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, edAddress: edAd, mcAddress: mcrcvAd, receiverAddress: rcvAd, w4c: (to edAd from cmrcvAd : decQ(image(0, 2000, 1000))), replyTo: (to cmrcvAd from umrcvAd : actionQ("type" |-> js("download"))) > 
+.
+
+*** [3.7643630360253153e-4, to edAd from cmrcvAd : decQ( image(0, 2000, 1000)), 0]
+
+--- rew rCtr(10) CMrfw0 msgDecR(2.5,nilBS) .
+***(
+rCtr(11)
+< cmrcvAd : CMReceiver | bHashtag: hashTag("rcv0B0"), wHashtag: hashTag( "rcv0W0"), hashStr: "rcv0", bHashCtr: 0, wHashCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, edAddress: edAd, mcAddress: mcrcvAd, receiverAddress: rcvAd, w4c: null, replyTo: null > 
+
+[ 3.5410588490776714e-4, to umrcvAd from cmrcvAd : actionR("ok"), 0]    
+    )    
+
+---- rew rCtr(9) CMrfw msgFR(2.2,MF00) .   
+op CMrfw1 : -> Actor .
+eq CMrfw1 =
+*** rCtr(10)
+< cmrcvAd : CMReceiver | bHashtag: hashTag("rcv0B0"), wHashtag: hashTag( "rcv0W0"), hashStr: "rcv0", bHashCtr: 0, wHashCtr: 0, pendingFiles: nilBS, currentFrags: nilBS, edAddress: edAd, mcAddress: mcrcvAd, receiverAddress: rcvAd, w4c: (to edAd from cmrcvAd : decQ(encode(image( 0, 2000, 1000), efrag(toByteseq(ircMsg), 500, 0, 500), 1, 4, 1/10))), replyTo: (to cmrcvAd from umrcvAd : actionQ("type" |-> js("download"))) >
+.
+
+*** [3.7643630360253153e-4, to edAd from cmrcvAd : decQ(encode(image(0, 2000, 1000), efrag(toByteseq(ircMsg), 500, 0, 500), 1, 4, 1/10)), 0]
+
+--- rew rCtr(10) CMrfw1 msgDecR(2.5,FR0) .
+***(
+rCtr(12)
+< cmrcvAd : CMReceiver | bHashtag: hashTag("rcv0B0"), wHashtag: hashTag( "rcv0W1"), hashStr: "rcv0", bHashCtr: 0, wHashCtr: 1, pendingFiles: nilBS, currentFrags: nilBS, edAddress: edAd, mcAddress: mcrcvAd, receiverAddress: rcvAd, w4c: null, replyTo: null > 
+
+[ 3.5410588490776714e-4, to rcvAd from cmrcvAd : ircMsg, 0] 
+[ 6.1561829177662734e-4, to umrcvAd from cmrcvAd : actionR("ok"), 0]
+)
+
+endm  
+eof
