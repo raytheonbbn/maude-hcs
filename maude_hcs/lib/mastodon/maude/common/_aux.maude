@@ -161,7 +161,7 @@ mod MASTODON_NODE is
   vars mediaFile MEDIA_FILE : MediaFile .
   vars mediaFileList MEDIA_FILE_LIST MEDIA_FILE_LIST' : MediaFileList .
   vars outMsg : Msg .
-  vars LIMIT : Nat .
+  vars seed LIMIT : Nat .
   vars currentOpStack OP_STACK : OpStack .
   vars currentOp CURRENT_OP : Op .
   vars postStatus POSTING_STATUS STATUS : Op .
@@ -733,56 +733,56 @@ mod MASTODON_NODE is
   --- Server functions
   --------------------
   --- Handle an HTTP Msg request from a client.
-  op handleRequest : HttpMsg AttributeSet -> AttributeSetMsgs .
-  eq handleRequest(HTTP_MSG, masServerAttrs) =
-    handleRequest(getSrcAddr(HTTP_MSG), getHttpRequest(HTTP_MSG), masServerAttrs)
+  op handleRequest :  HttpMsg Nat AttributeSet -> AttributeSetMsgs .
+  eq handleRequest(HTTP_MSG, seed, masServerAttrs) =
+    handleRequest(getSrcAddr(HTTP_MSG), getHttpRequest(HTTP_MSG), seed, masServerAttrs)
     .
 
-  eq handleRequest((to MAS_SERVER_ADDR from MAS_CLIENT_ADDR : HTTP_REQUEST), masServerAttrs) =
-    handleRequest(MAS_CLIENT_ADDR, HTTP_REQUEST, masServerAttrs)
+  eq handleRequest((to MAS_SERVER_ADDR from MAS_CLIENT_ADDR : HTTP_REQUEST), seed, masServerAttrs) =
+    handleRequest(MAS_CLIENT_ADDR, HTTP_REQUEST, seed, masServerAttrs)
     .
 
   --- Handle a request from a given address.
-  op handleRequest : Address HttpRequest AttributeSet -> AttributeSetMsgs .
-  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(postRequest, POST_TEXT, MAS_ID_LIST), masServerAttrs) =
+  op handleRequest : Address HttpRequest Nat AttributeSet -> AttributeSetMsgs .
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(postRequest, POST_TEXT, MAS_ID_LIST), seed, masServerAttrs) =
     handleStatusPostRequest(MAS_CLIENT_ADDR, POST_TEXT, MAS_ID_LIST, masServerAttrs)
     .
 
   --- Handle an HTTP Msg to post a media.
-  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(postRequest, MEDIA_FILE), masServerAttrs) =
-    handleMediaPostRequest(MAS_CLIENT_ADDR, MEDIA_FILE, masServerAttrs)
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(postRequest, MEDIA_FILE), seed, masServerAttrs) =
+    handleMediaPostRequest(MAS_CLIENT_ADDR, MEDIA_FILE, seed, masServerAttrs)
     .
 
   --- Handle an HTTP Msg to get a media.
-  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, URL), masServerAttrs) =
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, URL), seed, masServerAttrs) =
     handleMediaGetRequest(MAS_CLIENT_ADDR, URL, masServerAttrs)
     .
 
   --- Handle an HTTP Msg to get a post by Id.
-  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, POST_ID), masServerAttrs) =
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, POST_ID), seed, masServerAttrs) =
     handleGetPostRequest(MAS_CLIENT_ADDR, POST_ID, masServerAttrs)
     .
 
   --- Handle an HTTP Msg to search posts for a hashtag.
-  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, TAG), masServerAttrs) =
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, TAG), seed, masServerAttrs) =
     handleStatusSearchRequest(MAS_CLIENT_ADDR, TAG, listInf, masServerAttrs)
     .
 
   --- Handle an HTTP Msg to search posts for a hashtag, limiting the number of responses.
-  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, TAG, LIMIT), masServerAttrs) =
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest, TAG, LIMIT), seed, masServerAttrs) =
     handleStatusSearchRequest(MAS_CLIENT_ADDR, TAG, LIMIT, masServerAttrs)
     .
 
   --- Handle an HTTP Msg to download timeline.
-  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest), masServerAttrs) =
+  eq handleRequest(MAS_CLIENT_ADDR, makeHttpRequest(getRequest), seed, masServerAttrs) =
     handleGetRequest(MAS_CLIENT_ADDR, masServerAttrs)
     .
 
   --- Handle a request to post a media.
-  op handleMediaPostRequest : Address MediaFile AttributeSet -> AttributeSetMsgs .
-  ceq handleMediaPostRequest(MAS_CLIENT_ADDR, MEDIA_FILE, masServerAttrs) =
+  op handleMediaPostRequest : Address MediaFile Nat AttributeSet -> AttributeSetMsgs .
+  ceq handleMediaPostRequest(MAS_CLIENT_ADDR, MEDIA_FILE, seed, masServerAttrs) =
     { masServerAttrsNext, outMsg }
-    if masServerAttrsNext := insertMedia(masServerAttrs, MEDIA_FILE, makeUrl(MEDIA_FILE))
+    if masServerAttrsNext := insertMedia(masServerAttrs, MEDIA_FILE, makeUrl(seed, MEDIA_FILE))
       /\ (masServerAttrsTrans, currentMapId: CURRENT_MAP_ID) := masServerAttrsNext
       /\ outMsg := makeHttpMsg(makeHttpResponse("OK", makeResponseToot(CURRENT_MAP_ID)), MAS_CLIENT_ADDR, getThisAddr(masServerAttrs))
     .
