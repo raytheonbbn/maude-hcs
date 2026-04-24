@@ -67,8 +67,9 @@ mod IRC is
     makeAppMsg(appChatsMap,
                IRC_CLIENT_ADDR,
                IRC_CLIENT_ADDR)
-    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " scheduling next app message." ]
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " scheduling first app message." ]
   .
+
 **** CLT replaced ircDestinationName by ircName since appchat arg is either
   --- Handle app messages, send them to IRC server.
   rl [irc-client-handle-outgoing-chat]:
@@ -82,8 +83,9 @@ mod IRC is
     makeAppMsg(appChatsMap,
                IRC_CLIENT_ADDR,
                IRC_CLIENT_ADDR)
-    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling outgoing chat " chatText " to " ircName ", sending to Raceboat." ]
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling outgoing chat <<<" chatText ">>> to " ircName ", sending to Raceboat and scheduling next app message." ]
   .
+
 ****HERE  ircDestinationName >> ircName
   --- Handle IRC messages from the server.
   rl [irc-client-handle-incoming-chat]:
@@ -92,7 +94,7 @@ mod IRC is
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
 ---    delayMsgs((to getAppAddr(attrs) from IRC_CLIENT_ADDR : makeAppChat(makeIrcUserName(ircSourceAddr), chatText)), null)
-    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received chat " chatText " from " ircSourceAddr ]
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received chat >>>" chatText "<<< from " ircSourceAddr ]
   .
 
   --- Handle server ping, respond with a pong if alive.
@@ -198,16 +200,17 @@ mod IRC is
     {T, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR))}
   =>
   < IRC_SERVER_ADDR : IrcServer | attrs >
-    (if (addr == nullAddr)
-      then null
-      else delayMsgs(
+  (if (addr == nullAddr)
+    then null
+    else delayMsgs(
         (to addr from IRC_SERVER_ADDR : --- getRaceboatAddr(attrs) 
           Ping(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), 
         null)
     fi)      
-    [(IRC-STALE-DURATION-S - IRC-PING-INTV-S), 
-      (to IRC_SERVER_ADDR from IRC_SERVER_ADDR :
-         PongTimeout(IRC_CLIENT_ADDR)), 0]
+  [(IRC-STALE-DURATION-S - IRC-PING-INTV-S), 
+    (to IRC_SERVER_ADDR from IRC_SERVER_ADDR
+      : PongTimeout(IRC_CLIENT_ADDR)),
+    0]
   if IRC_CLIENT_NAME := makeIrcUserName(IRC_CLIENT_ADDR)
   /\ addr := getClientAddr(getClientAddressMap(attrs), 
                            IRC_CLIENT_NAME)
@@ -219,7 +222,7 @@ mod IRC is
     {T, (to IRC_SERVER_ADDR from rbAddr : Pong(ircDestinationName, IRC_CLIENT_ADDR))}
   =>
   < IRC_SERVER_ADDR : IrcServer | refreshUser(attrs, ircDestinationName, T) >
-  [ print "(" T ") IRC Server handling incoming Pong from Client " ircDestinationName ", refreshing." ]
+    [ print "(" T ") IRC Server handling incoming Pong from Client " ircDestinationName ", refreshing." ]
   .
 
   crl [server-pong-timeout]:
@@ -239,3 +242,4 @@ mod IRC is
   .
 
 endm
+

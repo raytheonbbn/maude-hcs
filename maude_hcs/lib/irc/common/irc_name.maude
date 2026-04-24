@@ -95,15 +95,15 @@ mod IRC_NAMES is
   eq getClientAddr(clientAddrMap, IRC_USER_NAME) = nullAddr [owise] .
 
   op insertClientName : IrcUserNameList IrcUserName -> IrcUserNameList .
-  eq insertClientName((clientList : client : clientListR), client) 
+  eq insertClientName((clientList : client : clientListR), client)
     = (clientList : client : clientListR)
   .
-  eq insertClientName(clientList, client) 
+  eq insertClientName(clientList, client)
     = clientList : client [owise]
   .
 
-**** using [owise] means the default values can be overrided
-**** in different scenarios
+  **** using [owise] means the default values can be overrided
+  **** in different scenarios
   op IRC-STALE-DURATION-S : -> Float .
   eq IRC-STALE-DURATION-S = 140. [owise] .
 
@@ -129,11 +129,11 @@ mod IRC_NAMES is
   op registerIrcUser : NameClientsMap IrcChannelName IrcUserName -> NameClientsMap .
   --- Insert name (of a client).  
   --- If the channel already exists, insert client in list.
-  eq registerIrcUser((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> clientList)), 
+  eq registerIrcUser((nameClientsMap : (IRC_CHANNEL_NAME:IrcChannelName ~> clientList)),
                      IRC_CHANNEL_NAME:IrcChannelName,
                      client)
-    = (nameClientsMap :
-        (IRC_CHANNEL_NAME:IrcChannelName ~> insertClientName(clientList, client)))
+    = (nameClientsMap
+        : (IRC_CHANNEL_NAME:IrcChannelName ~> insertClientName(clientList, client)))
   .
 ***(
 NB clt the above allows duplicates of a client in the list. If that is not the intent, replace by addIfNotPresent(clientList,client)
@@ -158,8 +158,8 @@ NB clt the above allows duplicates of a client in the list. If that is not the i
                       nil)
     = CHANNEL_MAP:NameClientsMap
   .
-************ register client connection address
 
+  ************ register client connection address
   op registerIrcUserAddress : ClientAddressMap IrcUserName Address
     -> ClientAddressMap .
    --- Insert /update client ~> address association
@@ -198,16 +198,16 @@ NB clt the above allows duplicates of a client in the list. If that is not the i
   .
 
   op pruneUserAddr : ClientAddressMap Address -> ClientAddressMap .
-  eq pruneUserAddr((clientAddressMap : 
-                      makeIrcUserName(CLIENT_ADDR) ~> addr),
-                      CLIENT_ADDR) 
+  eq pruneUserAddr((clientAddressMap
+                    : makeIrcUserName(CLIENT_ADDR) ~> addr),
+                   CLIENT_ADDR)
     = clientAddressMap
-  .        
+  .
   eq pruneUserAddr(clientAddressMap, CLIENT_ADDR) 
     = clientAddressMap [owise]
   .
          
- --- Unregister a user by address.
+  --- Unregister a user by address.
   op unregisterIrcUser : NameClientsMap Address -> NameClientsMap .
   eq unregisterIrcUser(NAME_CLIENTS_MAP,
                        CLIENT_ADDR:Address)
@@ -219,8 +219,8 @@ NB clt the above allows duplicates of a client in the list. If that is not the i
   --- Unregister a user by address from specific channels.
   op unregisterIrcUserFromChannels : NameClientsMap IrcChannelNameList Address -> NameClientsMap .
   eq unregisterIrcUserFromChannels(NAME_CLIENTS_MAP,
-    IRC_CHANNEL_NAME:IrcChannelName :: IRC_CHANNEL_NAME_LIST:IrcChannelNameList,
-    CLIENT_ADDR:Address)
+                                   IRC_CHANNEL_NAME:IrcChannelName :: IRC_CHANNEL_NAME_LIST:IrcChannelNameList,
+                                   CLIENT_ADDR:Address)
     = unregisterIrcUserFromChannels(unregisterIrcUserFromChannel(NAME_CLIENTS_MAP,
                                                                  IRC_CHANNEL_NAME:IrcChannelName,
                                                                  CLIENT_ADDR:Address),
@@ -235,14 +235,14 @@ NB clt the above allows duplicates of a client in the list. If that is not the i
 
   --- Unregister a user by address from a single channel.
   op unregisterIrcUserFromChannel : NameClientsMap IrcChannelName Address -> NameClientsMap .
-  eq unregisterIrcUserFromChannel((NAME_CLIENTS_MAP :
-    (IRC_CHANNEL_NAME:IrcChannelName ~> (clientList
-                                          : makeIrcUserName(CLIENT_ADDR:Address)
-                                          : clientListRight))),
+  eq unregisterIrcUserFromChannel((NAME_CLIENTS_MAP
+      : (IRC_CHANNEL_NAME:IrcChannelName ~> (clientList
+                                              : makeIrcUserName(CLIENT_ADDR:Address)
+                                              : clientListRight))),
     IRC_CHANNEL_NAME:IrcChannelName,
     CLIENT_ADDR:Address)
     = pruneChannels(NAME_CLIENTS_MAP
-                    : (IRC_CHANNEL_NAME:IrcChannelName ~> (clientList : clientListRight)))
+                      : (IRC_CHANNEL_NAME:IrcChannelName ~> (clientList : clientListRight)))
     [ print "Unregister prune " IRC_CHANNEL_NAME:IrcChannelName ]
   .
   eq unregisterIrcUserFromChannel(nameClientsMap,
@@ -266,7 +266,7 @@ NB clt the above allows duplicates of a client in the list. If that is not the i
     = emptyIrcUserNameList
   .
   eq getClients(NAME_CLIENTS_MAP,
-                IRC_CHANNEL_NAME:IrcChannelName) = emptyIrcUserNameList [owise ] .
+                IRC_CHANNEL_NAME:IrcChannelName) = emptyIrcUserNameList [owise] .
 
 ****CLT you need clientListLeft,Right here lists are only A
   --- If the IRC name is a user name (server will send only to that user).
@@ -290,7 +290,7 @@ NB clt the above allows duplicates of a client in the list. If that is not the i
 
   ---
   op getChannels : NameClientsMap Address ->  IrcChannelNameList .
-**** CLT NAME_CLIENTS_MAP_RIGHT not needed
+  **** CLT NAME_CLIENTS_MAP_RIGHT not needed
   eq getChannels((NAME_CLIENTS_MAP : (IRC_CHANNEL_NAME:IrcChannelName ~> (clientList : makeIrcUserName(CLIENT:Address) : clientListRight))),
                  CLIENT:Address)
     = IRC_CHANNEL_NAME:IrcChannelName :: getChannels(NAME_CLIENTS_MAP, CLIENT:Address)
