@@ -85,7 +85,16 @@ mod IRC is
     {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : makeAppChat(ircName, chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs, aliceAppChatsMap: popAppChat(appChatsMap) >
-  < monitorAddr : IrcMonitor | monitorAttrs, msgSent: (msgSentList ; messageTimestamp(T, IRC_CLIENT_ADDR, 1, ircName, stringHash(chatText))) >
+  < monitorAddr : IrcMonitor | monitorAttrs,
+                               msgSent: (msgSentList
+                                          ; messageTimestamp(T,
+                                                             IRC_CLIENT_ADDR,
+                                                             **** Should be server address,
+                                                             **** but currently not available at client.
+                                                             nullAddr,
+                                                             1,
+                                                             ircName,
+                                                             stringHash(chatText))) >
     --- The client -> server delay will take about 2ms avg + 1.8ms std.
     delayMsgs((to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : PrivMsgReq(ircName, getIrcName(attrs), chatText)),
               null)
@@ -103,7 +112,14 @@ mod IRC is
     {T, (to IRC_CLIENT_ADDR from rbAddr : PrivMsgRes(ircName, makeIrcUserName(ircSourceAddr), chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
-  < monitorAddr : IrcMonitor | monitorAttrs, msgRcvd: (msgRcvdList ; messageTimestamp(T, IRC_CLIENT_ADDR, 1, ircName, stringHash(chatText))) >
+  < monitorAddr : IrcMonitor | monitorAttrs,
+                                msgRcvd: (msgRcvdList
+                                          ; messageTimestamp(T,
+                                                             IRC_CLIENT_ADDR,
+                                                             IRC_CLIENT_ADDR,
+                                                             1,
+                                                             ircName,
+                                                             stringHash(chatText))) >
 ---    delayMsgs((to getAppAddr(attrs) from IRC_CLIENT_ADDR : makeAppChat(makeIrcUserName(ircSourceAddr), chatText)), null)
     [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received chat >>>" chatText "<<< from " ircSourceAddr ]
   .
@@ -147,14 +163,19 @@ mod IRC is
   < monitorAddr : IrcMonitor |
       monitorAttrs,
       msgSent: (msgSentList ; extractMessageTimestamps(T, msgs:Config)),
-      msgRcvd: (msgRcvdList ; messageTimestamp(T, IRC_SERVER_ADDR, 1, ircName, stringHash(chatText)))
+      msgRcvd: (msgRcvdList ; messageTimestamp(T,
+                                               IRC_SERVER_ADDR,
+                                               IRC_SERVER_ADDR,
+                                               1,
+                                               ircName,
+                                               stringHash(chatText)))
   >
     delayMsgs(msgs:Config, null)
     [IRC-STALE-DURATION-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(ircSourceAddr)), 0]
   if CLIENTS_MAP := getChannelMap(attrs)
     /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, ircName)
     /\ msgs:Config := createPrivMsgRes(attrs,
-                                       ircName, **** CLT fix
+                                       ircName,
                                        makeIrcUserName(ircSourceAddr),
                                        clientList:IrcUserNameList,
                                        chatText)
