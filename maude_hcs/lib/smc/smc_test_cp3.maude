@@ -1,0 +1,88 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+--- This maude file has been created automatically from the Python representation ---
+sload ../mastodon/maude/probabilistic/mastodon
+sload ../dns/maude/probabilistic/iodine_dns
+sload ../common/maude/user-action-actor.maude
+sload ../tgen/maude/dnsTgen-actor.maude
+sload ../tgen/maude/masTGen.maude
+sload ../common/maude/router
+sload ../common/maude/adversary-observer
+sload ../app/maude/probabilistic
+sload ../../deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
+sload ../irc/irc_monitor 
+
+mod HCS_TEST is
+  inc DNS .
+  inc USER-ACTION-ACTOR .
+  inc DNS-TGEN .
+  inc DNS-MAMODEL .
+  inc MASTODON .
+  inc MAS-TGEN .
+  inc IODINE_DNS . --- + TEST-HELPERS .
+  inc CP2_APP .
+  inc ROUTER .
+  inc ADVERSARY-OBSERVER .
+  inc IRC_MONITOR .
+
+  ops aliceIrcClientAddr bobIrcClientAddr ircServerAddr ircMonitorAddr : -> Address .
+
+  op myMon : -> Actor .
+  eq myMon = < ircMonitorAddr : IrcMonitor |
+  msgSent: (
+    messageTimestamp(2.25, aliceIrcClientAddr, ircServerAddr, 1, makeIrcChannelName("bbn"), 322655651935342083498517656) ; 
+    messageTimestamp(2.45, ircServerAddr, bobIrcClientAddr, 128, makeIrcChannelName("bbn"), 322655651935342083498517656) ; 
+    messageTimestamp(5.75, aliceIrcClientAddr, ircServerAddr, 1, makeIrcChannelName("bbn"), 322655651935342083498517657) ; 
+    messageTimestamp(7.75, ircServerAddr, bobIrcClientAddr, 128, makeIrcChannelName("bbn"), 322655651935342083498517657) ; 
+    messageTimestamp(1.115e+1, aliceIrcClientAddr, ircServerAddr, 1, makeIrcChannelName( "bbn"), 322655651935342083498517658) ; 
+    messageTimestamp(1.515e+1, ircServerAddr, bobIrcClientAddr, 128, makeIrcChannelName("bbn"), 322655651935342083498517658)),
+  msgRcvd: (
+    messageTimestamp(2.35, aliceIrcClientAddr, ircServerAddr, 1, makeIrcChannelName("bbn"), 322655651935342083498517656) ; 
+    messageTimestamp(2.55, ircServerAddr, bobIrcClientAddr, 1, makeIrcChannelName("bbn"), 322655651935342083498517656) ; 
+    messageTimestamp(6.75, aliceIrcClientAddr, ircServerAddr, 1, makeIrcChannelName("bbn"), 322655651935342083498517657) ; 
+    messageTimestamp(8.75, ircServerAddr, bobIrcClientAddr, 1, makeIrcChannelName("bbn"), 322655651935342083498517657) ; 
+    messageTimestamp(1.315e+1, aliceIrcClientAddr, ircServerAddr, 1, makeIrcChannelName("bbn"), 322655651935342083498517658) ; 
+    messageTimestamp(1.715e+1, ircServerAddr, bobIrcClientAddr, 1, makeIrcChannelName("bbn"), 322655651935342083498517658))
+    > 
+  .
+
+endm
+
+load smc_cp3
+set print attribute on .
+
+red getSentMsgNum(myMon) .
+red getLatencyDistributionWindow(myMon, 0.0, 5.0) .
+red getLatencyDistributionWindow(myMon, 0.0, 8.0) .
+red getLatencyDistributionWindow(myMon, 5.0, 8.0) .
+red getLatencyDistributionWindow(myMon, 5.0, 10.0) .
+red getLatencyDistributionWindow(myMon, 0.0, 10.0) .
+red getLatencyDistributionWindow(myMon, 0.0, 100.0) .
