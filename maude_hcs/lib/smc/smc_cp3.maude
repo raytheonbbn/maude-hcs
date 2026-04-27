@@ -1,0 +1,88 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+mod SMC_CP3 is
+
+  inc HCS_TEST .
+  pr FLOAT .
+  pr LIST{Float} .
+
+  var C : Config .
+  var attrs : AttributeSet .
+  vars T Tsent Trcvd Tstart Tend : Float .
+  vars ADDR ircAddrFrom ircAddrTo : Address .
+
+  vars ircMTL ircMTL' :  MessageTimestampList .
+  var ircRoom : IrcName .
+  vars ircMsgId ircMsgId' : Nat .
+  var ircMsgSize : Nat . 
+
+  op getMonitor : Config -> Actor .
+  eq getMonitor (C < ADDR : IrcMonitor | attrs >) = < ADDR : IrcMonitor | attrs > .
+
+  op countMsgs : MessageTimestampList -> Nat .
+  eq countMsgs (nilMessageTimestampList) = 0 .
+  eq countMsgs (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL) = 1 + countMsgs(ircMTL) .
+ 
+  op getSentMsgNum : Actor -> Nat .
+  eq getSentMsgNum (< ADDR : IrcMonitor | msgSent: ircMTL, attrs >) = countMsgs(ircMTL) .
+
+  op getRcvdMsgNum : Actor -> Nat .
+  eq getRcvdMsgNum (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >) = countMsgs(ircMTL) .
+
+  op collectTimestamp : MessageTimestampList -> List{Float} .
+  eq collectTimestamp (nilMessageTimestampList) = nil .
+  eq collectTimestamp (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL) = T collectTimestamp(ircMTL) .
+
+  op getSentMsgTime : Actor -> List{Float} .
+  eq getSentMsgTime (< ADDR : IrcMonitor | msgSent: ircMTL, attrs >) = collectTimestamp(ircMTL) .
+
+  op getRcvdMsgTime : Actor -> List{Float} .
+  eq getRcvdMsgTime (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >) = collectTimestamp(ircMTL) .
+
+  op isIrcClientAddr : Address -> Bool .
+	eq isIrcClientAddr (ADDR) = if ADDR =/= ircServerAddr then true else false fi . 
+
+  op compLatency : Float Float -> Float .
+  eq compLatency(Tsent, Trcvd) = Trcvd - Tsent .
+
+  op collectMsgLatency : Nat Float MessageTimestampList Float Float -> List{Float} .
+  eq collectMsgLatency (ircMsgId, Tsent, nilMessageTimestampList, Tstart, Tend) = nil .
+  eq collectMsgLatency (ircMsgId, Tsent, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend) = if (ircMsgId == ircMsgId') and (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) then compLatency(Tsent, T) collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) else collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) fi . 
+
+  op collectLatencyWindow : MessageTimestampList MessageTimestampList Float Float -> List{Float} .
+  eq collectLatencyWindow (nilMessageTimestampList, ircMTL, Tstart, Tend) = nil .
+  eq collectLatencyWindow (ircMTL, nilMessageTimestampList, Tstart, Tend) = nil .
+  eq collectLatencyWindow (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tstart, Tend) = if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrFrom) then collectMsgLatency(ircMsgId, T, ircMTL', Tstart, Tend) collectLatencyWindow(ircMTL, ircMTL', Tstart, Tend) else collectLatencyWindow(ircMTL, ircMTL', Tstart, Tend) fi .
+
+  op getLatencyDistributionWindow : Actor Float Float -> List{Float} .
+  eq getLatencyDistributionWindow (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = collectLatencyWindow(ircMTL, ircMTL', Tstart, Tend) . 
+
+endm
