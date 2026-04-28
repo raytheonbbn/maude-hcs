@@ -39,7 +39,7 @@ mod IRC_NODE is
   pr IRC_AUX .
   pr APP_CHATS .
 
-  vars DST_ADDR SRC_ADDR APP_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR RB_ADDR : Address .
+  vars DST_ADDR SRC_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR RB_ADDR : Address .
   vars ircClientAddrs IRC_CLIENT_ADDRS : AddrList .
   vars attrs attrsNext attrsTrans : AttributeSet .
   vars CLIENT_TIMESTAMP_MAP timestampMap : ClientTimestampMap .
@@ -60,8 +60,6 @@ mod IRC_NODE is
   op IrcClient : -> ActorType [ctor] .
   --- This client's address.
   op thisAddr:_ : Address -> Attribute [ctor] .
-  --- The App address.
-  op appAddr:_ : Address -> Attribute [ctor] .
   --- The Raceboat address.
   op raceboatAddr:_ : Address -> Attribute [ctor] .
   --- The IRC name.
@@ -69,24 +67,22 @@ mod IRC_NODE is
   --- The App messages.
   op aliceAppChatsMap:_ : AppChatsMap -> Attribute [ctor] .
 
-  --- Make an IrcClient ItsAddr  AppAddr  RBAddr
-  op makeIrcClient :    Address  Address  Address -> Actor .
-  eq makeIrcClient(IRC_CLIENT_ADDR, APP_ADDR, RB_ADDR) =
+  --- Make an IrcClient ItsAddr  RBAddr
+  op makeIrcClient :    Address  Address -> Actor .
+  eq makeIrcClient(IRC_CLIENT_ADDR, RB_ADDR) =
     < IRC_CLIENT_ADDR : IrcClient |
         thisAddr: IRC_CLIENT_ADDR,
-        appAddr: APP_ADDR,
         raceboatAddr: RB_ADDR,
         ircName: makeIrcUserName(IRC_CLIENT_ADDR),
         aliceAppChatsMap: emptyAppChatsMap
     >
   .
 
-  --- Make an IrcClient ItsAddr  AppAddr  RBAddr
-  op makeIrcClient :    Address  Address  Address AppChatsMap -> Actor .
-  eq makeIrcClient(IRC_CLIENT_ADDR, APP_ADDR, RB_ADDR, appChats:AppChatsMap) =
+  --- Make an IrcClient ItsAddr  RBAddr
+  op makeIrcClient :    Address  Address AppChatsMap -> Actor .
+  eq makeIrcClient(IRC_CLIENT_ADDR, RB_ADDR, appChats:AppChatsMap) =
     < IRC_CLIENT_ADDR : IrcClient |
         thisAddr: IRC_CLIENT_ADDR,
-        appAddr: APP_ADDR,
         raceboatAddr: RB_ADDR,
         ircName: makeIrcUserName(IRC_CLIENT_ADDR),
         aliceAppChatsMap: appChats:AppChatsMap
@@ -95,9 +91,6 @@ mod IRC_NODE is
 
   op getThisAddr : AttributeSet -> Address .
   eq getThisAddr(attrs, thisAddr: IRC_CLIENT_ADDR) = IRC_CLIENT_ADDR .
-
-  op getAppAddr : AttributeSet -> Address .
-  eq getAppAddr(attrs, appAddr: APP_ADDR) = APP_ADDR .
 
   op getRaceboatAddr : AttributeSet -> Address .
   eq getRaceboatAddr(attrs, raceboatAddr: RB_ADDR) = RB_ADDR .
