@@ -4,14 +4,39 @@
 --- Maude-HCS Software
 ---
 --- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
---- ...
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
 --- MAUDE_HCS: end
 
 sload ../common/maude/_aux
+sload ../common/maude/byteseq
+sload ../irc/_irc_aux
 
 mod SKYHOOK_AUX is
+  pr BYTESEQ .
   pr CONVERSION .
   pr CP2_SORTS .
+  pr IRC_AUX .
 
   --- Abstract StringList for tracking rolling Uuids
   sort StringList .
@@ -41,17 +66,104 @@ mod SKYHOOK_AUX is
   eq last(STR:String) = STR:String .
   eq last(STR1:String :: STR2:String :: REST:StringList) = last(STR2:String :: REST:StringList) .
 
+
+  vars fetchBucketName postBucketName : String .
+  vars fetchUuid initialPostUuid postUuid : String .
+
   --- Actors
+  ----------------------------
+  --- Public User (Client) ---
+  ----------------------------
   op SkyhookPublicUser : -> ActorType [ctor] .
+
+  op thisAddr:_ : Address -> Attribute [ctor] .
+  op raceboatAddr:_ : Address -> Attribute [ctor] .
+  op awsAddr:_ : Address -> Attribute [ctor] .
+  op fetchBucket:_ : String -> Attribute [ctor] .
+  op postBucket:_ : String -> Attribute [ctor] .
+  --- UUID Tracking Attributes
+  op fetchObjUuid:_ : String -> Attribute [ctor] .
+  op postObjUuid:_ : String -> Attribute [ctor] .
+
+  op makeSkyhookPU  : Address Address Address String String String String -> Actor .
+  eq makeSkyhookPU(puAddr:Address,
+                   rbAddr:Address,
+                   s3StoreAddr:Address,
+                   fetchBucketName,
+                   postBucketName,
+                   fetchUuid,
+                   postUuid) = 
+    < puAddr:Address : SkyhookPublicUser |
+        thisAddr: puAddr:Address,
+        raceboatAddr: rbAddr:Address,
+        awsAddr: s3StoreAddr:Address,
+        fetchBucket: fetchBucketName,
+        postBucket: postBucketName,
+        fetchObjUuid: fetchUuid,
+        postObjUuid: postUuid
+    >
+  .
+
+  -------------------------------
+  --- Account Holder (Server) ---
+  -------------------------------
   op SkyhookAccountHolder : -> ActorType [ctor] .
+  --- op thisAddr:_ : Address -> Attribute [ctor] .
+  --- op raceboatAddr:_ : Address -> Attribute [ctor] .
+  --- op awsAddr:_ : Address -> Attribute [ctor] .
+  --- op fetchBucket:_ : String -> Attribute [ctor] .
+  --- op postBucket:_ : String -> Attribute [ctor] .
+  op puttableUuids:_ : StringList -> Attribute [ctor] .
+  op fetchableUuids:_ : StringList -> Attribute [ctor] .
+  op openObjects:_ : Nat -> Attribute [ctor] .
+  op initialFetchObjUuid:_ : String -> Attribute [ctor] .
+  op initialPostObjUuid:_ : String -> Attribute [ctor] .
+
+  ---                 ThisAddr  RB Addr S3Store FetchBucket PostBucket  FetchUuid initPostUuid  postUuid
+  op makeSkyhookAH  : Address   Address Address String      String      String    String        String -> Actor .
+  eq makeSkyhookAH(ahAddr:Address,
+                   rbAddr:Address,
+                   s3StoreAddr:Address,
+                   fetchBucketName,
+                   postBucketName,
+                   fetchUuid,
+                   initialPostUuid,
+                   postUuid) =
+    < ahAddr:Address : SkyhookAccountHolder |
+        thisAddr: ahAddr:Address,
+        raceboatAddr: rbAddr:Address,
+        awsAddr: s3StoreAddr:Address,
+        fetchBucket: fetchBucketName,
+        postBucket: postBucketName,
+        puttableUuids: emptyStringList,
+        fetchableUuids: emptyStringList,
+        initialFetchObjUuid: fetchUuid,
+        initialPostObjUuid: initialPostUuid,
+        openObjects: 3,
+        postObjUuid: postUuid
+    >
+  .
+
+  op getRaceboatAddr : AttributeSet -> Address .
+  eq getRaceboatAddr(ATTRS:AttributeSet, raceboatAddr: RB:Address) = RB:Address .
+
+  op getAwsAddr : AttributeSet -> Address .
+  eq getAwsAddr(ATTRS:AttributeSet, awsAddr: AWS:Address) = AWS:Address .
+
+  op REGION : -> String .
+  eq REGION = "us-east-1" .
+
+  --- 
   op AwsS3 : -> ActorType [ctor] .
 
   --- Skyhook Messages (S3 API)
   op S3PutObjReq : String String String -> Content . --- bucket uuid object_data
+  op S3PutObjReq : String String ByteSeq -> Content . --- bucket uuid object_data
   op S3PutObjRes : String String -> Content .        --- bucket uuid
 
   op S3GetObjReq : String String -> Content .        --- bucket uuid
   op S3GetObjRes : String String String -> Content . --- bucket uuid object_data
+  op S3GetObjRes : String String ByteSeq -> Content . --- bucket uuid object_data
   op S3GetObjErr : String String -> Content .        --- bucket uuid
 
   op S3DeleteObjReq : String String -> Content .     --- bucket uuid
@@ -73,11 +185,17 @@ mod SKYHOOK_AUX is
   op SkyhookFetchCmd : -> Content . --- Poll fetch (no uuid required, internal state driven)
   op SkyhookFetchErr : -> Content . --- Not found
   op SkyhookPostCmd : String -> Content . --- post data (uuid determined internally)
+  op SkyhookPostCmd : ByteSeq -> Content .
   
   op SkyhookStartCmd : -> Content . --- Kickoff initialization
 
   op getSize : Content -> Nat .
   eq getSize(S3PutObjReq(BUCKET:String, UUID:String, DATA:String)) = 150 + length(BUCKET:String) + length(UUID:String) + length(DATA:String) .
+  eq getSize(S3PutObjReq(BUCKET:String, UUID:String, DATA:ByteSeq))
+    = 150 + length(BUCKET:String)
+      + length(UUID:String)
+      + getSize(DATA:ByteSeq)
+  .
   eq getSize(S3PutObjRes(BUCKET:String, UUID:String)) = 150 .
   eq getSize(S3GetObjReq(BUCKET:String, UUID:String)) = 150 .
   eq getSize(S3GetObjRes(BUCKET:String, UUID:String, DATA:String)) = 150 + length(DATA:String) .
