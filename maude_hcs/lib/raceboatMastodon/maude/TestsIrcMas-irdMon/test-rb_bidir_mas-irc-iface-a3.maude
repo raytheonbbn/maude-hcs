@@ -32,26 +32,29 @@ set clear rules off .
 set print attribute off .
 set show advisories off .
 
-sload ../../common/maude/user-action-actor
-sload enc-dec-actor
-sload rb-cm-sender-mas
-sload rb-cm-receiver-mas
-sload ../../mastodon/maude/probabilistic/mastodon
+sload ../../../common/maude/user-action-actor
+sload ../enc-dec-actor
+sload ../rb-cm-sender-mas
+sload ../rb-cm-receiver-mas
+sload ../../../mastodon/maude/probabilistic/mastodon
 
 ---- raceboat  user models
 **** sload ../../raceboat/maude/mastodonprofiles/client_config_cp2_scenario_1_new.maude
 **** sload ../../raceboat/maude/mastodonprofiles/server_config_cp2_scenario_1_new.maude
 
-sload client_config_cp2_scenario_1_new.maude
-sload server_config_cp2_scenario_1_new.maude
+sload ../client_config_cp2_scenario_1_new.maude
+sload ../server_config_cp2_scenario_1_new.maude
 
-**** sload ../../../../lib/common/maude/http-overhead
-sload user-interface  
+sload ../../../common/maude/http-overhead.maude
 
-sload ../../irc/common/irc_name
-sload ../../irc/common/_aux
-sload ../../irc/irc_prob
-sload logging
+sload ../../../irc/common/irc_name
+sload ../../../irc/common/_aux
+sload ../../../irc/irc_prob
+
+**** sload ../../common/maude/irc-rbmas-interface
+---- this should go in a scenario dir
+sload ../irc-rbmas-interface  
+sload ../ircMonitor
 
 mod RB-BIDIR-MAS-IRC-SCENARIO is
   inc USER-ACTION-ACTOR .
@@ -63,9 +66,10 @@ mod RB-BIDIR-MAS-IRC-SCENARIO is
  inc MASTODON-CLIENT-CONFIG-CP2-SCENARIO-1-NEW-MAMODEL .
  inc MASTODON-SERVER-CONFIG-CP2-SCENARIO-1-NEW-MAMODEL .
  inc SCHEDULER .
- inc IRC-INTERFACE .   
+**** inc IRC-INTERFACE .   
  inc IRC .
- inc LOGGING .
+ inc IRC-RBMAS-INTERFACE  .
+ inc IRC_MONITOR  .
  
  
 vars j : Nat .
@@ -80,6 +84,9 @@ eq ed-images = image(1, 3779, 500) :: image(2, 2405, 1000) :: image(3, 36861, 10
 **** addresses
 *** alice
 ops aliceAddr ircaAddr : -> Address .
+**** alice channel interfaces
+ops ifaceACAddr ifaceASAddr : -> Address .
+
 *** client endpoint ac
 ops umacSndAddr  cmacSndAddr mcacSndAddr 
     umacRcvAddr  cmacRcvAddr mcacRcvAddr 
@@ -91,6 +98,9 @@ ops umasSndAddr  cmasSndAddr mcasSndAddr
 
 *** bob
 ops bobAddr ircbAddr : -> Address .
+**** bobs channel endpoint interfaces
+ops ifaceBCAddr ifaceBSAddr : -> Address .
+
 *** client endpointl  ..bc.. ..bs..
 ops umbcSndAddr  cmbcSndAddr mcbcSndAddr 
     umbcRcvAddr  cmbcRcvAddr mcbcRcvAddr 
@@ -101,12 +111,14 @@ ops umbsSndAddr  cmbsSndAddr mcbsSndAddr
     edbsAddr : -> Address .
 
 ops ircSrvAddr masSrvAddr : -> Address .
-op logAddr : -> Address .
+op ircMonitorAddr : -> Address .
 
 -----------------------
 **** actors
 *** alice
 op ircaAct : -> Actor .
+ops ifaceACAct ifaceASAct : -> Actor .
+
 *** client endpoint
 ops umacSndAct  cmacSndAct mcacSndAct 
     umacRcvAct  cmacRcvAct mcacRcvAct 
@@ -118,6 +130,8 @@ ops umasSndAct  cmasSndAct mcasSndAct
 
 *** bob
 op ircbAct : -> Actor .
+ops ifaceBCAct ifaceBSAct : -> Actor .
+
 *** client endpoint
 ops umbcSndAct  cmbcSndAct mcbcSndAct 
     umbcRcvAct  cmbcRcvAct mcbcRcvAct 
@@ -128,7 +142,7 @@ ops umbsSndAct  cmbsSndAct mcbsSndAct
     edbsAct : -> Actor .
 
 ops ircSrvAct masSrvAct : -> Actor .
-op logAct : -> Actor .
+op ircMonitorAct : -> Actor .
 
 ************** actor defns
 ***** aliceIrc
@@ -136,7 +150,7 @@ eq ircaAct =
   < ircaAddr : IrcClient |
     thisAddr: ircaAddr,
     appAddr: aliceAddr,
-    raceboatAddr: cmacSndAddr,
+    raceboatAddr: ifaceACAddr,  ---- rb ircclient interface
     ircName: makeIrcUserName(ircaAddr),
     aliceAppChatsMap: (
        (2.0 ~> ("Alice message 0", makeIrcChannelName("ab")))
@@ -144,35 +158,44 @@ eq ircaAct =
      : (40. ~> ("Alice message 2", makeIrcChannelName("ab"))))
   >
   .
+  
+eq ifaceACAct =
+mkIrcMasIface(ifaceACAddr,ircaAddr,
+              cmacSndAddr,cmacRcvAddr) .
+
 **** alice client rb endpoint
 eq umacSndAct = mkUMactor(umacSndAddr, 
             mastodon-client-config-cp2-scenario-1-new-ma,
             cmacSndAddr) .
 eq cmacSndAct = 
     mkCMSender(cmacSndAddr,edacAddr,mcacSndAddr,
-               ircaAddr, ---- sndAddr
+               ifaceACAddr,  ---- rcv from   ircaAddr, 
                "client0") .
 eq mcacSndAct =
    makeMastodonClient(mcacSndAddr, masSrvAddr,cmacSndAddr) .
+
 eq umacRcvAct =
   mkUMactor(umacRcvAddr, 
             mastodon-server-config-cp2-scenario-1-new-ma,
             cmacRcvAddr) .
 eq cmacRcvAct =
   mkCMReceiver(cmacRcvAddr,edacAddr,mcacRcvAddr,
-   ircaAddr, --- client end
+   ifaceACAddr,  ---- ircaAddr, send rcvd to
   "server0") .  --- posted by server end
 eq mcacRcvAct =
   makeMastodonClient(mcacRcvAddr, masSrvAddr,cmacRcvAddr) .
 eq edacAct = makeDestiniActor(edacAddr, ed-images) .
 
 ***  alice server endpoint
+
+eq ifaceASAct = mkIrcMasIface(ifaceASAddr,ircSrvAddr, 
+                              cmasSndAddr,cmasRcvAddr) .
 eq umasSndAct = mkUMactor(umasSndAddr, 
             mastodon-client-config-cp2-scenario-1-new-ma,
             cmasSndAddr) .
 eq cmasSndAct = ---- to client from server
     mkCMSender(cmasSndAddr,edasAddr,mcasSndAddr,
-               ircSrvAddr, ---- sndAddr
+               ifaceASAddr, ---- sndAddr
                "server0") .
 eq mcasSndAct =
    makeMastodonClient(mcasSndAddr, masSrvAddr,cmasSndAddr) .
@@ -183,7 +206,7 @@ eq umasRcvAct =
             cmasRcvAddr) .
 eq cmasRcvAct =
   mkCMReceiver(cmasRcvAddr,edasAddr,mcasRcvAddr,
-   ircSrvAddr, --- client end
+   ifaceASAddr, --- 
   "client0") .  --- posted by server end
 eq mcasRcvAct =
   makeMastodonClient(mcasRcvAddr, masSrvAddr,cmasRcvAddr) .
@@ -195,10 +218,14 @@ eq ircbAct =
     < ircbAddr : IrcClient |
         thisAddr: ircbAddr,
         appAddr: bobAddr,
-        raceboatAddr: cmbcSndAddr,
+        raceboatAddr: ifaceBCAddr,  ---- rb interface
         ircName: makeIrcUserName(ircbAddr)
     >
   .
+
+eq ifaceBCAct =
+mkIrcMasIface(ifaceBCAddr,ircbAddr,
+              cmbcSndAddr,cmbcRcvAddr) .
 
 *** bob client  rbendpoint
 eq umbcSndAct = mkUMactor(umbcSndAddr, 
@@ -206,7 +233,7 @@ eq umbcSndAct = mkUMactor(umbcSndAddr,
             cmbcSndAddr) .
 eq cmbcSndAct = 
     mkCMSender(cmbcSndAddr,edbcAddr,mcbcSndAddr,
-               ircbAddr, ---- sndAddr
+               ifaceBCAddr, ---- sndAddr
                "client1") .
 eq mcbcSndAct =
    makeMastodonClient(mcbcSndAddr, masSrvAddr,cmbcSndAddr) .
@@ -217,20 +244,22 @@ eq umbcRcvAct =
             cmbcRcvAddr) .
 eq cmbcRcvAct =
   mkCMReceiver(cmbcRcvAddr,edbcAddr,mcbcRcvAddr,
-   ircbAddr, --- client end
+   ifaceBCAddr, --- client end
   "server1") .  --- posted by server end
 eq mcbcRcvAct =
   makeMastodonClient(mcbcRcvAddr, masSrvAddr,cmbcRcvAddr) .
 eq edbcAct = makeDestiniActor(edbcAddr, ed-images) .
 
 *** bob server endpoint
+eq ifaceBSAct = mkIrcMasIface(ifaceBSAddr,ircSrvAddr, 
+              cmbsSndAddr,cmbsRcvAddr) .
 
 eq umbsSndAct = mkUMactor(umbsSndAddr, 
             mastodon-client-config-cp2-scenario-1-new-ma,
             cmbsSndAddr) .
 eq cmbsSndAct = ---- to client from server
     mkCMSender(cmbsSndAddr,edbsAddr,mcbsSndAddr,
-               ircSrvAddr, ---- sndAddr
+               ifaceBSAddr, ---- sndAddr
                "server1") .
 eq mcbsSndAct =
    makeMastodonClient(mcbsSndAddr, masSrvAddr,cmbsSndAddr) .
@@ -241,7 +270,7 @@ eq umbsRcvAct =
             cmbsRcvAddr) .
 eq cmbsRcvAct =
   mkCMReceiver(cmbsRcvAddr,edbsAddr,mcbsRcvAddr,
-   ircSrvAddr, --- client end
+   ifaceBSAddr, --- client end
   "client1") .  --- posted by server end
 eq mcbsRcvAct =
   makeMastodonClient(mcbsRcvAddr, masSrvAddr,cmbsRcvAddr) .
@@ -258,13 +287,9 @@ eq ircSrvAct =
         clientAddressMap: emptyClientAddressMap
     >
   .
-eq logAct =
-  < logAddr : MsgLog | 
-      sent: nilTML,
-      rcvd: nilTML,
-      toLog: (ircSrvAddr ;; ircaAddr ;; ircbAddr)
-  > .     
-
+eq ircMonitorAct = 
+    makeIrcMonitor(ircMonitorAddr,
+                   (ircSrvAddr ;; ircaAddr ;; ircbAddr)) .   
 
 op LinkType-2 : -> AttributeSet .
 eq LinkType-2 = 
@@ -304,25 +329,30 @@ eq initState(j ) =
 ******* alice 
    ircaAct 
 *** alice client endpoint
+   ifaceACAct
    umacSndAct  cmacSndAct mcacSndAct 
    umacRcvAct  cmacRcvAct mcacRcvAct 
    edacAct
 **** alice server endpoint
+   ifaceASAct
    umasSndAct  cmasSndAct mcasSndAct 
    umasRcvAct  cmasRcvAct mcasRcvAct 
    edasAct 
 ******* bob
    ircbAct 
 **** bob client endpoint
+   ifaceBCAct
    umbcSndAct  cmbcSndAct mcbcSndAct 
    umbcRcvAct  cmbcRcvAct mcbcRcvAct 
    edbcAct
-***** sbob erver endpoint
+***** bob server endpoint
+   ifaceBSAct
    umbsSndAct  cmbsSndAct mcbsSndAct 
    umbsRcvAct  cmbsRcvAct mcbsRcvAct 
    edbsAct 
 **** global
-   ircSrvAct masSrvAct logAct
+   ircSrvAct masSrvAct 
+   ircMonitorAct
 **** start messages  
 **** alice channel  
   [1.0 + genRandomX(j,0.0, 0.0001),
@@ -348,16 +378,16 @@ eq initState(j ) =
   [0.25, (to ircaAddr : StartIrc), 0]
 **** alice joins with cnx rb server send addr
 **** if sent by alice, it would come from rcv addr!!
-  [0.40, (to ircSrvAddr from cmasSndAddr : 
+  [0.40, (to ircSrvAddr from ifaceASAddr : 
         JoinChannel(makeIrcChannelName("ab"),ircaAddr)),
      0]
-  [0.5, (to ircSrvAddr from cmbsSndAddr :
+  [0.5, (to ircSrvAddr from  ifaceBSAddr :
        JoinChannel(makeIrcChannelName("ab"),ircbAddr)),
      0]
 .
 
 op slimit : -> Float .
-eq slimit = 600.0 .
+eq slimit = 300.0 .
 
 op initConfig : -> Config .
 rl[init]: initConfig 
@@ -365,7 +395,8 @@ rl[init]: initConfig
 
  endm
 
- set print attribute on .
+ red "Alice,Bob join ab, Alice sends 3 texts ircMonitor" .
+ **** set print attribute on .
  rew initConfig .
  q
  eof

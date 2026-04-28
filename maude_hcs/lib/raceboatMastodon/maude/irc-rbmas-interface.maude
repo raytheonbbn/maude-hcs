@@ -1,0 +1,97 @@
+set show advisories off .
+
+sload ../../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../common/maude/byteseq
+sload ../../common/maude/sampler-x
+sload ../../common/maude/cp2-interfaces
+sload ../../irc/_irc_aux
+
+mod IRC-RBMAS-INTERFACE is
+  inc ACTOR-MODEL .
+  inc BYTESEQ .
+  inc CP2-COMMON .
+  inc SAMPLER-X .
+  inc IRC_AUX  .
+  
+
+vars j : Nat .
+vars attrs : AttributeSet .
+vars ifAddr ircAddr rbSAddr rbRAddr ircEndp : Address .
+vars msg : Msg .
+vars ircMsg : IrcMsg .
+vars byteseq : ByteSeq .
+vars T : Float .
+
+op ircToByteseq : IrcMsg -> ByteSeq [ctor] .
+op ircFromByteseq : ByteSeq -> IrcMsg .
+eq ircFromByteseq(ircToByteseq(ircMsg)) = ircMsg .
+
+**** op getSize : Content -> Nat .
+eq getSize(ircToByteseq(ircMsg)) = getSize(ircMsg) .
+eq nbytes(ircToByteseq(ircMsg)) = getSize(ircMsg) .
+
+op IrcRbMasIface : -> ActorType .
+op rbSndr:_  : Address -> Attribute [ctor] .
+op rbRcvr:_  : Address -> Attribute [ctor] .
+op ircEndp:_ : Address -> Attribute [ctor] .
+
+op mkIrcMasIface : Address Address Address Address 
+                   -> Actor .
+eq mkIrcMasIface(ifAddr,ircAddr,rbSAddr,rbRAddr)
+   =
+   < ifAddr : IrcRbMasIface | 
+      ircEndp: ircAddr,
+      rbSndr: rbSAddr,
+      rbRcvr: rbRAddr >
+  .
+
+crl [fromIrc2rbS]:
+  rCtr(j)
+  {T, (to ifAddr from ircAddr : ircMsg)}
+  < ifAddr : IrcRbMasIface | 
+     ircEndp: ircAddr, rbSndr: rbSAddr, rbRcvr: rbRAddr,
+     attrs >
+ =>
+  rCtr(s j)
+  < ifAddr : IrcRbMasIface | 
+     ircEndp: ircAddr, rbSndr: rbSAddr, rbRcvr: rbRAddr,
+     attrs >
+ [genRandomX(j,0.0, 0.0001) , msg,0]
+ if msg := (to rbSAddr from ifAddr :
+             ircToByteseq(ircMsg))
+.
+
+crl [fromRbs2Irc]:
+  rCtr(j)
+  {T, (to ifAddr from rbRAddr : byteseq)}
+  < ifAddr : IrcRbMasIface | 
+     ircEndp: ircAddr, rbSndr: rbSAddr, rbRcvr: rbRAddr,
+     attrs >
+ =>
+  rCtr(s j)
+  < ifAddr : IrcRbMasIface | 
+     ircEndp: ircAddr, rbSndr: rbSAddr, rbRcvr: rbRAddr,
+     attrs >
+ [genRandomX(j,0.0, 0.0001) , msg,0]
+ if msg := (to ircAddr from ifAddr :
+             ircFromByteseq(byteseq))
+.
+
+endm
+
+
+mod TEST-IRC-RBMAS-INTERFACE is
+  inc IRC-RBMAS-INTERFACE .
+  
+ops ifAd ircAd rbSAd rbRAd : -> Address .
+op ircMasIfAct : -> Actor .
+eq ircMasIfAct = mkIrcMasIface(ifAd,ircAd,rbSAd,rbRAd) .
+
+op ircM : -> IrcMsg .
+
+endm  
+eof
+
+rew ircMasIfAct rCtr(9) {1.0,(to ifAd from ircAd : ircM)} .
+
+rew ircMasIfAct rCtr(10) {1.1,(to ifAd from rbRAd : ircToByteseq(ircM))} .
