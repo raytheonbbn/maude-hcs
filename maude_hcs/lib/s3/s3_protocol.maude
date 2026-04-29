@@ -1,0 +1,358 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ./s3_aux
+sload ../skyhook/_skyhook_aux
+
+mod S3_PROTOCOL is
+  pr S3_AUX .
+  pr SKYHOOK_AUX .
+
+  vars BODY REQ_BODY DATA : ByteSeq .
+  vars BUCKET UUID S3_REGION POLICY STR : String .
+  vars CLIENT AWS_ADDR ADDR : Address .
+  vars attrs : AttributeSet .
+  vars STATUS : Nat .
+  vars URI REQ_ID : String .
+  vars HEAD : S3HeaderList .
+  vars ID : Nat .
+  vars MAP : S3ReqMap .
+  vars DATA_MAP : S3DataMap .
+
+  -------------------------------------------------------------
+  --- SDK CLIENT RULES (Translate internal abstract -> S3 HTTP)
+  -------------------------------------------------------------
+
+  rl [sdk-put-obj]:
+  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
+    (to CLIENT from ADDR : S3PutObjReq(BUCKET, UUID, DATA))
+  =>
+  < CLIENT : S3SdkClient |  realAwsAddr: AWS_ADDR,
+                            nextId: s ID,
+                            pendingReqs: (MAP ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ])),
+                            attrs >
+    (to AWS_ADDR from CLIENT
+      : HttpS3Req("PUT",
+                  "/" + BUCKET + "/" + UUID,
+                  "HTTP/1.1",
+                  header("x-amz-request-id", string(ID, 10))
+                    ;; header("Host", BUCKET + ".s3.amazonaws.com")
+                    ;; header("Expect", "100-continue")
+                    ;; header("Content-Length", string(getSize(DATA), 10)),
+                  noBytes))
+    [ print ">>> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "/" UUID " (Expect: 100-continue, Request-ID: " ID ")" ]
+  .
+
+  rl [sdk-get-obj]:
+  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
+    (to CLIENT from ADDR : S3GetObjReq(BUCKET, UUID))
+  =>
+  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: s ID, pendingReqs: (MAP ; (ID ~> S3GetObjReq(BUCKET, UUID) [ ADDR ])), attrs >
+    (to AWS_ADDR from CLIENT
+      : HttpS3Req("GET",
+                  "/" + BUCKET + "/" + UUID,
+                  "HTTP/1.1",
+                  header("x-amz-request-id", string(ID, 10))
+                    ;; header("Host", BUCKET + ".s3.amazonaws.com"),
+                  noBytes))
+    [ print ">>> SDK -> AWS: [HttpS3Req] GET /" BUCKET "/" UUID " (Request-ID: " ID ")" ] .
+
+  rl [sdk-delete-obj]:
+  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
+    (to CLIENT from ADDR : S3DeleteObjReq(BUCKET, UUID))
+  =>
+  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: s ID, pendingReqs: (MAP ; (ID ~> S3DeleteObjReq(BUCKET, UUID) [ ADDR ])), attrs >
+    (to AWS_ADDR from CLIENT
+      : HttpS3Req("DELETE",
+                  "/" + BUCKET + "/" + UUID,
+                  "HTTP/1.1",
+                  header("x-amz-request-id", string(ID, 10))
+                    ;; header("Host", BUCKET + ".s3.amazonaws.com"),
+                  noBytes))
+    [ print ">>> SDK -> AWS: [HttpS3Req] DELETE /" BUCKET "/" UUID " (Request-ID: " ID ")" ]
+  .
+
+  rl [sdk-create-bucket]:
+  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
+    (to CLIENT from ADDR : S3CreateBucketReq(BUCKET, S3_REGION))
+  =>
+  < CLIENT : S3SdkClient |  realAwsAddr: AWS_ADDR,
+                            nextId: s ID,
+                            pendingReqs: (MAP ; (ID ~> S3CreateBucketReq(BUCKET, S3_REGION) [ ADDR ])),
+                            attrs >
+    (to AWS_ADDR from CLIENT
+      : HttpS3Req("PUT",
+                  "/" + BUCKET,
+                  "HTTP/1.1",
+                  header("x-amz-request-id", string(ID, 10))
+                    ;; header("Host", "s3.amazonaws.com")
+                    ;; header("Expect", "100-continue")
+                    ;; header("Content-Length", "100"),
+                  noBytes))
+    [ print ">>> SDK -> AWS: [HttpS3Req] PUT /" BUCKET " (Expect: 100-continue, Request-ID: " ID ")" ]
+  .
+
+  rl [sdk-put-policy]:
+  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
+    (to CLIENT from ADDR : S3PutBucketPolicyReq(BUCKET, POLICY))
+  =>
+  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: s ID, pendingReqs: (MAP ; (ID ~> S3PutBucketPolicyReq(BUCKET, POLICY) [ ADDR ])), attrs >
+    (to AWS_ADDR from CLIENT
+      : HttpS3Req("PUT",
+                  "/" + BUCKET + "?policy",
+                  "HTTP/1.1",
+                  header("x-amz-request-id", string(ID, 10))
+                    ;; header("Host", BUCKET + ".s3.amazonaws.com")
+                    ;; header("Expect", "100-continue")
+                    ;; header("Content-Length", string(length(POLICY), 10)),
+                  noBytes))
+    [ print ">>> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "?policy (Expect: 100-continue, Request-ID: " ID ")" ] .
+
+  rl [sdk-put-public-access-block]:
+  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
+    (to CLIENT from ADDR : S3PutPublicAccessBlockReq(BUCKET))
+  =>
+  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: s ID, pendingReqs: (MAP ; (ID ~> S3PutPublicAccessBlockReq(BUCKET) [ ADDR ])), attrs >
+    (to AWS_ADDR from CLIENT
+      : HttpS3Req("PUT",
+                  "/" + BUCKET + "?publicAccessBlock",
+                  "HTTP/1.1",
+                  header("x-amz-request-id", string(ID, 10))
+                    ;; header("Host", BUCKET + ".s3.amazonaws.com")
+                    ;; header("Expect", "100-continue")
+                    ;; header("Content-Length", "100"),
+                  noBytes))
+    [ print ">>> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "?publicAccessBlock (Expect: 100-continue, Request-ID: " ID ")" ] .
+
+  -------------------------------------------------------------
+  --- SDK CLIENT RULES (Translate S3 HTTP -> internal abstract)
+  -------------------------------------------------------------
+
+  crl [sdk-handle-100-continue-put-obj]:
+  < CLIENT : S3SdkClient |  pendingReqs: (MAP
+                                          ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ])),
+                            attrs >
+    (to CLIENT from AWS_ADDR
+      : HttpS3Res(100, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ])), attrs >
+    (to AWS_ADDR from CLIENT
+      : HttpS3ReqBody("/" + BUCKET + "/" + UUID, ID, DATA))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 100 Continue\n>>> SDK -> AWS: [HttpS3ReqBody] Transmitting Body Chunk for Request-ID: " ID ] .
+
+  crl [sdk-handle-100-continue-create-bucket]:
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3CreateBucketReq(BUCKET, S3_REGION) [ ADDR ])), attrs >
+    (to CLIENT from AWS_ADDR
+      : HttpS3Res(100, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3CreateBucketReq(BUCKET, S3_REGION) [ ADDR ])), attrs >
+    (to AWS_ADDR from CLIENT
+      : HttpS3ReqBody("/" + BUCKET,
+                      ID,
+                      restToByteSeq("<CreateBucketConfiguration><LocationConstraint>" + S3_REGION + "</LocationConstraint></CreateBucketConfiguration>")))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 100 Continue\n>>> SDK -> AWS: [HttpS3ReqBody] Transmitting Body XML for Request-ID: " ID ] .
+
+  crl [sdk-handle-100-continue-put-policy]:
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutBucketPolicyReq(BUCKET, POLICY) [ ADDR ])), attrs >
+    (to CLIENT from AWS_ADDR
+      : HttpS3Res(100, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutBucketPolicyReq(BUCKET, POLICY) [ ADDR ])), attrs >
+    (to AWS_ADDR from CLIENT
+      : HttpS3ReqBody("/" + BUCKET + "?policy", ID, restToByteSeq(POLICY)))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 100 Continue\n>>> SDK -> AWS: [HttpS3ReqBody] Transmitting Policy Body for Request-ID: " ID ] .
+
+  crl [sdk-handle-100-continue-put-public-access-block]:
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutPublicAccessBlockReq(BUCKET) [ ADDR ])), attrs >
+    (to CLIENT from AWS_ADDR
+      : HttpS3Res(100,
+                  "HTTP/1.1",
+                  header("x-amz-request-id", REQ_ID) ;; HEAD,
+                  BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutPublicAccessBlockReq(BUCKET) [ ADDR ])), attrs >
+    (to AWS_ADDR from CLIENT
+      : HttpS3ReqBody("/" + BUCKET + "?publicAccessBlock",
+                      ID,
+                      restToByteSeq("<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>")))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 100 Continue\n>>> SDK -> AWS: [HttpS3ReqBody] Transmitting Access Block XML for Request-ID: " ID ] .
+
+  crl [sdk-handle-put-res]:
+  < CLIENT : S3SdkClient |  pendingReqs: (MAP
+                                          ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ])),
+                            attrs >
+    (to CLIENT from AWS_ADDR
+      : HttpS3Res(200, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
+    (to ADDR from CLIENT : S3PutObjRes(BUCKET, UUID))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 200 OK to Put (Request-ID: " ID ")" ] .
+
+  crl [sdk-handle-get-res]:
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3GetObjReq(BUCKET, UUID) [ ADDR ])), attrs >
+    (to CLIENT from AWS_ADDR
+      : HttpS3Res(200, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
+    (to ADDR from CLIENT : S3GetObjRes(BUCKET, UUID, BODY))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 200 OK to Get (Request-ID: " ID ") (Received Payload)" ] .
+
+  crl [sdk-handle-get-err-res]:
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3GetObjReq(BUCKET, UUID) [ ADDR ])), attrs >
+    (to CLIENT from AWS_ADDR
+      : HttpS3Res(404, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
+    (to ADDR from CLIENT : S3GetObjErr(BUCKET, UUID))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 404 Not Found (Request-ID: " ID ")" ] .
+
+  crl [sdk-handle-delete-res]:
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3DeleteObjReq(BUCKET, UUID) [ ADDR ])), attrs >
+    (to CLIENT from AWS_ADDR
+      : HttpS3Res(204, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
+    (to ADDR from CLIENT : S3DeleteObjRes(BUCKET, UUID))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 204 No Content (Request-ID: " ID ")" ] .
+
+  crl [sdk-handle-create-bucket-res]:
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3CreateBucketReq(BUCKET, S3_REGION) [ ADDR ])), attrs >
+    (to CLIENT from AWS_ADDR
+      : HttpS3Res(200, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
+    (to ADDR from CLIENT : S3CreateBucketRes(BUCKET))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 200 OK to Create (Request-ID: " ID ")" ] .
+
+  crl [sdk-handle-put-policy-res]:
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutBucketPolicyReq(BUCKET, POLICY) [ ADDR ])), attrs >
+    (to CLIENT from AWS_ADDR : HttpS3Res(200, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
+    (to ADDR from CLIENT : S3PutBucketPolicyRes(BUCKET))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 200 OK to PolicyPut (Request-ID: " ID ")" ] .
+
+  crl [sdk-handle-public-access-block-res]:
+  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutPublicAccessBlockReq(BUCKET) [ ADDR ])), attrs >
+    (to CLIENT from AWS_ADDR
+      : HttpS3Res(200, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  =>
+  < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
+    (to ADDR from CLIENT : S3PutPublicAccessBlockRes(BUCKET))
+  if REQ_ID == string(ID, 10)
+    [ print "<<< AWS -> SDK: [HttpS3Res] 200 OK to Block (Request-ID: " ID ")" ] .
+
+  -------------------------------------------------------------
+  --- AWS HTTPSERVER RULES (Serve HTTP requests natively)
+  -------------------------------------------------------------
+
+  rl [server-handle-put-obj-expect]:
+  < AWS_ADDR : AwsS3HttpServer | attrs >
+    (to AWS_ADDR from ADDR
+      : HttpS3Req("PUT",
+                  URI,
+                  "HTTP/1.1",
+                  header("Expect", "100-continue")
+                    ;; header("x-amz-request-id", REQ_ID)
+                    ;; HEAD,
+                  BODY))
+  =>
+  < AWS_ADDR : AwsS3HttpServer | attrs >
+    (to ADDR from AWS_ADDR
+      : HttpS3Res(100,
+                  "HTTP/1.1",
+                  header("x-amz-request-id", REQ_ID),
+                  noBytes))
+    [ print "=== AWS SERVER: Responding 100 Continue for PUT " URI ] .
+
+  rl [server-handle-put-obj-data]:
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: DATA_MAP, attrs >
+    (to AWS_ADDR from ADDR : HttpS3ReqBody(URI, ID, BODY))
+  =>
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
+    (to ADDR from AWS_ADDR
+      : HttpS3Res(200,
+                  "HTTP/1.1",
+                  header("x-amz-request-id", string(ID, 10)),
+                  noBytes))
+    [ print "=== AWS SERVER: Absorbing Body Chunk. Storing in InMemory S3DataMap -> " URI ". Responding 200 OK." ] .
+
+  rl [server-handle-get-obj]:
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
+    (to AWS_ADDR from ADDR
+      : HttpS3Req("GET", URI, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, REQ_BODY))
+  =>
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
+    (to ADDR from AWS_ADDR
+      : HttpS3Res(200,
+                  "HTTP/1.1",
+                  header("x-amz-request-id", REQ_ID),
+                  BODY))
+    [ print "=== AWS SERVER: Looked up Node ID " URI ". Responding 200 OK w/ payload body." ] .
+
+  crl [server-handle-get-obj-not-found]:
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: DATA_MAP, attrs >
+    (to AWS_ADDR from ADDR
+      : HttpS3Req("GET", URI, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, REQ_BODY))
+  =>
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: DATA_MAP, attrs >
+    (to ADDR from AWS_ADDR
+      : HttpS3Res(404,
+                  "HTTP/1.1",
+                  header("x-amz-request-id", REQ_ID),
+                  noBytes))
+  if not hasKey(DATA_MAP, URI)
+    [ print "=== AWS SERVER: Looked up Node ID " URI " but not found. Responding 404 Not Found." ] .
+
+  rl [server-handle-delete-obj]:
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
+    (to AWS_ADDR from ADDR
+      : HttpS3Req("DELETE", URI, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, REQ_BODY))
+  =>
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: DATA_MAP, attrs >
+    (to ADDR from AWS_ADDR
+      : HttpS3Res(204,
+                  "HTTP/1.1",
+                  header("x-amz-request-id", REQ_ID),
+                  noBytes))
+    [ print "=== AWS SERVER: Erasing Local Object " URI ". Responding 204 No Content." ] .
+
+endm
+

@@ -1,0 +1,187 @@
+import "common.model"
+
+machine SkyhookAccountHolder(s3Manager: S3Manager, sdk: TransportSDK, account_id: String, fetchBucket: String, postBucket: String, region: String, initialFetchUuid: String, initialPostUuid: String, maxObjs: Int = 2, singleReceive: Bool = false) {
+
+    let id: String = account_id
+
+    // Internal UUID buffers and per-link state
+    let activePutObjs: Deque(String)        // FIFO buffer of UUIDs allowed to be PUT to (account-holder maintains)
+    let activeGetObjs: Deque(String)       // FIFO buffer of UUIDs allowed to be GET from (populated by posts)
+
+    let currFetchObjUuid: String = initialFetchUuid
+    let currPostObjUuid: String = initialPostUuid
+    let openFetchObjects: Int = 0
+
+    // Queues, worker and concurrency
+    let contentQueue: Map(Int, Bytes)       // actionId -> payload (same as Link::contentQueue)
+    let actionQueue: List((String, Int))    // ordered ("POST"|"FETCH", actionId)
+    let ACTION_QUEUE_MAX_CAPACITY: Int = 10
+    let isShutdown: Bool = false
+
+    // S3 principal (canonical ID) is required for ACL/grant operations; set by transport constructor
+    // s3Manager.selfPrincipal is populated by the transport (see SkyhookTransportAccountHolder)
+
+    // Events
+    event enqueueContent(actionId: Int, payload: Bytes)
+    event requestPost(actionId: Int)
+    event sdkFetchRequest()
+    event workerTick()
+    event s3PutResponse(actionId: Int, code: Int)
+    event s3GetResponse(c+ode: Int, data: Bytes)
+    event packageStatus(actionId: Int, status: PackageStatus)
+    event errorResp(code: Int, body: String)
+    event shutdown()
+
+    /* Construction: bucket creation and initial permission setup */
+    transition CONSTRUCT on enter() -> AWAITING_READY {
+        // Create buckets if they don't exist
+        s3Manager.createBucket(fetchBucket, region)
+        s3Manager.createBucket(postBucket, region) if (fetchBucket != postBucket)
+
+        // Add initial permissions for puttable/fetchable management
+        // Allow the account-holder principal to perform PUT on fetchBucket so it can initialize puttable UUIDs
+        s3Manager.addObjPermission("*", fetchBucket, "private-puttable", "s3:PutObject", s3Manager.selfPrincipal)
+
+        // For non-singleReceive account holders, allow account-holder principal to GET posted objects
+        s3Manager.addObjPermission("*", postBucket, "private-gettable", "s3:GetObject", s3Manager.selfPrincipal) if not singleReceive
+
+        // Initialize the puttable buffer with the initial fetch UUID and make it puttable
+        activePutObjs.push_back(initialFetchUuid)
+        s3Manager.makeObjPuttable(initialFetchUuid, {fetchBucket, region})
+
+        // Pre-generate UUIDs to fill the sliding window
+        for i in 1..(maxObjs - 1) {
+            let next = generateNextObjUuid(activePutObjs.back())
+            activePutObjs.push_back(next)
+            s3Manager.makeObjPuttable(next, {fetchBucket, region})
+            openFetchObjects++
+        }
+    }
+
+    /* App/SDK enqueues content and requests a post (two-step) */
+    transition IDLE on enqueueContent(actionId,payload) -> IDLE {
+        contentQueue[actionId] = payload
+    }
+
+    transition IDLE on requestPost(actionId) -> IDLE {
+        if actionQueue.size < ACTION_QUEUE_MAX_CAPACITY {
+            actionQueue += ("POST", actionId)
+            signal workerTick()
+        } else {
+            emit packageStatus(actionId, PACKAGE_FAILED_GENERIC)
+        }
+    }
+
+    transition IDLE on sdkFetchRequest() -> IDLE {
+        if actionQueue.size < ACTION_QUEUE_MAX_CAPACITY {
+            actionQueue += ("FETCH", 0)
+            signal workerTick()
+        }
+    }
+
+    /* Worker: mirrors Link::runActionThread */
+    transition WORKER on workerTick() -> WORKER, IDLE {
+        if isShutdown { transition IDLE }
+        if actionQueue.empty { transition IDLE }
+
+        let (typ, aid) = actionQueue.pop_front()
+        if typ == "POST" {
+            // Account Holder uses s3Manager.putObject
+            async s3Manager.putObject(postBucket, currPostObjUuid, contentQueue[aid]) -> s3PutResponse(aid, code)
+        } else {
+            // FETCH: attempt to get the object from fetchBucket
+            async s3Manager.getObject(fetchBucket, currFetchObjUuid) -> s3GetResponse(code, data)
+        }
+    }
+
+  /* Handle PUT results and manage activeGetObjs and permissions */
+    transition IDLE on s3PutResponse(actionId, code) -> WORKER, IDLE {
+        if code == 200 {
+            // If activeGetObjs is at capacity, remove the oldest and revoke GET permission
+            if activeGetObjs.size >= maxObjs {
+                let oldUuid = activeGetObjs.front()
+                activeGetObjs.pop_front()
+                s3Manager.DeleteObj(oldUuid, {postBucket, region})
+                openFetchObjects--
+            }
+
+            // Add the postUUID to fetchable set and grant GET permission
+            activeGetObjs.push_back(currPostObjUuid)
+            s3Manager.makeObjGettable(currPostObjUuid, {postBucket, region})
+            openFetchObjects++
+
+            // Advance post UUID to the deterministic next
+            currPostObjUuid = generateNextObjUuid(currPostObjUuid)
+
+            emit packageStatus(actionId, PACKAGE_SENT)
+            transition WORKER
+        } else {
+            emit packageStatus(actionId, PACKAGE_FAILED_GENERIC)
+            transition IDLE
+        }
+    }
+
+  /* Handle GET results. This also manages the puttable UUID buffer on successful fetch */
+    transition GET_RESP on s3GetResponse(code, data) -> WORKER, IDLE {
+        if code == 200 {
+            // Deliver to upper layer
+            sdk.onReceive(id, data)
+
+            // Expand the puttable UUID buffer: generate and make a new UUID puttable
+            let nextPuttable = generateNextObjUuid(activePutObjs.back())
+            activePutObjs.push_back(nextPuttable)
+            s3Manager.makeObjPuttable(nextPuttable, {fetchBucket, region})
+
+            // Pop and un-puttable the oldest puttable UUID (which should equal the fetched UUID)
+            let toBeDropped = activePutObjs.front()
+            activePutObjs.pop_front()
+            if toBeDropped != currFetchObjUuid {
+                // Unexpected mismatch; log but continue
+                // code: logError
+            }
+            s3Manager.makeObjUnputtable(toBeDropped, {fetchBucket, region})
+
+            // The next fetch UUID is the front of the puttable buffer
+            currFetchObjUuid = activePutObjs.front()
+
+            transition WORKER
+        } else if code == 404 {
+            // transient: not-yet-posted — retry later without advancing currFetchObjUuid
+            schedule backoff_short()
+            actionQueue += ("FETCH", 0)
+            transition WORKER
+        } else {
+            emit errorResp(code, "GET_ERROR")
+            transition IDLE
+        }
+    }
+
+    /* Shutdown cleans up: revoke permissions and schedule bucket deletion after delay */
+    transition SHUTDOWN on shutdown() -> IDLE {
+        isShutdown = true
+        signal workerTick()
+
+        // Revoke puttable permissions for all tracked puttable UUIDs
+        for each uuid in activePutObjs {
+            s3Manager.makeObjUnputtable(uuid, {fetchBucket, region})
+        }
+
+        // Detach a cleanup timer/thread that will unget remaining fetchable UUIDs and delete buckets
+        schedule delayedCleanup(SHUTDOWN_DELAY_SECONDS) {
+            for each uuid in activeGetObjs {
+                s3Manager.DeleteObj(uuid, {postBucket, region})
+            }
+            s3Manager.deleteBucket(fetchBucket, region)
+            if fetchBucket != postBucket {
+                s3Manager.deleteBucket(postBucket, region)
+            }
+        }
+    }
+
+    // Helper functions
+
+    func generateNextObjUuid(current: String) -> String {
+        return SHA256(current)
+    }
+
+}

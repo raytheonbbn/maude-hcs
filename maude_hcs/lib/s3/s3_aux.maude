@@ -1,0 +1,98 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../common/maude/_aux
+sload ../skyhook/_skyhook_aux
+
+mod S3_AUX is
+  pr CP2_SORTS .
+  pr CONVERSION .
+  pr SKYHOOK_AUX .
+  
+  --- Sdk Client map to hold pending requests across async network calls
+  sort S3ReqEntry S3ReqMap .
+  subsort S3ReqEntry < S3ReqMap .
+  op emptyS3ReqMap : -> S3ReqMap [ctor] .
+  op _~>_[_] : Nat Content Address -> S3ReqEntry [ctor] .
+  op _;_ : S3ReqMap S3ReqMap -> S3ReqMap [ctor assoc comm id: emptyS3ReqMap] .
+
+  --- AWS SDK Client Actor
+  op S3SdkClient : -> ActorType [ctor] .
+  op realAwsAddr:_ : Address -> Attribute [ctor] .
+  op pendingReqs:_ : S3ReqMap -> Attribute [ctor] .
+  op nextId:_ : Nat -> Attribute [ctor] .
+  op thisAddr:_ : Address -> Attribute [ctor] .
+
+  ---               ThisAddr  S3Cloud
+  op makeS3Client : Address   Address -> Actor .
+  eq makeS3Client(ADDR:Address, S3SERVER:Address) =
+    < ADDR:Address : S3SdkClient |
+        thisAddr: ADDR:Address,
+        realAwsAddr: S3SERVER:Address,
+        nextId: 1,
+        pendingReqs: emptyS3ReqMap >
+  .
+
+  --- AWS S3 Server Actor
+  op AwsS3HttpServer : -> ActorType [ctor] .
+  op s3DataMap:_ : S3DataMap -> Attribute [ctor] .
+
+  sort HttpMethod HttpUri HttpBody Header S3HeaderList .
+  subsort String < HttpMethod .
+  subsort String < HttpUri .
+  subsort ByteSeq < HttpBody .
+  subsort Header < S3HeaderList .
+
+  op header : String String -> Header [ctor] .
+  op emptyS3Headers : -> S3HeaderList [ctor] .
+  op _;;_ : S3HeaderList S3HeaderList -> S3HeaderList [ctor assoc comm id: emptyS3Headers] .
+
+  sorts HttpRequest HttpResponse .
+  subsorts HttpRequest HttpResponse < Content .
+
+  op HttpS3Req : HttpMethod HttpUri String S3HeaderList HttpBody -> HttpRequest [ctor] .
+  op HttpS3ReqBody : HttpUri Nat HttpBody -> HttpRequest [ctor] .
+  op HttpS3Res : Nat String S3HeaderList HttpBody -> HttpResponse [ctor] .
+
+  sort S3DataMapEntry S3DataMap .
+  subsort S3DataMapEntry < S3DataMap .
+  op emptyS3DataMap : -> S3DataMap [ctor] .
+  op _->_ : HttpUri HttpBody -> S3DataMapEntry [ctor] .
+  op _;_ : S3DataMap S3DataMap -> S3DataMap [ctor assoc comm id: emptyS3DataMap] .
+
+  op hasKey : S3DataMap HttpUri -> Bool .
+  eq hasKey((MAP:S3DataMap ; (URI:HttpUri -> BODY:HttpBody)), URI:HttpUri) = true .
+  eq hasKey(MAP:S3DataMap, URI:HttpUri) = false [owise] .
+
+  eq getSize(HttpS3Req(M:HttpMethod, U:HttpUri, V:String, H:S3HeaderList, B:HttpBody)) = 200 .
+  eq getSize(HttpS3ReqBody(U:HttpUri, ID:Nat, B:HttpBody)) = getSize(B:HttpBody) .
+  eq getSize(HttpS3Res(S:Nat, V:String, H:S3HeaderList, B:HttpBody)) = 200 .
+
+endm

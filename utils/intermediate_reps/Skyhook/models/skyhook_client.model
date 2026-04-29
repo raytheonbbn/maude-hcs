@@ -1,0 +1,142 @@
+import "common.model"
+
+machine SkyhookPublicUser(ircClient: IRCClient, client_id: String, uuid_send: String, uuid_recv: String) {
+
+    // Identity
+    let id: String = client_id
+
+    // Transport-level queues and state
+    let contentQueue: Map(Int, S3Payload)       // actionId -> payload
+    let actionQueue: List((String, Int))        // ordered ("POST"|"FETCH", actionId)
+    let actionRetries: Map(Int, Int)
+    let MAX_RETRIES: Int = 3                    // model of address.maxTries
+    let ACTION_QUEUE_MAX_CAPACITY: Int = 10
+    let isShutdown: Bool = false
+
+    // Events (external/internals)
+    event enqueueContent(actionId: Int, payload: S3Payload)     // app -> transport
+    event requestPost(actionId: Int)                            // app/SDK asks to post a previously enqueued payload
+    event sdkFetchRequest()                                     // external SDK/scheduler triggers a FETCH
+
+    event workerTick()                                          // internal/condvar signal to worker
+    event httpPutResponse(actionId: Int, code: Int)             // result of HTTP PUT
+    event httpGetResponse(code: Int, body: S3Payload)           // result of HTTP GET
+    event packageStatus(actionId: Int, status: PackageStatus)   // transport -> SDK callback
+    event errorResp(code: Int, body: String)
+    event shutdown()
+
+   /*
+    * ENQUEUE: store payload by actionId (transport :: enqueueContent)
+    */
+    transition ENQUEUE on enqueueContent(actionId,payload) -> IDLE {
+        contentQueue[actionId] = payload
+    }
+
+   /*
+    * POST_REQ: request to post content. pushes a POST action into actionQueue.
+    * Behavior mirrors: caller must previously have enqueued content via enqueueContent.
+    */
+    transition IDLE on requestPost(actionId) -> IDLE {
+        if actionQueue.size < ACTION_QUEUE_MAX_CAPACITY {
+            actionQueue += ("POST", actionId)
+            actionRetries[actionId] = 0
+            signal workerTick()
+        } else {
+            emit packageStatus(actionId, PACKAGE_FAILED_GENERIC)
+        }
+    }
+
+   /*
+    * FETCH_REQ: external SDK or scheduler requests a fetch. The SDK usually drives fetches,
+    * so model an external `sdkFetchRequest()` event rather than an internal autonomous poll.
+    */
+    transition IDLE on sdkFetchRequest() -> IDLE {
+        if actionQueue.size < ACTION_QUEUE_MAX_CAPACITY {
+            actionQueue += ("FETCH", 0)
+            signal workerTick()
+        }
+    }
+
+   /*
+    * WORKER: the link's action thread: pop next action and invoke the corresponding HTTP call.
+    * This models the `runActionThread` loop and the thread's condition-variable wakeups.
+    */
+    transition WORKER on workerTick() -> WORKER, IDLE {
+        if isShutdown { transition IDLE }
+        if actionQueue.empty { transition IDLE }
+
+        let (typ, aid) = actionQueue.pop_front()
+
+        if typ == "POST" {
+            // async HTTP PUT -> httpPutResponse(actionId, code)
+            async httpPutS3Object(uuid_send, contentQueue[aid]) -> httpPutResponse(aid, code)
+        } else {
+            // FETCH: HTTP GET for uuid_recv -> httpGetResponse(code, body)
+            async httpGetS3Object(uuid_recv) -> httpGetResponse(code, body)
+        }
+    }
+
+   /*
+    * PUT_RESP: handle HTTP PUT results with retries and package-status callbacks.
+    */
+    transition IDLE on httpPutResponse(actionId, code) -> WORKER, IDLE {
+        if code == 200 {
+            emit packageStatus(actionId, PACKAGE_SENT)
+            contentQueue.remove(actionId)
+            uuid_send = generateNextObjUuid(uuid_send)
+            transition WORKER
+        } else {
+            actionRetries[actionId] += 1
+            if actionRetries[actionId] < MAX_RETRIES {
+                // backoff and retry: requeue the POST
+                schedule backoff(actionRetries[actionId])
+                actionQueue += ("POST", actionId)
+                transition WORKER
+            } else {
+                emit packageStatus(actionId, PACKAGE_FAILED_GENERIC)
+                transition IDLE
+            }
+        }
+    }
+
+    
+   /* 
+    * GET_RESP: successful GET advances uuid_recv; 404 is transient (not-yet-posted) and should be retried
+    * without advancing uuid_recv. 5xx or other errors surface as `errorResp`.
+    */
+    transition IDLE on httpGetResponse(code, body) -> WORKER, IDLE {
+        if code == 200 {
+            deliverToIRCClient(body)
+            uuid_recv = generateNextObjUuid(uuid_recv)
+            transition WORKER
+        } else if code == 404 {
+            // transient: requeue fetch without advancing uuid_recv
+            schedule backoff_short()
+            actionQueue += ("FETCH", 0)
+            transition WORKER
+        } else {
+            emit errorResp(code, toString(body))
+            transition IDLE
+        }
+    }
+
+    transition SHUTDOWN on shutdown() -> IDLE {
+        isShutdown = true
+        signal workerTick()
+    }
+
+    // Helper functions
+
+    func httpGetS3Object(uuid: String) {
+        https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html
+    }
+
+    func httpPutS3Object(uuid: String, payload: S3Payload) {
+        https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html
+    }
+
+    func generateNextObjUuid(current: String) -> String {
+        return SHA256(current)
+    }
+
+}

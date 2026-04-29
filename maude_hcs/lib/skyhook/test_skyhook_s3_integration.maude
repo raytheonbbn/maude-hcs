@@ -1,0 +1,182 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ./skyhook_nondet
+sload ../s3/s3_protocol
+
+mod TEST_SKYHOOK_S3_INTEGRATION is
+  pr SKYHOOK .
+  pr S3_PROTOCOL .
+
+  ops puAddr ahAddr rbAddr userAddr awsAddr sdkAddr : -> Address .
+  ops skyhookPU skyhookAH awsServer awsSdkActor : -> Actor .
+
+  eq skyhookPU =
+    < puAddr : SkyhookPublicUser |
+        thisAddr: puAddr,
+        raceboatAddr: rbAddr,
+        awsAddr: sdkAddr,
+        fetchBucket: "test-fetch-bucket",
+        postBucket: "test-post-bucket",
+        fetchObjUuid: "fetch-uuid-1",
+        postObjUuid: "post-uuid-1"
+    > .
+
+  eq skyhookAH =
+    < ahAddr : SkyhookAccountHolder |
+        thisAddr: ahAddr,
+        raceboatAddr: rbAddr,
+        awsAddr: sdkAddr,
+        fetchBucket: "test-fetch-bucket",
+        postBucket: "test-post-bucket",
+        region: "us-east-1",
+        puttableUuids: emptyStringList,
+        fetchableUuids: emptyStringList,
+        initialFetchObjUuid: "initial-fetch-1",
+        initialPostObjUuid: "initial-post-1",
+        openObjects: 3,
+        postObjUuid: "post-uuid-1"
+    > .
+    
+  eq awsServer =
+    < awsAddr : AwsS3HttpServer | thisAddr: awsAddr, s3DataMap: emptyS3DataMap > .
+
+  eq awsSdkActor =
+    < sdkAddr : S3SdkClient | thisAddr: sdkAddr, realAwsAddr: awsAddr, nextId: 1, pendingReqs: emptyS3ReqMap > .
+
+  op testToken : String -> Content .
+
+  rl [test-5-orch-1]:
+    (to rbAddr from ahAddr : SkyhookFetchErr)
+  =>
+    (to puAddr from userAddr : SkyhookPostCmd("recovered-payload-after-404")) .
+
+  rl [test-5-orch-2]:
+    (to puAddr from sdkAddr : S3PutObjRes("test-fetch-bucket", "popped-fetch-uuid"))
+    (to rbAddr from rbAddr : testToken("waiting-for-put"))
+  =>
+    (to puAddr from sdkAddr : S3PutObjRes("test-fetch-bucket", "popped-fetch-uuid"))
+    (to ahAddr from rbAddr : SkyhookFetchCmd) .
+
+endm
+
+set print attribute on .
+
+--- Test 1: Full Pipeline Account Holder Start Synchronization
+--- Expectation: SkyhookAH initiates internal buckets by generating 6 parallel S3*Req events.
+--- The SDK intercepts these, turning them into 6 distinct parallel HTTP streaming Expect 100-continue PUTs toward the AwsS3HttpServer.
+--- The Server streams and handles them, natively returning 200/204 to SDK, which informs SkyhookAH back.
+rew [1000] skyhookAH awsSdkActor awsServer
+    (to ahAddr from rbAddr : SkyhookStartCmd)
+  .
+
+--- Test 2: Pipeline Public User Post Object
+--- Expectation: SkyhookPU sends S3PutObjReq. SDK captures and converts to HTTP Expect 100-continue header text.
+--- AWS Server catches header, returns 100 Continue. SDK captures 100 Continue, pushes real Body payload chunk text.
+--- AWS Server updates memory mapping locally for POST Bucket, returns 200 HTTP code. PU transitions internal hashed state UUID.
+rew [1000] skyhookPU awsSdkActor awsServer
+    (to puAddr from userAddr : SkyhookPostCmd("hello_data_from_public_user"))
+  .
+
+--- Test 3: Complex Integrated Server Fetch 
+--- Expectation: Demonstrates Server actually preserving payloads passed up to Skyhook.
+--- We mock the server initially having real data mapped under the Fetch UUID inside s3DataMap.
+--- SkyhookAH asks for Fetch, SDK translates to GET, S3 Server explicitly finds the mapping and returns the actual payload body HTTP.
+--- SDK unpacks payload string to S3GetObjRes. SkyhookAH rolls queue and passes payload string safely to Raceboat.
+rew [1000] < ahAddr : SkyhookAccountHolder |
+        thisAddr: ahAddr,
+        raceboatAddr: rbAddr,
+        awsAddr: sdkAddr,
+        fetchBucket: "test-fetch-bucket",
+        postBucket: "test-post-bucket",
+        region: "us-east-1",
+        puttableUuids: ("popped-fetch-uuid" :: emptyStringList),
+        fetchableUuids: emptyStringList,
+        initialFetchObjUuid: "initial-fetch-1",
+        initialPostObjUuid: "initial-post-1",
+        openObjects: 3,
+        postObjUuid: "post-uuid-1"
+    > awsSdkActor < awsAddr : AwsS3HttpServer | thisAddr: awsAddr, s3DataMap: ("/test-fetch-bucket/popped-fetch-uuid" -> "real-integration-data-payload-from-bucket") >
+    (to ahAddr from rbAddr : SkyhookFetchCmd)
+  .
+
+--- Test 4: Dynamic AccountHolder Queue Overflow
+--- Expectation: SDK maps POST object successfully through 100-continue loop. AWS Server replies 200 OK.
+--- Overflow trips AH: AH pushes DELETE to SDK. SDK pushes DELETE to Server. Server aggressively drops entry locally.
+rew [1000] < ahAddr : SkyhookAccountHolder |
+        thisAddr: ahAddr,
+        raceboatAddr: rbAddr,
+        awsAddr: sdkAddr,
+        fetchBucket: "test-fetch-bucket",
+        postBucket: "test-post-bucket",
+        region: "us-east-1",
+        puttableUuids: emptyStringList,
+        fetchableUuids: ("first" :: "second" :: "third" :: emptyStringList),
+        initialFetchObjUuid: "initial-fetch-1",
+        initialPostObjUuid: "initial-post-1",
+        openObjects: 3,
+        postObjUuid: "post-uuid-1"
+    > awsSdkActor awsServer
+    (to ahAddr from sdkAddr : S3PutObjRes("test-post-bucket", "post-uuid-1"))
+  .
+
+--- Test 5: Integration 404 Recovery Pipeline
+--- Expectation: Account Holder fetches an object that doesn't exist, receives 404.
+--- The test orchestrator intercepts the internal SkyhookFetchErr and triggers a Skyhook client PUT.
+--- After the PUT succeeds, the orchestrator triggers another fetch which gets HTTP 200.
+
+rew [1000] < ahAddr : SkyhookAccountHolder |
+        thisAddr: ahAddr,
+        raceboatAddr: rbAddr,
+        awsAddr: sdkAddr,
+        fetchBucket: "test-fetch-bucket",
+        postBucket: "test-post-bucket",
+        region: "us-east-1",
+        puttableUuids: ("popped-fetch-uuid" :: emptyStringList),
+        fetchableUuids: emptyStringList,
+        initialFetchObjUuid: "initial-fetch-1",
+        initialPostObjUuid: "initial-post-1",
+        openObjects: 3,
+        postObjUuid: "post-uuid-1"
+    >
+    < puAddr : SkyhookPublicUser |
+        thisAddr: puAddr,
+        raceboatAddr: rbAddr,
+        awsAddr: sdkAddr,
+        fetchBucket: "test-post-bucket",
+        postBucket: "test-fetch-bucket",
+        fetchObjUuid: "fetch-uuid-1",
+        postObjUuid: "popped-fetch-uuid" --- So that PU posts to the uuid AH expects to fetch
+    >
+    awsSdkActor awsServer
+    (to ahAddr from rbAddr : SkyhookFetchCmd)
+    (to rbAddr from rbAddr : testToken("waiting-for-put"))
+  .
+

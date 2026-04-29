@@ -1,0 +1,205 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+--- ...
+--- MAUDE_HCS: end
+
+sload ./_skyhook_aux
+
+mod SKYHOOK is
+  pr SKYHOOK_AUX .
+
+  vars SKYHOOK_PU_ADDR SKYHOOK_AH_ADDR AWS_ADDR ADDR RB_ADDR : Address .
+  vars attrs : AttributeSet .
+  vars BUCKET FETCH_BUCKET POST_BUCKET UUID DATA POLICY REGION : String .
+  vars FETCH_UUID POST_UUID NEXT_UUID OLD_UUID INITIAL_FETCH_UUID INITIAL_POST_UUID : String .
+  vars PUTTABLE_UUIDS FETCHABLE_UUIDS : StringList .
+  vars OPEN_OBJECTS : Nat .
+
+  --- Attributes
+  op thisAddr:_ : Address -> Attribute [ctor] .
+  op raceboatAddr:_ : Address -> Attribute [ctor] .
+  op awsAddr:_ : Address -> Attribute [ctor] .
+  op fetchBucket:_ : String -> Attribute [ctor] .
+  op postBucket:_ : String -> Attribute [ctor] .
+  op region:_ : String -> Attribute [ctor] .
+
+  --- UUID Tracking Attributes
+  op fetchObjUuid:_ : String -> Attribute [ctor] .
+  op postObjUuid:_ : String -> Attribute [ctor] .
+  op puttableUuids:_ : StringList -> Attribute [ctor] .
+  op fetchableUuids:_ : StringList -> Attribute [ctor] .
+  op openObjects:_ : Nat -> Attribute [ctor] .
+  op initialFetchObjUuid:_ : String -> Attribute [ctor] .
+  op initialPostObjUuid:_ : String -> Attribute [ctor] .
+
+  op getRaceboatAddr : AttributeSet -> Address .
+  eq getRaceboatAddr(attrs, raceboatAddr: RB_ADDR) = RB_ADDR .
+
+  op getAwsAddr : AttributeSet -> Address .
+  eq getAwsAddr(attrs, awsAddr: AWS_ADDR) = AWS_ADDR .
+
+  ---------------------------------
+  --- [Skyhook PublicUser] Rules
+  ---------------------------------
+
+  rl [pu-handle-fetch-cmd]:
+  < SKYHOOK_PU_ADDR : SkyhookPublicUser | attrs, fetchBucket: FETCH_BUCKET, fetchObjUuid: FETCH_UUID >
+    (to SKYHOOK_PU_ADDR from ADDR : SkyhookFetchCmd)
+  =>
+  < SKYHOOK_PU_ADDR : SkyhookPublicUser | attrs, fetchBucket: FETCH_BUCKET, fetchObjUuid: FETCH_UUID >
+    (to getAwsAddr(attrs) from SKYHOOK_PU_ADDR : S3GetObjReq(FETCH_BUCKET, FETCH_UUID))
+    [ print "Skyhook PublicUser sending S3GetObjReq for " FETCH_UUID ]
+  .
+
+  crl [pu-handle-incoming-get-res]:
+  < SKYHOOK_PU_ADDR : SkyhookPublicUser | attrs, fetchBucket: FETCH_BUCKET, fetchObjUuid: FETCH_UUID >
+    (to SKYHOOK_PU_ADDR from AWS_ADDR : S3GetObjRes(FETCH_BUCKET, FETCH_UUID, DATA))
+  =>
+  < SKYHOOK_PU_ADDR : SkyhookPublicUser | attrs, fetchBucket: FETCH_BUCKET, fetchObjUuid: sha256(FETCH_UUID) >
+    (to getRaceboatAddr(attrs) from SKYHOOK_PU_ADDR : SkyhookPostCmd(DATA))
+  if getAwsAddr(attrs) == AWS_ADDR
+    [ print "Skyhook PublicUser received S3GetObjRes from AWS, updating fetch UUID." ]
+  .
+
+  rl [pu-handle-post-cmd]:
+  < SKYHOOK_PU_ADDR : SkyhookPublicUser | attrs, postBucket: POST_BUCKET, postObjUuid: POST_UUID >
+    (to SKYHOOK_PU_ADDR from ADDR : SkyhookPostCmd(DATA))
+  =>
+  < SKYHOOK_PU_ADDR : SkyhookPublicUser | attrs, postBucket: POST_BUCKET, postObjUuid: POST_UUID >
+    (to getAwsAddr(attrs) from SKYHOOK_PU_ADDR : S3PutObjReq(POST_BUCKET, POST_UUID, DATA))
+    [ print "Skyhook PublicUser sending S3PutObjReq for " POST_UUID ]
+  .
+
+  crl [pu-handle-incoming-put-res]:
+  < SKYHOOK_PU_ADDR : SkyhookPublicUser | attrs, postBucket: POST_BUCKET, postObjUuid: POST_UUID >
+    (to SKYHOOK_PU_ADDR from AWS_ADDR : S3PutObjRes(POST_BUCKET, POST_UUID))
+  =>
+  < SKYHOOK_PU_ADDR : SkyhookPublicUser | attrs, postBucket: POST_BUCKET, postObjUuid: sha256(POST_UUID) >
+  if getAwsAddr(attrs) == AWS_ADDR
+    [ print "Skyhook PublicUser received S3PutObjRes from AWS, updating post UUID." ]
+  .
+
+  -----------------------------------
+  --- [Skyhook AccountHolder] Rules
+  -----------------------------------
+
+  crl [ah-handle-start-cmd]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, fetchBucket: FETCH_BUCKET, postBucket: POST_BUCKET, region: REGION, puttableUuids: emptyStringList, initialFetchObjUuid: INITIAL_FETCH_UUID >
+    (to SKYHOOK_AH_ADDR from ADDR : SkyhookStartCmd)
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, fetchBucket: FETCH_BUCKET, postBucket: POST_BUCKET, region: REGION, puttableUuids: append(emptyStringList, sha256(INITIAL_FETCH_UUID)), initialFetchObjUuid: INITIAL_FETCH_UUID >
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3CreateBucketReq(FETCH_BUCKET, REGION))
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3PutPublicAccessBlockReq(FETCH_BUCKET))
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3CreateBucketReq(POST_BUCKET, REGION))
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3PutPublicAccessBlockReq(POST_BUCKET))
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3PutBucketPolicyReq(FETCH_BUCKET, "policy-initializing-puttable"))
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3PutBucketPolicyReq(POST_BUCKET, "policy-initializing-gettable"))
+  if getRaceboatAddr(attrs) == ADDR
+    [ print "Skyhook AccountHolder initializing link buckets and initial puttable UUID queue." ]
+  .
+
+  --- Fetch on Action Thread
+  crl [ah-handle-fetch-cmd]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, fetchBucket: FETCH_BUCKET, puttableUuids: PUTTABLE_UUIDS >
+    (to SKYHOOK_AH_ADDR from ADDR : SkyhookFetchCmd)
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, fetchBucket: FETCH_BUCKET, puttableUuids: PUTTABLE_UUIDS >
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3GetObjReq(FETCH_BUCKET, head(PUTTABLE_UUIDS)))
+  if getRaceboatAddr(attrs) == ADDR
+    [ print "Skyhook AccountHolder sending S3GetObjReq to AWS for fetch bucket " FETCH_BUCKET ]
+  .
+
+  crl [ah-handle-incoming-get-res]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, fetchBucket: FETCH_BUCKET, puttableUuids: (OLD_UUID :: PUTTABLE_UUIDS) >
+    (to SKYHOOK_AH_ADDR from AWS_ADDR : S3GetObjRes(FETCH_BUCKET, OLD_UUID, DATA))
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, fetchBucket: FETCH_BUCKET, puttableUuids: append(PUTTABLE_UUIDS, sha256(last(OLD_UUID :: PUTTABLE_UUIDS))) >
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3DeleteObjReq(FETCH_BUCKET, OLD_UUID))
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3PutBucketPolicyReq(FETCH_BUCKET, "policy-make-obj-unputtable"))
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3PutBucketPolicyReq(FETCH_BUCKET, "policy-make-obj-puttable-" + sha256(last(OLD_UUID :: PUTTABLE_UUIDS))))
+    (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR : SkyhookPostCmd(DATA))
+  if getAwsAddr(attrs) == AWS_ADDR
+    [ print "Skyhook AccountHolder fetched " OLD_UUID "; rolling puttable Uuid queue, pushing data back to Raceboat." ]
+  .
+
+  crl [ah-handle-incoming-get-err]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, fetchBucket: FETCH_BUCKET, puttableUuids: (OLD_UUID :: PUTTABLE_UUIDS) >
+    (to SKYHOOK_AH_ADDR from AWS_ADDR : S3GetObjErr(FETCH_BUCKET, OLD_UUID))
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, fetchBucket: FETCH_BUCKET, puttableUuids: (OLD_UUID :: PUTTABLE_UUIDS) >
+    (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR : SkyhookFetchErr)
+  if getAwsAddr(attrs) == AWS_ADDR
+    [ print "Skyhook AccountHolder fetch for " OLD_UUID " failed with HTTP 404. Waiting." ]
+  .
+
+  --- Post on Action Thread
+  crl [ah-handle-post-cmd]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, postBucket: POST_BUCKET, postObjUuid: POST_UUID >
+    (to SKYHOOK_AH_ADDR from ADDR : SkyhookPostCmd(DATA))
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, postBucket: POST_BUCKET, postObjUuid: POST_UUID >
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3PutObjReq(POST_BUCKET, POST_UUID, DATA))
+  if getRaceboatAddr(attrs) == ADDR
+    [ print "Skyhook AccountHolder sending S3PutObjReq to AWS for post bucket " POST_BUCKET " with uuid " POST_UUID ]
+  .
+
+  crl [ah-handle-incoming-put-res-overflow]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, postBucket: POST_BUCKET, postObjUuid: POST_UUID, fetchableUuids: (OLD_UUID :: FETCHABLE_UUIDS), openObjects: OPEN_OBJECTS >
+    (to SKYHOOK_AH_ADDR from AWS_ADDR : S3PutObjRes(POST_BUCKET, POST_UUID))
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, postBucket: POST_BUCKET, postObjUuid: sha256(POST_UUID), fetchableUuids: append(FETCHABLE_UUIDS, POST_UUID), openObjects: OPEN_OBJECTS >
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3DeleteObjReq(POST_BUCKET, OLD_UUID))
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3PutBucketPolicyReq(POST_BUCKET, "policy-make-obj-ungettable-" + OLD_UUID))
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3PutBucketPolicyReq(POST_BUCKET, "policy-make-obj-gettable-" + POST_UUID))
+  if getAwsAddr(attrs) == AWS_ADDR /\ listLen(OLD_UUID :: FETCHABLE_UUIDS) >= OPEN_OBJECTS
+    [ print "Skyhook AccountHolder successfully posted " POST_UUID "; Uuid cap reached, shifting fetchable UUIDs." ]
+  .
+  
+  crl [ah-handle-incoming-put-res-underflow]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, postBucket: POST_BUCKET, postObjUuid: POST_UUID, fetchableUuids: FETCHABLE_UUIDS, openObjects: OPEN_OBJECTS >
+    (to SKYHOOK_AH_ADDR from AWS_ADDR : S3PutObjRes(POST_BUCKET, POST_UUID))
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, postBucket: POST_BUCKET, postObjUuid: sha256(POST_UUID), fetchableUuids: append(FETCHABLE_UUIDS, POST_UUID), openObjects: OPEN_OBJECTS >
+    (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3PutBucketPolicyReq(POST_BUCKET, "policy-make-obj-gettable-" + POST_UUID))
+  if getAwsAddr(attrs) == AWS_ADDR /\ listLen(FETCHABLE_UUIDS) < OPEN_OBJECTS
+    [ print "Skyhook AccountHolder successfully posted " POST_UUID "; Uuid cap not met, appending gettable policy." ]
+  .
+
+  rl [ah-handle-aws-res]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
+    (to SKYHOOK_AH_ADDR from AWS_ADDR : S3DeleteObjRes(BUCKET, UUID))
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
+    [ print "Skyhook AccountHolder received S3DeleteObjRes from AWS for bucket " BUCKET ]
+  .
+
+  rl [ah-handle-aws-res-2]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
+    (to SKYHOOK_AH_ADDR from AWS_ADDR : S3PutBucketPolicyRes(BUCKET))
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
+    [ print "Skyhook AccountHolder received S3PutBucketPolicyRes from AWS for bucket " BUCKET ]
+  .
+
+  rl [ah-handle-aws-res-3]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
+    (to SKYHOOK_AH_ADDR from AWS_ADDR : S3CreateBucketRes(BUCKET))
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
+    [ print "Skyhook AccountHolder received S3CreateBucketRes from AWS from bucket " BUCKET ]
+  .
+
+  rl [ah-handle-aws-res-4]:
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
+    (to SKYHOOK_AH_ADDR from AWS_ADDR : S3PutPublicAccessBlockRes(BUCKET))
+  =>
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
+    [ print "Skyhook AccountHolder received S3PutPublicAccessBlockRes from AWS for bucket " BUCKET ]
+  .
+
+
+endm

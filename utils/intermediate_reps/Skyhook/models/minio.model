@@ -1,0 +1,95 @@
+import "common.model"
+
+machine MinIO {
+
+    id: String = "MinIO"
+
+    /*                uuid     auth users    entry*/
+    let storage: Map[String][(List(string), string)]
+
+    function put(requestor: MinIOClient, MinIOMessage: msg)
+    function get(requestor: MinIOClient, MinIOMessage: msg)
+
+    function newEntry(requestor: MinIOClient)
+    function delete(requestor: MinIOClient)
+
+    event logOk(requestor: MinIOClient, action: String, msguuid: String)
+    event logBad(requestor: MinIOClient, action: String, msguuid: String, errorEnum: ErrorEnum)
+
+    function put(requestor: MinIOClient, MinIOMessage: msg) {
+        if (storage[msg.uuid]) {
+            if (requestor in storage[msg.uuid][0]) {
+                storage[msg.uuid][1] = msg.content
+                requestor.minioAck(OK)
+                log(LOG, "{id} - {requestor} put {msg} at {msg.uuid}")
+            } else {
+                requestor.minioNoAck(NOPERMS)
+                log(LOG, "{id} - {requestor} failed to put {msg} at {msg.uuid} - {errorDict[NOPERMS]}")
+            }
+        } else {
+            requestor.minioNoAck(NOOBJ)
+            log(LOG, "{id} - {requestor} failed to put {msg} at {msg.uuid} - {errorDict[NOOBJ]}")
+        }
+    }
+
+    function get(requestor: MinIOClient, MinIOMessage: msg) {
+        if (storage[msg.uuid]) {
+            if (requestor in storage[msg.uuid][0]) {
+                if (storage[msg.uuid][1]) {
+                    requestor.minioAck(storage[msg.uuid][1])
+                    log(LOG, "{id} - {requestor} fetched {msg} from {msg.uuid}")
+                } else {
+                    requestor.minioNoAck(NOVAL)
+                    log(LOG, "{id} {requestor} failed to fetch {msg} from {msg.uuid} - {errorDict[NOVAL]}")
+                }
+            } else {
+                requestor.minioNoAck(NOPERMS)
+                log(LOG, "{id} {requestor} failed to fetch {msg} from {msg.uuid} - {errorDict[NOPERMS]}")
+            }
+        } else {
+            requestor.minioNoAck(NOOBJ)
+            log(LOG, "{id} {requestor} failed to fetch {msg} from {msg.uuid} - {errorDict[NOOBJ]}")
+        }
+    }
+
+    function newEntry(requestor: MinIOClient, MinIOMessage: msg){
+        if (!storage[msg.uuid]) {
+            if (requestor.isAccountHolder()) {
+                // Should AHs have a limit on owned buckets?
+                storage[msg.uuid] = (msg.content as List(String), NULL)
+                requestor.minioAck()
+                log(LOG, "{id} - {requestor} created {msg.uuid}")
+            } else {
+                requestor.minioNoAck(NOPERMS)
+                log(LOG, "{id} - {requestor} failed to create {msg.uuid} - {errorDict[NOPERMS]}")
+            }
+        } else {
+            requestor.minioNoAck(DOUBLECREATE)
+            log(LOG, "{id} - {requestor} failed to create {msg.uuid} - {errorDict[DOUBLECREATE]}")
+        }
+    }
+
+    function delete(requestor: MinIOClient, MinIOMessage: msg){
+        if (storage[msg.uuid]) {
+            if (requestor in storage[msg.uuid][0] and requestor.isAccountHolder()) {
+                requestor.minioAck()
+                log(LOG, "{id} - {requestor} deleted {msg.uuid}")
+            } else {
+                requestor.minioNoAck(NOPERMS)
+                log(LOG, "{id} - {requestor} failed to delete {msg.uuid} - {errorDict[NOPERMS]}")
+            }
+        } else {
+            requestor.minioNoAck(NOOBJ)
+            log(LOG, "{id} - {requestor} failed to delete {msg.uuid} - {errorDict[NOOBJ]}")
+        }
+    }
+
+    initial START
+    transition START on logOk(requestor: MinIOClient, action: String, msguuid: String) -> START {
+        log(LOG, "{id} - {requestor} {action} {msguuid}")
+    }
+
+    transition START on logBad(requestor: MinIOClient, action: String, msguuid: String, errorEnum: ErrorEnum) -> START {
+        log(LOG, "{id} - {requestor} failed to {action} {msguuid} - {errorDict[errorEnum]}")
+    }
+}
