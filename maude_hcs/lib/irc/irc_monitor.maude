@@ -1,8 +1,40 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
 
 sload ./common/_aux
+sload ../../deps/dns_formalization/Maude/common/actor
+sload ../../deps/dns_formalization/Maude/common/apmaude
 
 mod IRC_MONITOR is
   pr IRC_NODE .
+  pr SCHEDULER .
 
   op IrcMonitor : -> ActorType .
 
@@ -15,22 +47,115 @@ mod IRC_MONITOR is
 
   op msgSent:_ : MessageTimestampList -> Attribute [format (nss d d)] .
   op msgRcvd:_ : MessageTimestampList -> Attribute [format (nss d d)] .
+  op ircAddrs:_ : AddrSet -> Attribute [ctor] .
 
-  op makeIrcMonitor : Address -> Actor .
-  eq makeIrcMonitor(monitorAddr:Address) =
+  op makeIrcMonitor : Address AddrSet -> Actor .
+  eq makeIrcMonitor(monitorAddr:Address, ircAddresses:AddrSet) =
     < monitorAddr:Address : IrcMonitor |
         msgSent: nilMessageTimestampList,
-        msgRcvd: nilMessageTimestampList
+        msgRcvd: nilMessageTimestampList,
+        ircAddrs: ircAddresses:AddrSet
     >
   .
   
-  vars TO_ADDR FROM_ADDR : Address .
+  vars AC : ActorConfig .
+  vars addr addr0 addr1 TO_ADDR FROM_ADDR : Address .
+  vars addrs : AddrSet .
+  vars attrs attrs1 : AttributeSet .
   vars msgs : Config .
-  vars T : Float .
+  vars t1 GT T : Float .
   vars ircMsg : IrcMsg .
+  vars IRC_NAME : IrcName .
+  vars IRC_USER_NAME : IrcUserName .
+  vars tmsg : MessageTimestamp .
+  vars tml tml1 : MessageTimestampList .
+  vars M1 M2 : Msg .
   vars currentHash size : Nat .
-  vars currentStr : String .
+  vars SL  : ScheduleList .
+  vars currentStr TEXT : String .
 
+
+  op addSent : AttributeSet MessageTimestamp -> AttributeSet .
+  eq addSent((attrs, msgSent: tml),tmsg) = (attrs,msgSent: (tml ; tmsg)) .
+  eq addSent(attrs,tmsg) = attrs [owise] .
+
+  op addRcvd : AttributeSet MessageTimestamp -> AttributeSet .
+  eq addRcvd((attrs,msgRcvd: tml),tmsg) 
+         = (attrs,msgRcvd: (tml ; tmsg)) .
+  eq addRcvd(attrs,tmsg) = attrs [owise] .
+
+  op genMTS : Float Address Address Content 
+              -> MessageTimestampList .
+  eq genMTS(GT,addr0,addr1,c:Content)
+           = nilMessageTimestampList [owise] .
+  ceq genMTS(GT,addr0,addr1, c:Content) = 
+    messageTimestamp(GT, addr1, addr0, getSize(c:Content),
+                     IRC_NAME, stringHash(TEXT))
+  if PrivMsgReq(IRC_NAME,IRC_USER_NAME,TEXT) := c:Content
+  .
+  ceq genMTS(GT,addr0,addr1,c:Content) =
+    messageTimestamp(GT, addr1, addr0, getSize(c:Content),
+                    IRC_NAME, stringHash(TEXT))
+  if PrivMsgRes(IRC_NAME,IRC_USER_NAME,TEXT) := c:Content
+  .
+
+***(  
+    op toLog : IrcMsg : -> Bool .
+    eq toLog(PrivMsgReq(IRC_NAME,IRC_USER_NAME,TEXT)) = true .
+    eq toLog(PrivMsgRes(IRC_NAME,IRC_USER_NAME,TEXT)) = true .
+    eq toLog(ircMsg) = false [owise] .
+)
+    
+  ****** logging eqns
+  --- send time insert a schedule msg to the scheduler
+  eq [ t1, M1, 0 ] {GT | SL} < addr : IrcMonitor | attrs > =
+    insert({GT | SL}, [ t1, M1, 0 ]) < addr : IrcMonitor | logSent(attrs,GT,M1) >
+  .
+  
+  ---- Receive Time
+  eq step(AC < addr : IrcMonitor | attrs > {GT | [ t1 , M1, 0 ] ; SL}) =
+    { t1 , M1 } AC < addr : IrcMonitor | logRcvd(attrs,t1,M1) >
+    {t1 | SL} 
+  .
+
+***(
+  For IrcMsg statistics
+  collect ircC send PrivReq
+          ircS snd PrivRes
+          ircS rcv PrivReq
+          ircC rcv PrivRes
+)
+
+  op logSent : AttributeSet Float Msg -> AttributeSet .
+  ceq logSent(attrs,GT,M1) =
+   (if tml == nilMessageTimestampList
+      then attrs
+      else addSent(attrs,tml)
+    fi)
+   if (to addr0 from addr1 : c:Content) := M1
+     /\ addr0 =/= addr1
+     /\ attrs1, (ircAddrs: (addrs ;; addr1)) := attrs 
+     /\ tml := genMTS(GT,addr0,addr1,c:Content)
+  .
+  eq logSent(attrs,GT,M1) = attrs [owise] .
+
+  **** collected at receive time
+  op logRcvd : AttributeSet Float Msg -> AttributeSet .
+  ceq logRcvd(attrs,GT,M1) = 
+    (if tml == nilMessageTimestampList
+      then attrs
+      else addRcvd(attrs,tml)
+    fi)
+  if (to addr0 from addr1 : c:Content) := M1
+    /\ addr0 =/= addr1
+    /\ attrs1, ircAddrs: (addrs ;; addr0) := attrs 
+    /\ tml := genMTS(GT,addr0,addr1,c:Content)
+  .
+
+  eq logRcvd(attrs,GT,M1) = attrs [owise] .
+   
+  --- Extract all the timestamps from the messages inside a config, return a
+  --- list of message timestamps.
   op extractMessageTimestamps : Float Config -> MessageTimestampList .
   eq extractMessageTimestamps(T, (msgs (to TO_ADDR from FROM_ADDR : ircMsg))) =
     extractMessageTimestamps(T, msgs) ;
@@ -68,4 +193,38 @@ mod IRC_MONITOR is
   .
 
 endm
+
+mod TEST-IRC_MONITOR is
+inc IRC_MONITOR .
+
+ops imAd ircCAd  ircSAd : -> Address .
+op imAct : -> Actor .
+eq imAct = makeIrcMonitor(imAd,(ircCAd ;; ircSAd)) .
+
+op imAtts : -> AttributeSet  .
+eq imAtts = msgSent: nilMessageTimestampList,
+            msgRcvd: nilMessageTimestampList,
+            (ircAddrs: (ircCAd ;; ircSAd)) . 
+
+ops ircM0 ircM1 ircM2 ircM3 : -> IrcMsg .
+eq ircM0 = PrivMsgReq(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircCAd),"msg 0") .
+eq ircM1 = PrivMsgRes(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircCAd),"msg 0") .
+eq ircM2 = PrivMsgReq(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircCAd),"msg 1") .
+eq ircM3 = PrivMsgRes(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircCAd),"msg 1") .
+
+ops M0 M1 M2 M3 : -> Msg .
+eq M0 = (to ircSAd from ircCAd : ircM0) .
+eq M1 = (to ircCAd from ircSAd : ircM1) .
+eq M2 = (to ircSAd from ircCAd : ircM2) .
+eq M3 = (to ircCAd from ircSAd : ircM3) .
+
+endm
+eof
+
+red logSent(imAtts,1.1,M0) .
+red logRcvd(imAtts,1.2,M1) .
 

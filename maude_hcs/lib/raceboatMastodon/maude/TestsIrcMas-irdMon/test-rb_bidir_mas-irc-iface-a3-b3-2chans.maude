@@ -69,7 +69,7 @@ mod RB-BIDIR-MAS-IRC-SCENARIO is
 **** inc IRC-INTERFACE .   
  inc IRC .
  inc IRC-RBMAS-INTERFACE  .
- inc IRC_MONITOR  .
+ inc IRC_MONITOR .
  
  
 vars j : Nat .
@@ -87,11 +87,11 @@ ops aliceAddr ircaAddr : -> Address .
 **** alice channel interfaces
 ops ifaceACAddr ifaceASAddr : -> Address .
 
-*** client endpoint ac
+*** alice client (sender) endpoint ac
 ops umacSndAddr  cmacSndAddr mcacSndAddr 
     umacRcvAddr  cmacRcvAddr mcacRcvAddr 
     edacAddr : -> Address .
-*** server endpoint as
+*** alice server (receiver) endpoint as
 ops umasSndAddr  cmasSndAddr mcasSndAddr 
     umasRcvAddr  cmasRcvAddr mcasRcvAddr 
     edasAddr : -> Address .
@@ -101,11 +101,11 @@ ops bobAddr ircbAddr : -> Address .
 **** bobs channel endpoint interfaces
 ops ifaceBCAddr ifaceBSAddr : -> Address .
 
-*** client endpointl  ..bc.. ..bs..
-ops umbcSndAddr  cmbcSndAddr mcbcSndAddr 
-    umbcRcvAddr  cmbcRcvAddr mcbcRcvAddr 
+*** bob client endpointl  ..bc.. ..bs..
+ops umbcSndAddr       cmbcSndAddr mcbcSndAddr 
+    umbcRcvAddr       cmbcRcvAddr mcbcRcvAddr 
     edbcAddr : -> Address .
-*** server endpoint
+*** bob server endpoint
 ops umbsSndAddr  cmbsSndAddr mcbsSndAddr 
     umbsRcvAddr  cmbsRcvAddr mcbsRcvAddr 
     edbsAddr : -> Address .
@@ -152,9 +152,13 @@ eq ircaAct =
     raceboatAddr: ifaceACAddr,  ---- rb ircclient interface
     ircName: makeIrcUserName(ircaAddr),
     aliceAppChatsMap: (
-       (2.0 ~> ("Alice message 0", makeIrcChannelName("ab")))
-     : (20. ~> ("Alice message 1", makeIrcChannelName("ab")))
-     : (40. ~> ("Alice message 2", makeIrcChannelName("ab"))))
+       (2.0 ~> ("Alice message 00", makeIrcChannelName("first_channel")))
+     : (20. ~> ("Alice message 01", makeIrcChannelName("first_channel")))
+     : (40. ~> ("Alice message 02", makeIrcChannelName("first_channel")))
+     : (42.0 ~> ("Alice message 10", makeIrcChannelName("second_channel")))
+     : (60. ~> ("Alice message 11", makeIrcChannelName("second_channel")))
+     : (80. ~> ("Alice message 12", makeIrcChannelName("second_channel")))
+    )
   >
   .
   
@@ -199,6 +203,7 @@ eq cmasSndAct = ---- to client from server
 eq mcasSndAct =
    makeMastodonClient(mcasSndAddr, masSrvAddr,cmasSndAddr) .
 
+**** Create Raceboat receiver side (at the IRC Server).
 eq umasRcvAct =
   mkUMactor(umasRcvAddr, 
             mastodon-server-config-cp2-scenario-1-new-ma,
@@ -217,7 +222,16 @@ eq ircbAct =
     < ircbAddr : IrcClient |
         thisAddr: ircbAddr,
         raceboatAddr: ifaceBCAddr,  ---- rb interface
-        ircName: makeIrcUserName(ircbAddr)
+        ircName: makeIrcUserName(ircbAddr),
+        aliceAppChatsMap: (
+           (6.0 ~> ("Bob message 00", makeIrcChannelName("first_channel")))
+         : (30. ~> ("Bob message 01", makeIrcChannelName("first_channel")))
+         : (60. ~> ("Bob message 02", makeIrcChannelName("first_channel")))
+         : (66.0 ~> ("Bob message 10", makeIrcChannelName("second_channel")))
+         : (90. ~> ("Bob message 11", makeIrcChannelName("second_channel")))
+         : (120. ~> ("Bob message 12", makeIrcChannelName("second_channel")))
+        )
+        
     >
   .
 
@@ -252,6 +266,7 @@ eq edbcAct = makeDestiniActor(edbcAddr, ed-images) .
 eq ifaceBSAct = mkIrcMasIface(ifaceBSAddr,ircSrvAddr, 
               cmbsSndAddr,cmbsRcvAddr) .
 
+**** Raceboat at IRC Server in IRC Server --> Bob direction.
 eq umbsSndAct = mkUMactor(umbsSndAddr, 
             mastodon-client-config-cp2-scenario-1-new-ma,
             cmbsSndAddr) .
@@ -276,18 +291,14 @@ eq edbsAct = makeDestiniActor(edbsAddr, ed-images) .
 
 
 ******** global actors
+**** IRC Server
 eq masSrvAct = makeMastodonServer(masSrvAddr) .
-eq ircSrvAct =
-    < ircSrvAddr : IrcServer |
-        thisAddr: ircSrvAddr,
-        channelMap: emptyNameClientsMap,
-        clientTimestampMap: emptyClientTimestampMap,
-        clientAddressMap: emptyClientAddressMap
-    >
-  .
+eq ircSrvAct = makeIrcServer(ircSrvAddr) .
+
 eq ircMonitorAct = 
     makeIrcMonitor(ircMonitorAddr,
                    (ircSrvAddr ;; ircaAddr ;; ircbAddr)) .   
+
 
 op LinkType-2 : -> AttributeSet .
 eq LinkType-2 = 
@@ -322,7 +333,7 @@ eq LinkData =
 .
  
 op initState : Nat -> Config .
-eq initState(j ) =
+eq initState(j) =
      rCtr(j + 8)
 ******* alice 
    ircaAct 
@@ -351,6 +362,7 @@ eq initState(j ) =
 **** global
    ircSrvAct masSrvAct 
    ircMonitorAct
+   
 **** start messages  
 **** alice channel  
   [1.0 + genRandomX(j,0.0, 0.0001),
@@ -374,13 +386,21 @@ eq initState(j ) =
 
 **** start alice
   [0.25, (to ircaAddr : StartIrc), 0]
+**** start bob
+  [0.33, (to ircbAddr : StartIrc), 0]
 **** alice joins with cnx rb server send addr
 **** if sent by alice, it would come from rcv addr!!
   [0.40, (to ircSrvAddr from ifaceASAddr : 
-        JoinChannel(makeIrcChannelName("ab"),ircaAddr)),
+        JoinChannel(makeIrcChannelName("first_channel"),ircaAddr)),
      0]
   [0.5, (to ircSrvAddr from  ifaceBSAddr :
-       JoinChannel(makeIrcChannelName("ab"),ircbAddr)),
+       JoinChannel(makeIrcChannelName("first_channel"),ircbAddr)),
+     0]
+  [10.40, (to ircSrvAddr from ifaceASAddr : 
+        JoinChannel(makeIrcChannelName("second_channel"),ircaAddr)),
+     0]
+  [10.5, (to ircSrvAddr from  ifaceBSAddr :
+       JoinChannel(makeIrcChannelName("second_channel"),ircbAddr)),
      0]
 .
 
@@ -393,8 +413,8 @@ rl[init]: initConfig
 
  endm
 
- red "Alice,Bob join ab, Alice sends 3 texts ircMonitor" .
- **** set print attribute on .
+ red "Alice,Bob join ab, Alice,Bob send 3 texts ircMonitor" .
+ set print attribute on .
  rew initConfig .
  q
  eof
