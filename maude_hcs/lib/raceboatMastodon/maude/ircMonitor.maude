@@ -32,13 +32,11 @@ mod IRC_MONITOR is
 
  sorts MessageTimestamp MessageTimestampList .
  subsorts MessageTimestamp < MessageTimestampList .
- op messageTimestamp : Float Address Address Nat IrcName Nat 
-                       -> MessageTimestamp .
+ op messageTimestamp : Float Msg Nat Nat -> MessageTimestamp .
 ***(
 {T,(to TO_ADDR from FROM_ADDR : ircMsg)}
 >>
-messageTimestamp(T, FROM_ADDR, TO_ADDR, getSize(ircMsg),
-                 getIrcDest(ircMsg), stringHash(getText(ircMsg)))
+messageTimestamp(T, msg, getSize(ircMsg),stringHash(getText(ircMsg)))
 )
 
   op nilMessageTimestampList : -> MessageTimestampList [ctor] .
@@ -99,17 +97,16 @@ eq genMTS(GT,addr0,addr1,c:Content)
          = nilMessageTimestampList [owise] .
 ceq genMTS(GT,addr0,addr1, c:Content)
      = 
-   messageTimestamp(GT, addr1, addr0, getSize(c:Content),
-                    IRC_NAME, stringHash(TEXT))
+   messageTimestamp(GT, (to addr0 from addr1 : c:Content),
+                        getSize(c:Content), stringHash(TEXT))
  if PrivMsgReq(IRC_NAME,IRC_USER_NAME,TEXT) := c:Content
    .
 ceq genMTS(GT,addr0,addr1,c:Content)
    =
- messageTimestamp(GT, addr1, addr0, getSize(c:Content),
-                  IRC_NAME, stringHash(TEXT))
+ messageTimestamp(GT, (to addr0 from addr1 : c:Content),
+                      getSize(c:Content), stringHash(TEXT))
   if PrivMsgRes(IRC_NAME,IRC_USER_NAME,TEXT) := c:Content
   .
-
 
 ***(  
   op toLog : IrcMsg : -> Bool .
