@@ -35,14 +35,19 @@ mod SMC_CP3 is
   pr LIST{Float} .
 
   var C : Config .
-  var attrs : AttributeSet .
+  vars attrs attrs' : AttributeSet .
   vars T T' Tsent Trcvd Tstart Tend Tdeadline Tn : Float .
-  vars ADDR ircAddr ircAddrFrom ircAddrFrom' ircAddrTo ircAddrTo' : Address .
+  vars ADDR ADDR' ircAddr ircAddrFrom ircAddrFrom' ircAddrTo ircAddrTo' : Address .
 
   vars ircMTL ircMTL' :  MessageTimestampList .
   vars ircRoom ircRoom' : IrcName .
   vars ircMsgId ircMsgId' : Nat .
   var ircMsgSize ircMsgSize' : Nat . 
+  var cList : IrcChannelNameList .
+  var uList : IrcUserNameList .
+  var aList : AddrList .
+  var ircUserName : IrcUserName .
+  var cMap : NameClientsMap .
  
   vars F F' : Float .
   var FL FL' : List{Float} .
@@ -90,7 +95,7 @@ mod SMC_CP3 is
   eq percentile(FL, N) = nth(sort(FL), ceil(N * len(FL) , 100)) . 
 
   op min2 : Nat Nat -> Nat .
-	eq min2(N, N') = if N <= N' then N else N' fi .
+  eq min2(N, N') = if N <= N' then N else N' fi .
   op min3 : Nat Nat Nat -> Nat .
   eq min3(N, N', N'') = min2(N, min2(N', N'')) . 
 
@@ -107,11 +112,22 @@ mod SMC_CP3 is
   op getMonitor : Config -> Actor .
   eq getMonitor (C < ADDR : IrcMonitor | attrs >) = < ADDR : IrcMonitor | attrs > .
 
+  op getIrcSrv : Config -> Actor .
+  eq getIrcSrv (C < ADDR : IrcServer | attrs >) = < ADDR : IrcServer | attrs > .
+
+  --- to be extracted from Monitor 
   op isIrcClientAddr : Address -> Bool .
-	eq isIrcClientAddr (ADDR) = if ADDR == ircaAddr or ADDR == ircbAddr then true else false fi . 
+  eq isIrcClientAddr (ADDR) = if ADDR == ircaAddr or ADDR == ircbAddr or ADDR == irccAddr then true else false fi . 
 
   op isIrcServerAddr : Address -> Bool .
-	eq isIrcServerAddr (ADDR) = if ADDR == ircSrvAddr then true else false fi . 
+  eq isIrcServerAddr (ADDR) = if ADDR == ircSrvAddr then true else false fi . 
+
+  op allClientsAddr : -> AddrList . 
+  eq allClientsAddr = ircaAddr ; ircbAddr ; irccAddr . 
+      ---getAddressesFromUserNames(makeIrcUserName(ircaAddr) : makeIrcUserName(ircbAddr) : makeIrcUserName(irccAddr)) .
+  op allClientsUserName : -> IrcUserNameList . 
+  eq allClientsUserName = makeIrcUserName(ircaAddr) : makeIrcUserName(ircbAddr) : makeIrcUserName(irccAddr) .
+  -------- 
 
   op countMsgs : MessageTimestampList -> Nat .
   eq countMsgs (nilMessageTimestampList) = 0 .
@@ -141,17 +157,17 @@ mod SMC_CP3 is
   op collectMsgLatency : Nat Float MessageTimestampList Float Float -> List{Float} .
   eq collectMsgLatency (ircMsgId, Tsent, nilMessageTimestampList, Tstart, Tend) = nil .
   eq collectMsgLatency (ircMsgId, Tsent, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend) = 
-		if (ircMsgId == ircMsgId') and (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) 
-		then compLatency(Tsent, T) collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) 
-		else collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) fi . 
+    if (ircMsgId == ircMsgId') and (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) 
+    then compLatency(Tsent, T) collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) 
+    else collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) fi . 
 
   op collectLatency : MessageTimestampList MessageTimestampList Float Float -> List{Float} .
   eq collectLatency (nilMessageTimestampList, ircMTL, Tstart, Tend) = nil .
   eq collectLatency (ircMTL, nilMessageTimestampList, Tstart, Tend) = nil .
   eq collectLatency (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tstart, Tend) = 
-		if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrFrom) 
-		then collectMsgLatency(ircMsgId, T, ircMTL', Tstart, Tend) collectLatency(ircMTL, ircMTL', Tstart, Tend) 
-		else collectLatency(ircMTL, ircMTL', Tstart, Tend) fi .
+    if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrFrom) 
+    then collectMsgLatency(ircMsgId, T, ircMTL', Tstart, Tend) collectLatency(ircMTL, ircMTL', Tstart, Tend) 
+    else collectLatency(ircMTL, ircMTL', Tstart, Tend) fi .
 
   op getLatencyDistribution : Actor Float Float -> List{Float} .
   eq getLatencyDistribution (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = collectLatency(ircMTL, ircMTL', Tstart, Tend) . 
@@ -173,9 +189,9 @@ mod SMC_CP3 is
   op collectGoodput : MessageTimestampList Float Float -> List{Float} .
   eq collectGoodput (nilMessageTimestampList, Tstart, Tend) = nil .
   eq collectGoodput (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tstart, Tend) = 
-		if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) 
-		then float(ircMsgSize) collectGoodput(ircMTL, Tstart, Tend) 
-		else collectGoodput(ircMTL, Tstart, Tend) fi .
+    if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) 
+    then float(ircMsgSize) collectGoodput(ircMTL, Tstart, Tend) 
+    else collectGoodput(ircMTL, Tstart, Tend) fi .
 
   op getGoodputDistribution : Actor Float Float -> List{Float} .
   eq getGoodputDistribution (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = collectGoodput(ircMTL, Tstart, Tend) .
@@ -185,22 +201,22 @@ mod SMC_CP3 is
 
   --- Integrity (MED)
 
-	sort MsgIdList .
-	subsort Nat < MsgIdList .
-	vars NL NL' : MsgIdList .
+  sort MsgIdList .
+  subsort Nat < MsgIdList .
+  vars NL NL' : MsgIdList .
 
-	op nilMsgIdList : -> MsgIdList [ctor] .
-	op _:::_ : MsgIdList MsgIdList -> MsgIdList [ctor assoc id: nilMsgIdList] .
+  op nilMsgIdList : -> MsgIdList [ctor] .
+  op _:::_ : MsgIdList MsgIdList -> MsgIdList [ctor assoc id: nilMsgIdList] .
 
-	op lenMsgIdList : MsgIdList -> Nat .
-	eq lenMsgIdList (N ::: NL) = 1 + lenMsgIdList(NL) .
-	eq lenMsgIdList (nilMsgIdList) = 0 .
+  op lenMsgIdList : MsgIdList -> Nat .
+  eq lenMsgIdList (N ::: NL) = 1 + lenMsgIdList(NL) .
+  eq lenMsgIdList (nilMsgIdList) = 0 .
 
   op collectGlobalView : IrcName MessageTimestampList Float Float -> MsgIdList . 
   eq collectGlobalView (ircRoom, messageTimestamp(Tsent, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; ircMTL, Tstart, Tend) = 
-		if (Tstart <= Tsent) and (Tsent <= Tend) and isIrcClientAddr(ircAddrFrom) and (ircRoom == ircRoom')
-		then ircMsgId ::: collectGlobalView(ircRoom, ircMTL, Tstart, Tend)
-		else collectGlobalView(ircRoom, ircMTL, Tstart, Tend) fi . 
+    if (Tstart <= Tsent) and (Tsent <= Tend) and isIrcClientAddr(ircAddrFrom) and (ircRoom == ircRoom')
+    then ircMsgId ::: collectGlobalView(ircRoom, ircMTL, Tstart, Tend)
+    else collectGlobalView(ircRoom, ircMTL, Tstart, Tend) fi . 
   eq collectGlobalView (ircRoom, nilMessageTimestampList, Tstart, Tend) = nilMsgIdList .
 
   op getGlobalMsgOrder : Actor IrcName Float Float -> MsgIdList .
@@ -208,25 +224,25 @@ mod SMC_CP3 is
 
   op collectSentMsg : Address IrcName MessageTimestampList Float Float -> MessageTimestampList .  
   eq collectSentMsg (ircAddr, ircRoom, messageTimestamp(Tsent, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; ircMTL, Tstart, Tend) = 
-		if (Tstart <= Tsent) and (Tsent <= Tend) and (ircAddr == ircAddrFrom) and (ircRoom == ircRoom')
-		then messageTimestamp(Tsent, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; collectSentMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend)
-		else collectSentMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend) fi . 
+    if (Tstart <= Tsent) and (Tsent <= Tend) and (ircAddr == ircAddrFrom) and (ircRoom == ircRoom')
+    then messageTimestamp(Tsent, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; collectSentMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend)
+    else collectSentMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend) fi . 
   eq collectSentMsg (ircAddr, ircRoom, nilMessageTimestampList, Tstart, Tend) = nilMessageTimestampList . 
 
   op collectRcvdMsg : Address IrcName MessageTimestampList Float Float -> MessageTimestampList .  
   eq collectRcvdMsg (ircAddr, ircRoom, messageTimestamp(Trcvd, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; ircMTL, Tstart, Tend) = 
-		if (Tstart <= Trcvd) and (Trcvd <= Tend) and (ircAddr == ircAddrTo) and (ircRoom == ircRoom')
-		then messageTimestamp(Trcvd, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; collectRcvdMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend)
-		else collectRcvdMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend) fi . 
+    if (Tstart <= Trcvd) and (Trcvd <= Tend) and (ircAddr == ircAddrTo) and (ircRoom == ircRoom')
+    then messageTimestamp(Trcvd, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; collectRcvdMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend)
+    else collectRcvdMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend) fi . 
   eq collectRcvdMsg (ircAddr, ircRoom, nilMessageTimestampList, Tstart, Tend) = nilMessageTimestampList .
 
   op merge : MessageTimestampList MessageTimestampList -> MessageTimestampList .
   eq merge (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, messageTimestamp(T', ircAddrFrom', ircAddrTo', ircMsgSize', ircRoom', ircMsgId') ; ircMTL') =
-		if T <= T' 
-		then messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; merge(ircMTL, messageTimestamp(T', ircAddrFrom', ircAddrTo', ircMsgSize', ircRoom', ircMsgId') ; ircMTL') 
-		else messageTimestamp(T', ircAddrFrom', ircAddrTo', ircMsgSize', ircRoom', ircMsgId') ; merge(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL') fi .
-	eq merge (ircMTL, nilMessageTimestampList) = ircMTL .
-	eq merge (nilMessageTimestampList, ircMTL) = ircMTL .
+    if T <= T' 
+    then messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; merge(ircMTL, messageTimestamp(T', ircAddrFrom', ircAddrTo', ircMsgSize', ircRoom', ircMsgId') ; ircMTL') 
+    else messageTimestamp(T', ircAddrFrom', ircAddrTo', ircMsgSize', ircRoom', ircMsgId') ; merge(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL') fi .
+  eq merge (ircMTL, nilMessageTimestampList) = ircMTL .
+  eq merge (nilMessageTimestampList, ircMTL) = ircMTL .
  
   op extractMsgIdList : MessageTimestampList -> MsgIdList .
   eq extractMsgIdList (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL) = ircMsgId ::: extractMsgIdList(ircMTL) .
@@ -238,15 +254,60 @@ mod SMC_CP3 is
   op getClientMsgOrder : Actor Address IrcName Float Float -> MsgIdList .
   eq getClientMsgOrder(< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, ircAddr, ircRoom, Tstart, Tend) =  collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) .
 
-	op med : MsgIdList MsgIdList -> Nat .
-	eq med (N ::: NL, N' ::: NL') = if N == N' then med(NL, NL') else 1 + min3(med(NL, N' ::: NL'), med(N ::: NL, NL'), med(NL, NL')) fi .
-	eq med (nilMsgIdList, NL) = lenMsgIdList(NL) .
-	eq med (NL, nilMsgIdList) = lenMsgIdList(NL) .
+  op med : MsgIdList MsgIdList -> Nat .
+  eq med (N ::: NL, N' ::: NL') = if N == N' then med(NL, NL') else 1 + min3(med(NL, N' ::: NL'), med(N ::: NL, NL'), med(NL, NL')) fi .
+  eq med (nilMsgIdList, NL) = lenMsgIdList(NL) .
+  eq med (NL, nilMsgIdList) = lenMsgIdList(NL) .
 
----  op getMsgIdList : Actor Address Room  
- 
-  op getMED : Actor Float Float -> Nat .
-  eq getMED (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = 100  .
+  op getNormMED : Address IrcName MessageTimestampList MessageTimestampList Float Float -> Float .
+  eq getNormMED (ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) = 
+    if (max(lenMsgIdList(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend)), lenMsgIdList(collectGlobalView(ircRoom, ircMTL, Tstart, Tend))) == 0) 
+    then 1.0
+    else 1.0 - (float(med(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend), collectGlobalView(ircRoom, ircMTL, Tstart, Tend))) 
+                / 
+                float(max(lenMsgIdList(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend)), lenMsgIdList(collectGlobalView(ircRoom, ircMTL, Tstart, Tend))))) fi . 
+
+  op lenChannelNameList : IrcChannelNameList -> Nat .
+  eq lenChannelNameList (ircRoom :: cList) = if (ircRoom == nilIrcChannelName) then lenChannelNameList(cList) else 1 + lenChannelNameList(cList) fi .
+  eq lenChannelNameList (nilIrcChannelName) = 0 .
+  eq lenChannelNameList (emptyIrcChannelNameList) = 0 .
+
+  op sumNormMED : Address IrcChannelNameList MessageTimestampList MessageTimestampList Float Float -> Float .
+  eq sumNormMED (ircAddr, ircRoom :: cList, ircMTL, ircMTL', Tstart, Tend) = 
+    if (ircRoom == nilIrcChannelName) 
+    then sumNormMED (ircAddr, cList, ircMTL, ircMTL', Tstart, Tend)
+    else getNormMED(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) + sumNormMED (ircAddr, cList, ircMTL, ircMTL', Tstart, Tend) fi . 
+  eq sumNormMED (ircAddr, nilIrcChannelName, ircMTL, ircMTL', Tstart, Tend) = 0.0 .
+  eq sumNormMED (ircAddr, emptyIrcChannelNameList, ircMTL, ircMTL', Tstart, Tend) = 0.0 .
+
+  op getChannelMap : Actor -> NameClientsMap .  
+  eq getChannelMap (< ADDR' : IrcServer | channelMap: cMap, attrs' >) = cMap .
+
+  op individualClientIntegrity : Address IrcChannelNameList MessageTimestampList MessageTimestampList Float Float -> Float .
+  eq individualClientIntegrity (ircAddr, cList, ircMTL, ircMTL', Tstart, Tend) = 
+    if (lenChannelNameList(cList) == 0)
+    then 1.0 
+    else sumNormMED(ircAddr, cList, ircMTL, ircMTL', Tstart, Tend) / float(lenChannelNameList(cList)) fi . 
+
+  op getClientIntegrity : Actor Actor Address Float Float -> Float .
+  eq getClientIntegrity (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, < ADDR' : IrcServer | channelMap: cMap, attrs' >, ircAddr, Tstart, Tend) =
+    individualClientIntegrity (ircAddr, getChannels(cMap, ircAddr), ircMTL, ircMTL', Tstart, Tend) .
+
+  op lenUserNameList : IrcUserNameList -> Nat .
+  eq lenUserNameList (ircUserName : uList) = if (uList == nilIrcUserName) then lenUserNameList(uList) else 1 + lenUserNameList(uList) fi .
+  eq lenUserNameList (nilIrcUserName) = 0 .
+  eq lenUserNameList (emptyIrcUserNameList) = 0 .
+
+  op sumClientIntegrity : AddrList NameClientsMap MessageTimestampList MessageTimestampList Float Float -> Float .
+  eq sumClientIntegrity (ircAddr ; aList, cMap, ircMTL, ircMTL', Tstart, Tend) =
+    individualClientIntegrity(ircAddr, getChannels(cMap, ircAddr), ircMTL, ircMTL', Tstart, Tend) + sumClientIntegrity(aList, cMap, ircMTL, ircMTL', Tstart, Tend) . 
+  eq sumClientIntegrity (nil, cMap, ircMTL, ircMTL', Tstart, Tend) = 0.0 .
+
+  op getSystemIntegrity : Actor Actor Float Float -> Float .
+  eq getSystemIntegrity (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, < ADDR' : IrcServer | channelMap: cMap, attrs' >, Tstart, Tend) = 
+    if (lenUserNameList(allClientsUserName) == 0)
+    then 1.0
+    else sumClientIntegrity(allClientsAddr, cMap, ircMTL, ircMTL', Tstart, Tend) / float(lenUserNameList(allClientsUserName)) fi . 
 
   --- Availability (MTBF)
 
@@ -261,9 +322,9 @@ mod SMC_CP3 is
   eq collectIngestionFailure (nilMessageTimestampList, ircMTL, Tn, Tstart, Tend) = nil .
   eq collectIngestionFailure (ircMTL, nilMessageTimestampList, Tn, Tstart, Tend) = nil .
   eq collectIngestionFailure (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tn, Tstart, Tend) = 
-		if (Tstart <= T + Tn) and (T + Tn <= Tend) and isIrcClientAddr(ircAddrFrom)  
-		then collectIngestionFailureTime(ircMsgId, T + Tn, ircMTL') collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) 
-		else collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) fi .
+    if (Tstart <= T + Tn) and (T + Tn <= Tend) and isIrcClientAddr(ircAddrFrom)  
+    then collectIngestionFailureTime(ircMsgId, T + Tn, ircMTL') collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) 
+    else collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) fi .
 
   op getIngestionFailureDistribution : Actor Float Float Float -> List{Float} .
   eq getIngestionFailureDistribution (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) .
@@ -278,9 +339,9 @@ mod SMC_CP3 is
   op collectDeliveryFailure : MessageTimestampList Float Float Float -> List{Float} .
   eq collectDeliveryFailure (nilMessageTimestampList, Tn, Tstart, Tend) = nil .
   eq collectDeliveryFailure (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tn, Tstart, Tend) = 
-		if (Tstart <= T + Tn) and (T + Tn <= Tend) and isIrcServerAddr(ircAddrTo)  
-		then collectDeliveryFailureTime(ircMsgId, T + Tn, ircMTL) collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) 
-		else collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) fi .
+    if (Tstart <= T + Tn) and (T + Tn <= Tend) and isIrcServerAddr(ircAddrTo)  
+    then collectDeliveryFailureTime(ircMsgId, T + Tn, ircMTL) collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) 
+    else collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) fi .
 
   op getDeliveryFailureDistribution : Actor Float Float Float -> List{Float} .
   eq getDeliveryFailureDistribution (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tn, Tstart, Tend) = collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) .
