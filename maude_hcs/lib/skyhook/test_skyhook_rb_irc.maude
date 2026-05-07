@@ -1,0 +1,271 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../irc/irc_prob
+sload ../raceboatSkyhook/maude/irc-rbbyteseq-interface
+sload ../raceboatSkyhook/maude/rb-cm-simple-bi
+sload ../skyhook/skyhook_prob
+sload ../common/maude/user-action-actor
+sload skyhook_um_mamodel_1
+sload ../s3/s3_protocol
+
+set print attribute on .
+
+mod TEST_PACKAGE_2 is
+  pr SCHEDULER .
+  pr IRC .
+  pr IRC-RBBYTESEQ-INTERFACE .
+  pr CONTENT-MANAGER-SIMPLE-BI .
+  pr USER-ACTION-ACTOR .
+  pr SKYHOOK .
+  pr SKYHOOK_UM_MAMODEL_1 .
+  pr S3_PROTOCOL .
+
+  eq encOH(fsize:Nat,ksize:Nat)  = 0 .
+  eq noiseMin(msg:Msg) = 0.001 .
+
+  ops ircClient0 ircClient1 : -> Actor .
+  ops ircServer : -> Actor .
+  ops ifaceClient0 ifaceClient1 ifaceServer0 ifaceServer1 : -> Actor .
+  ops cmgrClient0 cmgrClient1 cmgrServer0 cmgrServer1 : -> Actor .
+  ops umClient0 umClient1 umServer0 umServer1 : -> Actor .
+  ops pu0 pu1 : -> Actor .
+  ops ah0 ah1 : -> Actor .
+  ops s3Client0ToS0 s3Client1ToS1 s3Client0ToC0 s3Client1ToC1 : -> Actor .
+  ops s3Server : -> Actor .
+
+  ops ircClient0Addr ircClient1Addr : -> Address .
+  ops ircServerAddr : -> Address .
+  --- Interfaces between IRC clients and Raceboats.
+  ops ifaceClient0Addr ifaceClient1Addr : -> Address .
+  ops ifaceServer0Addr ifaceServer1Addr : -> Address .
+  --- Content Managers.
+  ops cmgrClient0Addr cmgrClient1Addr : -> Address .
+  ops cmgrServer0Addr cmgrServer1Addr : -> Address .
+  --- User Models.
+  ops umClient0Addr umClient1Addr : -> Address .
+  ops umServer0Addr umServer1Addr : -> Address .
+  --- Public Users (skyhooks under IRC Clients).
+  ops pu0Addr pu1Addr : -> Address .
+  --- Account Holders (skyhooks under IRC server).
+  ops ah0Addr ah1Addr : -> Address .
+  --- S3 clients.
+  ops s3Client0ToS0Addr s3Client1ToS1Addr s3ServerAddr : -> Address .
+  ops s3Client0ToC0Addr s3Client1ToC1Addr : -> Address .
+
+  --- ALICE ---
+  --- IRC Client 0.
+  eq ircClient0 = makeIrcClient(ircClient0Addr,
+                                ifaceClient0Addr,
+                                ((2.0 ~> ("Alice message 0", makeIrcChannelName("bbn")))
+                                 : (20. ~> ("Alice message 1", makeIrcChannelName("bbn")))
+                                 : (40. ~> ("Alice message 2", makeIrcChannelName("bbn"))))) .
+  --- Client0 Interface.
+  eq ifaceClient0 = mkIrcByteSeqIface(ifaceClient0Addr,
+                                      ircClient0Addr,
+                                      cmgrClient0Addr,
+                                      cmgrClient0Addr) .
+  --- Client 0 Raceboat.
+  eq cmgrClient0 = mkCMSimpleBi(cmgrClient0Addr, ifaceClient0Addr, pu0Addr) .
+  eq umClient0  = mkUMactor(umClient0Addr, skyhook-um-mamodel-1-ma, cmgrClient0Addr) .
+  --- Client 0 Skyhook.
+  eq pu0  = makeSkyhookPU(pu0Addr,
+                          cmgrClient0Addr,
+                          s3Client0ToS0Addr,
+                          "s_to_c_bucket_0",
+                          "c_to_s_bucket_0",
+                          "s_to_c_uuid_0",
+                          "c_to_s_uuid_0-hash") .
+  eq s3Client0ToS0 = < s3Client0ToS0Addr : S3SdkClient |
+                          thisAddr: s3Client0ToS0Addr,
+                          realAwsAddr: s3ServerAddr,
+                          nextId: 1,
+                          pendingReqs: emptyS3ReqMap > .
+  --- Client 0 server endpoint.
+  eq ah0  = makeSkyhookAH(ah0Addr,
+                          cmgrServer0Addr,
+                          s3Client0ToC0Addr,
+                          "c_to_s_bucket_0",
+                          "s_to_c_bucket_0",
+                          "c_to_s_uuid_0",
+                          "s_to_c_uuid_0",
+                          "s_to_c_uuid_0") .
+  eq ifaceServer0 = mkIrcByteSeqIface(ifaceServer0Addr,
+                                      ircServerAddr,
+                                      cmgrServer0Addr,
+                                      cmgrServer0Addr) .
+  eq umServer0  = mkUMactor(umServer0Addr, skyhook-um-mamodel-1-ma, cmgrServer0Addr) .
+  eq cmgrServer0  = mkCMSimpleBi(cmgrServer0Addr, ifaceServer0Addr, ah0Addr) .
+
+  eq s3Client0ToC0  = < s3Client0ToC0Addr : S3SdkClient |
+                          thisAddr: s3Client0ToC0Addr,
+                          realAwsAddr: s3ServerAddr,
+                          nextId: 1,
+                          pendingReqs: emptyS3ReqMap > .
+
+  --- BOB ---
+  --- IRC Client 1.
+  eq ircClient1 = makeIrcClient(ircClient1Addr,
+                                ifaceClient1Addr,
+                                ((6.0 ~> ("Bob message 0", makeIrcChannelName("bbn")))
+                                 : (30. ~> ("Bob message 1", makeIrcChannelName("bbn")))
+                                 : (60. ~> ("Bob message 2", makeIrcChannelName("bbn"))))) .
+  --- Client1 Interface.
+  eq ifaceClient1 = mkIrcByteSeqIface(ifaceClient1Addr,
+                                      ircClient1Addr,
+                                      cmgrClient1Addr,
+                                      cmgrClient1Addr) .
+  --- Client 1 Raceboat.
+  eq cmgrClient1 = mkCMSimpleBi(cmgrClient1Addr, ifaceClient1Addr, pu1Addr) .
+  eq umClient1  = mkUMactor(umClient1Addr, skyhook-um-mamodel-1-ma, cmgrClient1Addr) .
+  --- Client 1 Skyhook.
+  eq pu1  = makeSkyhookPU(pu1Addr,
+                          cmgrClient1Addr,
+                          s3Client1ToS1Addr,
+                          "s_to_c_bucket_1",
+                          "c_to_s_bucket_1",
+                          "s_to_c_uuid_1",
+                          "c_to_s_uuid_1-hash") .
+  eq s3Client1ToS1 = < s3Client1ToS1Addr : S3SdkClient |
+                          thisAddr: s3Client1ToS1Addr,
+                          realAwsAddr: s3ServerAddr,
+                          nextId: 1,
+                          pendingReqs: emptyS3ReqMap > .
+  --- Client 1 server endpoint.
+  eq ah1  = makeSkyhookAH(ah1Addr,
+                          cmgrServer1Addr,
+                          s3Client1ToC1Addr,
+                          "c_to_s_bucket_1",
+                          "s_to_c_bucket_1",
+                          "c_to_s_uuid_1",
+                          "s_to_c_uuid_1",
+                          "s_to_c_uuid_1") .
+  eq ifaceServer1 = mkIrcByteSeqIface(ifaceServer1Addr,
+                                      ircServerAddr,
+                                      cmgrServer1Addr,
+                                      cmgrServer1Addr) .
+  eq umServer1  = mkUMactor(umServer1Addr, skyhook-um-mamodel-1-ma, cmgrServer1Addr) .
+  eq cmgrServer1  = mkCMSimpleBi(cmgrServer1Addr, ifaceServer1Addr, ah1Addr) .
+
+  eq s3Client1ToC1  = < s3Client1ToC1Addr : S3SdkClient |
+                          thisAddr: s3Client1ToC1Addr,
+                          realAwsAddr: s3ServerAddr,
+                          nextId: 1,
+                          pendingReqs: emptyS3ReqMap > .
+
+  --- IRC Server ---
+  eq ircServer  = makeIrcServer(ircServerAddr, s3ServerAddr) .
+
+  --- S3 Server ---
+  eq s3Server = < s3ServerAddr : AwsS3HttpServer | thisAddr: s3ServerAddr, s3DataMap: emptyS3DataMap > .
+
+  --- Network Set Up ---
+  op LinkType-2 : -> AttributeSet .
+  eq LinkType-2 = 
+    (delayStd: 0.),
+    (delayType: "Constant"),
+    (delayMean: 0.),
+    (delayConst: 0.005),
+    (noiseMin: 0.),
+    (noiseMax: 0.00001),
+    (dropP: 0.),
+    (canDrop: false)
+    .
+
+  **** ircc-if-rb...pu-skdc === s3srv sdkbcAddr s3SrvAddr
+  **** ircs ifs-rbs--ah-skds ==== s3srv sdkbsAddr
+
+  eq LinkData =
+    aaa(s3ServerAddr, s3Client0ToC0Addr, LinkType-2)
+    aaa(s3ServerAddr, s3Client1ToC1Addr, LinkType-2)
+    aaa(s3ServerAddr, s3Client0ToS0Addr, LinkType-2)
+    aaa(s3ServerAddr, s3Client1ToC1Addr, LinkType-2)
+    aaa(s3Client0ToC0Addr, s3ServerAddr, LinkType-2)
+    aaa(s3Client1ToC1Addr, s3ServerAddr, LinkType-2)
+    aaa(s3Client0ToS0Addr, s3ServerAddr, LinkType-2)
+    aaa(s3Client1ToC1Addr, s3ServerAddr, LinkType-2)
+  .
+
+  vars j : Nat .
+
+  op initState : Nat -> Config .
+  eq initState(j) =
+    rCtr(j + 8)
+    **** Alice
+    ircClient0
+    ifaceClient0
+    umClient0 cmgrClient0 pu0 s3Client0ToS0
+    **** Bob
+    ircClient1
+    ifaceClient1
+    umClient1 cmgrClient1 pu1 s3Client1ToS1
+    **** Irc Server
+    ircServer
+    ifaceServer0
+    umServer0 cmgrServer0 ah0 s3Client0ToC0
+    ifaceServer1
+    umServer1 cmgrServer1 ah1 s3Client1ToC1
+    **** S3 Infrastructure
+    s3Server
+
+    **** Start Alice channel
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to umClient0Addr from umClient0Addr : actionR("ok")), 0]
+    **** Start Bob channel
+    [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umClient1Addr from umClient1Addr : actionR("ok")), 0]
+    **** Start server channels
+    [1.0 + genRandomX(j + 4, 0.0, 0.0001), (to umServer0Addr from umServer0Addr : actionR("ok")), 0]
+    [1.0 + genRandomX(j + 6, 0.0, 0.0001), (to umServer1Addr from umServer1Addr : actionR("ok")), 0]
+    **** Start Server Skyhook
+    [0.001, (to ah0Addr from ah0Addr : SkyhookStartCmd), 0]
+    [0.002, (to ah1Addr from ah1Addr : SkyhookStartCmd), 0]
+
+    **** Start Alice IRC
+    [0.25, (to ircClient0Addr : StartIrc), 0]
+    **** Start Bob IRC
+    [0.35, (to ircClient1Addr : StartIrc), 0]
+    **** Bypass RB for these joins
+    [0.40, (to ircServerAddr from ifaceServer0Addr
+              : JoinChannel(makeIrcChannelName("bbn"), ircClient0Addr)), 0]
+    [0.50, (to ircServerAddr from ifaceServer1Addr
+              : JoinChannel(makeIrcChannelName("bbn"), ircClient1Addr)), 0]
+  .
+
+  op slimit : -> Float .
+  eq slimit = 200. .
+
+  op initConfig : -> Config .
+  rl[init]: initConfig 
+  => run({0.0 | nil} initState(counter), slimit) .
+
+
+endm
+
+rew initConfig .
+q
