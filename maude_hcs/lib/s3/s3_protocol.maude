@@ -30,10 +30,14 @@
 
 sload ./s3_aux
 sload ../skyhook/_skyhook_aux
+sload ../common/maude/cp2-interfaces
+sload ../common/maude/delay-drop-x
 
 mod S3_PROTOCOL is
   pr S3_AUX .
   pr SKYHOOK_AUX .
+  inc CP2-COMMON .
+  inc DELAY-X .
 
   vars BODY REQ_BODY DATA : ByteSeq .
   vars BUCKET UUID S3_REGION POLICY STR : String .
@@ -46,313 +50,474 @@ mod S3_PROTOCOL is
   vars MAP : S3ReqMap .
   vars DATA_MAP : S3DataMap .
 
-  -------------------------------------------------------------
-  --- SDK CLIENT RULES (Translate internal abstract -> S3 HTTP)
-  -------------------------------------------------------------
+  vars j j1 : Nat .
+  vars smsgs msgs : Config .
+  vars msg : Msg .
+  vars T : Float .
+  vars headers : S3HeaderList .
+  vars data : ByteSeq .
+  
+  -----------------------------------------------------------
+--- SDK CLIENT RULES (Translate internal abstract -> S3 HTTP)
+-----------------------------------------------------------
 
-  rl [sdk-put-obj]:
+  crl [sdk-put-obj]:
+  rCtr(j)
   < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
-    (to CLIENT from ADDR : S3PutObjReq(BUCKET, UUID, DATA))
+    {T,(to CLIENT from ADDR : S3PutObjReq(BUCKET,UUID,DATA))}
   =>
-  < CLIENT : S3SdkClient |  realAwsAddr: AWS_ADDR,
-                            nextId: s ID,
-                            pendingReqs: (MAP ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ])),
-                            attrs >
-    (to AWS_ADDR from CLIENT
+  rCtr(j1)
+  < CLIENT : S3SdkClient | attrs,
+      realAwsAddr: AWS_ADDR,
+      nextId: s ID,
+      pendingReqs: (MAP ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ]))
+  >
+    smsgs
+  if headers :=
+       header("x-amz-request-id", string(ID, 10)) ;;
+       header("Host", BUCKET + ".s3.amazonaws.com") ;; 
+       header("Expect", "100-continue") ;;
+       header("Content-Length", string(getSize(DATA), 10))
+    /\ msg := (to AWS_ADDR from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET + "/" + UUID,
                   "HTTP/1.1",
-                  header("x-amz-request-id", string(ID, 10))
-                    ;; header("Host", BUCKET + ".s3.amazonaws.com")
-                    ;; header("Expect", "100-continue")
-                    ;; header("Content-Length", string(getSize(DATA), 10)),
+                  headers,
                   noBytes))
-    [ print ">>> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "/" UUID " (Expect: 100-continue, Request-ID: " ID ")" ]
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+  [ print "(" T ") "  "--> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "/" UUID " (Expect: 100-continue, Request-ID: " ID ")" ]
   .
 
-  rl [sdk-get-obj]:
+  crl [sdk-get-obj]:
+  rCtr(j)
   < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
-    (to CLIENT from ADDR : S3GetObjReq(BUCKET, UUID))
+    {T, (to CLIENT from ADDR : S3GetObjReq(BUCKET, UUID))}
   =>
-  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: s ID, pendingReqs: (MAP ; (ID ~> S3GetObjReq(BUCKET, UUID) [ ADDR ])), attrs >
-    (to AWS_ADDR from CLIENT
-      : HttpS3Req("GET",
-                  "/" + BUCKET + "/" + UUID,
-                  "HTTP/1.1",
-                  header("x-amz-request-id", string(ID, 10))
-                    ;; header("Host", BUCKET + ".s3.amazonaws.com"),
-                  noBytes))
-    [ print ">>> SDK -> AWS: [HttpS3Req] GET /" BUCKET "/" UUID " (Request-ID: " ID ")" ] .
+  rCtr(j1)
+  < CLIENT : S3SdkClient | attrs,
+      realAwsAddr: AWS_ADDR, nextId: s ID, 
+      pendingReqs: (MAP ; (ID ~> S3GetObjReq(BUCKET, UUID) [ ADDR ]))
+  >
+    smsgs
+  if headers :=
+        header("x-amz-request-id", string(ID, 10)) ;; 
+        header("Host", BUCKET + ".s3.amazonaws.com")
+    /\ msg := (to AWS_ADDR from CLIENT
+        : HttpS3Req("GET",
+                    "/" + BUCKET + "/" + UUID,
+                    "HTTP/1.1",
+                    headers,
+                    noBytes))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+  [ print "(" T ") " "--> SDK -> AWS: [HttpS3Req] GET /" BUCKET "/" UUID " (Request-ID: " ID ")" ] .
 
-  rl [sdk-delete-obj]:
+  crl [sdk-delete-obj]:
+  rCtr(j)
   < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
-    (to CLIENT from ADDR : S3DeleteObjReq(BUCKET, UUID))
+    {T, (to CLIENT from ADDR : S3DeleteObjReq(BUCKET, UUID))}
   =>
-  < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: s ID, pendingReqs: (MAP ; (ID ~> S3DeleteObjReq(BUCKET, UUID) [ ADDR ])), attrs >
-    (to AWS_ADDR from CLIENT
+  rCtr(j1)
+  < CLIENT : S3SdkClient | attrs,
+      realAwsAddr: AWS_ADDR, nextId: s ID, 
+      pendingReqs: (MAP ; (ID ~> S3DeleteObjReq(BUCKET, UUID) [ ADDR ])) >
+   smsgs
+ if headers :=
+     header("x-amz-request-id", string(ID, 10)) ;;
+     header("Host", BUCKET + ".s3.amazonaws.com")
+   /\ msg := (to AWS_ADDR from CLIENT
       : HttpS3Req("DELETE",
                   "/" + BUCKET + "/" + UUID,
-                  "HTTP/1.1",
-                  header("x-amz-request-id", string(ID, 10))
-                    ;; header("Host", BUCKET + ".s3.amazonaws.com"),
+                  "HTTP/1.1", 
+                  headers,
                   noBytes))
-    [ print ">>> SDK -> AWS: [HttpS3Req] DELETE /" BUCKET "/" UUID " (Request-ID: " ID ")" ]
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+  [ print "(" T ") "  "--> SDK -> AWS: [HttpS3Req] DELETE /" BUCKET "/" UUID " (Request-ID: " ID ")" ]
   .
 
-  rl [sdk-create-bucket]:
+  crl [sdk-create-bucket]:
+  rCtr(j)
   < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
-    (to CLIENT from ADDR : S3CreateBucketReq(BUCKET, S3_REGION))
+    {T, (to CLIENT from ADDR : S3CreateBucketReq(BUCKET, S3_REGION)) }
   =>
-  < CLIENT : S3SdkClient |  realAwsAddr: AWS_ADDR,
-                            nextId: s ID,
-                            pendingReqs: (MAP ; (ID ~> S3CreateBucketReq(BUCKET, S3_REGION) [ ADDR ])),
-                            attrs >
-    (to AWS_ADDR from CLIENT
+  rCtr(j1)
+  < CLIENT : S3SdkClient | attrs,
+      realAwsAddr: AWS_ADDR,
+      nextId: s ID,
+      pendingReqs: (MAP ; (ID ~> S3CreateBucketReq(BUCKET,S3_REGION)[ADDR]))
+  >
+   smsgs 
+ if headers :=
+       header("x-amz-request-id", string(ID, 10)) ;; 
+       header("Host", "s3.amazonaws.com") ;; 
+       header("Expect", "100-continue") ;; 
+       header("Content-Length", "100")
+ /\ msg := (to AWS_ADDR from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET,
                   "HTTP/1.1",
-                  header("x-amz-request-id", string(ID, 10))
-                    ;; header("Host", "s3.amazonaws.com")
-                    ;; header("Expect", "100-continue")
-                    ;; header("Content-Length", "100"),
+                  headers,                  
                   noBytes))
-    [ print ">>> SDK -> AWS: [HttpS3Req] PUT /" BUCKET " (Expect: 100-continue, Request-ID: " ID ")" ]
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "--> SDK -> AWS: [HttpS3Req] PUT /" BUCKET " (Expect: 100-continue, Request-ID: " ID ")" ]
   .
 
-  rl [sdk-put-policy]:
+crl [sdk-put-policy]:
+  rCtr(j)
   < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
-    (to CLIENT from ADDR : S3PutBucketPolicyReq(BUCKET, POLICY))
+    {T, (to CLIENT from ADDR : S3PutBucketPolicyReq(BUCKET, POLICY))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: s ID, pendingReqs: (MAP ; (ID ~> S3PutBucketPolicyReq(BUCKET, POLICY) [ ADDR ])), attrs >
-    (to AWS_ADDR from CLIENT
+    smsgs
+  if headers :=
+        header("x-amz-request-id", string(ID, 10)) ;;
+        header("Host", BUCKET + ".s3.amazonaws.com") ;;
+        header("Expect", "100-continue") ;;
+        header("Content-Length", string(length(POLICY), 10))
+  /\ msg := (to AWS_ADDR from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET + "?policy",
-                  "HTTP/1.1",
-                  header("x-amz-request-id", string(ID, 10))
-                    ;; header("Host", BUCKET + ".s3.amazonaws.com")
-                    ;; header("Expect", "100-continue")
-                    ;; header("Content-Length", string(length(POLICY), 10)),
+                  "HTTP/1.1", 
+                  headers,
                   noBytes))
-    [ print ">>> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "?policy (Expect: 100-continue, Request-ID: " ID ")" ] .
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "--> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "?policy (Expect: 100-continue, Request-ID: " ID ")" ]
+  .
 
-  rl [sdk-put-public-access-block]:
+  crl [sdk-put-public-access-block]:
+ rCtr(j)
   < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: ID, pendingReqs: MAP, attrs >
-    (to CLIENT from ADDR : S3PutPublicAccessBlockReq(BUCKET))
+    {T,(to CLIENT from ADDR : S3PutPublicAccessBlockReq(BUCKET))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | realAwsAddr: AWS_ADDR, nextId: s ID, pendingReqs: (MAP ; (ID ~> S3PutPublicAccessBlockReq(BUCKET) [ ADDR ])), attrs >
-    (to AWS_ADDR from CLIENT
+    smsgs
+  if headers :=
+      header("x-amz-request-id", string(ID, 10)) ;; 
+      header("Host", BUCKET + ".s3.amazonaws.com") ;; 
+      header("Expect", "100-continue") ;; 
+      header("Content-Length", "100")
+    /\ msg := (to AWS_ADDR from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET + "?publicAccessBlock",
-                  "HTTP/1.1",
-                  header("x-amz-request-id", string(ID, 10))
-                    ;; header("Host", BUCKET + ".s3.amazonaws.com")
-                    ;; header("Expect", "100-continue")
-                    ;; header("Content-Length", "100"),
+                  "HTTP/1.1", 
+                  headers,
                   noBytes))
-    [ print ">>> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "?publicAccessBlock (Expect: 100-continue, Request-ID: " ID ")" ] .
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "--> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "?publicAccessBlock (Expect: 100-continue, Request-ID: " ID ")" ]
+  .
 
-  -------------------------------------------------------------
+  -----------------------------------------------------------
   --- SDK CLIENT RULES (Translate S3 HTTP -> internal abstract)
-  -------------------------------------------------------------
+----------------------------------------------------------
 
   crl [sdk-handle-100-continue-put-obj]:
-  < CLIENT : S3SdkClient |  pendingReqs: (MAP
-                                          ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ])),
-                            attrs >
-    (to CLIENT from AWS_ADDR
-      : HttpS3Res(100, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  rCtr(j)
+  < CLIENT : S3SdkClient |  attrs,
+     pendingReqs: (MAP ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ]))  >
+  {T,  (to CLIENT from AWS_ADDR
+      : HttpS3Res(100, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))}
   =>
-  < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ])), attrs >
-    (to AWS_ADDR from CLIENT
-      : HttpS3ReqBody("/" + BUCKET + "/" + UUID, ID, DATA))
+  rCtr(j1)
+  < CLIENT : S3SdkClient | attrs ,
+      pendingReqs: (MAP ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ])) >
+    smsgs
   if REQ_ID == string(ID, 10)
-    [ print "<<< AWS -> SDK: [HttpS3Res] 100 Continue\n>>> SDK -> AWS: [HttpS3ReqBody] Transmitting Body Chunk for Request-ID: " ID ] .
+    /\ msg := 
+       (to AWS_ADDR from CLIENT : HttpS3ReqBody("/" + BUCKET + "/" + UUID, ID, DATA))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") " "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Body Chunk for Request-ID: " ID ] 
+  .
 
   crl [sdk-handle-100-continue-create-bucket]:
+  rCtr(j)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3CreateBucketReq(BUCKET, S3_REGION) [ ADDR ])), attrs >
-    (to CLIENT from AWS_ADDR
-      : HttpS3Res(100, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  {T, (to CLIENT from AWS_ADDR
+      : HttpS3Res(100, "HTTP/1.1",
+                  header("x-amz-request-id", REQ_ID) ;; HEAD,
+                  BODY))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3CreateBucketReq(BUCKET, S3_REGION) [ ADDR ])), attrs >
-    (to AWS_ADDR from CLIENT
-      : HttpS3ReqBody("/" + BUCKET,
-                      ID,
-                      restToByteSeq("<CreateBucketConfiguration><LocationConstraint>" + S3_REGION + "</LocationConstraint></CreateBucketConfiguration>")))
+    smsgs 
   if REQ_ID == string(ID, 10)
-    [ print "<<< AWS -> SDK: [HttpS3Res] 100 Continue\n>>> SDK -> AWS: [HttpS3ReqBody] Transmitting Body XML for Request-ID: " ID ] .
+    /\ data := restToByteSeq("<CreateBucketConfiguration><LocationConstraint>" + 
+                              S3_REGION +
+                              "</LocationConstraint></CreateBucketConfiguration>")
+    /\ msg := (to AWS_ADDR from CLIENT
+               : HttpS3ReqBody("/" + BUCKET, ID, data))  
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Body XML for Request-ID: " ID ]
+  .
 
   crl [sdk-handle-100-continue-put-policy]:
+  rCtr(j)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutBucketPolicyReq(BUCKET, POLICY) [ ADDR ])), attrs >
-    (to CLIENT from AWS_ADDR
-      : HttpS3Res(100, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  {T, (to CLIENT from AWS_ADDR
+      : HttpS3Res(100, "HTTP/1.1", 
+                  header("x-amz-request-id", REQ_ID) ;; HEAD,
+                  BODY))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutBucketPolicyReq(BUCKET, POLICY) [ ADDR ])), attrs >
-    (to AWS_ADDR from CLIENT
-      : HttpS3ReqBody("/" + BUCKET + "?policy", ID, restToByteSeq(POLICY)))
+    smsgs
   if REQ_ID == string(ID, 10)
-    [ print "<<< AWS -> SDK: [HttpS3Res] 100 Continue\n>>> SDK -> AWS: [HttpS3ReqBody] Transmitting Policy Body for Request-ID: " ID ] .
+    /\ msg := (to AWS_ADDR from CLIENT
+      : HttpS3ReqBody("/" + BUCKET + "?policy", ID,
+                      restToByteSeq(POLICY)))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Policy Body for Request-ID: " ID ]
+  .
 
   crl [sdk-handle-100-continue-put-public-access-block]:
+  rCtr(j)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutPublicAccessBlockReq(BUCKET) [ ADDR ])), attrs >
-    (to CLIENT from AWS_ADDR
+  {T,  (to CLIENT from AWS_ADDR
       : HttpS3Res(100,
                   "HTTP/1.1",
                   header("x-amz-request-id", REQ_ID) ;; HEAD,
-                  BODY))
+                  BODY))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutPublicAccessBlockReq(BUCKET) [ ADDR ])), attrs >
-    (to AWS_ADDR from CLIENT
-      : HttpS3ReqBody("/" + BUCKET + "?publicAccessBlock",
-                      ID,
-                      restToByteSeq("<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>")))
+    smsgs            
   if REQ_ID == string(ID, 10)
-    [ print "<<< AWS -> SDK: [HttpS3Res] 100 Continue\n>>> SDK -> AWS: [HttpS3ReqBody] Transmitting Access Block XML for Request-ID: " ID ] .
+    /\ data := 
+        restToByteSeq("<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>")
+    /\ msg := (to AWS_ADDR from CLIENT
+        : HttpS3ReqBody("/" + BUCKET + "?publicAccessBlock",ID,data))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") " "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Access Block XML for Request-ID: " ID ]
+  .
 
   crl [sdk-handle-put-res]:
-  < CLIENT : S3SdkClient |  pendingReqs: (MAP
-                                          ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ])),
-                            attrs >
-    (to CLIENT from AWS_ADDR
-      : HttpS3Res(200, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  rCtr(j)
+  < CLIENT : S3SdkClient | attrs,
+    pendingReqs: (MAP ; (ID ~> S3PutObjReq(BUCKET, UUID, DATA) [ ADDR ])) >
+    {T, (to CLIENT from AWS_ADDR
+      : HttpS3Res(200, "HTTP/1.1", 
+                  header("x-amz-request-id", REQ_ID) ;; HEAD,
+                  BODY))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
-    (to ADDR from CLIENT : S3PutObjRes(BUCKET, UUID))
+    smsgs
   if REQ_ID == string(ID, 10)
-    [ print "<<< AWS -> SDK: [HttpS3Res] 200 OK to Put (Request-ID: " ID ")" ] .
+    /\ msg := (to ADDR from CLIENT : S3PutObjRes(BUCKET, UUID))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") " "<-- AWS -> SDK: [HttpS3Res] 200 OK to Put (Request-ID: " ID ")" ]
+  .
 
   crl [sdk-handle-get-res]:
+  rCtr(j)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3GetObjReq(BUCKET, UUID) [ ADDR ])), attrs >
-    (to CLIENT from AWS_ADDR
-      : HttpS3Res(200, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+    {T, (to CLIENT from AWS_ADDR
+      : HttpS3Res(200, "HTTP/1.1",
+                  header("x-amz-request-id", REQ_ID) ;; HEAD, 
+                  BODY))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
-    (to ADDR from CLIENT : S3GetObjRes(BUCKET, UUID, BODY))
+    smsgs
   if REQ_ID == string(ID, 10)
-    [ print "<<< AWS -> SDK: [HttpS3Res] 200 OK to Get (Request-ID: " ID ") (Received Payload)" ] .
+    /\ msg := (to ADDR from CLIENT : S3GetObjRes(BUCKET, UUID, BODY))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") " "<-- AWS -> SDK: [HttpS3Res] 200 OK to Get (Request-ID: " ID ") (Received Payload)" ]
+  .
 
   crl [sdk-handle-get-err-res]:
+  rCtr(j)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3GetObjReq(BUCKET, UUID) [ ADDR ])), attrs >
-    (to CLIENT from AWS_ADDR
-      : HttpS3Res(404, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+  {T, (to CLIENT from AWS_ADDR
+      : HttpS3Res(404, "HTTP/1.1", 
+                  header("x-amz-request-id", REQ_ID) ;; HEAD,
+                  BODY))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
-    (to ADDR from CLIENT : S3GetObjErr(BUCKET, UUID))
+    smsgs
   if REQ_ID == string(ID, 10)
-    [ print "<<< AWS -> SDK: [HttpS3Res] 404 Not Found (Request-ID: " ID ")" ] .
+    /\ msg := (to ADDR from CLIENT : S3GetObjErr(BUCKET, UUID))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "<-- AWS -> SDK: [HttpS3Res] 404 Not Found (Request-ID: " ID ")" ]
+  .
 
   crl [sdk-handle-delete-res]:
+  rCtr(j)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3DeleteObjReq(BUCKET, UUID) [ ADDR ])), attrs >
-    (to CLIENT from AWS_ADDR
-      : HttpS3Res(204, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+    {T, (to CLIENT from AWS_ADDR
+      : HttpS3Res(204, "HTTP/1.1",
+                  header("x-amz-request-id", REQ_ID) ;; HEAD,
+                   BODY))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
-    (to ADDR from CLIENT : S3DeleteObjRes(BUCKET, UUID))
+    smsgs
   if REQ_ID == string(ID, 10)
-    [ print "<<< AWS -> SDK: [HttpS3Res] 204 No Content (Request-ID: " ID ")" ] .
+    /\ msg :=  (to ADDR from CLIENT : S3DeleteObjRes(BUCKET, UUID))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "<-- AWS -> SDK: [HttpS3Res] 204 No Content (Request-ID: " ID ")" ]
+  .
 
   crl [sdk-handle-create-bucket-res]:
+  rCtr(j)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3CreateBucketReq(BUCKET, S3_REGION) [ ADDR ])), attrs >
-    (to CLIENT from AWS_ADDR
-      : HttpS3Res(200, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+    {T,(to CLIENT from AWS_ADDR
+      : HttpS3Res(200, "HTTP/1.1", 
+                  header("x-amz-request-id", REQ_ID) ;; HEAD,
+                   BODY))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
-    (to ADDR from CLIENT : S3CreateBucketRes(BUCKET))
+    smsgs
   if REQ_ID == string(ID, 10)
-    [ print "<<< AWS -> SDK: [HttpS3Res] 200 OK to Create (Request-ID: " ID ")" ] .
+    /\ msg := (to ADDR from CLIENT : S3CreateBucketRes(BUCKET))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "<-- AWS -> SDK: [HttpS3Res] 200 OK to Create (Request-ID: " ID ")" ]
+  .
 
   crl [sdk-handle-put-policy-res]:
+  rCtr(j)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutBucketPolicyReq(BUCKET, POLICY) [ ADDR ])), attrs >
-    (to CLIENT from AWS_ADDR : HttpS3Res(200, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+    {T,(to CLIENT from AWS_ADDR : 
+           HttpS3Res(200, "HTTP/1.1",
+           header("x-amz-request-id", REQ_ID) ;; HEAD, 
+           BODY))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
-    (to ADDR from CLIENT : S3PutBucketPolicyRes(BUCKET))
+    smsgs
   if REQ_ID == string(ID, 10)
-    [ print "<<< AWS -> SDK: [HttpS3Res] 200 OK to PolicyPut (Request-ID: " ID ")" ] .
+    /\ msg := (to ADDR from CLIENT : S3PutBucketPolicyRes(BUCKET))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "<-- AWS -> SDK: [HttpS3Res] 200 OK to PolicyPut (Request-ID: " ID ")" ]
+  .
 
   crl [sdk-handle-public-access-block-res]:
+  rCtr(j)
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutPublicAccessBlockReq(BUCKET) [ ADDR ])), attrs >
-    (to CLIENT from AWS_ADDR
-      : HttpS3Res(200, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, BODY))
+    {T, (to CLIENT from AWS_ADDR
+      : HttpS3Res(200, "HTTP/1.1", 
+                  header("x-amz-request-id", REQ_ID) ;; HEAD,
+                   BODY))}
   =>
+  rCtr(j1)
   < CLIENT : S3SdkClient | pendingReqs: MAP, attrs >
-    (to ADDR from CLIENT : S3PutPublicAccessBlockRes(BUCKET))
+    smsgs
   if REQ_ID == string(ID, 10)
-    [ print "<<< AWS -> SDK: [HttpS3Res] 200 OK to Block (Request-ID: " ID ")" ] .
+    /\ msg := (to ADDR from CLIENT : S3PutPublicAccessBlockRes(BUCKET))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "<-- AWS -> SDK: [HttpS3Res] 200 OK to Block (Request-ID: " ID ")" ]
+  .
 
   -------------------------------------------------------------
   --- AWS HTTPSERVER RULES (Serve HTTP requests natively)
   -------------------------------------------------------------
 
-  rl [server-handle-put-obj-expect]:
+  crl [server-handle-put-obj-expect]:
+ rCtr(j)
   < AWS_ADDR : AwsS3HttpServer | attrs >
-    (to AWS_ADDR from ADDR
+    {T, (to AWS_ADDR from ADDR
       : HttpS3Req("PUT",
                   URI,
                   "HTTP/1.1",
                   header("Expect", "100-continue")
                     ;; header("x-amz-request-id", REQ_ID)
                     ;; HEAD,
-                  BODY))
+                  BODY))}
   =>
+  rCtr(j1)
   < AWS_ADDR : AwsS3HttpServer | attrs >
-    (to ADDR from AWS_ADDR
-      : HttpS3Res(100,
-                  "HTTP/1.1",
-                  header("x-amz-request-id", REQ_ID),
-                  noBytes))
-    [ print "=== AWS SERVER: Responding 100 Continue for PUT " URI ] .
+    smsgs
+  if msg := (to ADDR from AWS_ADDR
+              : HttpS3Res(100,
+                          "HTTP/1.1",
+                          header("x-amz-request-id", REQ_ID),
+                          noBytes))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "=== AWS SERVER: Responding 100 Continue for PUT " URI ]
+  .
 
-  rl [server-handle-put-obj-data]:
+  crl [server-handle-put-obj-data]:
+  rCtr(j)
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: DATA_MAP, attrs >
-    (to AWS_ADDR from ADDR : HttpS3ReqBody(URI, ID, BODY))
+    {T, (to AWS_ADDR from ADDR : HttpS3ReqBody(URI, ID, BODY))}
   =>
+ rCtr(j1)
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
-    (to ADDR from AWS_ADDR
+    smsgs
+  if msg :=  
+     (to ADDR from AWS_ADDR
       : HttpS3Res(200,
                   "HTTP/1.1",
                   header("x-amz-request-id", string(ID, 10)),
                   noBytes))
-    [ print "=== AWS SERVER: Absorbing Body Chunk. Storing in InMemory S3DataMap -> " URI ". Responding 200 OK." ] .
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "=== AWS SERVER: Absorbing Body Chunk. Storing in InMemory S3DataMap -> " URI ". Responding 200 OK." ]
+  .
 
-  rl [server-handle-get-obj]:
+  crl [server-handle-get-obj]:
+  rCtr(j)
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
-    (to AWS_ADDR from ADDR
-      : HttpS3Req("GET", URI, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, REQ_BODY))
+    {T, (to AWS_ADDR from ADDR
+      : HttpS3Req("GET", URI, "HTTP/1.1",
+                   header("x-amz-request-id", REQ_ID) ;; HEAD,
+                   REQ_BODY))}
   =>
+  rCtr(j1)
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
+    smsgs
+  if msg :=
     (to ADDR from AWS_ADDR
       : HttpS3Res(200,
                   "HTTP/1.1",
                   header("x-amz-request-id", REQ_ID),
                   BODY))
-    [ print "=== AWS SERVER: Looked up Node ID " URI ". Responding 200 OK w/ payload body." ] .
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "=== AWS SERVER: Looked up Node ID " URI ". Responding 200 OK w/ payload body." ]
+  .
 
   crl [server-handle-get-obj-not-found]:
+  rCtr(j)
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: DATA_MAP, attrs >
-    (to AWS_ADDR from ADDR
-      : HttpS3Req("GET", URI, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, REQ_BODY))
+    {T, (to AWS_ADDR from ADDR
+      : HttpS3Req("GET", URI, "HTTP/1.1",
+                  header("x-amz-request-id", REQ_ID) ;; HEAD,
+                   REQ_BODY))}
   =>
+ rCtr(j1)
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: DATA_MAP, attrs >
-    (to ADDR from AWS_ADDR
-      : HttpS3Res(404,
-                  "HTTP/1.1",
-                  header("x-amz-request-id", REQ_ID),
-                  noBytes))
+    smsgs
   if not hasKey(DATA_MAP, URI)
-    [ print "=== AWS SERVER: Looked up Node ID " URI " but not found. Responding 404 Not Found." ] .
+    /\ msg :=
+        (to ADDR from AWS_ADDR
+          : HttpS3Res(404,
+                      "HTTP/1.1",
+                      header("x-amz-request-id", REQ_ID),
+                      noBytes))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "=== AWS SERVER: Looked up Node ID " URI " but not found. Responding 404 Not Found." ]
+  .
 
-  rl [server-handle-delete-obj]:
+  crl [server-handle-delete-obj]:
+  rCtr(j)
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
-    (to AWS_ADDR from ADDR
-      : HttpS3Req("DELETE", URI, "HTTP/1.1", header("x-amz-request-id", REQ_ID) ;; HEAD, REQ_BODY))
+    {T, (to AWS_ADDR from ADDR
+      : HttpS3Req("DELETE", URI, "HTTP/1.1",
+                  header("x-amz-request-id", REQ_ID) ;; HEAD,
+                   REQ_BODY))}
   =>
+  rCtr(j1)
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: DATA_MAP, attrs >
-    (to ADDR from AWS_ADDR
-      : HttpS3Res(204,
-                  "HTTP/1.1",
-                  header("x-amz-request-id", REQ_ID),
-                  noBytes))
-    [ print "=== AWS SERVER: Erasing Local Object " URI ". Responding 204 No Content." ] .
+    smsgs
+  if msg := (to ADDR from AWS_ADDR
+            : HttpS3Res(204,
+                        "HTTP/1.1",
+                        header("x-amz-request-id", REQ_ID),
+                        noBytes))
+    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+  [ print "(" T ") "  "(" T ") " "=== AWS SERVER: Erasing Local Object " URI ". Responding 204 No Content." ]
+  .
 
 endm
 

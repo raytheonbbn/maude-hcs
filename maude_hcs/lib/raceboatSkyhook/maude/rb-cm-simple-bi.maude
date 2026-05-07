@@ -1,0 +1,400 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set show advisories off .
+set clear rules off .
+set print attribute off .
+
+
+sload ../../common/maude/byteseq.maude
+sload ../../../deps/dns_formalization/Maude/common/actor.maude
+
+sload ../../common/maude/_aux.maude  ---- AttributeSetMsgs
+sload ../../common/maude/cp2-interfaces
+sload ../../common/maude/delay-drop-x
+
+sload ../../common/maude/markov-action-model
+
+
+---- {attrs,conf} defined in lib/.../common/_aux.maude
+mod CONTENT-MANAGER-SIMPLE-BI-AUX is
+  inc BYTESEQ .  
+  inc ACTOR-MODEL .
+
+vars cmAddr tunnelAddr appAddr  addr : Address .
+vars attrs : AttributeSet .
+  
+ops CMSimpleBi  : -> ActorType .
+
+**** Attributes
+op pendingFiles:_ : ByteSeqL -> Attribute [ctor] .
+op appAddress:_  : Address -> Attribute [ctor] .
+op tunnelAddress:_ : Address -> Attribute [ctor] .
+op w4c:_ : Config -> Attribute [ctor] . ---msg or null
+op replyTo:_ : Config -> Attribute [ctor] . ---- ""
+
+
+**********  CMSimpleBi actor
+
+---              myAddr   appAddr tunnel
+op mkCMSimpleBi : Address Address Address   -> Actor .
+eq mkCMSimpleBi(cmAddr, appAddr,tunnelAddr) =
+   < cmAddr : CMSimpleBi |
+     pendingFiles: nilBS,
+     tunnelAddress: tunnelAddr,
+     appAddress: appAddr,
+     w4c: null,
+     replyTo: null
+   >
+.
+endm
+
+
+sload ../../skyhook/_skyhook_aux
+
+mod CONTENT-MANAGER-SIMPLE-BI is
+  inc CONTENT-MANAGER-SIMPLE-BI-AUX .
+  inc MARKOV-ACTION-MODEL .
+  inc CP2-COMMON .
+  inc TGEN-INTERFACE .
+  inc SKYHOOK_AUX  .
+  inc SAMPLER-X .
+  inc DELAY-X .
+  
+  vars cmAddr tunnelAddr appAddr  addr umAddr 
+      : Address .
+  vars attrs attrs0 attrs1 attrs2 cmAttrs cmAttrs1 
+       : AttributeSet .
+  vars bytes : ByteSeq .
+  vars byteseql : ByteSeqL .
+  vars msg msg0 : Msg .
+  vars msgs msgs0 smsgs : Config .
+  vars j j1 : Nat .
+  vars T : Float .
+  vars str : String .
+  vars ract : Map{String,JV} .
+  
+  
+  ----- rcv byteseq from iface actor
+  rl [rbcm-rcv-file] :
+  {T, (to cmAddr from appAddr :  bytes)}
+  < cmAddr : CMSimpleBi | cmAttrs, 
+                         appAddress: appAddr,
+                         pendingFiles: byteseql >
+  =>
+  < cmAddr : CMSimpleBi | cmAttrs, 
+         appAddress: appAddr,
+         pendingFiles: (byteseql :: bytes ) >
+  [print "(" T ") Raceboat " cmAddr " got " bytes " from " appAddr ]
+  .
+  
+  --- action request from UM
+  crl [rbc-rcv-action] :
+  rCtr(j)
+  {T,(to cmAddr from umAddr :  actionQ(ract) )}
+  < cmAddr : CMSimpleBi | cmAttrs  >
+  =>
+  rCtr(j1)
+  < cmAddr : CMSimpleBi | cmAttrs1 >
+  smsgs
+  if {cmAttrs1,msgs} :=
+      rbrcvActionQ(cmAttrs,getType(ract),
+               (to cmAddr from umAddr : actionQ(ract) ))
+  /\ {smsgs,j1} := delayMsgsX(j,msgs,null)
+ [print "(" T ") Raceboat " cmAddr " got action request " ract ", sending " smsgs]
+     .
+
+  crl [rbc-rcv-post-ack] :
+  rCtr(j)
+  {T,(to cmAddr from tunnelAddr :  SkyhookPostAck)}
+  < cmAddr : CMSimpleBi | cmAttrs  >
+  =>
+  rCtr(j1)
+  < cmAddr : CMSimpleBi | cmAttrs1  >
+  smsgs
+   if attrs0, w4c: (to tunnelAddr from cmAddr : 
+                    SkyhookPostCmd(bytes)),
+     replyTo: (to cmAddr from umAddr : actionQ(ract))       := cmAttrs
+  /\ msg := (to umAddr from cmAddr : actionR("ok"))
+  /\ cmAttrs1 := attrs0, w4c: null, replyTo: null
+  /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+ [print "(" T ") Raceboat " cmAddr " got post ack,  sending " smsgs]
+  .       
+
+  crl [rbc-rcv-fetch-ack] :
+  rCtr(j)
+  {T,(to cmAddr from tunnelAddr :
+       SkyhookFetchAck(bytes) )}
+  < cmAddr : CMSimpleBi | cmAttrs  >
+  =>
+  rCtr(j1)
+  < cmAddr : CMSimpleBi | cmAttrs1  >
+  smsgs
+  if {cmAttrs1,msgs} := rbRcvFetchAck(cmAttrs,
+            (to cmAddr from tunnelAddr : 
+             SkyhookFetchAck(bytes)))
+  /\{smsgs,j1} := delayMsgsX(j,msgs,null)
+ [print "(" T ") Raceboat " cmAddr " got fetchack with bytes " bytes ", sending " smsgs]
+  .
+  
+  op rbrcvActionQ : AttributeSet String Msg 
+                  -> AttributeSetMsgs . 
+
+  ceq rbrcvActionQ(attrs, str, msg) = {attrs,msgs}
+  if (to cmAddr from umAddr : actionQ(ract)) := msg
+  /\ msgs := (to umAddr from cmAddr : actionR("notRecognized"))
+   [owise print "Raceboat " cmAddr " failing to match action " ract ] .
+
+  ceq rbrcvActionQ(attrs, "post", msg0) = {attrs2,msg}
+  if (to cmAddr from umAddr : actionQ(ract)) := msg0
+  /\ attrs0, (w4c: null), (replyTo: null),
+     (pendingFiles: (bytes :: byteseql ))
+    := attrs
+  /\ attrs1, (tunnelAddress: tunnelAddr) := attrs
+  /\ msg := (to tunnelAddr from cmAddr : 
+     SkyhookPostCmd(bytes))
+  /\ attrs2 := attrs0, (w4c: msg), (replyTo: msg0),
+               (pendingFiles: byteseql)
+  .
+
+  ceq rbrcvActionQ(attrs, "fetch", msg0) = {attrs2,msg}
+  if (to cmAddr from umAddr : actionQ(ract)) := msg0
+  /\ attrs0, (w4c: null), (replyTo: null) := attrs
+  /\ attrs1, tunnelAddress: tunnelAddr := attrs
+  /\ msg := (to tunnelAddr from cmAddr : 
+              SkyhookFetchCmd  )
+  /\ attrs2 := attrs0, (w4c: msg), (replyTo: msg0)
+  .
+
+  ceq rbrcvActionQ(attrs,  "post", msg0) = {attrs,msg}
+  if attrs0, (w4c: null), (replyTo: null),
+             (pendingFiles: nilBS)
+    := attrs
+  /\ (to cmAddr from umAddr : actionQ(ract)) := msg0
+  /\ msg := (to umAddr from cmAddr : actionR("ok"))
+  .
+
+
+  op rbRcvFetchAck : AttributeSet Msg 
+                    -> AttributeSetMsgs .
+  eq rbRcvFetchAck(attrs,msg) = {attrs,null} [owise] .
+                                 
+  ceq rbRcvFetchAck(attrs,msg0) = {cmAttrs1,msg msgs}
+  if (to cmAddr from tunnelAddr : 
+             SkyhookFetchAck(bytes)) := msg0
+  /\ attrs0, w4c: (to tunnelAddr from cmAddr : 
+                    SkyhookFetchCmd),
+       replyTo: (to cmAddr from umAddr : actionQ(ract))
+       := attrs
+  /\ attrs1, appAddress: appAddr := attrs
+  /\ msg := (to umAddr from cmAddr : actionR("ok"))
+  /\ msgs := (if getSize(bytes) > 0
+             then (to appAddr from cmAddr : bytes)
+             else null
+             fi)
+  /\ cmAttrs1 := attrs0, w4c: null, replyTo: null
+  .       
+
+
+endm  
+
+sload irc-rbbyteseq-interface
+
+mod TEST-CM-SIMPLE-BI is
+  inc CONTENT-MANAGER-SIMPLE-BI .
+  inc IRC-RBBYTESEQ-INTERFACE  .
+
+vars T : Float .
+vars ract : Map{String,JV} .
+vars k : Nat .
+vars image : ByteSeq .
+
+eq encOH(fsize:Nat,ksize:Nat)  = 0 .
+eq noiseMin(msg:Msg) = 0.001 .
+
+***(
+{T ircmsg to ifAd} If
+{T0 byeseq to cmAd}
+{T1 ract to cmAd}
+
+....
+)
+
+ops ifAd ircAd cmAd umAd sdkAd : -> Address .
+op ircBSIfAct : -> Actor .
+eq ircBSIfAct = mkIrcByteSeqIface(ifAd,ircAd,cmAd,cmAd) .
+
+op ircM : -> IrcMsg .
+eq getSize(ircM) = 100 .
+
+op CM : -> Actor .
+eq CM = mkCMSimpleBi(cmAd,ifAd,sdkAd) .
+
+***(
+CM msgIrc CM1
+CM1 msgActQ(1.5) CM1.5 send 
+
+CMs1.5 msgEncR(T,IM0) CMs1.5encR send post
+CMs7 msgCapR(T,1000) CM7capR send encq
+CMs7capR msgEncR(T,eIM0) CM7encR  send post
+CMs1.5encR msgPostResp
+CMs7encR msgPostResp
+)    
+
+ops ractF ractP : -> Map{String,JV} .
+eq ractF = ("type" |-> js("fetch")) .
+eq ractP = ("type" |-> js("post")) .
+
+op msgIrc : -> ActiveMsg . 
+eq msgIrc = {1.0, (to ifAd from ircAd :  ircM)} .
+
+op msgActQ : Float Map{String,JV} -> ActiveMsg . 
+eq msgActQ(T,ract) 
+    = {T , to cmAd from umAd :  actionQ(ract)} .
+
+op msgCmdRsp : Float Content -> ActiveMsg .
+eq msgCmdRsp(T,c:Content) =
+    {T, to cmAd from sdkAd : c:Content} .
+    
+    
+    
+---- rew CM ircBSIfAct msgIrc rCtr(9) .
+***(
+< ifAd : IrcByteSeqIface | rbSndr: cmAd, rbRcvr: cmAd, ircEndp: ircAd > < cmAd : CMSimpleBi | pendingFiles: nilBS, appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > 
+[ 6.2356369639746841e-5, to cmAd from ifAd : ircToByteseq(ircM), 0]
+  )
+
+---- rew CM ircBSIfAct {1.00006, to cmAd from ifAd : ircToByteseq(ircM)} rCtr(10) .
+
+op CM1 : -> Actor .
+eq CM1 = < cmAd : CMSimpleBi | pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > .
+
+--- rew CM1 msgActQ(2.0,ractP) rCtr(10) .
+op CM1P : -> Actor .
+eq CM1P =
+**** rCtr(11)
+< cmAd : CMSimpleBi | pendingFiles: nilBS, appAddress: ifAd, tunnelAddress: sdkAd, w4c: (to sdkAd from cmAd : SkyhookPostCmd( ircToByteseq(ircM))), replyTo: (to cmAd from umAd : actionQ( "type" |-> js("post"))) > 
+.
+
+**** [3.5410588490776714e-4, to sdkAd from cmAd : SkyhookPostCmd(ircToByteseq(ircM)), 0]
+
+
+--- rew CM1 msgActQ(2.0,ractF) rCtr(10) .
+op CM1F : -> Actor .
+eq CM1F =
+**** rCtr(11) 
+< cmAd : CMSimpleBi | pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: (to sdkAd from cmAd : SkyhookFetchCmd), replyTo: (to cmAd from umAd : actionQ("type" |-> js("fetch"))) > 
+ .
+ 
+**** [3.5410588490776714e-4, to sdkAd from cmAd : SkyhookFetchCmd, 0]
+
+--- rew CM1P rCtr(11) msgCmdRsp(3.0,SkyhookPostAck) .
+***(
+rCtr(12) 
+< cmAd : CMSimpleBi | pendingFiles: nilBS, appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > [ 6.1561829177662734e-4, to umAd from cmAd : actionR("ok"), 0]
+ )
+
+--- rew CM1F rCtr(11) msgCmdRsp(3.0,SkyhookFetchAck(noBytes)) .
+***(
+rCtr(12) 
+< cmAd : CMSimpleBi | pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > 
+[ 6.1561829177662734e-4, to umAd from cmAd : actionR("ok"), 0]
+    )
+    
+--- rew CM1F rCtr(11) msgCmdRsp(3.0,SkyhookFetchAck(ircToByteseq(ircM))) .
+***(
+rCtr(13)
+< cmAd : CMSimpleBi | pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > 
+[ 5.6241279002279044e-4, to umAd from cmAd : actionR("ok"), 0] 
+[ 6.1561829177662734e-4, to ifAd from cmAd : ircToByteseq(ircM), 0]
+)
+
+endm
+eof
+
+red getSize(ircToByteseq(ircM)) . ---- 100
+
+scenario Alice only
+
+ircC
+
+ifC
+rbCMC
+PU
+S3ClientS
+
+ifS
+rbCMS
+AH
+S3ClientS
+
+S3server
+IRCServer
+IrcMonitor
+
+
+scenario Alice Bob only
+Alice
+ircCa
+
+ifCa
+umCa
+rbCMCa
+PUa
+S3ClientSa
+
+ifSa
+umSa
+rbCMSa
+AHa
+S3ClientSa
+
+Bob
+ircCb
+
+ifCb
+umCb
+rbCMCb
+PUb
+S3ClientSb
+
+ifSb
+umSb
+rbCMSb
+AHb
+S3ClientSb
+
+[bob start msgs]
+
+S3server
+IRCServer
+IrcMonitor
+
+
