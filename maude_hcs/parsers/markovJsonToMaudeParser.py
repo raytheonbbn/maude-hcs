@@ -1,3 +1,4 @@
+import argparse
 import logging
 import json
 import os
@@ -352,3 +353,55 @@ def find_recursively(root_directory: str, filename: str, key: str = None) -> dic
 
     # If we finish the loop without returning, the file was never found
     raise FileNotFoundError(f"File '{filename}' was not found in '{root_directory}' or any of its subdirectories.")
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+  """
+  Set up an ``argparse`` parser for two required positional arguments.
+
+  Parameters
+  ----------
+  argv : list[str] | None, optional
+      The argument list to parse.  If ``None`` (the default) the parser
+      uses ``sys.argv[1:]`` – the normal command‑line input.
+
+  Returns
+  -------
+  argparse.Namespace
+      Parsed arguments with attributes ``first`` and ``second``.
+  """
+  parser = argparse.ArgumentParser(
+      description="Call ``process_directories`` with two command‑line arguments."
+  )
+  parser.add_argument(
+      "input_dir",
+      help="The input directory."
+  )
+  parser.add_argument(
+      "output_dir",
+      help="The output directory."
+  )
+  return parser.parse_args(argv)
+
+
+def main() -> None:
+  """
+  Entry point for the script.
+
+  1. Parse the two command‑line arguments.
+  2. Call ``combine_strings`` with those arguments.
+  3. Print the result.
+  """
+  args = parse_args()
+  # Not sure what this should be.
+  args.protocol = "mastodon"
+  process_directories(args, args.input_dir, args.output_dir)
+
+
+# ----------------------------------------------------------------------
+# The conventional guard – this makes the file import‑safe (e.g. you can
+# ``import example`` in another module without executing the script).
+# ----------------------------------------------------------------------
+if __name__ == "__main__":
+  main()
+
