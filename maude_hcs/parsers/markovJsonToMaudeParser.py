@@ -374,6 +374,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
       description="Call ``process_directories`` with two command‑line arguments."
   )
   parser.add_argument(
+      "protocol",
+      help="The Raceboat protocol, for naming purposes."
+  )
+  parser.add_argument(
       "input_dir",
       help="The input directory."
   )
@@ -393,8 +397,6 @@ def main() -> None:
   3. Print the result.
   """
   args = parse_args()
-  # Not sure what this should be.
-  args.protocol = "mastodon"
   process_directories(args, args.input_dir, args.output_dir)
 
 
