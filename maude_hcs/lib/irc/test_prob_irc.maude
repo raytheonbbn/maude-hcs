@@ -28,86 +28,87 @@
 ---
 --- MAUDE_HCS: end
 
+
 sload ./common/irc_name
 sload ./common/_aux
 sload ./irc_prob
 
-set print attribute on .
+sload ../../deps/dns_formalization/Maude/common/apmaude.maude
 
 mod IRC_PROB_TESTS is
-  pr IRC_NAMES .
-  pr IRC_NODE .
   pr IRC .
+  inc SCHEDULER .
+  
 
-  ops aliceIrcClientAddr bobIrcClientAddr ircServerAddr aliceAddr bobAddr carolynAddr rbAddr : -> Address .
+  ops aliceIrcClientAddr bobIrcClientAddr ircServerAddr  : -> Address .
   ops aliceIrcClient bobIrcClient : -> Actor .
-  ops ircServer preconfiguredIrcServer : -> Actor .
+  ops ircServer  : -> Actor .
   ops ircChannelName : -> IrcChannelName .
   ops aliceMsg bobMsg : -> Msg .
 
   eq ircChannelName = makeIrcChannelName("bbn") .
+  op aliceDML : -> IrcMsgDelayList .
+  eq aliceDML =
+     imd( 0.000,"#room1",279) :: imd(28.0,"#room1",388) .
+  op bobDML : -> IrcMsgDelayList .
+  eq bobDML =
+     imd( 8.000,"#room1",279) :: imd(48.0,"#room1",388) .
 
-  op makeAliceIrcClient : -> Config .
-  eq makeAliceIrcClient = 
-    < aliceIrcClientAddr : IrcClient |
-        thisAddr: aliceIrcClientAddr,
-        raceboatAddr: ircServerAddr,
-        ircName: makeIrcUserName(aliceIrcClientAddr),
-        aliceAppChatsMap: ((2.0 ~> ("Alice message 0", makeIrcChannelName("bbn")))
-                            : (3.5 ~> ("Alice message 1", makeIrcChannelName("bbn")))
-                            : (5.4 ~> ("Alice message 2", makeIrcChannelName("bbn"))))
-    >
-  .
+  op aliceIrcClient : -> Actor .
+  eq aliceIrcClient = 
+     mkIrcClient(aliceIrcClientAddr, ircServerAddr,"a", aliceDML) .
 
-  op makeBobIrcClient : -> Config .
-  eq makeBobIrcClient = 
-    < bobIrcClientAddr : IrcClient |
-        thisAddr: bobIrcClientAddr,
-        raceboatAddr: ircServerAddr,
-        ircName: makeIrcUserName(bobIrcClientAddr)
-    >
-  .
+  op bobIrcClient : -> Actor .
+  eq bobIrcClient = 
+     mkIrcClient(bobIrcClientAddr, ircServerAddr,"b", bobDML) .
 
-  op makeIrcServer : -> Config .
-  eq makeIrcServer =
-    < ircServerAddr : IrcServer |
-        thisAddr: ircServerAddr,
-        channelMap: (makeIrcChannelName("sri") 
-                     ~> (makeIrcUserName(aliceIrcClientAddr))),
-        clientTimestampMap: emptyClientTimestampMap,
-        clientAddressMap: emptyClientAddressMap
-    >
-  .
+  op ircServer : -> Actor .
+  eq ircServer = mkIrcServer(ircServerAddr)  .
 
-  eq aliceMsg =
-    (to aliceIrcClientAddr from aliceAddr
-      : makeAppChat(ircChannelName, "Alice's message."))
-  .
+  op aliceMsg : -> ScheduleMsg .
+  eq aliceMsg = 
+    [1.0, 
+    (to aliceIrcClientAddr from aliceIrcClientAddr : ircMsgSendTime),
+    0]  .
+  op bobMsg : -> ScheduleMsg .
+  eq bobMsg = 
+    [8.0, 
+    (to bobIrcClientAddr from bobIrcClientAddr : ircMsgSendTime),
+    0]  .    
 
   op initState : -> Config .
   eq initState =
     rCtr(0)
-    makeAliceIrcClient
-    makeBobIrcClient
-    makeIrcServer
-    [0.25, (to aliceIrcClientAddr : StartIrc), 0]
-    [0.40, (to ircServerAddr from aliceIrcClientAddr
-            : JoinChannel(makeIrcChannelName("bbn"),
-                          aliceIrcClientAddr)),
-      0]
-    [0.5, (to ircServerAddr from bobIrcClientAddr
-            : JoinChannel(makeIrcChannelName("bbn"),
+    aliceIrcClient
+    bobIrcClient
+    ircServer
+    [0.20, (to ircServerAddr from aliceIrcClientAddr
+            : JoinChannel(makeIrcChannelName("#room1"),
+                          aliceIrcClientAddr)), 0]
+    [0.3, (to ircServerAddr from bobIrcClientAddr
+            : JoinChannel(makeIrcChannelName("#room1"),
                           bobIrcClientAddr)), 0]
---- [0.5, (to ircServerAddr from aliceIrcClientAddr : JoinChannel(makeIrcChannelName("bbn"), aliceIrcClientAddr)), 0]
----    [0.5, (to ircServerAddr from bobIrcClientAddr : PartChannel(makeIrcChannelName("sri"), bobIrcClientAddr)), 0]
----    [0.5, (to ircServerAddr from aliceIrcClientAddr : PartChannel(makeIrcChannelName("bbn"), aliceIrcClientAddr)), 0]
----    [1.0, aliceMsg, 0]
----    [200.0, (to ircServerAddr from ircServerAddr : PingTimeout(aliceIrcClientAddr)), 0]
+   aliceMsg
+   bobMsg                          
   .
 
   op initConfig : -> Config .
-  eq initConfig = run({0.0 | nil} initState, limit) .
+  eq initConfig = run({0.0 | nil} initState, 300.0) .
 endm
+eof
 
+rew rCtr(0) aliceIrcClient {1.0, to aliceIrcClientAddr from aliceIrcClientAddr : ircMsgSendTime} .
 
-
+ rCtr(2)
+< aliceIrcClientAddr : IrcClient | thisAddr: aliceIrcClientAddr,
+    raceboatAddr: ircServerAddr, ircName: makeIrcUserName(
+    aliceIrcClientAddr), msgSched: imd(2.8e+1, "#room1", 388),
+    msgCtr: 1, userId: "a" >
+   [0.0, to ircServerAddr from
+    aliceIrcClientAddr : PrivMsgReq(makeIrcChannelName("#room1"),
+    makeIrcUserName(aliceIrcClientAddr), "a:0:279"), 0]
+   [2.8000059284461638e+1, to aliceIrcClientAddr from
+    aliceIrcClientAddr : ircMsgSendTime, 0]
+    
+set print attribute on .
+rew  initConfig .

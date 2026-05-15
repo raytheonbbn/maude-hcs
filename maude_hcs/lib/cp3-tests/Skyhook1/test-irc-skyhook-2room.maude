@@ -1,0 +1,597 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+---- raceboat  user models
+sload ../../../deps/dns_formalization/Maude/common/apmaude
+sload ../../common/maude/user-action-actor
+sload ../Skyhook/skyhook-um-mamodel-1
+
+**** sload ../../../common/maude/http-overhead.maude
+
+---- irc 
+sload ../../irc/common/irc_name
+sload ../../irc/common/irc-msg-model
+sload ../../irc/common/_aux
+sload ../../irc/irc_prob
+
+---- this should go in a scenario dir
+sload ../../raceboatSkyhook/maude/irc-rbbyteseq-interface  
+---- for debugging logs actual messages
+sload ../../raceboatMastodon/maude/ircMonitor
+---- for smc logs from to size id but not the msg text
+*** sload ../../raceboatMastodon/maude/ircMonitor-cm
+
+------ raceboat 4 skyhook
+sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
+
+----- skyhook
+
+sload ../../skyhook/skyhook_prob
+sload ../../s3/s3_protocol
+
+
+mod IRC-RB-SKYHOOK-SCENARIO is
+  inc SCHEDULER .
+  inc USER-ACTION-ACTOR .
+  inc SKYHOOK-UM-MAMODEL-1 .
+  inc IRC .
+  inc IRC-RBBYTESEQ-INTERFACE .
+  inc CONTENT-MANAGER-SIMPLE-BI .
+  inc SKYHOOK .
+  inc S3_PROTOCOL .
+  inc IRC_MONITOR .
+ 
+vars j : Nat .
+
+eq encOH(fsize:Nat,ksize:Nat)  = 0 .
+eq noiseMin(msg:Msg) = 0.001 .
+
+
+**** addresses
+*** alice
+ops aliceAddr ircaAddr : -> Address .
+**** alice channel endpoint interfaces
+ops ifaceACAddr ifaceASAddr : -> Address .
+
+*** client endpoint ac
+ops umacAddr  cmacAddr puaAddr sdkacAddr : -> Address .
+*** server endpoint as
+ops umasAddr  cmasAddr ahaAddr sdkasAddr : -> Address .
+
+*** bob
+ops bobAddr ircbAddr : -> Address .
+**** bobs channel endpoint interfaces
+ops ifaceBCAddr ifaceBSAddr : -> Address .
+
+*** client endpoint  ..bc.. 
+ops umbcAddr  cmbcAddr pubAddr sdkbcAddr : -> Address .
+*** server endpoint ..bs..
+ops umbsAddr  cmbsAddr ahbAddr sdkbsAddr : -> Address .
+
+*** eve
+ops eveAddr irceAddr : -> Address .
+**** eves channel endpoint interfaces
+ops ifaceECAddr ifaceESAddr : -> Address .
+
+*** client endpoint  ..bc.. 
+ops umecAddr  cmecAddr pueAddr sdkecAddr : -> Address .
+*** server endpoint ..bs..
+ops umesAddr  cmesAddr aheAddr sdkesAddr : -> Address .
+
+**** shared
+ops ircSrvAddr  s3SrvAddr : -> Address .
+op ircMonitorAddr : -> Address .
+
+-----------------------
+**** actors
+*** alice
+op ircaAct : -> Actor .
+ops ifaceACAct ifaceASAct : -> Actor .
+
+
+*** client endpoint ac
+ops umacAct  cmacAct puaAct sdkacAct : -> Actor .
+*** server endpoint as
+ops umasAct  cmasAct ahaAct sdkasAct : -> Actor .
+
+*** bob
+op ircbAct : -> Actor .
+ops ifaceBCAct ifaceBSAct : -> Actor .
+
+*** client endpoint  ..bc.. 
+ops umbcAct  cmbcAct pubAct sdkbcAct : -> Actor .
+*** server endpoint ..bs..
+ops umbsAct  cmbsAct ahbAct sdkbsAct : -> Actor .
+
+*** bob
+op irceAct : -> Actor .
+ops ifaceECAct ifaceESAct : -> Actor .
+
+*** client endpoint  ..bc.. 
+ops umecAct  cmecAct pueAct sdkecAct : -> Actor .
+*** server endpoint ..bs..
+ops umesAct  cmesAct aheAct sdkesAct : -> Actor .
+
+ops ircSrvAct  s3SrvAct : -> Actor .
+op ircMonitorAct : -> Actor .
+
+************** actor defns
+***** aliceIrc
+eq ircaAct =
+   mkIrcClient(ircaAddr, ifaceACAddr,"alice", sampleDMLa)  .            
+  
+**** TEST-PKG2 uses 2.0 3.5 5.4
+eq ifaceACAct =
+   mkIrcByteSeqIface(ifaceACAddr,ircaAddr,
+                     cmacAddr,cmacAddr) .
+
+**** alice client rb endpoint
+eq umacAct = 
+   mkUMactor(umacAddr,skyhook-um-mamodel-1-ma,cmacAddr) 
+   .
+eq cmacAct = 
+    mkCMSimpleBi(cmacAddr,ifaceACAddr,puaAddr) .
+
+
+**** buckets: "bucket:a2s"  "bucket:s2a"  
+**** uuidSeeds: "uuid:a2s"  "uuid:s2a"  
+eq puaAct = makeSkyhookPU(
+          puaAddr,
+          cmacAddr,  --- rbc0Tos0Addr
+          sdkacAddr,  ---  s3Client0Tos0Addr,
+          "s_to_c_bucket_a",
+          "c_to_s_bucket_a",
+          "s_to_c_uuid_a",  --- fetch
+          "c_to_s_uuid_a-hash" --- post ----"c_to_s_uuid_a"
+          )
+      .
+eq sdkacAct = 
+    < sdkacAddr : S3SdkClient | 
+       thisAddr: sdkacAddr, realAwsAddr: s3SrvAddr, 
+       nextId: 1, pendingReqs: emptyS3ReqMap > .
+
+***  alice server endpoint
+eq ifaceASAct =
+   mkIrcByteSeqIface(ifaceASAddr,ircSrvAddr,
+                     cmasAddr,cmasAddr) .
+
+eq umasAct = 
+   mkUMactor(umasAddr,skyhook-um-mamodel-1-ma,cmasAddr) 
+   .
+eq cmasAct = 
+    mkCMSimpleBi(cmasAddr,ifaceASAddr,ahaAddr) .
+
+eq ahaAct = mkSkyhookAH(ahaAddr,
+              cmasAddr,  ---- rbs0Toc0Addr,
+              sdkasAddr, 
+                      ---- s3Client0Toc0Addr,
+              "c_to_s_bucket_a",
+              "s_to_c_bucket_a",
+              "c_to_s_uuid_a",
+              "s_to_c_uuid_a",
+              "s_to_c_uuid_a",  ---"post_uuid_a"
+              6
+              )
+.
+
+eq sdkasAct = 
+       < sdkasAddr : S3SdkClient | 
+         thisAddr: sdkasAddr, realAwsAddr: s3SrvAddr,
+         nextId: 1, pendingReqs: emptyS3ReqMap > .
+
+********************************
+*** bob
+***** bob Irc 
+eq ircbAct =
+   mkIrcClient(ircbAddr, ifaceBCAddr,"bob", sampleDMLb)  .
+
+eq ifaceBCAct =
+   mkIrcByteSeqIface(ifaceBCAddr,ircbAddr,
+                     cmbcAddr,cmbcAddr) .
+
+**** bob client rb endpoint
+eq umbcAct = 
+   mkUMactor(umbcAddr,skyhook-um-mamodel-1-ma,cmbcAddr) 
+   .
+eq cmbcAct = 
+    mkCMSimpleBi(cmbcAddr,ifaceBCAddr,pubAddr) .
+
+**** buckets: "bucket:a2s"  "bucket:s2a"  
+**** uuidSeeds: "uuid:a2s"  "uuid:s2a"  
+eq pubAct = makeSkyhookPU(
+          pubAddr,
+          cmbcAddr,  --- rbc0Tos0Addr
+          sdkbcAddr,  ---  s3Client0Tos0Addr,
+          "s_to_c_bucket_b",
+          "c_to_s_bucket_b",
+          "s_to_c_uuid_b",
+          "c_to_s_uuid_b-hash"
+          )
+      .
+
+eq sdkbcAct = 
+    < sdkbcAddr : S3SdkClient | 
+       thisAddr: sdkbcAddr, realAwsAddr: s3SrvAddr, 
+       nextId: 1, pendingReqs: emptyS3ReqMap > .
+
+***  bob server endpoint
+eq ifaceBSAct =
+   mkIrcByteSeqIface(ifaceBSAddr,ircSrvAddr,
+                     cmbsAddr,cmbsAddr) .
+
+eq umbsAct = 
+   mkUMactor(umbsAddr,skyhook-um-mamodel-1-ma,cmbsAddr) 
+   .
+eq cmbsAct = 
+    mkCMSimpleBi(cmbsAddr,ifaceBSAddr,ahbAddr) .
+
+eq ahbAct = mkSkyhookAH(ahbAddr,
+                  cmbsAddr,  ---- rbs0Toc0Addr,
+                  sdkbsAddr, ---- s3Client0Toc0Addr,
+                  "c_to_s_bucket_b",
+                  "s_to_c_bucket_b",
+                  "c_to_s_uuid_b",
+                  "s_to_c_uuid_b",
+                  "s_to_c_uuid_b", ---- "post_uuid_b"
+                  6
+              )
+.
+
+eq sdkbsAct = 
+       < sdkbsAddr : S3SdkClient | 
+         thisAddr: sdkbsAddr, realAwsAddr: s3SrvAddr,
+         nextId: 1, pendingReqs: emptyS3ReqMap > .
+
+********************************
+*** eve
+***** eve Irc 
+eq irceAct =
+   mkIrcClient(irceAddr, ifaceECAddr,"eve", sampleDMLe)  .
+
+eq ifaceECAct =
+   mkIrcByteSeqIface(ifaceECAddr,irceAddr,
+                     cmecAddr,cmecAddr) .
+
+**** eve client rb endpoint
+eq umecAct = 
+   mkUMactor(umecAddr,skyhook-um-mamodel-1-ma,cmecAddr) 
+   .
+eq cmecAct = 
+    mkCMSimpleBi(cmecAddr,ifaceECAddr,pueAddr) .
+
+**** buckets: "bucket:a2s"  "bucket:s2a"  
+**** uuidSeeds: "uuid:a2s"  "uuid:s2a"  
+eq pueAct = makeSkyhookPU(
+          pueAddr,
+          cmecAddr,  --- rbc0Tos0Addr
+          sdkecAddr,  ---  s3Client0Tos0Addr,
+          "s_to_c_bucket_e",
+          "c_to_s_bucket_e",
+          "s_to_c_uuid_e",
+          "c_to_s_uuid_e-hash"
+          )
+      .
+
+eq sdkecAct = 
+    < sdkecAddr : S3SdkClient | 
+       thisAddr: sdkecAddr, realAwsAddr: s3SrvAddr, 
+       nextId: 1, pendingReqs: emptyS3ReqMap > .
+
+***  eve server endpoint
+eq ifaceESAct =
+   mkIrcByteSeqIface(ifaceESAddr,ircSrvAddr,
+                     cmesAddr,cmesAddr) .
+
+eq umesAct = 
+   mkUMactor(umesAddr,skyhook-um-mamodel-1-ma,cmesAddr) 
+   .
+eq cmesAct = 
+    mkCMSimpleBi(cmesAddr,ifaceESAddr,aheAddr) .
+
+eq aheAct = mkSkyhookAH(aheAddr,
+                  cmesAddr,  ---- rbs0Toc0Addr,
+                  sdkesAddr, ---- s3Client0Toc0Addr,
+                  "c_to_s_bucket_e",
+                  "s_to_c_bucket_e",
+                  "c_to_s_uuid_e",
+                  "s_to_c_uuid_e",
+                  "s_to_c_uuid_e", ---- "post_uuid_b"
+                  6
+              )
+.
+
+eq sdkesAct = 
+       < sdkesAddr : S3SdkClient | 
+         thisAddr: sdkesAddr, realAwsAddr: s3SrvAddr,
+         nextId: 1, pendingReqs: emptyS3ReqMap > .
+
+
+******** global actors
+eq s3SrvAct  = < s3SrvAddr : AwsS3HttpServer |
+      thisAddr: s3SrvAddr, s3DataMap: emptyS3DataMap > .
+
+**** makeIrcServer takes an unused address arg
+eq ircSrvAct =
+    < ircSrvAddr : IrcServer |
+        thisAddr: ircSrvAddr,
+        channelMap: emptyNameClientsMap,
+        clientTimestampMap: emptyClientTimestampMap,
+        clientAddressMap: emptyClientAddressMap
+    >
+  .
+
+eq ircMonitorAct = 
+    makeIrcMonitor(ircMonitorAddr,
+               (ircSrvAddr ;; ircaAddr ;; ircbAddr ;; irceAddr)) .  
+
+ 
+***(
+red ircClients: ircaAddr ;; ircbAddr .
+red room2clients: (rm("#room1",ircaAddr ;; ircbAddr ) rm("#room2",ircaAddr ;; ircbAddr ;; irceAddr)) .
+)        
+------------ end actors               
+
+op LinkType-2 : -> AttributeSet .
+eq LinkType-2 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.005),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+**** ircc-if-rb...pu-skdc === s3srv sdkbcAddr s3SrvAddr
+**** ircs ifs-rbs--ah-skds ==== s3srv sdkbsAddr
+
+eq LinkData =
+  aaa(s3SrvAddr,sdkacAddr,LinkType-2)
+  aaa(s3SrvAddr,sdkasAddr,LinkType-2)
+  aaa(s3SrvAddr,sdkbcAddr,LinkType-2)
+  aaa(s3SrvAddr,sdkbsAddr,LinkType-2)
+  aaa(s3SrvAddr,sdkecAddr,LinkType-2)
+  aaa(s3SrvAddr,sdkesAddr,LinkType-2)
+ 
+  aaa(sdkacAddr,s3SrvAddr,LinkType-2)
+  aaa(sdkasAddr,s3SrvAddr,LinkType-2)
+  aaa(sdkbcAddr,s3SrvAddr,LinkType-2)
+  aaa(sdkbsAddr,s3SrvAddr,LinkType-2)
+  aaa(sdkecAddr,s3SrvAddr,LinkType-2)
+  aaa(sdkesAddr,s3SrvAddr,LinkType-2)
+.
+ 
+op initState1 : Nat -> Config .
+eq initState1(j ) =
+      rCtr(j + 16)
+ ******* alice 
+    ircaAct 
+ *** alice client endpoint
+    ifaceACAct
+    umacAct  cmacAct puaAct sdkacAct
+ **** alice server endpoint
+    ifaceASAct
+    umasAct  cmasAct ahaAct sdkasAct
+
+ ******* bob
+    ircbAct 
+ **** bob client endpoint
+    ifaceBCAct
+    umbcAct  cmbcAct pubAct sdkbcAct
+ ***** bob server endpoint
+    ifaceBSAct
+    umbsAct  cmbsAct ahbAct sdkbsAct
+ **** global
+    ircSrvAct s3SrvAct
+    ircMonitorAct
+   
+ **** start messages  
+ **** alice channel  
+   [1.0 + genRandomX(j,0.0, 0.0001),
+    (to umacAddr from umacAddr : actionR("ok")),0]
+   [1.0  + genRandomX(s s j,0.0, 0.0001),
+     (to umasAddr from umasAddr : actionR("ok")),0]
+
+ **** bob channel   
+   [1.0 + genRandomX(j + 4,0.0, 0.0001),
+    (to umbcAddr from umbcAddr : actionR("ok")),0]
+   [1.0  + genRandomX(j + 6,0.0, 0.0001),
+    (to umbsAddr from umbsAddr : actionR("ok")),0]
+
+ **** start ahAlice  
+    [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
+ **** start ahBob 
+     [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
+
+ **** start alice  first msg at 0.0
+   [0.25, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
+ **** start bob first msg at 8.989
+   [0.33, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
+
+ **** alice joins #room1,#room2 w cnx rb server side iface
+   [0.10, (to ircSrvAddr from ifaceASAddr : 
+         JoinChannel(makeIrcChannelName("#room1"),  
+                     ircaAddr)),
+      0]
+   [0.20, (to ircSrvAddr from ifaceASAddr : 
+         JoinChannel(makeIrcChannelName("#room2"), 
+                     ircaAddr)),
+      0]
+ **** bob joins #room2, #room1 w cnx rb server  side iface
+   [0.15, (to ircSrvAddr from  ifaceBSAddr :
+        JoinChannel(makeIrcChannelName("#room2"), 
+                    ircbAddr)),
+      0]
+   [0.25, (to ircSrvAddr from  ifaceBSAddr :
+        JoinChannel(makeIrcChannelName("#room1"), 
+                    ircbAddr)),
+      0]
+ .
+ 
+ 
+op initState : Nat -> Config .
+eq initState(j ) =
+     rCtr(j + 16)
+******* alice 
+   ircaAct 
+*** alice client endpoint
+   ifaceACAct
+   umacAct  cmacAct puaAct sdkacAct
+**** alice server endpoint
+   ifaceASAct
+   umasAct  cmasAct ahaAct sdkasAct
+
+******* bob
+   ircbAct 
+**** bob client endpoint
+   ifaceBCAct
+   umbcAct  cmbcAct pubAct sdkbcAct
+***** bob server endpoint
+   ifaceBSAct
+   umbsAct  cmbsAct ahbAct sdkbsAct
+   
+******* eve
+   irceAct 
+**** bob client endpoint
+   ifaceECAct
+   umecAct  cmecAct pueAct sdkecAct
+***** bob server endpoint
+   ifaceESAct
+   umesAct  cmesAct aheAct sdkesAct
+
+**** global
+   ircSrvAct s3SrvAct
+   ircMonitorAct
+   
+**** start messages  
+**** alice channel  
+  [1.0 + genRandomX(j,0.0, 0.0001),
+   (to umacAddr from umacAddr : actionR("ok")),0]
+  [1.0  + genRandomX(s s j,0.0, 0.0001),
+    (to umasAddr from umasAddr : actionR("ok")),0]
+
+**** bob channel   
+  [1.0 + genRandomX(j + 4,0.0, 0.0001),
+   (to umbcAddr from umbcAddr : actionR("ok")),0]
+  [1.0  + genRandomX(j + 6,0.0, 0.0001),
+   (to umbsAddr from umbsAddr : actionR("ok")),0]
+
+**** eve channel   
+  [1.0 + genRandomX(j + 8,0.0, 0.0001),
+   (to umecAddr from umecAddr : actionR("ok")),0]
+  [1.0  + genRandomX(j + 10,0.0, 0.0001),
+   (to umesAddr from umesAddr : actionR("ok")),0]
+
+**** start ahAlice  
+    [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
+**** start ahBob 
+    [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
+**** start ahEve first message
+    [0.003, (to aheAddr from aheAddr : SkyhookStartCmd), 0]
+
+**** start alice  first msg at 0.0
+  [0.25, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
+**** start bob first msg at 8.989
+  [0.33, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
+**** start eve first msg at 20.5
+  [0.39, (to irceAddr from irceAddr : ircMsgSendTime), 0]
+
+**** alice joins #room1,#room2 w cnx rb server side iface
+  [0.10, (to ircSrvAddr from ifaceASAddr : 
+        JoinChannel(makeIrcChannelName("#room1"),  
+                    ircaAddr)),
+     0]
+  [0.20, (to ircSrvAddr from ifaceASAddr : 
+        JoinChannel(makeIrcChannelName("#room2"), 
+                    ircaAddr)),
+     0]
+**** bob joins #room2, #room1 w cnx rb server  side iface
+  [0.15, (to ircSrvAddr from  ifaceBSAddr :
+       JoinChannel(makeIrcChannelName("#room2"), 
+                   ircbAddr)),
+     0]
+  [0.25, (to ircSrvAddr from  ifaceBSAddr :
+       JoinChannel(makeIrcChannelName("#room1"), 
+                   ircbAddr)),
+     0]
+
+**** eve joins #room2 w cnx rb server  side iface
+  [0.175, (to ircSrvAddr from  ifaceESAddr :
+       JoinChannel(makeIrcChannelName("#room2"), 
+                   irceAddr)),
+     0]
+.
+
+
+op slimit : -> Float .
+eq slimit = 400.0 .
+
+op initConfig1 : -> Config .
+rl[init]: initConfig1 
+   => run({0.0 | nil} initState1(counter),slimit) .
+
+op initConfig : -> Config .
+rl[init]: initConfig 
+   => run({0.0 | nil} initState(counter),500.0) .
+
+
+endm
+eof
+ red "Testing msg schedule" .
+**** red initState(0) .
+**** rew initConfig1 .
+ rew initConfig .
+ q
+ eof
+
+zzz.txt
+slimit 400.0
+all 33 sent
+30 rcvd 
+missing alice:4 1/2  cmbs
+        eve:3 1/3  cmbs s2c bucket a
+
+zzz-500.otxt
+slimit 500.0
+all 33 rcve
+last rcv alive:4  at 4.760872872690515e+2,
+no quits
+
+op ircClients:_ : AddrSet -> Attribute [ctor] .
+op client2rooms:_ : Map{Address,String} -> Attribute [ctor] .
+op room2clients:_ : Map{String,Address} -> Attribute [ctor]
+.
+
+  
