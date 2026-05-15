@@ -80,28 +80,6 @@ mod IRC_AUX is
   .
   eq isChannelGoMessage(AnyContent:Content) = false [owise] .
 
-
-**** to support abstracting message text to uid + sizestr
-vars text text0 text1 : String .
-vars ix0 ix1 : FindResult .
-op ircTextSize : String -> Nat .
-ceq ircTextSize(text)  = 
-     (if rat(text1,10) :: Nat
-     then rat(text1,10)
-     else 0
-     fi)
-if ix0 := find(text,":",0)
-/\ text0 := (if ix0 :: Nat 
-            then substr(text,s ix0,length(text))
-            else ""
-            fi)
-/\ ix1 := find(text0,":",0)
-/\ text1 := (if ix1 :: Nat 
-            then substr(text0,s ix1,length(text0))
-            else ""
-            fi)
-  .
-
   op getSize : IrcMsg -> Nat .
   --- 109 + len(room_name) + len(msg) where, for example:
   --- room_name is "#room1"
@@ -109,8 +87,7 @@ if ix0 := find(text,":",0)
   eq getSize(PrivMsgReq(makeIrcChannelName(CHANNEL_NAME:String),
                         makeIrcUserName(SRC:Address),
                         TEXT:String))
-    = 109 + length(CHANNEL_NAME:String) 
-           + ircTextSize(TEXT:String)   ---- replacing length fn
+    = 109 + length(CHANNEL_NAME:String) + length(TEXT:String)
   .
   --- 110 + len(room_name) + len(msg) + len(prefix) where, for example:
   --- room_name is "#room1"
@@ -119,14 +96,13 @@ if ix0 := find(text,":",0)
   eq getSize(PrivMsgRes(makeIrcChannelName(CHANNEL_NAME:String),
                         makeIrcUserName(SRC:Address),
                         TEXT:String))
-    = 110 + length(CHANNEL_NAME:String)
-           + ircTextSize(TEXT:String) ---- replacing length fn
+    = 110 + length(CHANNEL_NAME:String) + length(TEXT:String)
   .
 **** CLT guess -- replace 10 by address size
   eq getSize(PrivMsgRes(makeIrcUserName(DST:Address),
                         makeIrcUserName(SRC:Address),
                         TEXT:String))
-    = 110 + 10 + ircTextSize(TEXT:String) --- replacing length fn
+    = 110 + 10 + length(TEXT:String) 
   .
 
   eq getSize(Ping(IRC_USER_NAME:IrcUserName, DEST:Address)) = 117 .

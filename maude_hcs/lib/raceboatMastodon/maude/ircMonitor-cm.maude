@@ -21,13 +21,14 @@ mod IRC_MONITOR is
   vars IRC_USER_NAME : IrcUserName .
   vars tmsg : MessageTimestamp .
   vars tml tml1  : MessageTimestampList .
+  
+  vars caddrs : AddrSet .
+  vars rooms :  StringAddrsSet .
 
   vars SL  : ScheduleList .
   vars M1 M2 : Msg .
   vars addrs : AddrSet .
   vars AC : ActorConfig .
-
-
 
 
  sorts MessageTimestamp MessageTimestampList .
@@ -81,8 +82,34 @@ op ircAddrs:_ : AddrSet -> Attribute [ctor] .
         msgRcvd: nilMessageTimestampList,
         ircAddrs: addrs  >
   .
-  
 
+**** adding configuration parameters to ircMonitor 
+sorts StringAddrs StringAddrsSet .
+subsort StringAddrs < StringAddrsSet .
+op mtStringAddrs : -> StringAddrsSet [ctor] .
+op rm : String AddrSet -> StringAddrs [ctor] .
+op __ : StringAddrsSet StringAddrsSet 
+     -> StringAddrsSet [ctor assoc comm id: mtStringAddrs] .
+
+**** addresses of ircClients
+op ircClients:_ : AddrSet -> Attribute [ctor] .
+**** room members  rm(room, member addrs)
+op roomClients:_ : StringAddrsSet -> Attribute [ctor] .
+ 
+***** monitor constructor with config attributes 
+  op mkIrcMonitor : Address AddrSet  AddrSet StringAddrsSet
+                   -> Actor .
+  eq mkIrcMonitor(addr,addrs,caddrs,rooms) =
+    < addr : IrcMonitor |
+        msgSent: nilMessageTimestampList,
+        msgRcvd: nilMessageTimestampList,
+        ircAddrs: addrs,  
+        ircClients: caddrs,
+        roomClients: rooms 
+        >
+  .
+
+************* logging mechanism
 op addSent : AttributeSet MessageTimestamp -> AttributeSet .
 eq addSent((attrs,msgSent: tml),tmsg) 
        = (attrs,msgSent: (tml ; tmsg)) .
