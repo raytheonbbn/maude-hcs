@@ -47,6 +47,8 @@ sload ../irc/irc_prob
 ---- this should go in a scenario dir
 sload ../raceboatSkyhook/maude/irc-rbbyteseq-interface  
 sload ../irc/irc_monitor
+sload ../irc/input/client1
+sload ../irc/input/client2
 
 ------ raceboat 4 skyhook
 sload ../raceboatSkyhook/maude/rb-cm-simple-bi
@@ -67,6 +69,8 @@ mod HCS_TEST is
   inc SKYHOOK .
   inc S3_PROTOCOL .
   inc IRC_MONITOR .
+  inc CLIENT1-SCHEDULE .
+  inc CLIENT2-SCHEDULE .
  
 vars j : Nat .
 
@@ -124,15 +128,7 @@ op ircMonitorAct : -> Actor .
 
 ************** actor defns
 ***** aliceIrc
-eq ircaAct =
-   makeIrcClient(ircaAddr, ifaceACAddr,
-      ((2.0 ~> ("Alice message 0",
-                makeIrcChannelName("ab"))) : 
-       (20. ~> ("Alice message 1",
-                makeIrcChannelName("ab"))) : 
-       (40. ~> ("Alice message 2",
-                makeIrcChannelName("ab"))) )
-     )  .            
+eq ircaAct = makeIrcClient(ircaAddr, ifaceACAddr, client1Schedule) .
 ***(
   < ircaAddr : IrcClient |
     thisAddr: ircaAddr,
@@ -209,15 +205,7 @@ eq sdkasAct =
 ********************************
 *** bob
 ***** bob Irc 
-eq ircbAct =
-   makeIrcClient(ircbAddr, ifaceBCAddr,
-       ((6.0 ~> ("Bob message 0",
-                   makeIrcChannelName("ab"))) :
-        (30. ~> ("Bob message 1", 
-                  makeIrcChannelName("ab"))) :
-        (60. ~> ("Bob message 2", 
-                 makeIrcChannelName("ab"))) )
-   ) .
+eq ircbAct = makeIrcClient(ircbAddr, ifaceBCAddr, client2Schedule) .
    
 ***(
   < ircbAddr : IrcClient |
@@ -315,7 +303,7 @@ eq LinkType-2 =
   (delayStd: 0.),
   (delayType: "Constant"),
   (delayMean: 0.),
-  (delayConst: 0.005),
+  (delayConst: 0.1),
   (noiseMin: 0.),
   (noiseMax: 0.00001),
   (dropP: 0.),
@@ -388,10 +376,16 @@ eq initState(j ) =
 **** alice joins with cnx rb server send addr
 **** if sent by alice, it would come from rcv addr!!
   [0.40, (to ircSrvAddr from ifaceASAddr : 
-        JoinChannel(makeIrcChannelName("ab"),ircaAddr)),
+        JoinChannel(makeIrcChannelName("room1"),ircaAddr)),
+     0]
+  [0.41, (to ircSrvAddr from ifaceASAddr : 
+        JoinChannel(makeIrcChannelName("room2"),ircaAddr)),
      0]
   [0.5, (to ircSrvAddr from  ifaceBSAddr :
-       JoinChannel(makeIrcChannelName("ab"),ircbAddr)),
+       JoinChannel(makeIrcChannelName("room1"),ircbAddr)),
+     0]
+  [0.51, (to ircSrvAddr from  ifaceBSAddr :
+       JoinChannel(makeIrcChannelName("room2"),ircbAddr)),
      0]
 .
 
@@ -404,7 +398,7 @@ rl[init]: initConfig
 
  endm
 eof
- red "Alice,Bob join ab, Alice,Bob send 3 texts ircMonitor" .
+ red "Alice,Bob join room1 room2, Alice,Bob send texts ircMonitor" .
 **** red initState(0) .
 set print attribute on .
  rew initConfig .
