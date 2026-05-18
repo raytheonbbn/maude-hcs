@@ -32,31 +32,47 @@ set clear rules off .
 set print attribute off .
 set show advisories off .
 
+sload ../mastodon/maude/probabilistic/mastodon
+sload ../dns/maude/probabilistic/iodine_dns
+sload ../common/maude/user-action-actor.maude
+sload ../tgen/maude/dnsTgen-actor.maude
+sload ../tgen/maude/masTGen.maude
+sload ../common/maude/router
+sload ../common/maude/adversary-observer
+sload ../app/maude/probabilistic
+sload ../../deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
+sload ../irc/irc_monitor.maude
+---sload ../raceboatMastodon/maude/ircMonitor
+sload ../irc/common/irc_name
+sload ../irc/irc_prob
+
+sload ../raceboatMastodon/maude/rb-cm-sender-mas
+sload ../raceboatMastodon/maude/rb-cm-receiver-mas
+sload ../raceboatMastodon/maude/client_config_cp2_scenario_1_new.maude
+sload ../raceboatMastodon/maude/server_config_cp2_scenario_1_new.maude
+
+***(
 sload ../../../common/maude/user-action-actor
 sload ../enc-dec-actor
-sload ../rb-cm-sender-mas
-sload ../rb-cm-receiver-mas
 sload ../../../mastodon/maude/probabilistic/mastodon
 
 ---- raceboat  user models
 **** sload ../../raceboat/maude/mastodonprofiles/client_config_cp2_scenario_1_new.maude
 **** sload ../../raceboat/maude/mastodonprofiles/server_config_cp2_scenario_1_new.maude
 
-sload ../client_config_cp2_scenario_1_new.maude
-sload ../server_config_cp2_scenario_1_new.maude
 
 sload ../../../common/maude/http-overhead.maude
 
 sload ../../../irc/common/irc_name
 sload ../../../irc/common/_aux
-sload ../../../irc/irc_prob
 
 **** sload ../../common/maude/irc-rbmas-interface
 ---- this should go in a scenario dir
 sload ../irc-rbmas-interface  
-sload ../logging
+sload ../../../irc/irc_monitor
+)
 
-mod RB-BIDIR-MAS-IRC-SCENARIO is
+mod HCS_TEST is 
   inc USER-ACTION-ACTOR .
   inc ENC-DEC .
   inc CONTENT-MANAGER-SENDER .
@@ -69,8 +85,13 @@ mod RB-BIDIR-MAS-IRC-SCENARIO is
 **** inc IRC-INTERFACE .   
  inc IRC .
  inc IRC-RBMAS-INTERFACE  .
- inc LOGGING .
+ inc IRC_MONITOR .
  
+  ops ircaAddr ifaceACAddr ifaceASAddr ircbAddr ifaceBCAddr ifaceBSAddr ircSrvAddr ircMonitorAddr : -> Address . 
+
+  ops irccAddr ifaceCCAddr ifaceCSAddr : -> Address .
+  var attrs : AttributeSet .
+
  
 vars j : Nat .
 
@@ -87,11 +108,11 @@ ops aliceAddr ircaAddr : -> Address .
 **** alice channel interfaces
 ops ifaceACAddr ifaceASAddr : -> Address .
 
-*** client endpoint ac
+*** alice client (sender) endpoint ac
 ops umacSndAddr  cmacSndAddr mcacSndAddr 
     umacRcvAddr  cmacRcvAddr mcacRcvAddr 
     edacAddr : -> Address .
-*** server endpoint as
+*** alice server (receiver) endpoint as
 ops umasSndAddr  cmasSndAddr mcasSndAddr 
     umasRcvAddr  cmasRcvAddr mcasRcvAddr 
     edasAddr : -> Address .
@@ -101,17 +122,17 @@ ops bobAddr ircbAddr : -> Address .
 **** bobs channel endpoint interfaces
 ops ifaceBCAddr ifaceBSAddr : -> Address .
 
-*** client endpointl  ..bc.. ..bs..
-ops umbcSndAddr  cmbcSndAddr mcbcSndAddr 
-    umbcRcvAddr  cmbcRcvAddr mcbcRcvAddr 
+*** bob client endpointl  ..bc.. ..bs..
+ops umbcSndAddr       cmbcSndAddr mcbcSndAddr 
+    umbcRcvAddr       cmbcRcvAddr mcbcRcvAddr 
     edbcAddr : -> Address .
-*** server endpoint
+*** bob server endpoint
 ops umbsSndAddr  cmbsSndAddr mcbsSndAddr 
     umbsRcvAddr  cmbsRcvAddr mcbsRcvAddr 
     edbsAddr : -> Address .
 
 ops ircSrvAddr masSrvAddr : -> Address .
-op logAddr : -> Address .
+op ircMonitorAddr : -> Address .
 
 -----------------------
 **** actors
@@ -142,7 +163,7 @@ ops umbsSndAct  cmbsSndAct mcbsSndAct
     edbsAct : -> Actor .
 
 ops ircSrvAct masSrvAct : -> Actor .
-op logAct : -> Actor .
+op ircMonitorAct : -> Actor .
 
 ************** actor defns
 ***** aliceIrc
@@ -152,9 +173,13 @@ eq ircaAct =
     raceboatAddr: ifaceACAddr,  ---- rb ircclient interface
     ircName: makeIrcUserName(ircaAddr),
     aliceAppChatsMap: (
-       (2.0 ~> ("Alice message 0", makeIrcChannelName("ab")))
-     : (20. ~> ("Alice message 1", makeIrcChannelName("ab")))
-     : (40. ~> ("Alice message 2", makeIrcChannelName("ab"))))
+       (2.0 ~> ("Alice message 00", makeIrcChannelName("first_channel")))
+     : (20. ~> ("Alice message 01", makeIrcChannelName("first_channel")))
+     : (40. ~> ("Alice message 02", makeIrcChannelName("first_channel")))
+     : (42.0 ~> ("Alice message 10", makeIrcChannelName("second_channel")))
+     : (60. ~> ("Alice message 11", makeIrcChannelName("second_channel")))
+     : (80. ~> ("Alice message 12", makeIrcChannelName("second_channel")))
+    )
   >
   .
   
@@ -199,6 +224,7 @@ eq cmasSndAct = ---- to client from server
 eq mcasSndAct =
    makeMastodonClient(mcasSndAddr, masSrvAddr,cmasSndAddr) .
 
+**** Create Raceboat receiver side (at the IRC Server).
 eq umasRcvAct =
   mkUMactor(umasRcvAddr, 
             mastodon-server-config-cp2-scenario-1-new-ma,
@@ -219,9 +245,13 @@ eq ircbAct =
         raceboatAddr: ifaceBCAddr,  ---- rb interface
         ircName: makeIrcUserName(ircbAddr),
         aliceAppChatsMap: (
-           (6.0 ~> ("Bob message 0", makeIrcChannelName("ab")))
-         : (30. ~> ("Bob message 1", makeIrcChannelName("ab")))
-         : (60. ~> ("Bob message 2", makeIrcChannelName("ab"))))
+           (6.0 ~> ("Bob message 00", makeIrcChannelName("first_channel")))
+         : (30. ~> ("Bob message 01", makeIrcChannelName("first_channel")))
+         : (60. ~> ("Bob message 02", makeIrcChannelName("first_channel")))
+         : (66.0 ~> ("Bob message 10", makeIrcChannelName("second_channel")))
+         : (90. ~> ("Bob message 11", makeIrcChannelName("second_channel")))
+         : (120. ~> ("Bob message 12", makeIrcChannelName("second_channel")))
+        )
         
     >
   .
@@ -257,6 +287,7 @@ eq edbcAct = makeDestiniActor(edbcAddr, ed-images) .
 eq ifaceBSAct = mkIrcMasIface(ifaceBSAddr,ircSrvAddr, 
               cmbsSndAddr,cmbsRcvAddr) .
 
+**** Raceboat at IRC Server in IRC Server --> Bob direction.
 eq umbsSndAct = mkUMactor(umbsSndAddr, 
             mastodon-client-config-cp2-scenario-1-new-ma,
             cmbsSndAddr) .
@@ -281,21 +312,13 @@ eq edbsAct = makeDestiniActor(edbsAddr, ed-images) .
 
 
 ******** global actors
+**** IRC Server
 eq masSrvAct = makeMastodonServer(masSrvAddr) .
-eq ircSrvAct =
-    < ircSrvAddr : IrcServer |
-        thisAddr: ircSrvAddr,
-        channelMap: emptyNameClientsMap,
-        clientTimestampMap: emptyClientTimestampMap,
-        clientAddressMap: emptyClientAddressMap
-    >
-  .
-eq logAct =
-  < logAddr : MsgLog | 
-      sent: nilTML,
-      rcvd: nilTML,
-      toLog: (ircSrvAddr ;; ircaAddr ;; ircbAddr)
-  > .     
+eq ircSrvAct = makeIrcServer(ircSrvAddr) .
+
+eq ircMonitorAct = 
+    makeIrcMonitor(ircMonitorAddr,
+                   (ircSrvAddr ;; ircaAddr ;; ircbAddr)) .   
 
 
 op LinkType-2 : -> AttributeSet .
@@ -331,7 +354,7 @@ eq LinkData =
 .
  
 op initState : Nat -> Config .
-eq initState(j ) =
+eq initState(j) =
      rCtr(j + 8)
 ******* alice 
    ircaAct 
@@ -358,7 +381,9 @@ eq initState(j ) =
    umbsRcvAct  cmbsRcvAct mcbsRcvAct 
    edbsAct 
 **** global
-   ircSrvAct masSrvAct logAct
+   ircSrvAct masSrvAct 
+   ircMonitorAct
+   
 **** start messages  
 **** alice channel  
   [1.0 + genRandomX(j,0.0, 0.0001),
@@ -387,10 +412,16 @@ eq initState(j ) =
 **** alice joins with cnx rb server send addr
 **** if sent by alice, it would come from rcv addr!!
   [0.40, (to ircSrvAddr from ifaceASAddr : 
-        JoinChannel(makeIrcChannelName("ab"),ircaAddr)),
+        JoinChannel(makeIrcChannelName("first_channel"),ircaAddr)),
      0]
   [0.5, (to ircSrvAddr from  ifaceBSAddr :
-       JoinChannel(makeIrcChannelName("ab"),ircbAddr)),
+       JoinChannel(makeIrcChannelName("first_channel"),ircbAddr)),
+     0]
+  [10.40, (to ircSrvAddr from ifaceASAddr : 
+        JoinChannel(makeIrcChannelName("second_channel"),ircaAddr)),
+     0]
+  [10.5, (to ircSrvAddr from  ifaceBSAddr :
+       JoinChannel(makeIrcChannelName("second_channel"),ircbAddr)),
      0]
 .
 
@@ -402,10 +433,11 @@ rl[init]: initConfig
    => run({0.0 | nil} initState(counter),slimit) .
 
  endm
- red "Alice,Bob join ab, Alice,Bob send 3 texts" .
+
+ eof
+ red "Alice,Bob join ab, Alice,Bob send 3 texts ircMonitor" .
  set print attribute on .
  rew initConfig .
  q
- eof
 
   

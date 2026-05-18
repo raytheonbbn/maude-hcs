@@ -63,3 +63,31 @@ Query 1 (wrtt.quatex:3:1)
 Query 2 (wrtt.quatex:4:1) (30 simulations)
   μ = 0.6248856139035137        σ = 0.08141326651590954       r = 0.030400213330563353
 ```
+
+### Adjusting Delta
+
+Sampling continues until either the specified number of samples is reached or all queries are answered with the desired statistical significance. In the previous example (ordinary RTT with Alice embedding), Query 2 satisfies the statistical requirements after 30 samples using the default values ``alpha=0.05`` and ``delta=0.5``, while Query 1 is answered after 180.  If we tighten the requirement for the second query by modifying ``delta=0.02`` in QuaTEx query file,
+```
+wrtt() = s.rval("getRttAv(getObserver(S))");
+entropy() = s.rval("getEnAv(getObserver(S))");
+eval E[wrtt()];                                      // Query 1 default delta = 0.5
+eval E[entropy()] with delta = 0.02;                 // Query 2
+```
+the entropy query requires more samples to converge.  Query 2 now requires 60 samples to achieve the tighter guarantee as below:
+```console
+$ umaudemc scheck rtt-smc iSrtt wrtt.quatex  --assign pmaude
+Number of simulations = 210
+Query 1 (wrtt.quatex:3:1)
+  μ = 101.36125850340137        σ = 3.612041977338102         r = 0.491375353293307
+Query 2 (wrtt.quatex:4:1) (60 simulations)
+  μ = 0.6160080055243717        σ = 0.07180996284128902       r = 0.018550480456728278
+```
+If we further reduce the bound to ``delta=0.01``, the required number of samples increases further.
+```console
+$ umaudemc scheck rtt-smc iSrtt wrtt.quatex  --assign pmaude
+Number of simulations = 240
+Query 1 (wrtt.quatex:3:1) (180 simulations)
+  μ = 101.50120370370372        σ = 3.161024938498901         r = 0.46492829902023936
+Query 2 (wrtt.quatex:4:1)
+  μ = 0.6044756398224311        σ = 0.07507941114512935       r = 0.009547025985316458
+```

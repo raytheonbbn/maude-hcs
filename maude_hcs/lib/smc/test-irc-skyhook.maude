@@ -33,33 +33,31 @@ set print attribute off .
 set show advisories off .
 
 ---- raceboat  user models
-sload ../../../deps/dns_formalization/Maude/common/apmaude
-sload ../../common/maude/user-action-actor
-sload skyhook-um-mamodel-1
+sload ../../deps/dns_formalization/Maude/common/apmaude
+sload ../common/maude/user-action-actor
+sload ../cp3-tests/skyhook/skyhook-um-mamodel-1
 
 **** sload ../../../common/maude/http-overhead.maude
 
 ---- irc 
-sload ../../irc/common/irc_name
-sload ../../irc/common/_aux
-sload ../../irc/irc_prob
+sload ../irc/common/irc_name
+sload ../irc/common/_aux
+sload ../irc/irc_prob
 
 ---- this should go in a scenario dir
-sload ../../raceboatSkyhook/maude/irc-rbbyteseq-interface  
-sload ../../irc/irc_monitor
+sload ../raceboatSkyhook/maude/irc-rbbyteseq-interface  
+sload ../irc/irc_monitor
 
 ------ raceboat 4 skyhook
-sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
+sload ../raceboatSkyhook/maude/rb-cm-simple-bi
 
 ----- skyhook
 
-sload ../../skyhook/skyhook_prob
-sload ../../s3/s3_protocol
+sload ../skyhook/skyhook_prob
+sload ../s3/s3_protocol
 
-sload ../../irc/input/client1
-sload ../../irc/input/client2
 
-mod IRC-RB-SKYHOOK-SCENARIO is
+mod HCS_TEST is
   inc SCHEDULER .
   inc USER-ACTION-ACTOR .
   inc SKYHOOK-UM-MAMODEL-1 .
@@ -69,8 +67,6 @@ mod IRC-RB-SKYHOOK-SCENARIO is
   inc SKYHOOK .
   inc S3_PROTOCOL .
   inc IRC_MONITOR .
-  inc CLIENT1-SCHEDULE .
-  inc CLIENT2-SCHEDULE .
  
 vars j : Nat .
 
@@ -79,7 +75,7 @@ eq noiseMin(msg:Msg) = 0.001 .
 
 **** addresses
 *** alice
-ops aliceAddr ircaAddr : -> Address .
+ops ircaAddr : -> Address .
 **** alice channel endpoint interfaces
 ops ifaceACAddr ifaceASAddr : -> Address .
 
@@ -87,9 +83,10 @@ ops ifaceACAddr ifaceASAddr : -> Address .
 ops umacAddr  cmacAddr puaAddr sdkacAddr : -> Address .
 *** server endpoint as
 ops umasAddr  cmasAddr ahaAddr sdkasAddr : -> Address .
+op irccAddr : -> Address .
 
 *** bob
-ops bobAddr ircbAddr : -> Address .
+ops ircbAddr : -> Address .
 **** bobs channel endpoint interfaces
 ops ifaceBCAddr ifaceBSAddr : -> Address .
 
@@ -128,7 +125,14 @@ op ircMonitorAct : -> Actor .
 ************** actor defns
 ***** aliceIrc
 eq ircaAct =
-   makeIrcClient(ircaAddr, ifaceACAddr, client1Schedule)  .            
+   makeIrcClient(ircaAddr, ifaceACAddr,
+      ((2.0 ~> ("Alice message 0",
+                makeIrcChannelName("ab"))) : 
+       (20. ~> ("Alice message 1",
+                makeIrcChannelName("ab"))) : 
+       (40. ~> ("Alice message 2",
+                makeIrcChannelName("ab"))) )
+     )  .            
 ***(
   < ircaAddr : IrcClient |
     thisAddr: ircaAddr,
@@ -206,7 +210,14 @@ eq sdkasAct =
 *** bob
 ***** bob Irc 
 eq ircbAct =
-   makeIrcClient(ircbAddr, ifaceBCAddr, client2Schedule) .
+   makeIrcClient(ircbAddr, ifaceBCAddr,
+       ((6.0 ~> ("Bob message 0",
+                   makeIrcChannelName("ab"))) :
+        (30. ~> ("Bob message 1", 
+                  makeIrcChannelName("ab"))) :
+        (60. ~> ("Bob message 2", 
+                 makeIrcChannelName("ab"))) )
+   ) .
    
 ***(
   < ircbAddr : IrcClient |
@@ -304,7 +315,7 @@ eq LinkType-2 =
   (delayStd: 0.),
   (delayType: "Constant"),
   (delayMean: 0.),
-  (delayConst: 0.1),
+  (delayConst: 0.005),
   (noiseMin: 0.),
   (noiseMax: 0.00001),
   (dropP: 0.),
@@ -377,16 +388,10 @@ eq initState(j ) =
 **** alice joins with cnx rb server send addr
 **** if sent by alice, it would come from rcv addr!!
   [0.40, (to ircSrvAddr from ifaceASAddr : 
-        JoinChannel(makeIrcChannelName("room1"),ircaAddr)),
-     0]
-  [0.41, (to ircSrvAddr from ifaceASAddr : 
-        JoinChannel(makeIrcChannelName("room2"),ircaAddr)),
+        JoinChannel(makeIrcChannelName("ab"),ircaAddr)),
      0]
   [0.5, (to ircSrvAddr from  ifaceBSAddr :
-       JoinChannel(makeIrcChannelName("room1"),ircbAddr)),
-     0]
-  [0.51, (to ircSrvAddr from  ifaceBSAddr :
-       JoinChannel(makeIrcChannelName("room2"),ircbAddr)),
+       JoinChannel(makeIrcChannelName("ab"),ircbAddr)),
      0]
 .
 
@@ -398,7 +403,7 @@ rl[init]: initConfig
    => run({0.0 | nil} initState(counter),slimit) .
 
  endm
-**** eof
+eof
  red "Alice,Bob join ab, Alice,Bob send 3 texts ircMonitor" .
 **** red initState(0) .
 set print attribute on .

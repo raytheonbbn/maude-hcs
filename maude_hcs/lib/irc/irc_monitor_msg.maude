@@ -1,14 +1,44 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
 set show advisories off .
 
-sload ../../../deps/dns_formalization/Maude/common/actor
-sload ../../../deps/dns_formalization/Maude/common/apmaude
+sload ../../deps/dns_formalization/Maude/common/actor
+sload ../../deps/dns_formalization/Maude/common/apmaude
 
-sload ../../irc/_irc_aux
+sload ./common/_aux
 
 mod IRC_MONITOR is
   inc ACTOR-MODEL .
   inc SCHEDULER .
-  inc IRC_AUX .
+  inc IRC_NODE .
 
   vars TO_ADDR FROM_ADDR addr  addr0 addr1 : Address .
   vars msgs : Config .
@@ -41,6 +71,18 @@ messageTimestamp(T, msg, getSize(ircMsg),stringHash(getText(ircMsg)))
 
   op nilMessageTimestampList : -> MessageTimestampList [ctor] .
   op _;_ : MessageTimestampList MessageTimestampList -> MessageTimestampList [ctor assoc id: nilMessageTimestampList] .
+
+  --- Extract all the timestamps from the messages inside a config, return a
+  --- list of message timestamps.
+  op extractMessageTimestamps : Float Config -> MessageTimestampList .
+  eq extractMessageTimestamps(T, (msgs (to TO_ADDR from FROM_ADDR : ircMsg))) =
+    extractMessageTimestamps(T, msgs) ;
+      messageTimestamp(T,
+                       (to TO_ADDR from FROM_ADDR : ircMsg),
+                       getSize(ircMsg),
+                       stringHash(getText(ircMsg)))
+  .
+  eq extractMessageTimestamps(T, null) = nilMessageTimestampList .
 
   --- Public interface: stringHash("myString")
   op stringHash : String -> Nat .
