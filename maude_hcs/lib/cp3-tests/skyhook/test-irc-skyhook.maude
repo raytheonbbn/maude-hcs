@@ -41,6 +41,7 @@ sload skyhook-um-mamodel-1
 
 ---- irc 
 sload ../../irc/common/irc_name
+sload ../../irc/common/irc-msg-model
 sload ../../irc/common/_aux
 sload ../../irc/irc_prob
 
@@ -122,29 +123,20 @@ ops ircSrvAct  s3SrvAct : -> Actor .
 op ircMonitorAct : -> Actor .
 
 ************** actor defns
+**** TODO: Change this to match testbed.
+op room1DML : -> IrcMsgDelayList .
+eq room1DML =
+  imd( 0.000,"#room1",279) ::
+  imd( 8.989,"#room1",258) ::
+  imd(38.913,"#room1",171) ::
+  imd(58.978,"#room1",127) ::
+  imd(68.549,"#room1",111) ::
+  imd(119.482,"#room1",381)
+.
+
 ***** aliceIrc
 eq ircaAct =
-   makeIrcClient(ircaAddr, ifaceACAddr,
-      ((2.0 ~> ("Alice message 0",
-                makeIrcChannelName("ab"))) : 
-       (20. ~> ("Alice message 1",
-                makeIrcChannelName("ab"))) : 
-       (40. ~> ("Alice message 2",
-                makeIrcChannelName("ab"))) )
-     )  .            
-***(
-  < ircaAddr : IrcClient |
-    thisAddr: ircaAddr,
-    appAddr: aliceAddr,
-    raceboatAddr: ifaceACAddr,  ---- rb ircclient interface
-    ircName: makeIrcUserName(ircaAddr),
-    aliceAppChatsMap: (
-       (2.0 ~> ("Alice message 0", makeIrcChannelName("ab")))
-     : (20. ~> ("Alice message 1", makeIrcChannelName("ab")))
-     : (40. ~> ("Alice message 2", makeIrcChannelName("ab"))))
-  >
-  .
-)  
+  mkIrcClient(ircaAddr, ifaceACAddr, "alice", room1DML) .
   
 **** TEST-PKG2 uses 2.0 3.5 5.4
 eq ifaceACAct =
@@ -188,7 +180,7 @@ eq umasAct =
 eq cmasAct = 
     mkCMSimpleBi(cmasAddr,ifaceASAddr,ahaAddr) .
 
-eq ahaAct = makeSkyhookAH(ahaAddr,
+eq ahaAct = mkSkyhookAH(ahaAddr,
               cmasAddr,  ---- rbs0Toc0Addr,
               sdkasAddr, 
                       ---- s3Client0Toc0Addr,
@@ -196,7 +188,8 @@ eq ahaAct = makeSkyhookAH(ahaAddr,
               "s_to_c_bucket_a",
               "c_to_s_uuid_a",
               "s_to_c_uuid_a",
-              "s_to_c_uuid_a"   ---"post_uuid_a"
+              "s_to_c_uuid_a",   ---"post_uuid_a"
+              6
               )
 .
 
@@ -208,29 +201,7 @@ eq sdkasAct =
 ********************************
 *** bob
 ***** bob Irc 
-eq ircbAct =
-   makeIrcClient(ircbAddr, ifaceBCAddr,
-       ((6.0 ~> ("Bob message 0",
-                   makeIrcChannelName("ab"))) :
-        (30. ~> ("Bob message 1", 
-                  makeIrcChannelName("ab"))) :
-        (60. ~> ("Bob message 2", 
-                 makeIrcChannelName("ab"))) )
-   ) .
-   
-***(
-  < ircbAddr : IrcClient |
-    thisAddr: ircbAddr,
-    appAddr: bobAddr,
-    raceboatAddr: ifaceBCAddr, --- rb ircclient interface
-    ircName: makeIrcUserName(ircbAddr),
-    aliceAppChatsMap: (
-      (6.0 ~> ("Bob message 0", makeIrcChannelName("ab")))
-     : (30. ~> ("Bob message 1", makeIrcChannelName("ab")))
-     : (60. ~> ("Bob message 2", makeIrcChannelName("ab"))))
-  >
-  .
-)
+eq ircbAct = makeIrcClient(ircbAddr, ifaceBCAddr) .
 
 eq ifaceBCAct =
    mkIrcByteSeqIface(ifaceBCAddr,ircbAddr,
@@ -272,14 +243,15 @@ eq umbsAct =
 eq cmbsAct = 
     mkCMSimpleBi(cmbsAddr,ifaceBSAddr,ahbAddr) .
 
-eq ahbAct = makeSkyhookAH(ahbAddr,
+eq ahbAct = mkSkyhookAH(ahbAddr,
                   cmbsAddr,  ---- rbs0Toc0Addr,
                   sdkbsAddr, ---- s3Client0Toc0Addr,
                   "c_to_s_bucket_b",
                   "s_to_c_bucket_b",
                   "c_to_s_uuid_b",
                   "s_to_c_uuid_b",
-                  "s_to_c_uuid_b" ---- "post_uuid_b"
+                  "s_to_c_uuid_b", ---- "post_uuid_b"
+              6
               )
 .
 
@@ -376,21 +348,20 @@ eq initState(j ) =
 
 **** start ahAlice
     [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
-
 **** start ahBob
     [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
 
 **** start alice
-  [0.25, (to ircaAddr : StartIrc), 0]
+  [0.25, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
 **** start bob
-  [0.33, (to ircbAddr : StartIrc), 0]
+  [0.33, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
 **** alice joins with cnx rb server send addr
 **** if sent by alice, it would come from rcv addr!!
   [0.40, (to ircSrvAddr from ifaceASAddr : 
-        JoinChannel(makeIrcChannelName("ab"),ircaAddr)),
+        JoinChannel(makeIrcChannelName("#room1"), ircaAddr)),
      0]
-  [0.5, (to ircSrvAddr from  ifaceBSAddr :
-       JoinChannel(makeIrcChannelName("ab"),ircbAddr)),
+  [0.5, (to ircSrvAddr from ifaceBSAddr :
+       JoinChannel(makeIrcChannelName("#room1"), ircbAddr)),
      0]
 .
 
