@@ -53,11 +53,10 @@ mod IRC is
   vars IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr  addr : Address .
   vars monitorAddr : Address .
   vars channelClientAddrs : AddrList .
-  vars appChatsMap : AppChatsMap .
   vars attrs attrsTrans attrsTrans1 attrsNext monitorAttrs monitorAttrsNext : AttributeSet .
   vars ircName  : IrcName .
   vars ircDestinationName  IRC_CLIENT_NAME ircUserName : IrcUserName .
-  vars msgSentList msgRcvdList : MessageTimestampList .
+  vars msgSentList msgSentListNext msgRcvdList : MessageTimestampList .
   vars clientsMap CLIENTS_MAP : NameClientsMap .
   vars chatText ircDestination ircSource : String .
   vars T : Float . ---timestamp
@@ -65,7 +64,7 @@ mod IRC is
   vars msgs smsgs : Config .
   vars msg : Msg .
   vars attrs0 attrs1 attrs2 : AttributeSet .
-  vars ctr j j1  size : Nat .
+  vars ctr j j1 j2 size : Nat .
   vars userid room : String .
   vars dt : Float .
   vars dml : IrcMsgDelayList .
@@ -101,11 +100,29 @@ mod IRC is
                                                              **** but currently not available at client.
                                                              nullAddr,
                                                              1,
-                                                             ircName,
+                                                             ircUserName,
                                                              stringHash(chatText))) >
     msgs
     if {attrs1, msgs, j1} := ircSendMsg(attrs, IRC_CLIENT_ADDR, j)
-  [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " time for IrcMsg, sending " msgs "." ]
+      /\ attrsTrans, ircName: ircUserName := attrs
+      /\ chatText :=  getNextDelayMsgText(attrs)
+      /\ sending:Bool := (msgs =/= null)
+      /\ msgSentListNext :=
+          (if sending:Bool
+              then (msgSentList ; messageTimestamp(T,
+                                                   IRC_CLIENT_ADDR,
+                                                   nullAddr,
+                                                   1,
+                                                   ircUserName,
+                                                   stringHash(chatText)))
+              else msgSentList
+          fi)
+      /\ debugMsg:String := 
+          (if sending:Bool
+              then "<<<" + chatText + ">>>"
+              else ""
+          fi)
+  [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " time for IrcMsg, sending " msgs " " debugMsg:String ] 
   .
   
   ----             ircAddr   ctr   myid   room  size
@@ -130,11 +147,10 @@ mod IRC is
   /\ msg := (to rbAddr from addr : ircMsg)
   /\ chatText := getIrcMsgText(ircMsg)
   /\ {msgs,j1} := delayMsgsX(j,msg,null) 
-  [ print "IRC Client sending <<<" chatText ">>>."]
   .
 
   eq ircSendMsg(attrs, addr,j) =  {attrs,null,j}
-  [print "IRC Client " addr "ircSendMsg failure"]
+  [print "IRC Client " addr "ircSendMsg failure "]
   .
 
   op setIrcMsgTimer : AttributeSet Address Config Nat 
@@ -159,7 +175,6 @@ mod IRC is
     {T, (to IRC_CLIENT_ADDR from rbAddr : PrivMsgRes(ircName, makeIrcUserName(ircSourceAddr), chatText))}
   =>
   < IRC_CLIENT_ADDR : IrcClient | attrs >
-  < monitorAddr : IrcMonitor | monitorAttrs, msgRcvd: (msgRcvdList ; messageTimestamp(T, IRC_CLIENT_ADDR, 1, ircName, stringHash(chatText))) >
   < monitorAddr : IrcMonitor | monitorAttrs,
                                 msgRcvd: (msgRcvdList
                                           ; messageTimestamp(T,
