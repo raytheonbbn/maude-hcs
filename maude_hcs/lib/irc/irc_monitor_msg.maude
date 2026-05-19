@@ -108,11 +108,36 @@ messageTimestamp(T, msg, getSize(ircMsg),stringHash(getText(ircMsg)))
     fi
   .
 
+  sorts StringAddrs StringAddrsSet .
+  subsort StringAddrs < StringAddrsSet .
+  op mtStringAddrs : -> StringAddrsSet [ctor] .
+  op rm : String AddrSet -> StringAddrs [ctor] .
+  op __ : StringAddrsSet StringAddrsSet -> StringAddrsSet [ctor assoc comm id: mtStringAddrs] .
 
-op IrcMonitor : -> ActorType .
-op msgSent:_ : MessageTimestampList -> Attribute [ctor] .
-op msgRcvd:_ : MessageTimestampList -> Attribute [ctor] .
-op ircAddrs:_ : AddrSet -> Attribute [ctor] .
+  vars caddrs : AddrSet . 
+  vars rooms : StringAddrsSet .
+
+  op IrcMonitor : -> ActorType .
+  op msgSent:_ : MessageTimestampList -> Attribute [ctor] .
+  op msgRcvd:_ : MessageTimestampList -> Attribute [ctor] .
+  op ircAddrs:_ : AddrSet -> Attribute [ctor] .
+  **** addresses of ircClients
+  op ircClients:_ : AddrSet -> Attribute [ctor] .
+  **** room members  rm(room, member addrs)
+  op roomClients:_ : StringAddrsSet -> Attribute [ctor] .
+   
+  op mkIrcMonitor : Address AddrSet  AddrSet StringAddrsSet
+                   -> Actor .
+  eq mkIrcMonitor(addr,addrs,caddrs,rooms) =
+    < addr : IrcMonitor |
+        msgSent: nilMessageTimestampList,
+        msgRcvd: nilMessageTimestampList,
+        ircAddrs: addrs,  
+        ircClients: caddrs,
+        roomClients: rooms 
+    >
+  .
+
 
   op makeIrcMonitor : Address AddrSet -> Actor .
   eq makeIrcMonitor(addr,addrs) =
