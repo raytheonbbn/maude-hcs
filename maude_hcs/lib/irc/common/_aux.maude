@@ -31,13 +31,14 @@
 sload ./irc_name
 sload ../../common/maude/_aux
 sload ../_irc_aux
-sload ./app_chat
+sload irc-msg-model
+
 
 mod IRC_NODE is
   pr IRC_NAMES .
   pr CP2_SORTS .
   pr IRC_AUX .
-  pr APP_CHATS .
+  inc IRC-MSG-MODEL .
 
   vars DST_ADDR SRC_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR RB_ADDR : Address .
   vars ircClientAddrs IRC_CLIENT_ADDRS : AddrList .
@@ -64,30 +65,42 @@ mod IRC_NODE is
   op raceboatAddr:_ : Address -> Attribute [ctor] .
   --- The IRC name.
   op ircName:_ : IrcUserName -> Attribute [ctor] .
-  --- The App messages.
-  op aliceAppChatsMap:_ : AppChatsMap -> Attribute [ctor] .
+ 
+  ---- attributes to support IRC Client message model
+  op msgSched:_ : IrcMsgDelayList -> Attribute [ctor] .
+  op msgCtr:_ : Nat -> Attribute [ctor] .
+  op userId:_ : String -> Attribute [ctor] .
 
-  --- Make an IrcClient ItsAddr  RBAddr
+  ---- Make an IrcClient with no messages to send
+  -----                 ItsAddr  RBAddr
   op makeIrcClient :    Address  Address -> Actor .
   eq makeIrcClient(IRC_CLIENT_ADDR, RB_ADDR) =
     < IRC_CLIENT_ADDR : IrcClient |
         thisAddr: IRC_CLIENT_ADDR,
         raceboatAddr: RB_ADDR,
         ircName: makeIrcUserName(IRC_CLIENT_ADDR),
-        aliceAppChatsMap: emptyAppChatsMap
+        userId: "",
+        msgCtr: 0,
+        msgSched: nilIMD
     >
   .
-
-  --- Make an IrcClient ItsAddr  RBAddr
-  op makeIrcClient :    Address  Address AppChatsMap -> Actor .
-  eq makeIrcClient(IRC_CLIENT_ADDR, RB_ADDR, appChats:AppChatsMap) =
+  
+  ---- Make an IrcClient  with a message schedule
+  ----             ItsAddr  RBAddr UserId msgSched     
+  op mkIrcClient : Address Address String IrcMsgDelayList 
+                 -> Actor .
+  eq mkIrcClient(IRC_CLIENT_ADDR, RB_ADDR,uid:String,
+                 delayMsgL:IrcMsgDelayList) =
     < IRC_CLIENT_ADDR : IrcClient |
         thisAddr: IRC_CLIENT_ADDR,
         raceboatAddr: RB_ADDR,
         ircName: makeIrcUserName(IRC_CLIENT_ADDR),
-        aliceAppChatsMap: appChats:AppChatsMap
+        userId: uid:String,
+        msgCtr: 0,
+        msgSched: delayMsgL:IrcMsgDelayList
     >
   .
+
 
   op getThisAddr : AttributeSet -> Address .
   eq getThisAddr(attrs, thisAddr: IRC_CLIENT_ADDR) = IRC_CLIENT_ADDR .
@@ -125,6 +138,17 @@ mod IRC_NODE is
     >
   .
 
+  --- Make an IrcServer ItsAddr without redundant argument
+  op mkIrcServer :    Address  -> Actor .
+  eq mkIrcServer(IRC_SERVER_ADDR) =
+    < IRC_SERVER_ADDR : IrcServer |
+        thisAddr: IRC_SERVER_ADDR,
+        channelMap: emptyNameClientsMap,
+        clientTimestampMap: emptyClientTimestampMap,
+        clientAddressMap: emptyClientAddressMap
+    >
+  .
+
   op getClientTimestampMap : AttributeSet -> ClientTimestampMap .
   eq getClientTimestampMap(attrs, clientTimestampMap: CLIENT_TIMESTAMP_MAP)
     = CLIENT_TIMESTAMP_MAP
@@ -135,7 +159,6 @@ mod IRC_NODE is
                           clientAddressMap: CLIENT_ADDRESS_MAP))
     = CLIENT_ADDRESS_MAP
   .
-*** eq getClientAddressMap(attrs) = emptyClientAddressMap [owise] .
 
   --- Register an IRC user.
   op registerIrcUser : AttributeSet IrcChannelName Address -> AttributeSet .

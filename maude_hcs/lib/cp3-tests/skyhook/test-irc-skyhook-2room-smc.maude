@@ -35,7 +35,7 @@ set show advisories off .
 ---- raceboat  user models
 sload ../../../deps/dns_formalization/Maude/common/apmaude
 sload ../../common/maude/user-action-actor
-sload skyhook-um-mamodel-1
+sload ../skyhook/skyhook-um-mamodel-1
 
 **** sload ../../../common/maude/http-overhead.maude
 
@@ -47,7 +47,10 @@ sload ../../irc/irc_prob
 
 ---- this should go in a scenario dir
 sload ../../raceboatSkyhook/maude/irc-rbbyteseq-interface  
-sload ../../raceboatMastodon/maude/ircMonitor
+---- for debugging logs actual messages
+**** sload ../../raceboatMastodon/maude/ircMonitor
+---- for smc logs from to size id but not the msg text
+sload ../../raceboatMastodon/maude/ircMonitor-cm
 
 ------ raceboat 4 skyhook
 sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
@@ -74,6 +77,7 @@ vars j : Nat .
 eq encOH(fsize:Nat,ksize:Nat)  = 0 .
 eq noiseMin(msg:Msg) = 0.001 .
 
+
 **** addresses
 *** alice
 ops aliceAddr ircaAddr : -> Address .
@@ -95,6 +99,17 @@ ops umbcAddr  cmbcAddr pubAddr sdkbcAddr : -> Address .
 *** server endpoint ..bs..
 ops umbsAddr  cmbsAddr ahbAddr sdkbsAddr : -> Address .
 
+*** eve
+ops eveAddr irceAddr : -> Address .
+**** eves channel endpoint interfaces
+ops ifaceECAddr ifaceESAddr : -> Address .
+
+*** client endpoint  ..bc.. 
+ops umecAddr  cmecAddr pueAddr sdkecAddr : -> Address .
+*** server endpoint ..bs..
+ops umesAddr  cmesAddr aheAddr sdkesAddr : -> Address .
+
+**** shared
 ops ircSrvAddr  s3SrvAddr : -> Address .
 op ircMonitorAddr : -> Address .
 
@@ -119,24 +134,22 @@ ops umbcAct  cmbcAct pubAct sdkbcAct : -> Actor .
 *** server endpoint ..bs..
 ops umbsAct  cmbsAct ahbAct sdkbsAct : -> Actor .
 
+*** bob
+op irceAct : -> Actor .
+ops ifaceECAct ifaceESAct : -> Actor .
+
+*** client endpoint  ..bc.. 
+ops umecAct  cmecAct pueAct sdkecAct : -> Actor .
+*** server endpoint ..bs..
+ops umesAct  cmesAct aheAct sdkesAct : -> Actor .
+
 ops ircSrvAct  s3SrvAct : -> Actor .
-op ircMonitorAct : -> Actor .
+op ircMonitorAct : AddrSet StringAddrsSet -> Actor .
 
 ************** actor defns
-**** TODO: Change this to match testbed.
-op room1DML : -> IrcMsgDelayList .
-eq room1DML =
-  imd( 0.000,"#room1",279) ::
-  imd( 8.989,"#room1",258) ::
-  imd(38.913,"#room1",171) ::
-  imd(58.978,"#room1",127) ::
-  imd(68.549,"#room1",111) ::
-  imd(119.482,"#room1",381)
-.
-
 ***** aliceIrc
 eq ircaAct =
-  mkIrcClient(ircaAddr, ifaceACAddr, "alice", room1DML) .
+   mkIrcClient(ircaAddr, ifaceACAddr,"alice", sampleDMLa)  .            
   
 **** TEST-PKG2 uses 2.0 3.5 5.4
 eq ifaceACAct =
@@ -160,8 +173,7 @@ eq puaAct = makeSkyhookPU(
           "s_to_c_bucket_a",
           "c_to_s_bucket_a",
           "s_to_c_uuid_a",  --- fetch
-          "c_to_s_uuid_a-hash" --- post
-                ----"c_to_s_uuid_a"
+          "c_to_s_uuid_a-hash" --- post ----"c_to_s_uuid_a"
           )
       .
 eq sdkacAct = 
@@ -188,7 +200,7 @@ eq ahaAct = mkSkyhookAH(ahaAddr,
               "s_to_c_bucket_a",
               "c_to_s_uuid_a",
               "s_to_c_uuid_a",
-              "s_to_c_uuid_a",   ---"post_uuid_a"
+              "s_to_c_uuid_a",  ---"post_uuid_a"
               6
               )
 .
@@ -201,7 +213,8 @@ eq sdkasAct =
 ********************************
 *** bob
 ***** bob Irc 
-eq ircbAct = makeIrcClient(ircbAddr, ifaceBCAddr) .
+eq ircbAct =
+   mkIrcClient(ircbAddr, ifaceBCAddr,"bob", sampleDMLb)  .
 
 eq ifaceBCAct =
    mkIrcByteSeqIface(ifaceBCAddr,ircbAddr,
@@ -232,7 +245,7 @@ eq sdkbcAct =
        thisAddr: sdkbcAddr, realAwsAddr: s3SrvAddr, 
        nextId: 1, pendingReqs: emptyS3ReqMap > .
 
-***  alice server endpoint
+***  bob server endpoint
 eq ifaceBSAct =
    mkIrcByteSeqIface(ifaceBSAddr,ircSrvAddr,
                      cmbsAddr,cmbsAddr) .
@@ -251,13 +264,76 @@ eq ahbAct = mkSkyhookAH(ahbAddr,
                   "c_to_s_uuid_b",
                   "s_to_c_uuid_b",
                   "s_to_c_uuid_b", ---- "post_uuid_b"
-              6
+                  6
               )
 .
 
 eq sdkbsAct = 
        < sdkbsAddr : S3SdkClient | 
          thisAddr: sdkbsAddr, realAwsAddr: s3SrvAddr,
+         nextId: 1, pendingReqs: emptyS3ReqMap > .
+
+********************************
+*** eve
+***** eve Irc 
+eq irceAct =
+   mkIrcClient(irceAddr, ifaceECAddr,"eve", sampleDMLe)  .
+
+eq ifaceECAct =
+   mkIrcByteSeqIface(ifaceECAddr,irceAddr,
+                     cmecAddr,cmecAddr) .
+
+**** eve client rb endpoint
+eq umecAct = 
+   mkUMactor(umecAddr,skyhook-um-mamodel-1-ma,cmecAddr) 
+   .
+eq cmecAct = 
+    mkCMSimpleBi(cmecAddr,ifaceECAddr,pueAddr) .
+
+**** buckets: "bucket:a2s"  "bucket:s2a"  
+**** uuidSeeds: "uuid:a2s"  "uuid:s2a"  
+eq pueAct = makeSkyhookPU(
+          pueAddr,
+          cmecAddr,  --- rbc0Tos0Addr
+          sdkecAddr,  ---  s3Client0Tos0Addr,
+          "s_to_c_bucket_e",
+          "c_to_s_bucket_e",
+          "s_to_c_uuid_e",
+          "c_to_s_uuid_e-hash"
+          )
+      .
+
+eq sdkecAct = 
+    < sdkecAddr : S3SdkClient | 
+       thisAddr: sdkecAddr, realAwsAddr: s3SrvAddr, 
+       nextId: 1, pendingReqs: emptyS3ReqMap > .
+
+***  eve server endpoint
+eq ifaceESAct =
+   mkIrcByteSeqIface(ifaceESAddr,ircSrvAddr,
+                     cmesAddr,cmesAddr) .
+
+eq umesAct = 
+   mkUMactor(umesAddr,skyhook-um-mamodel-1-ma,cmesAddr) 
+   .
+eq cmesAct = 
+    mkCMSimpleBi(cmesAddr,ifaceESAddr,aheAddr) .
+
+eq aheAct = mkSkyhookAH(aheAddr,
+                  cmesAddr,  ---- rbs0Toc0Addr,
+                  sdkesAddr, ---- s3Client0Toc0Addr,
+                  "c_to_s_bucket_e",
+                  "s_to_c_bucket_e",
+                  "c_to_s_uuid_e",
+                  "s_to_c_uuid_e",
+                  "s_to_c_uuid_e", ---- "post_uuid_b"
+                  6
+              )
+.
+
+eq sdkesAct = 
+       < sdkesAddr : S3SdkClient | 
+         thisAddr: sdkesAddr, realAwsAddr: s3SrvAddr,
          nextId: 1, pendingReqs: emptyS3ReqMap > .
 
 
@@ -275,10 +351,17 @@ eq ircSrvAct =
     >
   .
 
-eq ircMonitorAct = 
-    makeIrcMonitor(ircMonitorAddr,
-               (ircSrvAddr ;; ircaAddr ;; ircbAddr)) .  
-                
+  vars caddrs : AddrSet .
+  vars rooms :  StringAddrsSet .
+
+eq ircMonitorAct(caddrs,rooms) = 
+    mkIrcMonitor(ircMonitorAddr,
+               (ircSrvAddr ;; ircaAddr 
+               ;; ircbAddr ;; irceAddr),
+               caddrs,rooms               
+               ) .  
+
+ 
 ------------ end actors               
 
 op LinkType-2 : -> AttributeSet .
@@ -301,16 +384,91 @@ eq LinkData =
   aaa(s3SrvAddr,sdkasAddr,LinkType-2)
   aaa(s3SrvAddr,sdkbcAddr,LinkType-2)
   aaa(s3SrvAddr,sdkbsAddr,LinkType-2)
+  aaa(s3SrvAddr,sdkecAddr,LinkType-2)
+  aaa(s3SrvAddr,sdkesAddr,LinkType-2)
  
   aaa(sdkacAddr,s3SrvAddr,LinkType-2)
   aaa(sdkasAddr,s3SrvAddr,LinkType-2)
   aaa(sdkbcAddr,s3SrvAddr,LinkType-2)
   aaa(sdkbsAddr,s3SrvAddr,LinkType-2)
+  aaa(sdkecAddr,s3SrvAddr,LinkType-2)
+  aaa(sdkesAddr,s3SrvAddr,LinkType-2)
 .
+ 
+op initState1 : Nat -> Config .
+eq initState1(j ) =
+      rCtr(j + 16)
+ ******* alice 
+    ircaAct 
+ *** alice client endpoint
+    ifaceACAct
+    umacAct  cmacAct puaAct sdkacAct
+ **** alice server endpoint
+    ifaceASAct
+    umasAct  cmasAct ahaAct sdkasAct
+
+ ******* bob
+    ircbAct 
+ **** bob client endpoint
+    ifaceBCAct
+    umbcAct  cmbcAct pubAct sdkbcAct
+ ***** bob server endpoint
+    ifaceBSAct
+    umbsAct  cmbsAct ahbAct sdkbsAct
+ **** global
+    ircSrvAct s3SrvAct
+    ircMonitorAct(ircaAddr ;; ircbAddr, 
+       (rm("#room1",ircaAddr ;; ircbAddr )   
+        rm("#room2",ircaAddr ;; ircbAddr))
+       )
+   
+ **** start messages  
+ **** alice channel  
+   [1.0 + genRandomX(j,0.0, 0.0001),
+    (to umacAddr from umacAddr : actionR("ok")),0]
+   [1.0  + genRandomX(s s j,0.0, 0.0001),
+     (to umasAddr from umasAddr : actionR("ok")),0]
+
+ **** bob channel   
+   [1.0 + genRandomX(j + 4,0.0, 0.0001),
+    (to umbcAddr from umbcAddr : actionR("ok")),0]
+   [1.0  + genRandomX(j + 6,0.0, 0.0001),
+    (to umbsAddr from umbsAddr : actionR("ok")),0]
+
+ **** start ahAlice  
+    [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
+ **** start ahBob 
+     [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
+
+ **** start alice  first msg at 0.0
+   [0.25, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
+ **** start bob first msg at 8.989
+   [0.33, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
+
+ **** alice joins #room1,#room2 w cnx rb server side iface
+   [0.10, (to ircSrvAddr from ifaceASAddr : 
+         JoinChannel(makeIrcChannelName("#room1"),  
+                     ircaAddr)),
+      0]
+   [0.20, (to ircSrvAddr from ifaceASAddr : 
+         JoinChannel(makeIrcChannelName("#room2"), 
+                     ircaAddr)),
+      0]
+ **** bob joins #room2, #room1 w cnx rb server  side iface
+   [0.15, (to ircSrvAddr from  ifaceBSAddr :
+        JoinChannel(makeIrcChannelName("#room2"), 
+                    ircbAddr)),
+      0]
+   [0.25, (to ircSrvAddr from  ifaceBSAddr :
+        JoinChannel(makeIrcChannelName("#room1"), 
+                    ircbAddr)),
+      0]
+ .
+ 
  
 op initState : Nat -> Config .
 eq initState(j ) =
-     rCtr(j + 8)
+     rCtr(j + 16)
 ******* alice 
    ircaAct 
 *** alice client endpoint
@@ -329,10 +487,22 @@ eq initState(j ) =
    ifaceBSAct
    umbsAct  cmbsAct ahbAct sdkbsAct
    
+******* eve
+   irceAct 
+**** bob client endpoint
+   ifaceECAct
+   umecAct  cmecAct pueAct sdkecAct
+***** bob server endpoint
+   ifaceESAct
+   umesAct  cmesAct aheAct sdkesAct
+
 **** global
    ircSrvAct s3SrvAct
-   ircMonitorAct
-   
+   ircMonitorAct((ircaAddr ;; ircbAddr ;; irceAddr), 
+      (rm("#room1",ircaAddr ;; ircbAddr )   
+       rm("#room2",ircaAddr ;; ircbAddr ;; irceAddr) )
+      )
+ 
 **** start messages  
 **** alice channel  
   [1.0 + genRandomX(j,0.0, 0.0001),
@@ -346,37 +516,70 @@ eq initState(j ) =
   [1.0  + genRandomX(j + 6,0.0, 0.0001),
    (to umbsAddr from umbsAddr : actionR("ok")),0]
 
-**** start ahAlice
-    [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
-**** start ahBob
-    [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
+**** eve channel   
+  [1.0 + genRandomX(j + 8,0.0, 0.0001),
+   (to umecAddr from umecAddr : actionR("ok")),0]
+  [1.0  + genRandomX(j + 10,0.0, 0.0001),
+   (to umesAddr from umesAddr : actionR("ok")),0]
 
-**** start alice
+**** start ahAlice  
+    [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
+**** start ahBob 
+    [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
+**** start ahEve first message
+    [0.003, (to aheAddr from aheAddr : SkyhookStartCmd), 0]
+
+**** start alice  first msg at 0.0
   [0.25, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
-**** start bob
+**** start bob first msg at 8.989
   [0.33, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
-**** alice joins with cnx rb server send addr
-**** if sent by alice, it would come from rcv addr!!
-  [0.40, (to ircSrvAddr from ifaceASAddr : 
-        JoinChannel(makeIrcChannelName("#room1"), ircaAddr)),
+**** start eve first msg at 20.5
+  [0.39, (to irceAddr from irceAddr : ircMsgSendTime), 0]
+
+**** alice joins #room1,#room2 w cnx rb server side iface
+  [0.10, (to ircSrvAddr from ifaceASAddr : 
+        JoinChannel(makeIrcChannelName("#room1"),  
+                    ircaAddr)),
      0]
-  [0.5, (to ircSrvAddr from ifaceBSAddr :
-       JoinChannel(makeIrcChannelName("#room1"), ircbAddr)),
+  [0.20, (to ircSrvAddr from ifaceASAddr : 
+        JoinChannel(makeIrcChannelName("#room2"), 
+                    ircaAddr)),
+     0]
+**** bob joins #room2, #room1 w cnx rb server  side iface
+  [0.15, (to ircSrvAddr from  ifaceBSAddr :
+       JoinChannel(makeIrcChannelName("#room2"), 
+                   ircbAddr)),
+     0]
+  [0.25, (to ircSrvAddr from  ifaceBSAddr :
+       JoinChannel(makeIrcChannelName("#room1"), 
+                   ircbAddr)),
+     0]
+
+**** eve joins #room2 w cnx rb server  side iface
+  [0.175, (to ircSrvAddr from  ifaceESAddr :
+       JoinChannel(makeIrcChannelName("#room2"), 
+                   irceAddr)),
      0]
 .
 
+
 op slimit : -> Float .
-eq slimit = 1000.0 .
+eq slimit = 400.0 .
+
+op initConfig1 : -> Config .
+rl[init]: initConfig1 
+   => run({0.0 | nil} initState1(counter),slimit) .
 
 op initConfig : -> Config .
 rl[init]: initConfig 
-   => run({0.0 | nil} initState(counter),slimit) .
+   => run({0.0 | nil} initState(counter),500.0) .
 
- endm
-**** eof
- red "Alice,Bob join ab, Alice,Bob send 3 texts ircMonitor" .
+
+endm
+eof
+ red "Testing msg schedule" .
 **** red initState(0) .
-set print attribute on .
+**** rew initConfig1 .
  rew initConfig .
  q
  eof
