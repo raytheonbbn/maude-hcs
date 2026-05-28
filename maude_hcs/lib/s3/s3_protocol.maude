@@ -48,7 +48,7 @@ mod S3_PROTOCOL is
   vars HEAD : S3HeaderList .
   vars ID : Nat .
   vars MAP : S3ReqMap .
-  vars DATA_MAP : S3DataMap .
+  vars dataMap DATA_MAP : S3DataMap .
 
   vars j j1 : Nat .
   vars smsgs msgs : Config .
@@ -501,14 +501,14 @@ crl [sdk-put-policy]:
 
   crl [server-handle-delete-obj]:
   rCtr(j)
-  < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: dataMap, attrs >
     {T, (to AWS_ADDR from ADDR
       : HttpS3Req("DELETE", URI, "HTTP/1.1",
                   header("x-amz-request-id", REQ_ID) ;; HEAD,
                    REQ_BODY))}
   =>
   rCtr(j1)
-  < AWS_ADDR : AwsS3HttpServer | s3DataMap: DATA_MAP, attrs >
+  < AWS_ADDR : AwsS3HttpServer | s3DataMap: deleteObject(dataMap, URI), attrs >
     smsgs
   if msg := (to ADDR from AWS_ADDR
             : HttpS3Res(204,
@@ -518,6 +518,7 @@ crl [sdk-put-policy]:
     /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
   [ print "(" T ") "  "(" T ") " "=== AWS SERVER: Erasing Local Object " URI ". Responding 204 No Content." ]
   .
+
 
 endm
 
