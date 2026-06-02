@@ -1,3 +1,5 @@
+from signal import alarm
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import ks_2samp
@@ -5,29 +7,47 @@ from scipy.stats import ks_2samp
 # ==========================================
 # 1. Generate Test Dataset (H0 and H1)
 # ==========================================
-np.random.seed(42)
+# np.random.seed(42)
+BASE = True
 
 total_bins = 60
 switch_point = 30 # Time step where H1 (HCS) begins
 
-# We use Poisson distributions to simulate count data (e.g., DNS queries per bin)
 # H0 (Baseline): mean of 5 queries per bin
 # H1 (HCS Active): mean of 10 queries per bin
 data_h0 = np.random.poisson(lam=5, size=switch_point)
-data_h1 = np.random.poisson(lam=10, size=(total_bins - switch_point))
+if BASE:
+    data_h1 = np.random.poisson(lam=5, size=(total_bins - switch_point))
+else:
+    data_h1 = np.random.poisson(lam=10, size=(total_bins - switch_point))
 
-# Combine to create the observed time series x_t
 x = np.concatenate([data_h0, data_h1])
 
 # Generate a large, clean baseline pool to represent F_0(z)
-baseline_pool = np.random.poisson(lam=5, size=1000)
+baseline_pool = np.random.poisson(lam=5, size=2000)
 
 # ==========================================
-# 2. Algorithm Parameters
+# 2. Parameters & ESTIMATING k
 # ==========================================
 m = 10     # Window size (number of recent bins)
-k = 0.2    # Expected KS distance under H0 (drift parameter)
 h = 1.0    # Evidence threshold for alarming
+
+# --- NEW: Estimate k empirically ---
+num_estimation_trials = 500
+baseline_ks_distances = np.zeros(num_estimation_trials)
+
+for i in range(num_estimation_trials):
+    # Draw a random window of size m representing normal H0 behavior
+    sample_window = np.random.poisson(lam=5, size=m)
+    # Calculate KS distance against the baseline pool
+    ks_stat, _ = ks_2samp(sample_window, baseline_pool)
+    baseline_ks_distances[i] = ks_stat
+
+# k is the expected (mean) KS distance under H0
+k = np.mean(baseline_ks_distances)
+
+print(f"Empirically estimated expected KS distance (k) = {k:.4f}")
+print("-" * 50)
 
 # Arrays to store step-by-step metrics for plotting
 D_scores = np.zeros(total_bins)
@@ -41,20 +61,17 @@ S_t_minus_1 = 0.0
 
 for t in range(total_bins):
     if t < m - 1:
-        # Not enough data to fill the first window
         D_scores[t] = 0
         S_scores[t] = 0
         continue
         
-    # Extract the sliding window W_t of the most recent m bins
+    # Extract the sliding window W_t
     W_t = x[t - m + 1 : t + 1]
     
     # Step 1: Window deviation via KS distance
-    # Compare empirical window W_t to the baseline pool (representing F_0)
-    ks_stat, _ = ks_2samp(W_t, baseline_pool)
-    D_t = ks_stat 
+    D_t, _ = ks_2samp(W_t, baseline_pool)
     
-    # Step 2: Center the deviation
+    # Step 2: Center the deviation (using the EMPIRICAL k)
     Z_t = D_t - k
     
     # Step 3: Accumulate evidence
@@ -66,15 +83,13 @@ for t in range(total_bins):
     
     # Step 4: Alarm rule
     if S_t >= h and len(alarms) == 0:
-        # Record the time t of the first alarm
         alarms.append(t)
         print(f"ALARM triggered at bin t={t} (S_t = {S_t:.3f} >= {h})")
         
-    # Update S_{t-1} for the next iteration
     S_t_minus_1 = S_t
 
 # ==========================================
-# 4. Plot the Results (Replicating the Slide)
+# 4. Plot the Results
 # ==========================================
 fig, axs = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
 
@@ -87,7 +102,7 @@ axs[0].axvline(x=switch_point, color='gray', linestyle='--', label='H1 Starts')
 
 # Plot 2: KS Distance D_t
 axs[1].plot(range(total_bins), D_scores, color='#2ca02c')
-axs[1].axhline(y=k, color='gray', linestyle='--', label=f'Expected k={k}')
+axs[1].axhline(y=k, color='gray', linestyle='--', label=f'Estimated k={k:.4f}')
 axs[1].set_ylabel('$D_t$ (KS Dist)')
 axs[1].legend(loc='upper left')
 
@@ -95,7 +110,7 @@ axs[1].legend(loc='upper left')
 axs[2].plot(range(total_bins), S_scores, color='#9467bd')
 axs[2].axhline(y=h, color='red', linestyle='--', label=f'Threshold h={h}')
 if alarms:
-    axs[2].scatter(alarms[0], S_scores[alarms[0]], color='red', zorder=5, label='Alarm Triggered')
+    axs[2].scatter(alarms[0], S_scores[alarms[0]], color='red', zorder=5, label=f"ALARM at bin t={alarms[0]}")
 axs[2].set_ylabel('$S_t$ (CUSUM)')
 axs[2].set_xlabel('Time $t$ (bins)')
 axs[2].legend(loc='upper left')
