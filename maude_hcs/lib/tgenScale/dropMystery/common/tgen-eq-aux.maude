@@ -1,0 +1,80 @@
+set show advisories off .
+set clear rules off .
+
+sload ../../../common/maude/markov-action-model.maude
+sload ../../../common/maude/cp2-interfaces
+sload ../../../common/maude/adversary
+sload ../../../common/maude/_aux  ---- CP2_SORTS  attrsmsgs
+sload ../../../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../../../deps/dns_formalization/Maude/common/apmaude.maude
+
+***(
+sload ua-actor-eq
+sload dnsQgen-actor-eq
+sload dnsObs-actor-eq
+sload ../../common/maude/adversary
+)
+
+mod TGEN-EQ-AUX is
+  inc ACTOR-MODEL .
+  inc SCHEDULER .
+  inc CP2-COMMON .
+  inc ADVERSARY .
+  
+vars addr : Address .
+vars attrs : AttributeSet .
+vars conf : Config .
+vars j : Nat .
+vars GT : Float .
+vars SL : ScheduleList .
+
+**** should be in adversary
+op tgenSent:_ : TimeMsgList -> Attribute [ctor] .
+op tgenRcvd:_ : TimeMsgList -> Attribute [ctor] .
+
+
+**** detecting that the tgenConfig has been executed
+op tgenDone:_ : Bool -> Attribute [ctor] .
+op isTgenDone : AttributeSet -> Bool .
+eq isTgenDone (attrs, tgenDone: b:Bool) = b:Bool  .
+eq isTgenDone (attrs) = false [owise]  .
+op setTgenDone : AttributeSet Bool -> AttributeSet .
+eq setTgenDone ((attrs, tgenDone: b0:Bool),b:Bool) 
+       = (attrs, (tgenDone: b:Bool)) .
+eq setTgenDone (attrs,b:Bool) 
+    = (attrs, tgenDone: b:Bool) [owise]  .
+
+---- the tgen configuration  ---
+----          counter stoptime
+op tgenConfig : Nat  Float -> Config .
+---- equation scenario specific
+
+op augmentAdvAttrs : Float AttributeSet -> AttributeSet .
+eq augmentAdvAttrs(GT,attrs) = attrs [owise] .
+
+op extractAdvCtr : Float Config -> Config .
+eq extractAdvCtr(GT, conf rCtr(j) 
+                 < addr : Adversary | attrs >) 
+  = rCtr(j) < addr : Adversary | augmentAdvAttrs(GT,attrs) > [print "extracting adversary"]
+.
+  
+**** finalize hook introduced in SCHEDULER  
+**** called when run termiates
+eq finalize(conf {GT | SL} rCtr(j) 
+            < addr : Adversary | attrs >) 
+ = (if isTgenDone(attrs)
+   then conf {GT | SL} rCtr(j) < addr : Adversary | attrs >
+   else conf {GT | SL} extractAdvCtr(GT,
+         run(tgenConfig(j,GT) 
+              < addr : Adversary | 
+                  setTgenDone(attrs, true),
+                  tgenSent: nilTML, 
+                  tgenRcvd: nilTML >, 1000.) ) 
+   fi)  
+[print "running tgenConfig"]
+    .      
+      
+endm
+  
+eof  
+ 
