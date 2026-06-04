@@ -1,0 +1,62 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../common/maude/_aux
+sload ../common/maude/byteseq
+
+mod OBFS4_AUX is
+  pr CP2_SORTS .
+  pr NAT .
+  pr BYTESEQ .
+
+  --- Abstract serialization to/from ByteSequence
+  op toByteseq : Content -> ByteSeq [ctor] .
+  op fromByteseq : ByteSeq -> Content [ctor] .
+  eq fromByteseq(toByteseq(MSG:Content)) = MSG:Content .
+
+  --- Encapsulate ByteSeq into an Obfs4Frame with random padding length.
+  ---           payload paddingLen
+  op obfs4Frame : ByteSeq Nat -> Content [ctor] .
+  
+  --- Standalone padding frame appended at the end of bursts in IAT mode 0
+  op obfs4Padding : Nat -> Content [ctor] .
+
+  op getSize : Content -> Nat .
+  --- Size evaluation mapping abstract Content to byte length
+  --- Obfs4 Framing Overhead is 19 bytes per frame: 2 (length) + 1 (type) + 16 (MAC)
+  --- Total = 3 + payload size + padding + 16 = payload size + padding + 19.
+  eq getSize(obfs4Frame(payload:ByteSeq, pad:Nat)) = nbytes(payload:ByteSeq) + pad:Nat + 19 .
+  
+  eq getSize(obfs4Padding(pad:Nat)) = pad:Nat + 19 .
+  
+  eq nbytes(toByteseq(MSG:Content)) = getSize(MSG:Content) .
+
+  eq getSize(AnyContent:Content) = 0 [owise] .
+endm
