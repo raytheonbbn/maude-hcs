@@ -88,9 +88,15 @@ def smc(param_space, scenario_path, scenario_id, smc_path:Path, tgenonly=False, 
 
         if tgenonly:
             tgenonly_fn = scenario_path + "/" + generated_test_path + "_tgenonly.maude"
-            subprocess.run(["cp", scenario_path + "/" + generated_test_path + ".maude", tgenonly_fn])
-            subprocess.run(["sed", "-i", "/--- applications/,/--- WMonitor/ s/^/--- /", tgenonly_fn], check=True) 
-            subprocess.run([ "sed", "-i", r"s/slimit[[:space:]]*=[[:space:]]*[0-9]*\.0/slimit = 600.0/", tgenonly_fn ], check=True)
+            _cmd = ["cp", scenario_path + "/" + generated_test_path + ".maude", tgenonly_fn]
+            print(' '.join([x for x in _cmd]))
+            subprocess.run(_cmd)
+            _cmd = ["sed", "-i", "", "/--- applications/,/--- WMonitor/ s/^/--- /", tgenonly_fn]
+            print(' '.join([x for x in _cmd]))
+            subprocess.run(_cmd, check=True) 
+            _cmd = [ "sed", "-i", "", r"s/slimit[[:space:]]*=[[:space:]]*[0-9]*\.0/slimit = 600.0/", tgenonly_fn ]
+            print(' '.join([x for x in _cmd]))
+            subprocess.run(_cmd, check=True)
         else:
             if not scheckonly:                
                 _cmd = ["maude-hcs", "generate", "--run-args-file=" + modified_config_path, "--model=prob", "--filename=" + generated_test_path]
@@ -277,21 +283,21 @@ def main():
     smc_path = TOPLEVELDIR.parent.joinpath('smc')
 
     # ma1 k,n params 
-    for scenario_id in run_scenario:
-        smc(ma1_baseline, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path)
-        plot_three(ma1_baseline, "Detection Threshold", "Operating Duration (Seconds)", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Operation Duration (MA.1)", "cp2_scenario_" + str(scenario_id) + "_op_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Num of Exfil Files", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Number of ExfilFiles (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfil_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Prob of Detection", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Prob of Detection (MA.1)", "cp2_scenario_" + str(scenario_id) + "_pod_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Latency", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Latency (MA.1)", "cp2_scenario_" + str(scenario_id) + "_latency_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Goodput", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Goodput (MA.1)", "cp2_scenario_" + str(scenario_id) + "_goodput_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "ExfilData", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " ExfilData (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfildata_ma1", scenario_id)
+    # for scenario_id in run_scenario:
+    #     smc(ma1_baseline, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Operating Duration (Seconds)", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Operation Duration (MA.1)", "cp2_scenario_" + str(scenario_id) + "_op_ma1", scenario_id)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Num of Exfil Files", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Number of ExfilFiles (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfil_ma1", scenario_id)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Prob of Detection", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Prob of Detection (MA.1)", "cp2_scenario_" + str(scenario_id) + "_pod_ma1", scenario_id)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Latency", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Latency (MA.1)", "cp2_scenario_" + str(scenario_id) + "_latency_ma1", scenario_id)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Goodput", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Goodput (MA.1)", "cp2_scenario_" + str(scenario_id) + "_goodput_ma1", scenario_id)
+    #     plot_three(ma1_baseline, "Detection Threshold", "ExfilData", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " ExfilData (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfildata_ma1", scenario_id)
 
     # ma1 k,n params tgenonly case
-    for scenario_id in run_scenario:
-        smc(ma1_baseline, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, True)
-        plot_three(ma1_baseline, "Detection Threshold", "Operating Duration (Seconds)", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Operation Duration (MA.1)", "cp2_scenario_" + str(scenario_id) + "_op_ma1_tgenonly", scenario_id, True)
-        plot_three(ma1_baseline, "Detection Threshold", "Num of Exfil Files", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Number of ExfilFiles (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfil_ma1_tgenonly", scenario_id, True)
-        plot_three(ma1_baseline, "Detection Threshold", "Prob of Detection", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Prob of Detection (MA.1)", "cp2_scenario_" + str(scenario_id) + "_pod_ma1_tgenonly", scenario_id, True)
+    # for scenario_id in run_scenario:
+    #     smc(ma1_baseline, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, True)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Operating Duration (Seconds)", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Operation Duration (MA.1)", "cp2_scenario_" + str(scenario_id) + "_op_ma1_tgenonly", scenario_id, True)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Num of Exfil Files", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Number of ExfilFiles (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfil_ma1_tgenonly", scenario_id, True)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Prob of Detection", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Prob of Detection (MA.1)", "cp2_scenario_" + str(scenario_id) + "_pod_ma1_tgenonly", scenario_id, True)
 
     # cli wait time
     for scenario_id in run_scenario:
