@@ -9,9 +9,12 @@ import os
 import matplotlib.pyplot as plt
 import shutil
 
-TOPLEVELDIR = Path(os.path.dirname(__file__))
+# Modify NSIMS to larger values for higher confidence
+NSIMS = "30-30" # min-max
+#NSIMS = "300-300"
 
-output_dir = "./results_popets_v2/"
+TOPLEVELDIR = Path(os.path.dirname(__file__))
+output_dir = "./results-popets/"
 
 label_map = {
   3: "3 consecutive alarms",
@@ -89,18 +92,19 @@ def smc(param_space, scenario_path, scenario_id, smc_path:Path, tgenonly=False, 
             subprocess.run(["sed", "-i", "/--- applications/,/--- WMonitor/ s/^/--- /", tgenonly_fn], check=True) 
             subprocess.run([ "sed", "-i", r"s/slimit[[:space:]]*=[[:space:]]*[0-9]*\.0/slimit = 600.0/", tgenonly_fn ], check=True)
         else:
-            if not scheckonly:
-                subprocess.run(["maude-hcs", "generate", "--run-args-file=" + modified_config_path, "--model=prob", "--filename=" + generated_test_path], stdout=subprocess.DEVNULL)
-
+            if not scheckonly:                
+                _cmd = ["maude-hcs", "generate", "--run-args-file=" + modified_config_path, "--model=prob", "--filename=" + generated_test_path]
+                print(' '.join([x for x in _cmd]))
+                subprocess.run(_cmd, stdout=subprocess.DEVNULL)
         if scheckonly:
             quatex_fn = str(smc_path) + "/cp2_eval_cp2_scenario_" + str(scenario_id) + ".quatex"
         else:
             quatex_fn = str(smc_path) + "/cp2_eval_" + generated_test_path + ".quatex"
         start = time.perf_counter()
         if tgenonly:
-            scheck_cmd = ["maude-hcs", "scheck", "--test=" + scenario_path + "/" + generated_test_path + "_tgenonly.maude", "--query=" + quatex_fn, "--format", "json", "-j", "0", "--nsims", "300-300", "--dump", output_dir + "/cp2_scenario_" + str(scenario_id) + "_" + experiment + generated_test_path + "_tgenonly.dat"]
+            scheck_cmd = ["maude-hcs", "scheck", "--test=" + scenario_path + "/" + generated_test_path + "_tgenonly.maude", "--query=" + quatex_fn, "--format", "json", "-j", "0", "--nsims", NSIMS, "--dump", output_dir + "/cp2_scenario_" + str(scenario_id) + "_" + experiment + generated_test_path + "_tgenonly.dat"]
         else:
-            scheck_cmd = ["maude-hcs", "scheck", "--test=" + scenario_path + "/" + generated_test_path + ".maude", "--query=" + quatex_fn, "--format", "json", "-j", "0", "--nsims", "300-300", "--dump", output_dir + "/cp2_scenario_" + str(scenario_id) + "_" + experiment + generated_test_path + ".dat"]
+            scheck_cmd = ["maude-hcs", "scheck", "--test=" + scenario_path + "/" + generated_test_path + ".maude", "--query=" + quatex_fn, "--format", "json", "-j", "0", "--nsims", NSIMS, "--dump", output_dir + "/cp2_scenario_" + str(scenario_id) + "_" + experiment + generated_test_path + ".dat"]
         print(' '.join([x for x in scheck_cmd]))
         scheck_output = subprocess.run(scheck_cmd, capture_output=True, text=True, check=True)
         end = time.perf_counter()
