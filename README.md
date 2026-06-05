@@ -81,7 +81,7 @@ cd ../../../
 git reset .gitmodules
 git reset maude_hcs/deps/dns_formalization
 ```
-In the command above set `<branch>` either to `pwnd.cp1` to reproduce challenge problem 1 results, 
+In the command above set `<branch>` either to `pwnd.43.rb1` to reproduce challenge problem 1 results, 
 or to `pwnd` for the latest version. 
 
 The above should create a new file named sparse-checkout under 
