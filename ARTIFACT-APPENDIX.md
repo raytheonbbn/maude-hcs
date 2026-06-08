@@ -95,6 +95,10 @@ cd ../../../
 pip install -e .
 ```
 
+Set MAUDEHCSHOME to the home directory where maude-hcs is installed
+```bash
+export MAUDEHCSHOME=$(pwd)
+```
 
 ### Testing the Environment
 
@@ -164,10 +168,10 @@ To generate the statistical guarantees along with the samples for
 scenarios 1,4,and 7 as in the paper, with min number of simulations 30
 and max number of simulations 120, run
 ```bash
-cd scripts
-python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 1 30 120
-python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 4 30 120
-python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 7 30 120
+cd $MAUDEHCSHOME/scripts
+python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 1 300 300
+python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 4 300 300
+python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 7 300 300
 ```
 The results are under the `../results-popets` directory.
 The .json file per scenario has the statistical guarantees.
@@ -176,18 +180,26 @@ We combine these samples to generate the CDF.
 
 To generate the scalability results of Figure 3,
 ```bash
+cd $MAUDEHCSHOME
 python scripts/scalability_popets.py ../use-cases/challenge-problem-2/
+python scripts/scalability_popets_slimit.py ../use-cases/challenge-problem-2/
 ```
+
 You can modify the number of simulations to `300-300` in the scalability_popets.py scripts
-to increase confidence (to reproduce the paper results)
+to increase confidence (to reproduce the paper results). And you can specify which set 
+scenarios of scenarios to run 
 ```python
-NSIMS = "30-30" # min-max
-#NSIMS = "300-300"
+#NSIMS = "30-30" # min-max number of monte carlo samples
+NSIMS = "300-300"
+
+run_scenario= { 1,4,7,10 } 
+#run_scenario= { 1} 
 ```
 
 This generates the raw data for scenario 1,4,7,10 as in the paper.
 Then to generate the main Figure 3,
 ```bash
+cd $MAUDEHCSHOME
 mkdir results-popets-tradeoff/
 cp results-popets/*_cli_wait*.json results-popets-tradeoff/
 python scripts/plot_pets_tradeoff.py results-popets-tradeoff/
