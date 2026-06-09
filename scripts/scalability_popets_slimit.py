@@ -77,6 +77,7 @@ def smc(param_space, scenario_path, scenario_id, smc_path:Path, tgenonly=False, 
                 config["adversary"]["router_post_nat"]["scripts"][1]["params"]["n"] = v 
                 result[params_path]["n"] = v 
             elif k == "cli_wait_time":
+                config['protocols']['destini_mastodon']['weird_network']['alice_raceboat_profile'] += f'-cli-wait-{int(v)}'
                 result[params_path]["cli_wait_time"] = v
 
         with open(modified_config_path, "w") as f:
@@ -90,10 +91,11 @@ def smc(param_space, scenario_path, scenario_id, smc_path:Path, tgenonly=False, 
             subprocess.run(["sed", "-i", "", "/--- applications/,/--- WMonitor/ s/^/--- /", tgenonly_fn], check=True) 
             subprocess.run([ "sed", "-i", "", r"s/slimit[[:space:]]*=[[:space:]]*[0-9]*\.0/slimit = 400.0/", tgenonly_fn ], check=True)
         else:
-            if not scheckonly:
-                subprocess.run(["maude-hcs", "generate", "--run-args-file=" + modified_config_path, "--model=prob", "--filename=" + generated_test_path], stdout=subprocess.DEVNULL)
+            # if not scheckonly:
+            # we will generate the cli wait time configs also (including the quatex)
+            subprocess.run(["maude-hcs", "generate", "--run-args-file=" + modified_config_path, "--model=prob", "--filename=" + generated_test_path], stdout=subprocess.DEVNULL)
 
-        if scheckonly:
+        if scheckonly: # this is likely not needed anymore?
             quatex_fn = str(smc_path) + "/cp2_eval_cp2_scenario_" + str(scenario_id) + ".quatex"
         else:
             quatex_fn = str(smc_path) + "/cp2_eval_" + generated_test_path + ".quatex"
@@ -274,26 +276,26 @@ def main():
     use_case_path = TOPLEVELDIR.joinpath(sys.argv[1])
     smc_path = TOPLEVELDIR.parent.joinpath('smc')
 
-    # ma1 k,n params 
-    for scenario_id in run_scenario:
-        smc(ma1_baseline, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path)
-        plot_three(ma1_baseline, "Detection Threshold", "Operating Duration (Seconds)", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Operation Duration (MA.1)", "cp2_scenario_" + str(scenario_id) + "_op_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Num of Exfil Files", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Number of ExfilFiles (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfil_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Prob of Detection", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Prob of Detection (MA.1)", "cp2_scenario_" + str(scenario_id) + "_pod_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Latency", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Latency (MA.1)", "cp2_scenario_" + str(scenario_id) + "_latency_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "Goodput", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Goodput (MA.1)", "cp2_scenario_" + str(scenario_id) + "_goodput_ma1", scenario_id)
-        plot_three(ma1_baseline, "Detection Threshold", "ExfilData", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " ExfilData (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfildata_ma1", scenario_id)
+    # # ma1 k,n params 
+    # for scenario_id in run_scenario:
+    #     smc(ma1_baseline, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Operating Duration (Seconds)", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Operation Duration (MA.1)", "cp2_scenario_" + str(scenario_id) + "_op_ma1", scenario_id)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Num of Exfil Files", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Number of ExfilFiles (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfil_ma1", scenario_id)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Prob of Detection", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Prob of Detection (MA.1)", "cp2_scenario_" + str(scenario_id) + "_pod_ma1", scenario_id)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Latency", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Latency (MA.1)", "cp2_scenario_" + str(scenario_id) + "_latency_ma1", scenario_id)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Goodput", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " Goodput (MA.1)", "cp2_scenario_" + str(scenario_id) + "_goodput_ma1", scenario_id)
+    #     plot_three(ma1_baseline, "Detection Threshold", "ExfilData", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " ExfilData (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfildata_ma1", scenario_id)
 
-    # ma1 k,n params tgenonly case
-    for scenario_id in run_scenario:
-        smc(ma1_baseline, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, True)
-        plot_three(ma1_baseline, "Detection Threshold", "Operating Duration (Seconds)", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Operation Duration (MA.1)", "cp2_scenario_" + str(scenario_id) + "_op_ma1_tgenonly", scenario_id, True)
-        plot_three(ma1_baseline, "Detection Threshold", "Num of Exfil Files", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Number of ExfilFiles (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfil_ma1_tgenonly", scenario_id, True)
-        plot_three(ma1_baseline, "Detection Threshold", "Prob of Detection", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Prob of Detection (MA.1)", "cp2_scenario_" + str(scenario_id) + "_pod_ma1_tgenonly", scenario_id, True)
+    # # ma1 k,n params tgenonly case
+    # for scenario_id in run_scenario:
+    #     smc(ma1_baseline, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, True)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Operating Duration (Seconds)", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Operation Duration (MA.1)", "cp2_scenario_" + str(scenario_id) + "_op_ma1_tgenonly", scenario_id, True)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Num of Exfil Files", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Number of ExfilFiles (MA.1)", "cp2_scenario_" + str(scenario_id) + "_exfil_ma1_tgenonly", scenario_id, True)
+    #     plot_three(ma1_baseline, "Detection Threshold", "Prob of Detection", "n", [3,4,5], "CP2 Scenario " + str(scenario_id) + " TGen Prob of Detection (MA.1)", "cp2_scenario_" + str(scenario_id) + "_pod_ma1_tgenonly", scenario_id, True)
 
     # cli wait time
     for scenario_id in run_scenario:
-        smc(cli_wait, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, False, True)
+        smc(cli_wait, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, False)
         plot_cli_wait(cli_wait, "Client Wait Time", "Latency", "CP2 Scenario " + str(scenario_id) + " Latency", "cp2_scenario_" + str(scenario_id) + "_cli_wait_latency", scenario_id, False)
         plot_cli_wait(cli_wait, "Client Wait Time", "Goodput", "CP2 Scenario " + str(scenario_id) + " Goodput", "cp2_scenario_" + str(scenario_id) + "_cli_wait_goodput", scenario_id, False)
         plot_cli_wait(cli_wait, "Client Wait Time", "OpDur_C2", "CP2 Scenario " + str(scenario_id) + " OpDur C2", "cp2_scenario_" + str(scenario_id) + "_cli_wait_opdur_c2", scenario_id, False)
@@ -305,7 +307,7 @@ def main():
 
     # cli wait time tgenonly case 
     for scenario_id in run_scenario:
-        smc(cli_wait, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, True, True)
+        smc(cli_wait, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, True)
         plot_cli_wait(cli_wait, "Client Wait Time", "OpDur_C2", "CP2 Scenario " + str(scenario_id) + " TGen OpDur C2", "cp2_scenario_" + str(scenario_id) + "_cli_wait_opdur_c2_tgenonly", scenario_id, True)
         plot_cli_wait(cli_wait, "Client Wait Time", "PoD_C2", "CP2 Scenario " + str(scenario_id) + " TGen PoD C2", "cp2_scenario_" + str(scenario_id) + "_cli_wait_pod_c2_tgenonly", scenario_id, True)
         plot_cli_wait(cli_wait, "Client Wait Time", "OpDur_C8", "CP2 Scenario " + str(scenario_id) + " TGen OpDur C8", "cp2_scenario_" + str(scenario_id) + "_cli_wait_opdur_c8_tgenonly", scenario_id, True)
