@@ -231,6 +231,35 @@ The plot in Figure 4b is `plots/set1_AlarmMA1.png`.
 
 The plot in Figure 4c is `plots/set1_OpDurMA1.png`.
 
+#### Main Result 2: Semantic Alignment
+
+
+The second key result is demonstrating that our model results transfer
+to real testbed empirical results attesting to the predictive power
+of the Maude-HCS framework and models
+
+
+The `annotate_results` script first annotates the statistical estimates produced earlier
+in the `results-popets` directory, effectively annotating each of the queries.
+```bash
+cd $MAUDEHCSHOME
+cd scripts
+./run_annotate_results.sh 
+```
+The `plotfinal2` script compares these statistical estimates against empirical data 
+from the testbed that was provided by an independent test and evaluation team.
+The comparison plots are written to the local directory reproducing Figure 7.
+
+The CDF generation `gather_samples` script produces CDFs and places then under 
+`results-popets/cdfs`.
+```bash
+# First generate the comparison plots (Figure 7)
+cd $MAUDEHCSHOME
+python scripts/plotfinal2.py results-popets/ use-cases/challenge-problem-2 cp2_scenarios_tne/cp2_te_results/ smc/
+# Generate the CDF plots if needed (not included in the paper)
+python scripts/gather_samples.py results-popets/ results-popets/cdfs use-cases/challenge-problem-2/cp2_scenarios_tne/cp2_te_results/
+```
+
 #### Toubleshooting
 
 NOTE: if `sed` commands fail in the scripts, modify the commands to remove the empty string
