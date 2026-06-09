@@ -59,6 +59,7 @@ def smc(param_space, scenario_path, scenario_id, smc_path:Path, tgenonly=False, 
                 config["adversary"]["router_post_nat"]["scripts"][1]["params"]["n"] = v 
                 result[params_path]["n"] = v 
             elif k == "cli_wait_time":
+                config['protocols']['destini_mastodon']['weird_network']['alice_raceboat_profile'] += f'-cli-wait-{int(v)}'
                 result[params_path]["cli_wait_time"] = v
 
         with open(modified_config_path, "w") as f:
@@ -72,10 +73,11 @@ def smc(param_space, scenario_path, scenario_id, smc_path:Path, tgenonly=False, 
             subprocess.run(["sed", "-i", "", "/--- applications/,/--- WMonitor/ s/^/--- /", tgenonly_fn], check=True) 
             subprocess.run([ "sed", "-i", "", r"s/slimit[[:space:]]*=[[:space:]]*[0-9]*\.0/slimit = 600.0/", tgenonly_fn ], check=True)
         else:
-            if not scheckonly:
-                subprocess.run(["maude-hcs", "generate", "--run-args-file=" + modified_config_path, "--model=prob", "--filename=" + generated_test_path], stdout=subprocess.DEVNULL)
+            # if not scheckonly:
+            # we will generate the cli wait time configs also (including the quatex)
+            subprocess.run(["maude-hcs", "generate", "--run-args-file=" + modified_config_path, "--model=prob", "--filename=" + generated_test_path], stdout=subprocess.DEVNULL)
 
-        if scheckonly:
+        if scheckonly: # this is likely not needed anymore?
             quatex_fn = str(smc_path) + "/cp2_eval_cp2_scenario_" + str(scenario_id) + ".quatex"
         else:
             quatex_fn = str(smc_path) + "/cp2_eval_" + generated_test_path + ".quatex"
@@ -258,7 +260,7 @@ def main():
 
     # cli wait time
     for scenario_id in run_scenario:
-        smc(cli_wait, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, False, True)
+        smc(cli_wait, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, False)
         plot_cli_wait(cli_wait, "Client Wait Time", "Latency", "CP2 Scenario " + str(scenario_id) + " Latency", "cp2_scenario_" + str(scenario_id) + "_cli_wait_latency", scenario_id, False)
         plot_cli_wait(cli_wait, "Client Wait Time", "Goodput", "CP2 Scenario " + str(scenario_id) + " Goodput", "cp2_scenario_" + str(scenario_id) + "_cli_wait_goodput", scenario_id, False)
         plot_cli_wait(cli_wait, "Client Wait Time", "OpDur_C2", "CP2 Scenario " + str(scenario_id) + " OpDur C2", "cp2_scenario_" + str(scenario_id) + "_cli_wait_opdur_c2", scenario_id, False)
@@ -270,7 +272,7 @@ def main():
 
     # cli wait time tgenonly case 
     for scenario_id in run_scenario:
-        smc(cli_wait, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, True, True)
+        smc(cli_wait, str(use_case_path) + "/cp2_scenarios", scenario_id, smc_path, True)
         plot_cli_wait(cli_wait, "Client Wait Time", "OpDur_C2", "CP2 Scenario " + str(scenario_id) + " TGen OpDur C2", "cp2_scenario_" + str(scenario_id) + "_cli_wait_opdur_c2_tgenonly", scenario_id, True)
         plot_cli_wait(cli_wait, "Client Wait Time", "PoD_C2", "CP2 Scenario " + str(scenario_id) + " TGen PoD C2", "cp2_scenario_" + str(scenario_id) + "_cli_wait_pod_c2_tgenonly", scenario_id, True)
         plot_cli_wait(cli_wait, "Client Wait Time", "OpDur_C8", "CP2 Scenario " + str(scenario_id) + " TGen OpDur C8", "cp2_scenario_" + str(scenario_id) + "_cli_wait_opdur_c8_tgenonly", scenario_id, True)
