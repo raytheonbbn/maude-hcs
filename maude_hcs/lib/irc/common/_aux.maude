@@ -71,25 +71,22 @@ mod IRC_NODE is
   op msgCtr:_ : Nat -> Attribute [ctor] .
   op userId:_ : String -> Attribute [ctor] .
 
+  ---- Make an IrcClient with no messages to send (no userId)
+  -----               ItsAddr  RBAddr
+  op mkIrcClient :    Address  Address -> Actor .
+  eq mkIrcClient(IRC_CLIENT_ADDR, RB_ADDR) =
+    mkIrcClient(IRC_CLIENT_ADDR, RB_ADDR, "", nilIMD) .
+
   ---- Make an IrcClient with no messages to send
-  -----                 ItsAddr  RBAddr
-  op makeIrcClient :    Address  Address -> Actor .
-  eq makeIrcClient(IRC_CLIENT_ADDR, RB_ADDR) =
-    < IRC_CLIENT_ADDR : IrcClient |
-        thisAddr: IRC_CLIENT_ADDR,
-        raceboatAddr: RB_ADDR,
-        ircName: makeIrcUserName(IRC_CLIENT_ADDR),
-        userId: "",
-        msgCtr: 0,
-        msgSched: nilIMD
-    >
-  .
+  -----               ItsAddr  RBAddr  UserId
+  op mkIrcClient :    Address  Address String -> Actor .
+  eq mkIrcClient(IRC_CLIENT_ADDR, RB_ADDR, uid:String) =
+    mkIrcClient(IRC_CLIENT_ADDR, RB_ADDR, uid:String, nilIMD) .
   
   ---- Make an IrcClient  with a message schedule
   ----             ItsAddr  RBAddr UserId msgSched     
-  op mkIrcClient : Address Address String IrcMsgDelayList -> Actor .
-  eq mkIrcClient(IRC_CLIENT_ADDR, RB_ADDR,uid:String,
-                 delayMsgL:IrcMsgDelayList) =
+  op mkIrcClient : Address        Address  String      IrcMsgDelayList -> Actor .
+  eq mkIrcClient(IRC_CLIENT_ADDR, RB_ADDR, uid:String, delayMsgL:IrcMsgDelayList) =
     < IRC_CLIENT_ADDR : IrcClient |
         thisAddr: IRC_CLIENT_ADDR,
         raceboatAddr: RB_ADDR,
@@ -138,15 +135,8 @@ mod IRC_NODE is
   --- Make an IrcServer ItsAddr
   --- Needs nothing else: the client address map will select the right interface
   --- to each destination.
-  op makeIrcServer :    Address -> Actor .
-  eq makeIrcServer(IRC_SERVER_ADDR) =
-    < IRC_SERVER_ADDR : IrcServer |
-        thisAddr: IRC_SERVER_ADDR,
-        channelMap: emptyNameClientsMap,
-        clientTimestampMap: emptyClientTimestampMap,
-        clientAddressMap: emptyClientAddressMap
-    >
-  .
+  op makeIrcServer :  Address -> Actor .
+  eq makeIrcServer(IRC_SERVER_ADDR) = mkIrcServer(IRC_SERVER_ADDR) .
 
   --- Make an IrcServer ItsAddr without redundant argument
   op mkIrcServer :    Address  -> Actor .
