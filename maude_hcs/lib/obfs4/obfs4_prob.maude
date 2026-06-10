@@ -1,0 +1,170 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ./_obfs4_aux
+sload ../common/maude/sampler-x
+sload ../common/maude/cp2-interfaces
+sload ../common/maude/delay-drop-x
+
+mod OBFS4 is
+  pr OBFS4_AUX .
+  pr ACTOR-MODEL .
+  pr SAMPLER-X .
+  pr CP2-COMMON .
+  pr DELAY-X .
+
+  op Obfs4Client : -> ActorType [ctor] .
+  op Obfs4Server : -> ActorType [ctor] .
+
+  op thisAddr:_ : Address -> Attribute [ctor] .
+  op serverAddr:_ : Address -> Attribute [ctor] .
+  op nextHop:_ : Address -> Attribute [ctor] .
+  op appServerAddr:_ : Address -> Attribute [ctor] .
+  --- The address of the IRC client or server above, but really the translating interface.
+  op appClientAddr:_ : Address -> Attribute [ctor] .
+  op padCtr:_ : Nat -> Attribute [ctor] .
+
+  vars OBFS4_CLIENT_ADDR OBFS4_SERVER_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR APP_SERVER CLIENT_ADDR SERVER_ADDR NEXT_HOP APP_CLIENT : Address .
+  vars msgs scheduledMsgs : Config .
+  vars MSG : Content .
+  vars j jnext padding pad PAD J : Nat .
+  vars ATTRS : AttributeSet .
+  vars BSEQ : ByteSeq .
+  vars T : Float .
+
+  ----                  This    Server
+  op makeObfs4Client :  Address Address Address Address -> Actor [ctor] .
+  eq makeObfs4Client(CLIENT_ADDR, SERVER_ADDR, APP_SERVER, APP_CLIENT) =
+    < CLIENT_ADDR : Obfs4Client |
+        thisAddr: CLIENT_ADDR,
+        serverAddr: SERVER_ADDR,
+        appServerAddr: APP_SERVER,
+        appClientAddr: APP_CLIENT,
+        padCtr: 0
+    > .
+
+  op makeObfs4Server : Address Address Address Address -> Actor [ctor] .
+  eq makeObfs4Server(SERVER_ADDR, NEXT_HOP, APP_SERVER, APP_CLIENT) =
+    < SERVER_ADDR : Obfs4Server |
+        thisAddr: SERVER_ADDR,
+        nextHop: NEXT_HOP,
+        appServerAddr: APP_SERVER,
+        appClientAddr: APP_CLIENT,
+        padCtr: 0
+    > .
+
+
+  --- Note
+  --- MaximumSegmentLength = 1500 - (40 + 12) (TCP/IP overheads) = 1448
+  --- FrameOverhead = lengthLength (2) + secretbox.Overhead (16) = 18
+  --- MaximumFramePayloadLength = MaximumSegmentLength - FrameOverhead (1448 - 18) = 1430
+  --- packetOverhead = 2 + 1 (length + type) = 3
+  --- maxPacketPayloadLength = MaximumFramePayloadLength - packetOverhead (1430 - 3) = 1427
+  --- maxPacketPaddingLength = maxPacketPayloadLength = 1427
+
+  --- Directly Send Outgoing Client Message
+  crl [obfs4-client-send]:
+    rCtr(j)
+    < OBFS4_CLIENT_ADDR : Obfs4Client | serverAddr: OBFS4_SERVER_ADDR, padCtr: J, ATTRS >
+    {T, (to OBFS4_CLIENT_ADDR from IRC_CLIENT_ADDR : MSG)}
+  =>
+    rCtr(jnext)
+    < OBFS4_CLIENT_ADDR : Obfs4Client | serverAddr: OBFS4_SERVER_ADDR, padCtr: s J, ATTRS >
+    scheduledMsgs
+  if PAD := sampleUniWithIntX(J, 1427)
+    /\ msgs := (to OBFS4_SERVER_ADDR from OBFS4_CLIENT_ADDR : obfs4Frame(MSG, 0))
+****               (to OBFS4_SERVER_ADDR from OBFS4_CLIENT_ADDR : obfs4Padding(PAD))
+    /\ {scheduledMsgs, jnext} := delayMsgsX(j, msgs, null)
+    [ print "(" T ") Obfs4Client " OBFS4_CLIENT_ADDR " encapsulating message from " IRC_CLIENT_ADDR ", appending burst padding " PAD "B and sending " msgs]
+  .
+
+  --- Obfs4 Server: Receive encapsulated message, unwrap, forward to next hop.
+  rl [obfs4-server-fwd]:
+    < OBFS4_SERVER_ADDR : Obfs4Server | nextHop: IRC_SERVER_ADDR, ATTRS >
+    {T, (to OBFS4_SERVER_ADDR from IRC_CLIENT_ADDR : obfs4Frame(BSEQ, PAD))}
+  =>
+    < OBFS4_SERVER_ADDR : Obfs4Server | nextHop: IRC_SERVER_ADDR, ATTRS >
+    [0.0000, (to IRC_SERVER_ADDR from OBFS4_SERVER_ADDR : BSEQ), 0]
+    [ print "(" T ") Obfs4Server " OBFS4_SERVER_ADDR " decapsulating ByteSeq from " IRC_CLIENT_ADDR " to " IRC_SERVER_ADDR " " BSEQ ]
+  .
+
+--- Note
+--- MaximumSegmentLength = 1500 - (40 + 12) (TCP/IP overheads) = 1448
+--- FrameOverhead = lengthLength (2) + secretbox.Overhead (16) = 18
+--- MaximumFramePayloadLength = MaximumSegmentLength - FrameOverhead (1448 - 18) = 1430
+--- packetOverhead = 2 + 1 (length + type) = 3
+--- maxPacketPayloadLength = MaximumFramePayloadLength - packetOverhead (1430 - 3) = 1427
+--- maxPacketPaddingLength = maxPacketPayloadLength = 1427
+
+  --- Obfs4 Server: Intercept return message from next hop, encapsulate with 0 padding and append burst padding, forward to client.
+  crl [obfs4-server-return]:
+    rCtr(j)
+    < OBFS4_SERVER_ADDR : Obfs4Server | appServerAddr: IRC_CLIENT_ADDR, padCtr: J, ATTRS >
+    {T, (to OBFS4_SERVER_ADDR from IRC_SERVER_ADDR : MSG)}
+  =>
+    rCtr(jnext)
+    < OBFS4_SERVER_ADDR : Obfs4Server | appServerAddr: IRC_CLIENT_ADDR, padCtr: s J, ATTRS >
+    scheduledMsgs
+  if PAD := sampleUniWithIntX(J, 1427)
+    /\ msgs := (to IRC_CLIENT_ADDR from OBFS4_SERVER_ADDR : obfs4Frame(MSG, 0))
+    ****(to IRC_CLIENT_ADDR from OBFS4_SERVER_ADDR : obfs4Padding(PAD))
+    /\ {scheduledMsgs, jnext} := delayMsgsX(j, msgs, null)
+    [ print "(" T ") Obfs4Server " OBFS4_SERVER_ADDR " encapsulating message from " IRC_CLIENT_ADDR ", appending burst padding " PAD "B and sending " msgs]
+  .
+
+  --- Obfs4 Server: Discard standalone padding frame
+  rl [obfs4-server-discard-padding]:
+    < OBFS4_SERVER_ADDR : Obfs4Server | ATTRS >
+    {T, (to OBFS4_SERVER_ADDR from OBFS4_CLIENT_ADDR : obfs4Padding(PAD))}
+  =>
+    < OBFS4_SERVER_ADDR : Obfs4Server | ATTRS >
+    [ print "Obfs4Server discarding burst padding from " OBFS4_CLIENT_ADDR ]
+  .
+
+  --- Obfs4 Client: Receive encapsulated return message, unwrap, forward to application.
+  rl [obfs4-client-return]:
+    < OBFS4_CLIENT_ADDR : Obfs4Client | appClientAddr: IRC_CLIENT_ADDR, appServerAddr: APP_SERVER, ATTRS >
+    {T, (to OBFS4_CLIENT_ADDR from OBFS4_SERVER_ADDR : obfs4Frame(BSEQ, PAD))}
+  =>
+    < OBFS4_CLIENT_ADDR : Obfs4Client | appClientAddr: IRC_CLIENT_ADDR, appServerAddr: APP_SERVER, ATTRS >
+    [0., (to IRC_CLIENT_ADDR from OBFS4_CLIENT_ADDR : BSEQ), 0]
+    [ print "(" T ") Obfs4Client " OBFS4_CLIENT_ADDR " decapsulating return ByteSeq to " IRC_CLIENT_ADDR ]
+  .
+
+  --- Obfs4 Client: Discard standalone padding frame
+  rl [obfs4-client-discard-padding]:
+    < OBFS4_CLIENT_ADDR : Obfs4Client | appClientAddr: IRC_CLIENT_ADDR, ATTRS >
+    {T, (to IRC_CLIENT_ADDR from OBFS4_SERVER_ADDR : obfs4Padding(PAD))}
+  =>
+    < OBFS4_CLIENT_ADDR : Obfs4Client | appClientAddr: IRC_CLIENT_ADDR, ATTRS >
+    [ print "Obfs4Client discarding burst padding from " OBFS4_SERVER_ADDR ]
+  .
+endm
+
