@@ -52,6 +52,7 @@
 
 --- _aux provides IRC_NAMES, IRC_AUX, IRC_NODE, CP2_SORTS, CP2_NODE transitively.
 sload ../irc/common/_aux
+sload ../mastodon/maude/common/_aux
 
 set show advisories off .
 
@@ -60,6 +61,7 @@ mod WEBTUNNEL_AUX is
   pr CP2_SORTS .
   pr IRC_AUX .
   pr CONVERSION .
+  pr MASTODON_NODE .
 
   ---------------------------------------------------
   --- TunnelState sort
@@ -225,15 +227,15 @@ mod WEBTUNNEL_AUX is
   ---------------------------------------------------
 
   --- Client -> Proxy.  Models TCP connect + TLS ClientHello + HTTP Upgrade.
-  ---               TlsServerName UpgradePath
-  op WtConnect   : String        String -> Content [ctor] .
+  --- Now modeled as an HttpRequest: makeHttpRequest(getRequest, url(TLS_NAME + "/" + PATH))
 
   --- Proxy -> Client.  Models TLS ServerHello/Finished + HTTP 101.
-  op WtConnected : -> Content [ctor] .
+  --- Now modeled as an HttpResponse: makeHttpResponse("101 Switching Protocols")
 
   --- Bidirectional tunnel data frame carrying an IRC message.
-  --- On the wire this is one or more TLS records.
-  op WtData : IrcMsg -> Content [ctor] .
+  --- Modeled as HTTP messages to satisfy the requirement that client and server communicate using HTTP messages.
+  op makeHttpRequest : GetRequest IrcMsg -> HttpRequest [ctor] .
+  op makeHttpResponse : String IrcMsg -> HttpResponse [ctor] .
 
   --- Internal control: kick off tunnel establishment.
   --- Not a network message; zero wire size.
@@ -245,21 +247,24 @@ mod WEBTUNNEL_AUX is
   --- These feed into delayParamd via getSize(Content).
 
   vars IRC_MSG : IrcMsg .
-  vars NAME PATH2 : String .
+  vars NAME PATH2 STATUS_STR : String .
 
   op getSize : Content -> Nat .
 
   --- TLS ClientHello (~300 B) + HTTP/1.1 Upgrade request headers.
-  --- Padded to one MTU worth of bytes.
-  eq getSize(WtConnect(NAME, PATH2))
-    = 300 + 200 + length(NAME) + length(PATH2)
+  --- Webtunnel uses a GET request to a URL.
+  eq getSize(makeHttpRequest(getRequest, url(PATH2)))
+    = 300 + 200 + length(PATH2)
   .
 
   --- TLS ServerHello + Certificate + Finished + HTTP 101 Switching Protocols.
-  eq getSize(WtConnected) = 600 .
+  eq getSize(makeHttpResponse("101 Switching Protocols")) = 600 .
 
   --- One TLS record header (5 B) + HMAC + IV/padding overhead (~35 B).
-  eq getSize(WtData(IRC_MSG))
+  eq getSize(makeHttpRequest(getRequest, IRC_MSG))
+    = 40 + getSize(IRC_MSG)
+  .
+  eq getSize(makeHttpResponse(STATUS_STR, IRC_MSG))
     = 40 + getSize(IRC_MSG)
   .
 
@@ -307,8 +312,11 @@ mod WEBTUNNEL_AUX is
 
   --- Helper: does a WtClient address appear in the map?
   op isKnownWtClient : ClientAddressMap Address -> Bool .
+  eq isKnownWtClient((CAM : (makeIrcUserName(WT_CLIENT_ADDR) ~> OLD_ADDR)), WT_CLIENT_ADDR)
+    = true
+  .
   eq isKnownWtClient(CAM, WT_CLIENT_ADDR)
-    = getClientAddr(CAM, makeIrcUserName(WT_CLIENT_ADDR)) =/= nullAddr
+    = false [owise]
   .
 
   --- Helper: does an IRC client address appear as a *value* in the map?
@@ -326,7 +334,7 @@ mod WEBTUNNEL_AUX is
   op flushQueue : Address Address IrcMsgQueue -> Config .
   eq flushQueue(FROM_ADDR, TO_ADDR, emptyQueue) = null .
   eq flushQueue(FROM_ADDR, TO_ADDR, enqueue(Q, M))
-    = (to TO_ADDR from FROM_ADDR : WtData(M))
+    = (to TO_ADDR from FROM_ADDR : makeHttpRequest(getRequest, M))
       flushQueue(FROM_ADDR, TO_ADDR, Q)
   .
 
