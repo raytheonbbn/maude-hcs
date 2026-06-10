@@ -261,17 +261,17 @@ rew rCtr(0)
                            JoinChannel(makeIrcChannelName("maude-test"),
                                        ircClient1Addr))
     >
-    {0.0, (to wtClient1Addr from wtProxyAddr : WtConnected)}
+    {0.0, (to wtClient1Addr from wtProxyAddr : makeHttpResponse("101 Switching Protocols"))}
 .
 
---- Test 3: WtServerProxy registers a tunnel on WtConnect and schedules WtConnected.
+--- Test 3: WtServerProxy registers a tunnel on HttpRequest and schedules HttpResponse.
 rew rCtr(0)
     wtProxy
     {0.0, (to wtProxyAddr from wtClient1Addr
-            : WtConnect("irc.example.com", "secret/path/v1"))}
+            : makeHttpRequest(getRequest, url("https://irc.example.com/secret/path/v1")))}
 .
 
---- Test 4: WtServerProxy forwards a WtData(JoinChannel) from client to IRC server.
+--- Test 4: WtServerProxy forwards a makeHttpRequest(getRequest, JoinChannel) from client to IRC server.
 rew rCtr(0)
     < wtProxyAddr : WtServerProxy |
         thisAddr:        wtProxyAddr,
@@ -279,7 +279,7 @@ rew rCtr(0)
         tunnelClientMap: (makeIrcUserName(wtClient1Addr) ~> ircClient1Addr)
     >
     {0.0, (to wtProxyAddr from wtClient1Addr
-            : WtData(JoinChannel(makeIrcChannelName("maude-test"), ircClient1Addr)))}
+            : makeHttpRequest(getRequest, JoinChannel(makeIrcChannelName("maude-test"), ircClient1Addr)))}
 .
 
 --- Test 5: WtServerProxy routes a PrivMsgRes back through the tunnel to WtClient1.
@@ -289,7 +289,7 @@ rew rCtr(0)
         ircServerAddr:   ircServerAddr,
         tunnelClientMap: (makeIrcUserName(wtClient1Addr) ~> ircClient1Addr)
     >
-    {0.0, (to ircClient1Addr from ircServerAddr
+    {0.0, (to wtClient1Addr from ircServerAddr
             : PrivMsgRes(makeIrcChannelName("maude-test"),
                          makeIrcUserName(ircClient2Addr),
                          "alice:0:120"))}
