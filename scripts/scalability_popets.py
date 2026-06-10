@@ -65,7 +65,7 @@ def smc(param_space, scenario_path, scenario_id, smc_path:Path, tgenonly=False, 
     keys = list(param_space.keys())
     vals = list(param_space.values())
     pairs = list(itertools.product(*vals))
-
+    alice_raceboat_profile = config['protocols']['destini_mastodon']['weird_network']['alice_raceboat_profile']
     for p in pairs:
         params = dict(zip(keys, p))
         params_path = "_".join(f"{k}-{str(v)}" for k, v in params.items())
@@ -80,7 +80,7 @@ def smc(param_space, scenario_path, scenario_id, smc_path:Path, tgenonly=False, 
                 config["adversary"]["router_post_nat"]["scripts"][1]["params"]["n"] = v 
                 result[params_path]["n"] = v 
             elif k == "cli_wait_time":
-                config['protocols']['destini_mastodon']['weird_network']['alice_raceboat_profile'] += f'-cli-wait-{int(v)}'
+                config['protocols']['destini_mastodon']['weird_network']['alice_raceboat_profile'] = f'{alice_raceboat_profile}-cli-wait-{int(v)}'
                 result[params_path]["cli_wait_time"] = v
 
         with open(modified_config_path, "w") as f:
