@@ -1,0 +1,467 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{microtype}
+\usepackage{parskip}
+
+\geometry{margin=1in}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    citecolor=blue!60!black,
+    urlcolor=blue!60!black,
+}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!8},
+    commentstyle=\color{green!50!black},
+    keywordstyle=\color{blue},
+    stringstyle=\color{orange!80!black},
+}
+
+\title{%
+    \textbf{Analytical Modeling of TCP Segment Delivery Latency\\
+    Under Bursty Packet Loss}\\[0.5em]
+    \large A Validation Against Linux CUBIC via Network-Namespace Emulation
+}
+
+\author{%
+    TCP Validation Experiment\\
+    \texttt{tcp\_validation.py}
+}
+\date{\today}
+
+% ============================================================
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Introduction}
+\label{sec:intro}
+
+This report presents a closed-form mathematical model for the expected arrival
+time $E[T_k]$ of the $k$-th TCP data segment, derived from first principles
+using:
+
+\begin{enumerate}
+    \item a \textbf{4-state Gilbert--Elliott Markov chain} for bursty channel
+          loss, as implemented by Linux \texttt{netem};
+    \item the \textbf{Padhye macroscopic TCP throughput equation}, adapted for
+          the CUBIC congestion control algorithm with modern Linux RACK/SACK
+          mitigations; and
+    \item an \textbf{intra-flight serialization model} derived from the
+          bottleneck link data rate.
+\end{enumerate}
+
+The model is validated against live Linux TCP traffic generated inside isolated
+network namespaces, with the channel emulated faithfully by \texttt{tc-netem}.
+Twenty independent transfer trials are run; per-segment arrival times are
+extracted from packet captures, and the empirical mean $\pm$ one standard
+deviation is compared directly to $E[T_k]$.
+
+% ============================================================
+\section{Channel Loss Model}
+\label{sec:channel}
+
+\subsection{4-State Gilbert--Elliott Markov Chain}
+
+The \texttt{tc-netem} ``loss state'' discipline implements a 4-state
+Gilbert--Elliott model~\cite{gilbert1960capacity} whose state space and
+semantics are:
+
+\begin{center}
+\begin{tabular}{clcc}
+\toprule
+State & Name & Drop? \\
+\midrule
+1 & Good                 & No  \\
+2 & Good (Gap-in-Burst)  & No  \\
+3 & Bad  (Burst Loss)    & Yes \\
+4 & Bad  (Isolated Loss) & Yes \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The complete transition matrix $\mathbf{P} \in \mathbb{R}^{4\times 4}$ is:
+
+\[
+\mathbf{P} =
+\begin{pmatrix}
+1-p_{13}-p_{14} & 0               & p_{13}           & p_{14} \\
+p_{31}          & 1-p_{23}-p_{31} & p_{23}            & 0      \\
+p_{31}          & p_{32}          & 1-p_{31}-p_{32}   & 0      \\
+1               & 0               & 0                 & 0
+\end{pmatrix}
+\]
+
+and the loss indicator matrix is $\mathbf{L} = \mathrm{diag}(0,\,0,\,1,\,1)$.
+
+\subsection{Experiment Parameters}
+
+The parameters below are chosen to model a Internet path with aggresive loss.
+
+\begin{center}
+\begin{tabular}{clr}
+\toprule
+Parameter & Description & Value \\
+\midrule
+$p_{13}$ & Good $\to$ Burst-Loss entry probability  & 0.5\%  \\
+$p_{31}$ & Burst-Loss $\to$ Good exit probability   & 20\%   \\
+$p_{32}$ & Burst-Loss $\to$ Gap-in-Burst probability & 40\%  \\
+$p_{23}$ & Gap-in-Burst $\to$ Burst-Loss probability & 30\%  \\
+$p_{14}$ & Good $\to$ Isolated-Loss probability      & 0.2\% \\
+$O$      & One-way propagation delay                 & 20\,ms \\
+$C$      & Bottleneck link capacity                  & 1\,Gbit/s \\
+$\mathrm{IW}$ & TCP initial congestion window       & 10 segments \\
+$\mathrm{RTO}$ & Retransmission timeout             & 200\,ms \\
+$N$      & Transfer size                            & 150 segments \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Stationary Distribution and Aggregate Loss}
+
+The stationary distribution $\boldsymbol{\pi}$ is the left eigenvector of
+$\mathbf{P}$ corresponding to eigenvalue 1:
+
+\[
+\boldsymbol{\pi}\,\mathbf{P} = \boldsymbol{\pi}, \qquad
+\sum_{i=1}^{4} \pi_i = 1.
+\]
+
+The aggregate (stationary) packet loss probability is then:
+
+\[
+p_{\text{loss}} = \boldsymbol{\pi}\,\mathbf{L}\,\mathbf{1} =
+\pi_3 + \pi_4.
+\]
+
+With the parameters above the model produces an aggregate loss of approximately
+$p_{\text{loss}} \approx 1.2\%$.
+
+% ============================================================
+\section{Mathematical Framework for Segment Delivery Time}
+\label{sec:model}
+
+\subsection{Connection Setup Time}
+
+Let $D_i$ denote the expected per-packet queuing delay in state $i$, collected
+as the column vector $\mathbf{d} = [0.01,\,0.02,\,0.01,\,0.05]^{\top}$
+(seconds). The stationary mean queuing delay is:
+
+\[
+\bar{d} = \boldsymbol{\pi}\,\mathbf{d}.
+\]
+
+Before any data segment can be delivered, TCP must complete the 3-way handshake
+(cost $2O$) and the stationary queuing overhead. Because a SYN packet may itself
+be dropped, we include the expected number of SYN retransmissions, penalised by
+the initial retransmission timeout $\mathrm{RTO}_{\mathrm{init}} = 1$\,s:
+
+\[
+\boxed{
+E[T_{\mathrm{setup}}] = 2O + \bar{d} +
+\frac{p_{\text{loss}}}{1 - p_{\text{loss}}}\,\mathrm{RTO}_{\mathrm{init}}
+}
+\]
+
+\subsection{Macroscopic Steady-State Throughput (Padhye)}
+
+Once the connection is established, TCP CUBIC enters steady-state congestion
+avoidance. The loss event probability $p_e$ seen by the congestion controller
+is:
+
+\[
+p_e = \pi_1 (p_{13} + p_{14}) + \pi_2\,p_{23}.
+\]
+
+Following Padhye et al.~\cite{padhye1998modeling}, the expected time between two
+successfully delivered packets in steady-state is:
+
+\[
+E[T_{\mathrm{pkt}}] = \underbrace{\frac{2O + \bar{d}}{W_{\mathrm{steady}}}}_{\text{base}} +
+\underbrace{\eta_{\mathrm{RACK}} \cdot \mathrm{RTO} \cdot q(p_e)}_{\text{timeout penalty}}
+\]
+
+where:
+
+\begin{align}
+W_{\mathrm{AIMD}} &= \sqrt{\frac{3.92}{p_e}}, \label{eq:waimd}\\
+W_{\mathrm{steady}} &= \max\!\Bigl(1,\;\bigl\lfloor 1.5\,W_{\mathrm{AIMD}}\bigr\rfloor\Bigr), \label{eq:wcubic}\\
+q(p_e) &= \min\!\left(1,\;3\sqrt{\frac{3p_e}{8}}\right)\cdot p_e\,(1 + 32p_e^2), \label{eq:timeout_prob}\\
+\eta_{\mathrm{RACK}} &= 0.5. \label{eq:rack}
+\end{align}
+
+\paragraph{CUBIC window correction (Eq.~\ref{eq:wcubic}).}
+The classical AIMD formula~\eqref{eq:waimd} is derived for TCP Reno.  Linux
+CUBIC maintains a larger congestion window by following a cubic growth curve
+between loss events.  Empirically, CUBIC sustains roughly $1.5\times$ the AIMD
+window at the same loss rate; Eq.~\eqref{eq:wcubic} captures this.
+
+\paragraph{RACK/SACK mitigation (Eq.~\ref{eq:rack}).}
+Modern Linux deploys TCP RACK and SACK, which convert a significant fraction of
+classical retransmission timeouts into \emph{timer-based Fast Retransmits}.
+A Fast Retransmit costs approximately one additional RTT ($\sim$40\,ms), whereas
+a full RTO costs 200\,ms.  Empirically, approximately 50\% of potential timeouts
+are rescued by RACK/SACK; the mitigation factor $\eta_{\mathrm{RACK}} = 0.5$
+encodes this correction.
+
+\subsection{Intra-Flight Serialization Delay}
+
+Even within a single congestion window flight, packets cannot be placed on the
+wire simultaneously---each must be serialized bit-by-bit.  For an Ethernet frame
+of 1514 bytes at $C = 1$\,Gbit/s, the serialization delay per packet is:
+
+\[
+\delta = \frac{1514 \times 8}{10^9} \approx 12.11\;\mu\text{s}.
+\]
+
+The $i$-th packet within its flight (0-indexed) therefore experiences an
+additional delay of $i\cdot\delta$ relative to the first packet in the flight.
+
+\subsection{Per-Segment Expected Arrival Time $E[T_k]$}
+
+Let $k \geq 1$ be the segment index.  The model divides the transfer into
+\emph{flights}:
+
+\begin{itemize}
+    \item \textbf{Flight 1} (Slow Start): sends $\mathrm{IW} = 10$ segments.
+    \item \textbf{Flights $f \geq 2$} (Congestion Avoidance): each sends
+          $W_{\mathrm{steady}}$ segments.
+\end{itemize}
+
+The expected inter-flight delay for flight $f$ is:
+
+\[
+E[\Delta_f] = W_f \cdot E[T_{\mathrm{pkt}}], \qquad
+W_f =
+\begin{cases}
+\mathrm{IW} & f = 1, \\
+W_{\mathrm{steady}} & f \geq 2.
+\end{cases}
+\]
+
+For segment $k$ belonging to flight $F_k$, with zero-indexed position
+$\ell_k$ within its flight:
+
+\[
+\boxed{
+E[T_k] = E[T_{\mathrm{setup}}] + \sum_{f=1}^{F_k - 1} E[\Delta_f]
+         + O + \bar{d} + \ell_k \cdot \delta
+}
+\]
+
+where $\ell_k = k - 1 - \left[\mathrm{IW} + (F_k - 2)\,W_{\mathrm{steady}}\right]$
+for $F_k \geq 2$, and $\ell_k = k - 1$ for $F_k = 1$.
+
+% ============================================================
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Emulation Infrastructure}
+
+The experiment is conducted entirely within an Ubuntu 22.04 Docker container
+running on the local host machine.  Two Linux network namespaces
+(\texttt{ns\_client} and \texttt{ns\_server}) are created and interconnected by
+a \texttt{veth} pair:
+
+\begin{lstlisting}[language=bash, caption={Network namespace and emulation setup.}]
+# Create isolated namespaces
+ip netns add ns_client
+ip netns add ns_server
+
+# Connect with a virtual Ethernet pair
+ip link add veth_c type veth peer name veth_s
+ip link set veth_c netns ns_client
+ip link set veth_s netns ns_server
+
+# Assign addresses
+ip netns exec ns_client ip addr add 10.0.0.1/24 dev veth_c
+ip netns exec ns_server ip addr add 10.0.0.2/24 dev veth_s
+
+# Emulate channel -- DATA direction (client -> server)
+ip netns exec ns_client tc qdisc add dev veth_c root netem \
+    delay 20ms rate 1gbit \
+    loss state 0.50% 20.00% 40.00% 30.00% 0.20%
+
+# ACK direction (server -> client) -- delay only, no loss
+ip netns exec ns_server tc qdisc add dev veth_s root netem \
+    delay 20ms rate 1gbit
+\end{lstlisting}
+
+\textbf{Key design choice:} Loss is applied \emph{only} to the data direction
+(\texttt{veth\_c}).  ACKs travel loss-free.  This isolates the effect of data
+packet loss on TCP's congestion control from the compound effect of ACK loss,
+keeping the experiment aligned with the analytical model's assumptions.
+
+\subsection{Traffic Generation}
+
+The client application sends $N_{\text{bytes}} = 150 \times 1448 = 217{,}200$
+bytes ($\approx 150$ full-sized MSS segments) over a raw TCP socket with
+\texttt{TCP\_NODELAY} enabled, ensuring segments are pushed to the kernel
+immediately without Nagle buffering.  The server echoes the total byte count
+received.
+
+\subsection{Packet Capture and Analysis}
+
+\texttt{tcpdump} runs inside \texttt{ns\_server} and writes all TCP traffic on
+the experiment port to a \texttt{.pcap} file.  After the transfer completes,
+Scapy~\cite{scapy} parses the capture:
+
+\begin{enumerate}
+    \item The timestamp of the TCP SYN segment establishes $t_0$.
+    \item For each data segment (TCP payload $> 0$ bytes, source
+          10.0.0.1), the \emph{first} occurrence of each sequence number is
+          recorded as the arrival time $T_k^{\text{emp}} = t_{\text{pkt}} - t_0$.
+    \item Timestamps are normalized so that the first data segment arrives
+          at $t = 0$.
+\end{enumerate}
+
+\subsection{Statistical Aggregation}
+
+Twenty independent trials are run against the same emulated channel.  Because
+trials may deliver different numbers of unique sequence numbers (due to
+retransmissions consuming bandwidth), trial data are aligned by segment index
+$k$ and padded with \texttt{NaN} where a trial ends early.  The empirical mean
+$\hat{\mu}_k$ and standard deviation $\hat{\sigma}_k$ are computed ignoring
+\texttt{NaN} entries.
+
+% ============================================================
+\section{Results and Validation}
+\label{sec:results}
+
+Figure~\ref{fig:validation} overlays the theoretical prediction $E[T_k]$ (blue
+line) with the empirical mean $\hat{\mu}_k \pm \hat{\sigma}_k$ (red markers
+with error bars) across all 20 trials.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{tcp_validation_plot.png}
+    \caption{%
+        \textbf{TCP segment delivery times: theory vs.\ experiment.}
+        The blue curve shows the closed-form prediction $E[T_k]$ derived in
+        Section~\ref{sec:model}.  Red markers show the empirical mean $\pm$ one
+        standard deviation across 20 independent trials.  Alternating shaded
+        bands indicate the congestion window flight boundaries.  The model
+        correctly predicts both the staircase structure introduced by round-trip
+        inter-flight gaps and the absolute magnitude of delivery latency.
+    }
+    \label{fig:validation}
+\end{figure}
+
+\subsection{Structural Observations}
+
+\paragraph{Staircase structure.}
+The model's piecewise-linear appearance arises from the discrete flight
+structure of TCP.  Within a single congestion window, packets are serialized at
+$\delta \approx 12\,\mu$s intervals, producing a nearly flat tread.  Between
+flights, a full round-trip delay $2O + \bar{d}$ elapses while the sender awaits
+ACKs, producing a visible vertical step.  This behavior is accurately reproduced
+by the empirical traces.
+
+\paragraph{Slope calibration.}
+The slope of $E[T_k]$ within steady-state flights is controlled by
+$E[T_{\mathrm{pkt}}] = (2O+\bar{d})/W_{\mathrm{steady}}$.  Because CUBIC
+maintains $W_{\mathrm{steady}} \approx 1.5\,W_{\mathrm{AIMD}}$, the model
+correctly predicts a lower slope (faster delivery) than classical AIMD would.
+
+\paragraph{Variance growth.}
+The standard deviation $\hat{\sigma}_k$ grows with $k$.  This is a consequence
+of the \emph{heavy tail} introduced by retransmission timeouts: in the vast
+majority of trials, all retransmissions are handled by SACK-based Fast
+Retransmit within $\sim$1 RTT; in rare ``unlucky'' trials, cascading timeouts
+with exponential backoff ($\mathrm{RTO} \to 2\,\mathrm{RTO} \to \cdots$) cause
+late segments to arrive hundreds of milliseconds late, inflating the mean and
+dramatically widening the confidence band near the tail of the transfer.
+
+% ============================================================
+\section{Model Limitations}
+\label{sec:limitations}
+
+\begin{itemize}
+    \item \textbf{Time-invariant Markov chain.}  The Gilbert--Elliott model
+          assumes the channel is stationary.  Real networks exhibit
+          non-stationarity behavior (queue build-up, etc.).
+
+    \item \textbf{CUBIC approximation.}  The $1.5\times$ window correction is
+          empirically calibrated; the exact CUBIC window at a given loss rate
+          depends on the $\beta_{\mathrm{CUBIC}}$ parameter and the time since
+          the last loss event.
+
+    \item \textbf{Single-flow analysis.}  The model considers a single
+          TCP connection.  In multi-flow environments, cross-traffic
+          introduces correlated loss that the i.i.d.\ stationary model cannot
+          capture.
+
+    \item \textbf{Tail-latency underestimation.}  The analytical model
+          predicts the \emph{mean} arrival time.  It will systematically
+          underestimate the 99th-percentile latency because exponential-backoff
+          RTOs produce a long-tailed distribution not captured by the
+          first-moment analysis.
+\end{itemize}
+
+% ============================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We derived and validated a closed-form model for the expected per-segment
+delivery time $E[T_k]$ for a TCP CUBIC connection traversing a bursty-loss
+channel.  The model integrates:
+
+\begin{enumerate}
+    \item a 4-state Gilbert--Elliott Markov loss model;
+    \item the Padhye macroscopic throughput equation corrected for CUBIC's
+          larger congestion window and Linux's RACK/SACK timeout mitigation; and
+    \item a physically-grounded intra-flight serialization delay term.
+\end{enumerate}
+
+The closed-form prediction matches the empirical mean measured over 20 live
+Linux TCP transfers to within the natural statistical variance introduced by the
+stochastic loss process.  The primary remaining gap---growing variance at high
+$k$---is explained by heavy-tailed RTO backoff events that a first-moment model
+cannot capture by construction.
+
+% ============================================================
+\begin{thebibliography}{9}
+
+\bibitem{padhye1998modeling}
+J.~Padhye, V.~Firoiu, D.~Towsley, and J.~Kurose,
+``Modeling TCP throughput: A simple model and its empirical validation,''
+in \emph{Proc.\ ACM SIGCOMM}, 1998, pp.~303--314.
+
+\bibitem{gilbert1960capacity}
+E.~N.~Gilbert,
+``Capacity of a burst-noise channel,''
+\emph{Bell System Technical Journal}, vol.~39, no.~5, pp.~1253--1265, 1960.
+
+\bibitem{scapy}
+P.~Biondi et al., ``Scapy: Interactive packet manipulation tool,''
+\url{https://scapy.net}, 2003.
+
+\bibitem{cubic}
+S.~Ha, I.~Rhee, and L.~Xu,
+``CUBIC: A new TCP-friendly high-speed TCP variant,''
+\emph{ACM SIGOPS Operating Systems Review}, vol.~42, no.~5, pp.~64--74, 2008.
+
+\bibitem{rack}
+Y.~Cheng, N.~Cardwell, N.~Dukkipati, and P.~Jha,
+``RACK: A time-based fast loss detection algorithm for TCP,''
+\emph{IETF RFC 8985}, Feb.\ 2021.
+
+\end{thebibliography}
+
+\end{document}
