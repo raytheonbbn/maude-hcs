@@ -34,7 +34,7 @@ sload ../irc/common/app_chat
 sload ../irc/_irc_aux
 sload ../irc/irc_nondet
 sload ./_obfs4_aux
-sload ./obfs4
+sload ./obfs4_nondet
 
 mod OBFS4_TESTS is
   pr IRC_NAMES .
@@ -52,8 +52,11 @@ mod OBFS4_TESTS is
   ops aliceObfs4Client bobObfs4Client : -> Actor .
   ops obfs4Server preconfiguredIrcServer : -> Actor .
 
-  eq aliceIrcClient = makeIrcClient(aliceIrcClientAddr, aliceObfs4ClientAddr) .
-  eq bobIrcClient = makeIrcClient(bobIrcClientAddr, bobObfs4ClientAddr) .
+  eq aliceIrcClient = mkIrcClient(aliceIrcClientAddr,
+                                  aliceObfs4ClientAddr,
+                                  "Alice",
+                                  imd(0.000, "#room1", 279) :: imd(28.0, "#room1", 388)) .
+  eq bobIrcClient = mkIrcClient(bobIrcClientAddr, bobObfs4ClientAddr, "Bob") .
 
   eq aliceObfs4Client = makeObfs4Client(aliceObfs4ClientAddr, obfs4ServerAddr, ircServerAddr, aliceIrcClientAddr) .
   eq bobObfs4Client = makeObfs4Client(bobObfs4ClientAddr, obfs4ServerAddr, ircServerAddr, bobIrcClientAddr) .
@@ -63,7 +66,7 @@ mod OBFS4_TESTS is
   eq preconfiguredIrcServer =
     < ircServerAddr : IrcServer |
         thisAddr: ircServerAddr,
-        channelMap: (makeIrcChannelName("bbn") ~> (makeIrcUserName(aliceIrcClientAddr) : makeIrcUserName(bobIrcClientAddr))),
+        channelMap: (makeIrcChannelName("#room1") ~> (makeIrcUserName(aliceIrcClientAddr) : makeIrcUserName(bobIrcClientAddr))),
         clientTimestampMap: emptyClientTimestampMap,
         clientAddressMap: registerIrcUserAddress(
                             registerIrcUserAddress(emptyClientAddressMap, 
