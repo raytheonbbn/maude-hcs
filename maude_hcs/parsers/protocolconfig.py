@@ -83,7 +83,7 @@ class Application:
 class Output:
     """Dataclass for output and reporting settings."""
     directory: str = "./results"
-    smc_directory: str = "./results"
+    smc_directory: str = "./smc"
     result_format: str = "maude"
     save_output: bool = True
     force_save: bool = False
@@ -99,7 +99,7 @@ class Output:
             "set print attribute off .",
             "set show advisories off ."
         ]
-        out.smc_directory = str(Path(find_recursively(GLOBALS.TOPLEVELDIR, 'adversary_param.j2')).parent)
+        # out.smc_directory = str(Path(find_recursively(GLOBALS.TOPLEVELDIR, 'adversary_param.j2')).parent)
         return out
 
 @dataclass

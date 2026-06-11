@@ -182,31 +182,87 @@ To generate the scalability results of Figure 3,
 ```bash
 cd $MAUDEHCSHOME
 python scripts/scalability_popets.py ../use-cases/challenge-problem-2/
-python scripts/scalability_popets_slimit.py ../use-cases/challenge-problem-2/
 ```
+this places the results under `./results-popets`
 
-You can modify the number of simulations to `300-300` in the scalability_popets.py scripts
+You can modify the number of simulations to `300-300` in the scalability_popets_slimit.py scripts
 to increase confidence (to reproduce the paper results). And you can specify which set 
 scenarios of scenarios to run 
 ```python
 #NSIMS = "30-30" # min-max number of monte carlo samples
 NSIMS = "300-300"
 
-run_scenario= { 1,4,7,10 } 
+run_scenario= { 1,4,7} 
 #run_scenario= { 1} 
 ```
 
-This generates the raw data for scenario 1,4,7,10 as in the paper.
-Then to generate the main Figure 3,
+This generates the raw data for scenario 1,4,7 as in the paper.
+Then to generate the main Figure 3, Figure 4, and Figure 5
 ```bash
 cd $MAUDEHCSHOME
 mkdir results-popets-tradeoff/
 cp results-popets/*_cli_wait*.json results-popets-tradeoff/
 python scripts/plot_pets_tradeoff.py results-popets-tradeoff/
+cp results-popets/*_ma1_baseline*.json results-popets-tradeoff/
+python scripts/plot_pets.py results-popets-tradeoff/ 5
+python scripts/plot_pets_wait.py results-popets-tradeoff/
 ```
-The results will be saved in `results-popets-tradeoff/plotsv2/`
+The results will be saved in `results-popets-tradeoff/plotsv2/` for per scenario plots
+and `results-popets-tradeoff/plots/` and `results-popets-tradeoff/plots_wait/` for 
+combined plots.
 
-NOTE: if `sed` commands fail, modify the commands to remove the empty string
+Specifically, Figure 3 results will be named `cp2_scenario_<x>_cli_wait_plot3_tradeoff.png`
+where `<x>` is 1,4, or 7 for each of these experiments.
+The shapes of these KL divergence plots will look a little different because they are 
+statistical and depend on the sampling, but the takeaway is the same. 
+
+Figure 5 results are under `plots_wait/` as follows:
+
+Figure 5a is `set2_AlarmC8_kl.png`
+
+Figure 5b `set1_AlarmC8.png`.
+
+Figure 5c is `set1_OpDurC8.png`.
+
+
+The plot in Figure 4a is `plots/set2_AlarmMA1_kl.png`.
+
+The plot in Figure 4b is `plots/set1_AlarmMA1.png`.
+
+The plot in Figure 4c is `plots/set1_OpDurMA1.png`.
+
+#### Main Result 2: Semantic Alignment
+
+
+The second key result is demonstrating that our model results transfer
+to real testbed empirical results attesting to the predictive power
+of the Maude-HCS framework and models
+
+
+The `annotate_results` script first annotates the statistical estimates produced earlier
+in the `results-popets` directory, effectively annotating each of the queries.
+```bash
+cd $MAUDEHCSHOME
+cd scripts
+./run_annotate_results.sh 
+```
+The `plotfinal2` script compares these statistical estimates against empirical data 
+from the testbed that was provided by an independent test and evaluation team.
+The comparison plots are written to the local directory reproducing Figure 7.
+
+The CDF generation `gather_samples` script produces CDFs and places then under 
+`results-popets/cdfs`.
+```bash
+# First generate the comparison plots (Figure 7)
+cd $MAUDEHCSHOME
+python scripts/plotfinal2.py results-popets/ use-cases/challenge-problem-2 cp2_scenarios_tne/cp2_te_results/ smc/
+# Generate the CDF plots if needed (not included in the paper)
+python scripts/gather_samples.py results-popets/ results-popets/cdfs use-cases/challenge-problem-2/cp2_scenarios_tne/cp2_te_results/
+```
+
+#### Toubleshooting
+
+NOTE: if `sed` commands fail in the scripts, modify the commands to remove the empty string
 This is added for osx compatibility. Spoecifically replace
 ```python
 _cmd = ["sed", "-i", "", "/--- applications/,/--- WMonitor/ s/^/--- /", tgenonly_fn]

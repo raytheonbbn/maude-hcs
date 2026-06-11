@@ -5,7 +5,7 @@ do
     echo "Annotating scenario $i results..."
 
     python annotateResults.py \
-      "../results-agg/cp2_scenario_${i}.json" \
+      "../results-popets/cp2_scenario_${i}.json" \
        "../smc/"
 
     echo "Finished scenario $i."
