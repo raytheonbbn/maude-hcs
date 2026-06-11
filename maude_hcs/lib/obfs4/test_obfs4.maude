@@ -46,11 +46,11 @@ mod OBFS4_TESTS is
   ops aliceAddr bobAddr : -> Address .
   ops aliceIrcClientAddr bobIrcClientAddr : -> Address .
   ops aliceObfs4ClientAddr bobObfs4ClientAddr : -> Address .
-  ops obfs4ServerAddr ircServerAddr : -> Address .
+  ops obfs4AliceServerAddr obfs4BobServerAddr ircServerAddr : -> Address .
 
   ops aliceIrcClient bobIrcClient : -> Actor .
   ops aliceObfs4Client bobObfs4Client : -> Actor .
-  ops obfs4Server preconfiguredIrcServer : -> Actor .
+  ops obfs4AliceServer obfs4BobServer preconfiguredIrcServer : -> Actor .
 
   eq aliceIrcClient = mkIrcClient(aliceIrcClientAddr,
                                   aliceObfs4ClientAddr,
@@ -58,10 +58,11 @@ mod OBFS4_TESTS is
                                   imd(0.000, "#room1", 279) :: imd(28.0, "#room1", 388)) .
   eq bobIrcClient = mkIrcClient(bobIrcClientAddr, bobObfs4ClientAddr, "Bob") .
 
-  eq aliceObfs4Client = makeObfs4Client(aliceObfs4ClientAddr, obfs4ServerAddr, ircServerAddr, aliceIrcClientAddr) .
-  eq bobObfs4Client = makeObfs4Client(bobObfs4ClientAddr, obfs4ServerAddr, ircServerAddr, bobIrcClientAddr) .
+  eq aliceObfs4Client = makeObfs4Node(aliceObfs4ClientAddr, aliceIrcClientAddr, obfs4AliceServerAddr) .
+  eq bobObfs4Client = makeObfs4Node(bobObfs4ClientAddr, bobIrcClientAddr, obfs4BobServerAddr) .
 
-  eq obfs4Server = makeObfs4Server(obfs4ServerAddr, ircServerAddr) .
+  eq obfs4AliceServer = makeObfs4Node(obfs4AliceServerAddr, ircServerAddr, aliceObfs4ClientAddr) .
+  eq obfs4BobServer = makeObfs4Node(obfs4BobServerAddr, ircServerAddr, bobObfs4ClientAddr) .
 
   eq preconfiguredIrcServer =
     < ircServerAddr : IrcServer |
@@ -70,8 +71,8 @@ mod OBFS4_TESTS is
         clientTimestampMap: emptyClientTimestampMap,
         clientAddressMap: registerIrcUserAddress(
                             registerIrcUserAddress(emptyClientAddressMap, 
-                                                   makeIrcUserName(aliceIrcClientAddr), aliceIrcClientAddr),
-                            makeIrcUserName(bobIrcClientAddr), bobIrcClientAddr)
+                                                   makeIrcUserName(aliceIrcClientAddr), obfs4AliceServerAddr),
+                            makeIrcUserName(bobIrcClientAddr), obfs4BobServerAddr)
     >
   .
 endm
@@ -84,7 +85,8 @@ rew aliceIrcClient
     aliceObfs4Client
     bobIrcClient
     bobObfs4Client
-    obfs4Server
+    obfs4AliceServer
+    obfs4BobServer
     preconfiguredIrcServer
-    (to aliceIrcClientAddr from aliceAddr : makeAppChat(makeIrcChannelName("bbn"), "Hello Bob!"))
+    (to aliceIrcClientAddr from aliceAddr : makeAppChat(makeIrcChannelName("#room1"), "Hello Bob!"))
 .
