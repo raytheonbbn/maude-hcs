@@ -36,117 +36,65 @@ mod OBFS4 is
   pr ACTOR-MODEL .
   pr SAMPLER-X .
 
-  op Obfs4Client : -> ActorType [ctor] .
-  op Obfs4Server : -> ActorType [ctor] .
+  op Obfs4Node : -> ActorType [ctor] .
 
-  op thisAddr:_ : Address -> Attribute [ctor] .
-  op serverAddr:_ : Address -> Attribute [ctor] .
-  op nextHop:_ : Address -> Attribute [ctor] .
-  op appServerAddr:_ : Address -> Attribute [ctor] .
-  op appClientAddr:_ : Address -> Attribute [ctor] .
+  op localNode:_ : Address -> Attribute [ctor] .
+  op remoteNode:_ : Address -> Attribute [ctor] .
   op padCtr:_ : Nat -> Attribute [ctor] .
 
-  vars OBFS4_CLIENT_ADDR OBFS4_SERVER_ADDR IRC_CLIENT_ADDR IRC_SERVER_ADDR APP_SERVER CLIENT_ADDR SERVER_ADDR NEXT_HOP APP_CLIENT : Address .
+  vars THIS LOCAL REMOTE FROM_ADDR : Address .
   vars MSG : Content .
-  vars PAD J : Nat .
+  vars PAD J P PAD1 PAD2 : Nat .
   vars ATTRS : AttributeSet .
   vars BSEQ : ByteSeq .
 
-  op makeObfs4Client : Address Address Address Address -> Actor [ctor] .
-  eq makeObfs4Client(CLIENT_ADDR, SERVER_ADDR, APP_SERVER, APP_CLIENT) =
-    < CLIENT_ADDR : Obfs4Client |
-        thisAddr: CLIENT_ADDR,
-        serverAddr: SERVER_ADDR,
-        appServerAddr: APP_SERVER,
-        appClientAddr: APP_CLIENT,
-        padCtr: 0
-    > .
+  op makeObfs4Node : Address Address Address -> Actor [ctor] .
+  eq makeObfs4Node(THIS, LOCAL, REMOTE) =
+    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, padCtr: 0 > .
 
-  op makeObfs4Server : Address Address -> Actor [ctor] .
-  eq makeObfs4Server(SERVER_ADDR, NEXT_HOP) =
-    < SERVER_ADDR : Obfs4Server |
-        thisAddr: SERVER_ADDR,
-        nextHop: NEXT_HOP,
-        padCtr: 0
-    > .
+  --- Note
+  --- MaximumSegmentLength = 1500 - (40 + 12) (TCP/IP overheads) = 1448
+  --- FrameOverhead = lengthLength (2) + secretbox.Overhead (16) = 18
+  --- MaximumFramePayloadLength = MaximumSegmentLength - FrameOverhead (1448 - 18) = 1430
+  --- packetOverhead = 2 + 1 (length + type) = 3
+  --- maxPacketPayloadLength = MaximumFramePayloadLength - packetOverhead (1430 - 3) = 1427
+  --- maxPacketPaddingLength = maxPacketPayloadLength = 1427
 
-
-
---- Note
---- MaximumSegmentLength = 1500 - (40 + 12) (TCP/IP overheads) = 1448
---- FrameOverhead = lengthLength (2) + secretbox.Overhead (16) = 18
---- MaximumFramePayloadLength = MaximumSegmentLength - FrameOverhead (1448 - 18) = 1430
---- packetOverhead = 2 + 1 (length + type) = 3
---- maxPacketPayloadLength = MaximumFramePayloadLength - packetOverhead (1430 - 3) = 1427
---- maxPacketPaddingLength = maxPacketPayloadLength = 1427
-
-  --- Directly Send Outgoing Client Message
-  crl [obfs4-client-send]:
-    < OBFS4_CLIENT_ADDR : Obfs4Client | serverAddr: OBFS4_SERVER_ADDR, padCtr: J, ATTRS >
-    (to OBFS4_CLIENT_ADDR from IRC_CLIENT_ADDR : MSG)
+  --- Obfs4 Node: Encapsulate plain message from local application and send out to remote
+  crl [obfs4-send]:
+    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, padCtr: J, ATTRS >
+    (to THIS from LOCAL : MSG)
     =>
-    < OBFS4_CLIENT_ADDR : Obfs4Client | serverAddr: OBFS4_SERVER_ADDR, padCtr: s J, ATTRS >
-    (to OBFS4_SERVER_ADDR from OBFS4_CLIENT_ADDR : obfs4Frame(toByteseq(MSG), 0))
-    (to OBFS4_SERVER_ADDR from OBFS4_CLIENT_ADDR : obfs4Padding(PAD))
+    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, padCtr: s J, ATTRS >
+    if PAD + P > 1450 then
+      (to REMOTE from THIS : obfs4Frame(toByteseq(MSG), PAD1))
+      (to REMOTE from THIS : obfs4Padding(PAD2))
+    else
+      (to REMOTE from THIS : obfs4Frame(toByteseq(MSG), PAD))
+    fi
   if PAD := sampleUniWithIntX(J, 1427)
-    [ print "Obfs4Client encapsulating message from " IRC_CLIENT_ADDR ", appending burst padding " PAD ]
+    /\ P := nbytes(toByteseq(MSG))
+    /\ PAD1 := if P <= 1450 then sd(1450, P) else 0 fi
+    /\ PAD2 := sd(PAD, PAD1)
+    [ print "Obfs4Node " THIS " encapsulating msg from " LOCAL ", appending " PAD "B padding" ]
   .
 
-  --- Obfs4 Server: Receive encapsulated message, unwrap, forward to next hop.
-  rl [obfs4-server-fwd]:
-    < OBFS4_SERVER_ADDR : Obfs4Server | nextHop: IRC_SERVER_ADDR, ATTRS >
-    (to OBFS4_SERVER_ADDR from IRC_CLIENT_ADDR : obfs4Frame(BSEQ, PAD))
+  --- Obfs4 Node: Receive encapsulated message, unwrap, forward to local application
+  rl [obfs4-recv-frame]:
+    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, ATTRS >
+    (to THIS from REMOTE : obfs4Frame(BSEQ, PAD))
     =>
-    < OBFS4_SERVER_ADDR : Obfs4Server | nextHop: IRC_SERVER_ADDR, ATTRS >
-    (to IRC_SERVER_ADDR from IRC_CLIENT_ADDR : fromByteseq(BSEQ))
-    [ print "Obfs4Server decapsulating ByteSeq from " IRC_CLIENT_ADDR ]
+    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, ATTRS >
+    (to LOCAL from THIS : fromByteseq(BSEQ))
+    [ print "Obfs4Node " THIS " decapsulating msg from " REMOTE " to " LOCAL ]
   .
 
---- Note
---- MaximumSegmentLength = 1500 - (40 + 12) (TCP/IP overheads) = 1448
---- FrameOverhead = lengthLength (2) + secretbox.Overhead (16) = 18
---- MaximumFramePayloadLength = MaximumSegmentLength - FrameOverhead (1448 - 18) = 1430
---- packetOverhead = 2 + 1 (length + type) = 3
---- maxPacketPayloadLength = MaximumFramePayloadLength - packetOverhead (1430 - 3) = 1427
---- maxPacketPaddingLength = maxPacketPayloadLength = 1427
-
-  --- Obfs4 Server: Intercept return message from next hop, encapsulate with 0 padding and append burst padding, forward to client.
-  crl [obfs4-server-return]:
-    < OBFS4_SERVER_ADDR : Obfs4Server | nextHop: IRC_SERVER_ADDR, padCtr: J, ATTRS >
-    (to IRC_CLIENT_ADDR from IRC_SERVER_ADDR : MSG)
+  --- Obfs4 Node: Discard standalone padding frame
+  rl [obfs4-recv-padding]:
+    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, ATTRS >
+    (to THIS from REMOTE : obfs4Padding(PAD))
     =>
-    < OBFS4_SERVER_ADDR : Obfs4Server | nextHop: IRC_SERVER_ADDR, padCtr: s J, ATTRS >
-    (to IRC_CLIENT_ADDR from OBFS4_SERVER_ADDR : obfs4Frame(toByteseq(MSG), 0))
-    (to IRC_CLIENT_ADDR from OBFS4_SERVER_ADDR : obfs4Padding(PAD))
-  if PAD := sampleUniWithIntX(J, 1427)
-    [ print "Obfs4Server encapsulating return message to " IRC_CLIENT_ADDR ", appending burst padding " PAD ]
-  .
-
-  --- Obfs4 Server: Discard standalone padding frame
-  rl [obfs4-server-discard-padding]:
-    < OBFS4_SERVER_ADDR : Obfs4Server | ATTRS >
-    (to OBFS4_SERVER_ADDR from OBFS4_CLIENT_ADDR : obfs4Padding(PAD))
-    =>
-    < OBFS4_SERVER_ADDR : Obfs4Server | ATTRS >
-    [ print "Obfs4Server discarding burst padding from " OBFS4_CLIENT_ADDR ]
-  .
-
-  --- Obfs4 Client: Receive encapsulated return message, unwrap, forward to application.
-  rl [obfs4-client-return]:
-    < OBFS4_CLIENT_ADDR : Obfs4Client | appClientAddr: IRC_CLIENT_ADDR, appServerAddr: APP_SERVER, ATTRS >
-    (to IRC_CLIENT_ADDR from OBFS4_SERVER_ADDR : obfs4Frame(BSEQ, PAD))
-    =>
-    < OBFS4_CLIENT_ADDR : Obfs4Client | appClientAddr: IRC_CLIENT_ADDR, appServerAddr: APP_SERVER, ATTRS >
-    (to IRC_CLIENT_ADDR from APP_SERVER : fromByteseq(BSEQ))
-    [ print "Obfs4Client decapsulating return ByteSeq to " IRC_CLIENT_ADDR ]
-  .
-
-  --- Obfs4 Client: Discard standalone padding frame
-  rl [obfs4-client-discard-padding]:
-    < OBFS4_CLIENT_ADDR : Obfs4Client | appClientAddr: IRC_CLIENT_ADDR, ATTRS >
-    (to IRC_CLIENT_ADDR from OBFS4_SERVER_ADDR : obfs4Padding(PAD))
-    =>
-    < OBFS4_CLIENT_ADDR : Obfs4Client | appClientAddr: IRC_CLIENT_ADDR, ATTRS >
-    [ print "Obfs4Client discarding burst padding from " OBFS4_SERVER_ADDR ]
+    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, ATTRS >
+    [ print "Obfs4Node " THIS " discarding burst padding from " REMOTE ]
   .
 endm
