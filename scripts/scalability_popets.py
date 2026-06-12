@@ -22,8 +22,8 @@ label_map = {
   5: "5 consecutive alarms"
 }
 
-#run_scenario= { 1,4,7,10 } 
-run_scenario= { 1} 
+run_scenario= { 1,4,7} 
+#run_scenario= { 1} 
 
 all = {
     "label": "all",

@@ -105,7 +105,7 @@ export MAUDEHCSHOME=$(pwd)
 To test your configuration, run a scenario (scenario 1 in this example)
 
 ```bash
-maude-hcs scheck --test ./use-cases/challenge-problem-2/cp2_scenarios_final/results-initconf/cp2_scenario_1.maude --query ./smc/cp2_eval_cp2_scenario_1.quatex -j 0 -n 30-120
+maude-hcs scheck --test ./use-cases/challenge-problem-2/cp2_scenarios/cp2_scenario_1.maude --query ./smc/cp2_eval_cp2_scenario_1.quatex -j 0 -n 30-120
 ```
 
 You should see the model's statistical guarantees for all the 
@@ -115,29 +115,27 @@ If the output is similar, warnings can be safely ignored.
 ```bash
 Number of simulations = 120
 Query 1 (./smc/cp2_eval_cp2_scenario_1.quatex:12:1)
-  μ = 203.07319783411302        σ = 17.695717823627948        r = 3.198634801115041
+  μ = 202.6437356465193         σ = 17.229579146816842        r = 3.1143767106179787
 Query 2 (./smc/cp2_eval_cp2_scenario_1.quatex:13:1)
-  μ = 540.333243246286          σ = 48.29469848968358         r = 8.72963192779875
+  μ = 541.1700405553873         σ = 45.69039290200721         r = 8.258884000616208
 Query 3 (./smc/cp2_eval_cp2_scenario_1.quatex:22:1)
-  μ = 5.733333333333333         σ = 0.7849152527649013        r = 0.2930921722174493
-Query 4 (./smc/cp2_eval_cp2_scenario_1.quatex:28:1) (53 simulations)
-  μ = 9.275                     σ = 1.0374401434695155        r = 0.33178945427671425
-  where 50 executions out of 103 (48.54%) have been discarded
+  μ = 5.966666666666667         σ = 0.9278574999588494        r = 0.34646768452166277
+Query 4 (./smc/cp2_eval_cp2_scenario_1.quatex:28:1)
+  μ = 3.1666666666666665        σ = 0.9128709291752772        r = 0.34087160702211733
 Query 5 (./smc/cp2_eval_cp2_scenario_1.quatex:31:1)
-  μ = 2.3333333333333335        σ = 0.6064784348631225        r = 0.22646276938933754
+  μ = 2.2666666666666666        σ = 0.5832922809856749        r = 0.21780491724368095
 Query 6 (./smc/cp2_eval_cp2_scenario_1.quatex:39:1)
-  μ = 126.25094189535513        σ = 8.902630389864715         r = 1.6092177593645356
-Query 7 (./smc/cp2_eval_cp2_scenario_1.quatex:45:1) (53 simulations)
-  μ = 209.05335071610008        σ = 23.97517525477567         r = 6.6083767357176875
-  where 67 executions out of 120 (55.83%) have been discarded
+  μ = 125.18704558671165        σ = 9.316476814793546         r = 1.6840236299309668
+Query 7 (./smc/cp2_eval_cp2_scenario_1.quatex:45:1)
+  μ = 71.82447470969723         σ = 12.089508366235552        r = 2.1852700508695406
 Query 8 (./smc/cp2_eval_cp2_scenario_1.quatex:48:1)
-  μ = 56.416615700181204        σ = 5.468903497570906         r = 0.9885456597817559
+  μ = 55.833282337650544        σ = 5.588605607588547         r = 1.0101827212836119
 Query 9 (./smc/cp2_eval_cp2_scenario_1.quatex:54:1)
   μ = 1.0                       σ = 0.0                       r = 0.0
 Query 10 (./smc/cp2_eval_cp2_scenario_1.quatex:55:1)
-  μ = 0.4                       σ = 0.4982728791224398        r = 0.18605815084444596
-Query 11 (./smc/cp2_eval_cp2_scenario_1.quatex:56:1)
   μ = 1.0                       σ = 0.0                       r = 0.0
+Query 11 (./smc/cp2_eval_cp2_scenario_1.quatex:56:1)
+  μ = 1.0  
 ```
 
 The 11 statistical queries (properties) are defined in the
@@ -153,7 +151,54 @@ and confidence radius.
 List all your paper's results and claims that are supported by your submitted
 artifacts.
 
-#### Main Result 1: Privacy-Performance Trade-off Analysis 
+#### Main Result 1: Semantic Alignment
+
+To generate the statistical guarantees along with the samples for
+scenarios 1 through 9 with min number of simulations 120
+and max number of simulations 120, run
+```bash
+cd $MAUDEHCSHOME/scripts
+python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 1-12 120 120
+```
+alternatively we can generate for each scenario individually, e.g., for scenario 4
+```bash
+python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 4 120 120
+```
+Note that scenarios 3, 6, 9, and 12 take a long time (several hours) because of the large number
+of traffic generators involved.
+
+The `annotate_results` script first annotates the statistical estimates produced earlier
+in the `results-popets` directory, effectively annotating each of the queries 
+```bash
+cd $MAUDEHCSHOME
+cd scripts
+./run_annotate_results.sh 
+```
+
+The results are under the `../results-popets` directory.
+The .json file per scenario has the statistical guarantees.
+The raw samples are also included per scenario, one file per thread.
+These raw samples are combined to generate CDF if needed (not in the paper).
+
+The first main result is demonstrating that our model results transfer
+to real testbed empirical results attesting to the predictive power
+of the Maude-HCS framework and models
+
+The `plotfinal2` script compares these statistical estimates against empirical data 
+from the testbed that was provided by an independent test and evaluation team.
+The comparison plots are written to the local directory reproducing Figure 7.
+
+The CDF generation `gather_samples` script produces CDFs and places then under 
+`results-popets/cdfs`.
+```bash
+# First generate the comparison plots (Figure 7)
+cd $MAUDEHCSHOME
+python scripts/plotfinal2.py results-popets/ use-cases/challenge-problem-2 cp2_scenarios_tne/cp2_te_results/ smc/
+# Generate the CDF plots if needed (not included in the paper)
+python scripts/gather_samples.py results-popets/ results-popets/cdfs use-cases/challenge-problem-2/cp2_scenarios_tne/cp2_te_results/
+```
+
+#### Main Result 2: Privacy-Performance Trade-off Analysis 
 
 We quantify undetectability–performance tradeoffs across three
 representative scenarios (Scenarios 1, 4, and 7), which differ in
@@ -163,20 +208,6 @@ and show the KL-divergence results in Figure 3 of the paper.
 x-axis in Figure 3 is goodput while y-axis is KL-divergence lower bound.
 As goodput increases we see a trend where undetectability decreases i.e. 
 KL divergence lower bound increases. 
-
-To generate the statistical guarantees along with the samples for
-scenarios 1,4,and 7 as in the paper, with min number of simulations 30
-and max number of simulations 120, run
-```bash
-cd $MAUDEHCSHOME/scripts
-python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 1 300 300
-python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 4 300 300
-python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 7 300 300
-```
-The results are under the `../results-popets` directory.
-The .json file per scenario has the statistical guarantees.
-The raw samples are also included per scenario, one file per thread.
-We combine these samples to generate the CDF.
 
 To generate the scalability results of Figure 3,
 ```bash
@@ -231,34 +262,6 @@ The plot in Figure 4b is `plots/set1_AlarmMA1.png`.
 
 The plot in Figure 4c is `plots/set1_OpDurMA1.png`.
 
-#### Main Result 2: Semantic Alignment
-
-
-The second key result is demonstrating that our model results transfer
-to real testbed empirical results attesting to the predictive power
-of the Maude-HCS framework and models
-
-
-The `annotate_results` script first annotates the statistical estimates produced earlier
-in the `results-popets` directory, effectively annotating each of the queries.
-```bash
-cd $MAUDEHCSHOME
-cd scripts
-./run_annotate_results.sh 
-```
-The `plotfinal2` script compares these statistical estimates against empirical data 
-from the testbed that was provided by an independent test and evaluation team.
-The comparison plots are written to the local directory reproducing Figure 7.
-
-The CDF generation `gather_samples` script produces CDFs and places then under 
-`results-popets/cdfs`.
-```bash
-# First generate the comparison plots (Figure 7)
-cd $MAUDEHCSHOME
-python scripts/plotfinal2.py results-popets/ use-cases/challenge-problem-2 cp2_scenarios_tne/cp2_te_results/ smc/
-# Generate the CDF plots if needed (not included in the paper)
-python scripts/gather_samples.py results-popets/ results-popets/cdfs use-cases/challenge-problem-2/cp2_scenarios_tne/cp2_te_results/
-```
 
 #### Toubleshooting
 
