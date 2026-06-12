@@ -255,10 +255,15 @@ The results will be saved in `results-popets-tradeoff/plotsv2/` for per scenario
 and `results-popets-tradeoff/plots/` and `results-popets-tradeoff/plots_wait/` for 
 combined plots.
 
-Specifically, Figure 3 results will be named `cp2_scenario_<x>_cli_wait_plot3_tradeoff.png`
+Specifically, Figure 3 results will be named `plotsv2/cp2_scenario_<x>_cli_wait_plot3_tradeoff.png`
 where `<x>` is 1,4, or 7 for each of these experiments.
-The shapes of these KL divergence plots will look a little different because they are 
-statistical and depend on the sampling, but the takeaway is the same. 
+The shapes of these KL divergence plots will look a little different because they are statistical and depend on the sampling, but the takeaway is the same. 
+
+The plot in Figure 4a is `plots/set2_AlarmMA1_kl.png`.
+
+The plot in Figure 4b is `plots/set1_AlarmMA1.png`.
+
+The plot in Figure 4c is `plots/set1_OpDurMA1.png`.
 
 Figure 5 results are under `plots_wait/` as follows:
 
@@ -269,11 +274,7 @@ Figure 5b `set1_AlarmC8.png`.
 Figure 5c is `set1_OpDurC8.png`.
 
 
-The plot in Figure 4a is `plots/set2_AlarmMA1_kl.png`.
 
-The plot in Figure 4b is `plots/set1_AlarmMA1.png`.
-
-The plot in Figure 4c is `plots/set1_OpDurMA1.png`.
 
 
 #### Toubleshooting
