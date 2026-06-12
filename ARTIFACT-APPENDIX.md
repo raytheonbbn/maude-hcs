@@ -225,10 +225,11 @@ To generate the scalability results of Figure 3,
 ```bash
 cd $MAUDEHCSHOME
 python scripts/scalability_popets.py ../use-cases/challenge-problem-2/
+python scripts/scalability_popets_c8.py ../use-cases/challenge-problem-2/
 ```
-this places the results under `./results-popets`
+this places the results under `./results-popets` and `./results-popets-v2-c8-nx4`
 
-You can modify the number of simulations to `300-300` in the scalability_popets_slimit.py scripts
+You can modify the number of simulations to `300-300` in the scripts
 to increase confidence (to reproduce the paper results). And you can specify which set 
 scenarios of scenarios to run 
 ```python
@@ -244,7 +245,7 @@ Then to generate the main Figure 3, Figure 4, and Figure 5
 ```bash
 cd $MAUDEHCSHOME
 mkdir results-popets-tradeoff/
-cp results-popets/*_cli_wait*.json results-popets-tradeoff/
+cp results-popets-v2-c8-nx4/*_cli_wait*.json results-popets-tradeoff/
 python scripts/plot_pets_tradeoff.py results-popets-tradeoff/
 cp results-popets/*_ma1_baseline*.json results-popets-tradeoff/
 python scripts/plot_pets.py results-popets-tradeoff/ 5

@@ -13,7 +13,7 @@ TOPLEVELDIR = Path(os.path.dirname(__file__))
 
 output_dir = "./results-popets-v2-c8-nx4/"
 
-run_scenario= { 1 } 
+run_scenario= { 1, 4, 7 } 
 #run_scenario= { 1,4,7,10 } 
 
 cli_wait = {
