@@ -152,6 +152,9 @@ List all your paper's results and claims that are supported by your submitted
 artifacts.
 
 #### Main Result 1: Semantic Alignment
+The first main result is demonstrating that our model results transfer
+to real testbed empirical results attesting to the predictive power
+of the Maude-HCS framework and models
 
 To generate the statistical guarantees along with the samples for
 scenarios 1 through 9 with min number of simulations 120
@@ -174,19 +177,28 @@ cd $MAUDEHCSHOME
 cd scripts
 ./run_annotate_results.sh 
 ```
+Then summarize the results
+```bash
+cd $MAUDEHCSHOME
+python scripts/summarize_cp2.py results-popets/
+```
+This generates the summary.txt which is a summary of statistics by scenario.
 
 The results are under the `../results-popets` directory.
 The .json file per scenario has the statistical guarantees.
 The raw samples are also included per scenario, one file per thread.
 These raw samples are combined to generate CDF if needed (not in the paper).
 
-The first main result is demonstrating that our model results transfer
-to real testbed empirical results attesting to the predictive power
-of the Maude-HCS framework and models
+We merged the summary.txt data with the testbed empirical data by hand to create a 
+comparison file for plotting and regenerating Figure 7.
+The merged file is under 
+ './use-cases/challenge-problem-2/cp2_scenarios_tne/comparison_merged.csv'
 
 The `plotfinal2` script compares these statistical estimates against empirical data 
 from the testbed that was provided by an independent test and evaluation team.
 The comparison plots are written to the local directory reproducing Figure 7.
+You can verify the newly generated results in summary.txt match the results in 
+this comparison file used by the plotfinalv2 script. 
 
 The CDF generation `gather_samples` script produces CDFs and places then under 
 `results-popets/cdfs`.
