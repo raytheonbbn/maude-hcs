@@ -51,15 +51,12 @@
 ---
 
 --- _aux provides IRC_NAMES, IRC_AUX, IRC_NODE, CP2_SORTS, CP2_NODE transitively.
-sload ../irc/common/_aux
 sload ../mastodon/maude/common/_aux
 
 set show advisories off .
 
 mod WEBTUNNEL_AUX is
-  pr IRC_NAMES .
   pr CP2_SORTS .
-  pr IRC_AUX .
   pr CONVERSION .
   pr MASTODON_NODE .
 
@@ -74,17 +71,17 @@ mod WEBTUNNEL_AUX is
   --- IrcMsgQueue — simple ordered queue for buffering
   --- IRC messages while tunnel is being established.
   ---------------------------------------------------
-  sort IrcMsgQueue .
-  op emptyQueue : -> IrcMsgQueue [ctor] .
-  op enqueue    : IrcMsgQueue IrcMsg -> IrcMsgQueue [ctor] .
+  sort MsgQueue .
+  op emptyQueue : -> MsgQueue [ctor] .
+  op enqueue    : MsgQueue ByteSeq -> MsgQueue [ctor] .
 
   --- Dequeue from front (oldest first).
-  op dequeue : IrcMsgQueue -> IrcMsgQueue .
-  op front   : IrcMsgQueue ~> IrcMsg .
-  op isEmpty : IrcMsgQueue -> Bool .
+  op dequeue : MsgQueue -> MsgQueue .
+  op front   : MsgQueue ~> ByteSeq .
+  op isEmpty : MsgQueue -> Bool .
 
-  vars Q : IrcMsgQueue .
-  vars M : IrcMsg .
+  vars Q : MsgQueue .
+  vars M : ByteSeq .
 
   eq isEmpty(emptyQueue) = true .
   eq isEmpty(enqueue(Q, M)) = false .
@@ -104,23 +101,24 @@ mod WEBTUNNEL_AUX is
   ---------------------------------------------------
 
   ---- shared by WtClient and WtServerProxy
+  --- This address.
   op thisAddr:_        : Address      -> Attribute [ctor] .
+  --- The address of the IRC server.
   op ircServerAddr:_   : Address      -> Attribute [ctor] .
-
-  ---- WtClient-specific
-  op serverProxyAddr:_ : Address      -> Attribute [ctor] .
-  op tlsServerName:_   : String       -> Attribute [ctor] .
-  op upgradePath:_     : String       -> Attribute [ctor] .
-  op tunnelState:_     : TunnelState  -> Attribute [ctor] .
-  op pendingMsgs:_     : IrcMsgQueue  -> Attribute [ctor] .
   ---- The IRC client actor this WtClient serves (used when relaying responses).
   op ircClientAddr:_   : Address      -> Attribute [ctor] .
 
-  ---- WtServerProxy-specific
-  ---- Maps each WtClient address -> the IRC client address behind it.
-  ---- Reuses ClientAddressMap from IRC_NAMES:
-  ----   makeIrcUserName(wtClientAddr) ~> ircClientAddr
-  op tunnelClientMap:_ : ClientAddressMap -> Attribute [ctor] .
+  ---- WtClient-specific
+  --- The server proxy address.
+  op serverProxyAddr:_ : Address      -> Attribute [ctor] .
+  --- The TLS_NAME.
+  op tlsServerName:_   : String       -> Attribute [ctor] .
+  --- The upgrade path.
+  op upgradePath:_     : String       -> Attribute [ctor] .
+  --- The tunnel state (Closed, Connecting, Open).
+  op tunnelState:_     : TunnelState  -> Attribute [ctor] .
+  --- The queued up byteseq messages.
+  op pendingMsgs:_     : MsgQueue     -> Attribute [ctor] .
 
   ---------------------------------------------------
   --- Actor types
@@ -134,7 +132,7 @@ mod WEBTUNNEL_AUX is
   vars THIS_ADDR PROXY_ADDR IRC_SRV_ADDR IRC_CLIENT_ADDR : Address .
   vars TLS_NAME PATH : String .
 
-  ---            ThisAddr     ProxyAddr    IrcSrvAddr   TlsName  UpgradePath
+  ---               ThisAddr ProxyAddr    IrcSrvAddr   TlsName  UpgradePath
   op makeWtClient : Address  Address      Address      String   String -> Actor .
   eq makeWtClient(THIS_ADDR, PROXY_ADDR, IRC_SRV_ADDR, TLS_NAME, PATH) =
     < THIS_ADDR : WtClient |
@@ -149,13 +147,14 @@ mod WEBTUNNEL_AUX is
     >
   .
 
-  ---                  ThisAddr     IrcSrvAddr
-  op makeWtServerProxy : Address   Address -> Actor .
+  ---                    ThisAddr  IrcSrvAddr 
+  op makeWtServerProxy : Address   Address    -> Actor .
   eq makeWtServerProxy(THIS_ADDR, IRC_SRV_ADDR) =
     < THIS_ADDR : WtServerProxy |
         thisAddr:        THIS_ADDR,
         ircServerAddr:   IRC_SRV_ADDR,
-        tunnelClientMap: emptyClientAddressMap
+        --- There is no client at the other endi yet.
+        ircClientAddr:   nullAddr
     >
   .
 
@@ -164,7 +163,6 @@ mod WEBTUNNEL_AUX is
   ---------------------------------------------------
   vars ATTRS : AttributeSet .
   var  ADDR  : Address .
-  var  CAM   : ClientAddressMap .
   var  TS    : TunnelState .
 
   op getThisAddr        : AttributeSet -> Address .
@@ -182,10 +180,7 @@ mod WEBTUNNEL_AUX is
   op getTunnelState     : AttributeSet -> TunnelState .
   eq getTunnelState((ATTRS, tunnelState: TS)) = TS .
 
-  op getTunnelClientMap : AttributeSet -> ClientAddressMap .
-  eq getTunnelClientMap((ATTRS, tunnelClientMap: CAM)) = CAM .
-
-  op getPendingMsgs     : AttributeSet -> IrcMsgQueue .
+  op getPendingMsgs     : AttributeSet -> MsgQueue .
   eq getPendingMsgs((ATTRS, pendingMsgs: Q)) = Q .
 
   op getTlsServerName   : AttributeSet -> String .
@@ -195,32 +190,12 @@ mod WEBTUNNEL_AUX is
   eq getUpgradePath((ATTRS, upgradePath: PATH)) = PATH .
 
   ---
-  --- size : IrcMsgQueue -> Nat
+  --- size : MsgQueue -> Nat
   --- Returns the number of queued messages.
   ---
-  op size : IrcMsgQueue -> Nat .
+  op size : MsgQueue -> Nat .
   eq size(emptyQueue)      = 0 .
   eq size(enqueue(Q, M))   = 1 + size(Q) .
-
-  ---
-  --- getSrcUser : IrcMsg -> IrcUserName
-  --- Extracts the source IrcUserName from the most common IrcMsg constructors.
-  --- Falls back to nilIrcUserName for unknown shapes.
-  ---
-  var IRC_USER_NAME2 IRC_DEST_NAME : IrcUserName .
-  var IRC_CH_NAME    : IrcChannelName .
-  var MSG_TEXT       : String .
-
-  op getSrcUser : IrcMsg -> IrcUserName .
-  eq getSrcUser(PrivMsgReq(IRC_CH_NAME, IRC_USER_NAME2, MSG_TEXT))
-    = IRC_USER_NAME2 .
-  eq getSrcUser(PrivMsgRes(IRC_CH_NAME, IRC_USER_NAME2, MSG_TEXT))
-    = IRC_USER_NAME2 .
-  eq getSrcUser(JoinChannel(IRC_CH_NAME, ADDR))
-    = makeIrcUserName(ADDR) .
-  eq getSrcUser(Pong(IRC_USER_NAME2, ADDR))
-    = IRC_USER_NAME2 .
-  eq getSrcUser(IRC_MSG) = nilIrcUserName [owise] .
 
   ---------------------------------------------------
   --- Content constructors (wire messages)
@@ -234,8 +209,8 @@ mod WEBTUNNEL_AUX is
 
   --- Bidirectional tunnel data frame carrying an IRC message.
   --- Modeled as HTTP messages to satisfy the requirement that client and server communicate using HTTP messages.
-  op makeHttpRequest : GetRequest IrcMsg -> HttpRequest [ctor] .
-  op makeHttpResponse : String IrcMsg -> HttpResponse [ctor] .
+  op makeHttpRequest : GetRequest ByteSeq -> HttpRequest [ctor] .
+  op makeHttpResponse : String ByteSeq -> HttpResponse [ctor] .
 
   --- Internal control: kick off tunnel establishment.
   --- Not a network message; zero wire size.
@@ -246,7 +221,7 @@ mod WEBTUNNEL_AUX is
   ---------------------------------------------------
   --- These feed into delayParamd via getSize(Content).
 
-  vars IRC_MSG : IrcMsg .
+  vars IRC_MSG : ByteSeq .
   vars NAME PATH2 STATUS_STR : String .
 
   op getSize : Content -> Nat .
@@ -281,49 +256,9 @@ mod WEBTUNNEL_AUX is
 
   vars WT_CLIENT_ADDR IRC_CL_ADDR OLD_ADDR : Address .
 
-  --- Register (or update) a webtunnel client -> IRC client mapping.
-  op registerTunnelClient : ClientAddressMap Address Address
-                            -> ClientAddressMap .
-  eq registerTunnelClient((CAM : (makeIrcUserName(WT_CLIENT_ADDR) ~> OLD_ADDR)),
-                           WT_CLIENT_ADDR, IRC_CL_ADDR)
-    = CAM : (makeIrcUserName(WT_CLIENT_ADDR) ~> IRC_CL_ADDR)
-  .
-  eq registerTunnelClient(CAM, WT_CLIENT_ADDR, IRC_CL_ADDR)
-    = CAM : (makeIrcUserName(WT_CLIENT_ADDR) ~> IRC_CL_ADDR) [owise]
-  .
-
-  --- Look up the IRC client address for a given WtClient address.
-  op lookupIrcClient : ClientAddressMap Address -> Address .
-  eq lookupIrcClient(CAM, WT_CLIENT_ADDR)
-    = getClientAddr(CAM, makeIrcUserName(WT_CLIENT_ADDR))
-  .
-
-  --- Look up the WtClient address for a given IRC client address.
-  --- (Reverse lookup — needed for server->client routing.)
-  op lookupWtClient : ClientAddressMap Address -> Address .
-  eq lookupWtClient(emptyClientAddressMap, IRC_CL_ADDR)
-    = nullAddr
-  .
-  eq lookupWtClient((CAM : (makeIrcUserName(WT_CLIENT_ADDR) ~> IRC_CL_ADDR)),
-                     IRC_CL_ADDR)
-    = WT_CLIENT_ADDR
-  .
-  eq lookupWtClient(CAM, IRC_CL_ADDR) = nullAddr [owise] .
-
-  --- Helper: does a WtClient address appear in the map?
-  op isKnownWtClient : ClientAddressMap Address -> Bool .
-  eq isKnownWtClient((CAM : (makeIrcUserName(WT_CLIENT_ADDR) ~> OLD_ADDR)), WT_CLIENT_ADDR)
-    = true
-  .
-  eq isKnownWtClient(CAM, WT_CLIENT_ADDR)
-    = false [owise]
-  .
-
-  --- Helper: does an IRC client address appear as a *value* in the map?
-  op isKnownIrcClient : ClientAddressMap Address -> Bool .
-  eq isKnownIrcClient(CAM, IRC_CL_ADDR)
-    = lookupWtClient(CAM, IRC_CL_ADDR) =/= nullAddr
-  .
+  --- Helper: is a WtClient address the other end of the tunnel?
+  op isKnownWtClient : Address Address -> Bool .
+  eq isKnownWtClient(OLD_ADDR, WT_CLIENT_ADDR) = (OLD_ADDR == WT_CLIENT_ADDR) .
 
   ---------------------------------------------------
   --- Flush queue: turn pending IrcMsg queue into
@@ -331,7 +266,7 @@ mod WEBTUNNEL_AUX is
   ---------------------------------------------------
   vars FROM_ADDR TO_ADDR : Address .
 
-  op flushQueue : Address Address IrcMsgQueue -> Config .
+  op flushQueue : Address Address MsgQueue -> Config .
   eq flushQueue(FROM_ADDR, TO_ADDR, emptyQueue) = null .
   eq flushQueue(FROM_ADDR, TO_ADDR, enqueue(Q, M))
     = (to TO_ADDR from FROM_ADDR : makeHttpRequest(getRequest, M))
