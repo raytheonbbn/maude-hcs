@@ -31,6 +31,10 @@ def run_cmd_ignore(cmd):
     subprocess.run(cmd, shell=True, stderr=subprocess.DEVNULL)
 
 def setup_environment():
+
+    # clean up in case a previous run didn't teardown properly (needed for Colima environment)
+    teardown_environment()
+
     print("=== Setting up network namespaces ===")
     run_cmd("sudo ip netns add ns_client")
     run_cmd("sudo ip netns add ns_server")
