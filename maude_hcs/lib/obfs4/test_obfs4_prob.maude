@@ -57,7 +57,7 @@ mod OBFS4_TESTS is
 
   ops aliceIrcClient bobIrcClient : -> Actor .
   ops aliceObfs4Client bobObfs4Client : -> Actor .
-  ops obfs4AliceServer obfs4BobServer preconfiguredIrcServer : -> Actor .
+  ops obfs4AliceServer obfs4BobServer ircServer : -> Actor .
   ops aliceIface bobIface aliceServerIface bobServerIface : -> Actor .
 
   eq aliceIrcClient = mkIrcClient(aliceIrcClientAddr,
@@ -81,17 +81,7 @@ mod OBFS4_TESTS is
   .
   eq bobObfs4Client = makeObfs4Node(bobObfs4ClientAddr, bobIfaceAddr, obfs4BobServerAddr) .
 
-  eq preconfiguredIrcServer =
-    < ircServerAddr : IrcServer |
-        thisAddr: ircServerAddr,
-        channelMap: (makeIrcChannelName("#room1") ~> (makeIrcUserName(aliceIrcClientAddr) : makeIrcUserName(bobIrcClientAddr))),
-        clientTimestampMap: emptyClientTimestampMap,
-        clientAddressMap: registerIrcUserAddress(
-                            registerIrcUserAddress(emptyClientAddressMap, 
-                                                   makeIrcUserName(aliceIrcClientAddr), aliceServerIfaceAddr),
-                                                   makeIrcUserName(bobIrcClientAddr), bobServerIfaceAddr)
-    >
-  .
+  eq ircServer = mkIrcServer(ircServerAddr) .
   --- Server Iface facing Alice.
   eq aliceServerIface = mkIrcByteSeqIface(aliceServerIfaceAddr, ircServerAddr, obfs4AliceServerAddr, obfs4AliceServerAddr) .
   --- Obfs4 Server facing Alice.
@@ -115,7 +105,7 @@ mod OBFS4_TESTS is
     bobIrcClient
     bobIface
     bobObfs4Client
-    preconfiguredIrcServer
+    ircServer
     aliceServerIface
     obfs4AliceServer
     bobServerIface
@@ -124,6 +114,10 @@ mod OBFS4_TESTS is
                  (aliceIrcClientAddr ;; bobIrcClientAddr ;; ircServerAddr),
                  (aliceIrcClientAddr ;; bobIrcClientAddr),
                  (rm("#room1", aliceIrcClientAddr ;; bobIrcClientAddr)))
+    [0.20, (to aliceIfaceAddr from aliceIrcClientAddr
+            : JoinChannel(makeIrcChannelName("#room1"), aliceIrcClientAddr)), 0]
+    [0.60, (to bobIfaceAddr from bobIrcClientAddr
+            : JoinChannel(makeIrcChannelName("#room1"), bobIrcClientAddr)), 0]
     [1.0,
       (to aliceIrcClientAddr from aliceIrcClientAddr : ircMsgSendTime),
       0]
