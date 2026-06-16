@@ -30,11 +30,36 @@
 
 sload ../common/maude/_aux
 sload ../common/maude/byteseq
+sload ../common/maude/cp2-interfaces.maude
 
 mod OBFS4_AUX is
   pr CP2_SORTS .
   pr NAT .
   pr BYTESEQ .
+
+  vars THIS LOCAL REMOTE FROM_ADDR : Address .
+
+  op Obfs4Node : -> ActorType [ctor] .
+  
+  --- The address of the upstream node (most likely the translation interface 
+  --- to the IRC client or server.)
+  op localNode:_ : Address -> Attribute [ctor] .
+  --- The address of the channel's remove endpoint.
+  op remoteNode:_ : Address -> Attribute [ctor] .
+  --- The randomizer counter (unused in probabilistic model).
+  op padCtr:_ : Nat -> Attribute [ctor] .
+
+  --- The Obfs4 node is attached to a local translating node
+  --- and has the address of the remote endpoint on the channel.
+  ---                 This    LocalAddr RemoteEndpointAddr
+  op makeObfs4Node :  Address Address   Address -> Actor [ctor] .
+  eq makeObfs4Node(THIS, LOCAL, REMOTE) =
+    < THIS : Obfs4Node |
+        localNode: LOCAL,
+        remoteNode: REMOTE,
+        padCtr: 0
+    >
+  .
 
   --- Abstract serialization to/from ByteSequence
   op toByteseq : Content -> ByteSeq [ctor] .
@@ -45,16 +70,11 @@ mod OBFS4_AUX is
   ---           payload paddingLen
   op obfs4Frame : ByteSeq Nat -> Content [ctor] .
   
-  --- Standalone padding frame appended at the end of bursts in IAT mode 0
-  op obfs4Padding : Nat -> Content [ctor] .
-
   op getSize : Content -> Nat .
   --- Size evaluation mapping abstract Content to byte length
   --- Obfs4 Framing Overhead is 19 bytes per frame: 2 (length) + 1 (type) + 16 (MAC)
   --- Total = 3 + payload size + padding + 16 = payload size + padding + 19.
   eq getSize(obfs4Frame(payload:ByteSeq, pad:Nat)) = nbytes(payload:ByteSeq) + pad:Nat + 19 .
-  
-  eq getSize(obfs4Padding(pad:Nat)) = pad:Nat + 19 .
   
   eq nbytes(toByteseq(MSG:Content)) = getSize(MSG:Content) .
 
