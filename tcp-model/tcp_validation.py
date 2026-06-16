@@ -5,6 +5,7 @@ import socket
 import sys
 import os
 import matplotlib.pyplot as plt
+import concurrent.futures
 
 # Ensure stdout is unbuffered so main process prints interleave correctly with subprocesses
 sys.stdout.reconfigure(line_buffering=True)
@@ -15,132 +16,11 @@ except ImportError:
     print("Scapy is required. Please install it using: pip install scapy")
     sys.exit(1)
 
-# ==============================================================================
-# 1. The Mathematical Model & NumPy Implementation
-# ==============================================================================
-
-# 4-State Gilbert-Elliott Model Parameters (Realistic Aggressive Internet Loss)
-# Models a congested link with ~1.2% overall loss, primarily driven by 2-3 packet tail-drops.
-p13 = 0.005  # 0.5% chance to enter a burst loss (State 1 -> 3)
-p31 = 0.20   # 20% chance to completely exit burst period (State 3 -> 1)
-p32 = 0.40   # 40% chance to enter a successful gap within a burst (State 3 -> 2)
-p23 = 0.30   # 30% chance to drop a packet again within a burst (State 2 -> 3)
-p14 = 0.002  # 0.2% chance of isolated random drop (State 1 -> 4)
-
-# The Exact Netem Macro-Model Transition Matrix
-P = np.array([
-    [1 - p13 - p14, 0.0,             p13,             p14], # State 1: Good
-    [p31,           1 - p23 - p31,   p23,             0.0], # State 2: Good (Gap in Burst)
-    [p31,           p32,             1 - p31 - p32,   0.0], # State 3: Bad (Burst Loss)
-    [1.0,           0.0,             0.0,             0.0]  # State 4: Bad (Isolated Loss)
-])
-L = np.diag([0.0, 0.0, 1.0, 1.0])  # States 1 and 2 are lossless; 3 and 4 are lossy
-D = np.array([[0.01], [0.02], [0.01], [0.05]])
-O = 0.02  # 20ms one-way static propagation delay
-IW = 10
-RTO_init = 1.0
-RTO = 0.2
-
-# 1. Stationary Distribution (pi)
-w, v = np.linalg.eig(P.T)
-idx = np.argmin(np.abs(w - 1.0))
-eigenvector = np.real(v[:, idx])
-pi = (eigenvector / np.sum(eigenvector)).reshape(1, 4)
-
-# 2. Stationary Loss (p_loss)
-p_loss = np.dot(pi, np.dot(L, np.ones((4, 1))))[0, 0]
-
-# 3. Success Matrix (P_succ)
-P_succ = np.dot(np.eye(4) - L, P)
-
-# 4. Base Setup Time (E[T_setup])
-pi_D = np.dot(pi, D)[0, 0]
-E_T_setup = 2 * O + pi_D + (p_loss / (1 - p_loss)) * RTO_init
-
-# TCP Macroscopic Steady State (Padhye et al. with Timeout Penalties)
-# To match the empirical mean under high loss, we MUST include the severe
-# penalty of Retransmission Timeouts (RTO). The Padhye equation calculates
-# the expected time between successful packet deliveries.
-p_event = pi[0, 0] * (p13 + p14) + pi[0, 1] * p23
-
-if p_event > 0:
-    # CUBIC empirically maintains a larger window (approx 13 packets) 
-    # before loss events force a recovery/timeout.
-    W_aimd_cubic = np.sqrt(3.92 / p_event)
-    W_steady = max(1, int(W_aimd_cubic * 1.5))
-    
-    # Expected time per packet 
-    # 1. Base time is dominated by the time to push a window of packets: RTT / W_steady
-    term1 = (2 * O + pi_D) / W_steady
-    
-    # 2. Timeout penalty (Padhye et al.)
-    # Modern Linux uses TCP RACK and SACK which convert many traditional RTOs 
-    # into timer-based Fast Retransmits. We apply a 50% mitigation factor to the RTO penalty.
-    padhye_timeout_prob = min(1.0, 3.0 * np.sqrt((3 * p_event) / 8.0)) * p_event * (1 + 32 * (p_event**2))
-    RACK_MITIGATION = 0.5
-    term2 = (RTO * RACK_MITIGATION) * padhye_timeout_prob
-    
-    E_T_pkt = term1 + term2
-else:
-    W_steady = IW
-    E_T_pkt = (2 * O + pi_D) / W_steady
-
-# 5. Flight Functions
-def expected_delay_flight(f):
-    # TCP Congestion Avoidance Modification:
-    # Under continuous data loss, TCP exits Slow Start after the first flight
-    # and enters Congestion Avoidance. Flight sizes stabilize around W_steady.
-    if f == 1:
-        W_f = IW
-    else:
-        W_f = W_steady
-        
-    # The expected flight delay is the cumulative expected delay of its packets.
-    # This automatically factors in the statistically averaged RTO timeouts.
-    E_delta_f = W_f * E_T_pkt
-    return E_delta_f, W_f
-
-# 6. Segment Calculation (E[T_k])
-def expected_time_k(k):
-    if k <= 0:
-        return 0, 1
-        
-    # Realistic serialization delay for a 1 Gbps link
-    # 1514 bytes (Ethernet frame) * 8 bits / 1,000,000,000 bps = ~0.01211 ms per packet
-    serialization_delay = 0.00001211
-        
-    if k <= IW:
-        index_in_flight = k - 1
-        return E_T_setup + O + pi_D + (index_in_flight * serialization_delay), 1
-        
-    remaining_k = k - IW
-    additional_flights = int(np.ceil(remaining_k / W_steady))
-    F_k = 1 + additional_flights
-        
-    total_time = E_T_setup
-    for f in range(1, F_k):
-        E_delta_f, _ = expected_delay_flight(f)
-        total_time += E_delta_f
-        
-    index_in_flight = k - 1 - (IW + (F_k - 2) * W_steady)
-    total_time += O + pi_D + (index_in_flight * serialization_delay)
-    return total_time, F_k
+from tcp_analytical_model import P, L, O, expected_time_k, get_tc_netem_params
 
 # ==============================================================================
 # 2. Execution Environment & Ground Truth Setup
 # ==============================================================================
-
-def get_tc_netem_params(P, L):
-    """
-    Approximate the NumPy inputs into tc transition parameters.
-    Extracts the 4-state Gilbert-Elliott model transition probabilities from P.
-    """
-    p13 = P[0, 2] * 100
-    p31 = P[2, 0] * 100
-    p32 = P[2, 1] * 100
-    p23 = P[1, 2] * 100
-    p14 = P[0, 3] * 100
-    return p13, p31, p32, p23, p14
 
 def run_cmd(cmd):
     print(f"[CMD] {cmd}")
@@ -241,24 +121,32 @@ if __name__ == "__main__":
             sys.exit(0)
             
     pcap_file = "capture.pcap"
-    M_bytes = 150 * 1448 # enough for ~150 segments
-    num_trials = 20
-    
-    all_trials_data = []
+    client_pcap_file = "client_capture.pcap"
+    M_bytes = 50 * 1448 
+    num_trials = 100
     
     try:
         setup_environment()
         
-        for trial in range(num_trials):
-            print(f"\n=== Starting Trial {trial + 1}/{num_trials} ===")
+        def run_trial(trial):
+            print(f"=== Starting Trial {trial + 1}/{num_trials} ===")
+            pcap_file = f"capture_{trial}.pcap"
+            client_pcap_file = f"client_capture_{trial}.pcap"
+            port = 8888 + trial
             
             if os.path.exists(pcap_file):
                 os.remove(pcap_file)
+            if os.path.exists(client_pcap_file):
+                os.remove(client_pcap_file)
                 
-            port = 8888 + trial
+            # Start client-side tcpdump to capture the first SYN sent by client
+            client_tcpdump_cmd = ["sudo", "ip", "netns", "exec", "ns_client", "tcpdump", "-i", "veth_c", "tcp", "port", str(port), "-w", client_pcap_file]
+            client_tcpdump_proc = subprocess.Popen(client_tcpdump_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
+            # Start server-side tcpdump
             tcpdump_cmd = ["sudo", "ip", "netns", "exec", "ns_server", "tcpdump", "-i", "veth_s", "tcp", "port", str(port), "-w", pcap_file]
             tcpdump_proc = subprocess.Popen(tcpdump_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
             time.sleep(1) # Give tcpdump time to initialize
             
             server_cmd = ["sudo", "ip", "netns", "exec", "ns_server", sys.executable, sys.argv[0], "server", str(port)]
@@ -272,40 +160,96 @@ if __name__ == "__main__":
             server_proc.wait()
             
             time.sleep(1) # Flush packets
-            subprocess.run(["sudo", "pkill", "tcpdump"], stderr=subprocess.DEVNULL)
+            subprocess.run(["sudo", "pkill", "-f", f"tcpdump.*port {port}"], stderr=subprocess.DEVNULL)
             tcpdump_proc.wait()
+            client_tcpdump_proc.wait()
             
             try:
                 packets = rdpcap(pcap_file)
             except Exception as e:
-                print(f"Failed to read pcap file: {e}")
-                continue
+                print(f"Failed to read server pcap file for trial {trial}: {e}")
+                return None
                 
+            try:
+                client_packets = rdpcap(client_pcap_file)
+            except Exception as e:
+                print(f"Failed to read client pcap file for trial {trial}: {e}")
+                client_packets = []
+                
+            # Find the time when the client sent its very first SYN
             t0 = None
-            arrival_times = {} # seq -> timestamp
-            for pkt in packets:
+            for pkt in client_packets:
                 if TCP in pkt and IP in pkt:
                     if pkt[IP].src == "10.0.0.1" and pkt[IP].dst == "10.0.0.2":
                         if pkt[TCP].flags == "S":
-                            if t0 is None:
-                                t0 = float(pkt.time)
-                        elif len(pkt[TCP].payload) > 0:
-                            seq = pkt[TCP].seq
-                            if seq not in arrival_times:
-                                if t0 is not None:
-                                    arrival_times[seq] = float(pkt.time) - t0
+                            t0 = float(pkt.time)
+                            break
+                            
+            # Fallback: estimate from server SYN arrival minus propagation delay O
+            if t0 is None:
+                for pkt in packets:
+                    if TCP in pkt and IP in pkt:
+                        if pkt[IP].src == "10.0.0.1" and pkt[IP].dst == "10.0.0.2":
+                            if pkt[TCP].flags == "S":
+                                t0 = float(pkt.time) - O
+                                break
 
-            if len(arrival_times) > 0:
-                sorted_seqs = sorted(arrival_times.keys())
-                empirical_times = []
-                for seq in sorted_seqs:
-                    empirical_times.append(arrival_times[seq] * 1000.0) # ms
-                
-                first_emp = empirical_times[0]
-                empirical_times = [t - first_emp for t in empirical_times]
-                all_trials_data.append(empirical_times)
+            # Find the client's Initial Sequence Number (ISN) to map seq numbers to segment indices
+            isn = None
+            for pkt in client_packets:
+                if TCP in pkt and IP in pkt:
+                    if pkt[IP].src == "10.0.0.1" and pkt[IP].dst == "10.0.0.2":
+                        if pkt[TCP].flags == "S":
+                            isn = pkt[TCP].seq
+                            break
+            if isn is None:
+                for pkt in packets:
+                    if TCP in pkt and IP in pkt:
+                        if pkt[IP].src == "10.0.0.1" and pkt[IP].dst == "10.0.0.2":
+                            if pkt[TCP].flags == "S":
+                                isn = pkt[TCP].seq
+                                break
+
+            num_segments = M_bytes // 1448
+            segment_arrival_times = [None] * (num_segments + 1)
+
+            if isn is not None and t0 is not None:
+                for pkt in packets:
+                    if TCP in pkt and IP in pkt:
+                        if pkt[IP].src == "10.0.0.1" and pkt[IP].dst == "10.0.0.2":
+                            payload_len = len(pkt[TCP].payload)
+                            if payload_len > 0:
+                                seq = pkt[TCP].seq
+                                relative_seq = (seq - (isn + 1)) % 4294967296
+                                start_k = relative_seq // 1448 + 1
+                                num_segs = int(np.ceil(payload_len / 1448))
+                                
+                                for offset in range(num_segs):
+                                    k_val = start_k + offset
+                                    if 1 <= k_val <= num_segments:
+                                        if segment_arrival_times[k_val] is None:
+                                            segment_arrival_times[k_val] = (float(pkt.time) - t0) * 1000.0 # ms
+
+            if os.path.exists(pcap_file):
+                try: os.remove(pcap_file)
+                except Exception: pass
+            if os.path.exists(client_pcap_file):
+                try: os.remove(client_pcap_file)
+                except Exception: pass
+
+            valid_count = sum(1 for t in segment_arrival_times[1:] if t is not None)
+            if valid_count > 0:
+                return segment_arrival_times[1:]
             else:
-                print("No payload segments captured in this trial.")
+                print(f"No payload segments captured in trial {trial}.")
+                return None
+
+        all_trials_data = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            results = executor.map(run_trial, range(num_trials))
+            for res in results:
+                if res is not None:
+                    all_trials_data.append(res)
 
         if len(all_trials_data) == 0:
             print("No valid data collected across any trials. Exiting.")
@@ -321,6 +265,7 @@ if __name__ == "__main__":
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             empirical_mean = np.nanmean(arrival_matrix, axis=0)
+            empirical_median = np.nanmedian(arrival_matrix, axis=0)
             empirical_std = np.nanstd(arrival_matrix, axis=0)
 
         N = max_k
@@ -333,14 +278,13 @@ if __name__ == "__main__":
                 flights[f_k] = []
             flights[f_k].append(k)
 
-        first_theo = theoretical_times[0]
-        theoretical_times = [t - first_theo for t in theoretical_times]
-
         plt.figure(figsize=(12, 7))
         k_vals = list(range(1, N + 1))
         
         plt.plot(k_vals, theoretical_times, label='Theoretical Model ($E[T_k]$)', color='blue', linewidth=2)
-        plt.errorbar(k_vals, empirical_mean, yerr=empirical_std, fmt='-o', color='red', ecolor='lightcoral', elinewidth=1, capsize=2, markersize=3, label='Empirical Measurements (Mean ± STD)')
+        plt.plot(k_vals, empirical_mean, '-o', color='red', markersize=3, label='Empirical Measurements (Mean)')
+        plt.plot(k_vals, empirical_median, '-^', color='orange', markersize=3, label='Empirical Measurements (Median)')
+        plt.fill_between(k_vals, empirical_mean - empirical_std, empirical_mean + empirical_std, color='lightcoral', alpha=0.3, label='Empirical Measurements (± STD)')
         
         colors = ['#e6f2ff', '#cce5ff']
         for f_k, k_list in flights.items():
