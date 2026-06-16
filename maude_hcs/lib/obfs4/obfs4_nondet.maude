@@ -38,19 +38,12 @@ mod OBFS4 is
 
   op Obfs4Node : -> ActorType [ctor] .
 
-  op localNode:_ : Address -> Attribute [ctor] .
-  op remoteNode:_ : Address -> Attribute [ctor] .
-  op padCtr:_ : Nat -> Attribute [ctor] .
-
   vars THIS LOCAL REMOTE FROM_ADDR : Address .
   vars MSG : Content .
+  vars msg : Msg .
   vars PAD J P PAD1 PAD2 : Nat .
   vars ATTRS : AttributeSet .
   vars BSEQ : ByteSeq .
-
-  op makeObfs4Node : Address Address Address -> Actor [ctor] .
-  eq makeObfs4Node(THIS, LOCAL, REMOTE) =
-    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, padCtr: 0 > .
 
   --- Note
   --- MaximumSegmentLength = 1500 - (40 + 12) (TCP/IP overheads) = 1448
@@ -68,7 +61,7 @@ mod OBFS4 is
     < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, padCtr: s J, ATTRS >
     if PAD + P > 1450 then
       (to REMOTE from THIS : obfs4Frame(toByteseq(MSG), PAD1))
-      (to REMOTE from THIS : obfs4Padding(PAD2))
+      (to REMOTE from THIS : obfs4Frame(noBytes, PAD2))
     else
       (to REMOTE from THIS : obfs4Frame(toByteseq(MSG), PAD))
     fi
@@ -80,21 +73,17 @@ mod OBFS4 is
   .
 
   --- Obfs4 Node: Receive encapsulated message, unwrap, forward to local application
-  rl [obfs4-recv-frame]:
+  crl [obfs4-recv-frame]:
     < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, ATTRS >
     (to THIS from REMOTE : obfs4Frame(BSEQ, PAD))
     =>
     < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, ATTRS >
-    (to LOCAL from THIS : fromByteseq(BSEQ))
+    (if msg == nullMsg then null else msg fi)
+  if msg := (if BSEQ == noBytes
+              then nullMsg
+              else (to LOCAL from THIS : BSEQ)
+            fi)
     [ print "Obfs4Node " THIS " decapsulating msg from " REMOTE " to " LOCAL ]
   .
 
-  --- Obfs4 Node: Discard standalone padding frame
-  rl [obfs4-recv-padding]:
-    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, ATTRS >
-    (to THIS from REMOTE : obfs4Padding(PAD))
-    =>
-    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, ATTRS >
-    [ print "Obfs4Node " THIS " discarding burst padding from " REMOTE ]
-  .
 endm
