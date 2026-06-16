@@ -158,7 +158,7 @@ of the Maude-HCS framework and models
 
 To generate the statistical guarantees along with the samples for
 scenarios 1 through 9 with min number of simulations 120
-and max number of simulations 120, run
+and max number of simulations 120, runistory
 ```bash
 cd $MAUDEHCSHOME/scripts
 python run_cp2_demo.py ../use-cases/challenge-problem-2/cp2_scenarios/ ../results-popets/ 1-12 120 120
@@ -202,10 +202,14 @@ The .json file per scenario has the statistical guarantees.
 The raw samples are also included per scenario, one file per thread.
 These raw samples are combined to generate CDF if needed (not in the paper).
 
-We merged the summary.txt data with the testbed empirical data by hand to create a 
+We merge the summary.txt data with the testbed empirical data by hand to create a 
 comparison file for plotting and regenerating Figure 7.
-The merged file is under 
- './use-cases/challenge-problem-2/cp2_scenarios_tne/comparison_merged.csv'
+The following script auto merges the SMC results and empirical results to generate the
+updated `comparison_mergd.csv` under results-popets
+
+```bash
+python scripts/cp2_merge_smc_tne.py results-popets/summary.txt use-cases/challenge-problem-2/cp2_scenarios_tne/metrics_summary.csv
+```
 
 The `plotfinal2` script compares these statistical estimates against empirical data 
 from the testbed that was provided by an independent test and evaluation team.
