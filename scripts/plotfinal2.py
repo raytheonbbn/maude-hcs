@@ -3,9 +3,9 @@ import csv
 import re
 import numpy as np
 import os
+import sys
 
 # --- Configuration ---
-filename = './use-cases/challenge-problem-2/cp2_scenarios_tne/comparison_merged.csv'
 
 # Increased Font Sizes for better readability
 FONT_TITLE = 22
@@ -116,6 +116,12 @@ def save_comparison_plot(x, y_orig, yerr_orig, y_tne, yerr_tne, title, ylabel, f
 
 # --- Execution ---
 if __name__ == "__main__":
+    #filename = './use-cases/challenge-problem-2/cp2_scenarios_tne/comparison_merged.csv'
+    if len(sys.argv) != 2:
+        print("First arg is <path_to_merged.csv>")
+        sys.exit(1)
+
+    filename = sys.argv[1]
     data = parse_csv_data(filename)
     scenarios = np.arange(1, 13)
 
