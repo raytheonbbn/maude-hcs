@@ -126,7 +126,7 @@ if __name__ == "__main__":
             
     pcap_file = "capture.pcap"
     client_pcap_file = "client_capture.pcap"
-    M_bytes = 50 * 1448 
+    M_bytes = 50 * 1448
     num_trials = 100
     
     try:
@@ -162,11 +162,24 @@ if __name__ == "__main__":
             
             client_proc.wait()
             server_proc.wait()
-            
+
             time.sleep(1) # Flush packets
-            subprocess.run(["sudo", "pkill", "-f", f"tcpdump.*port {port}"], stderr=subprocess.DEVNULL)
-            tcpdump_proc.wait()
-            client_tcpdump_proc.wait()
+
+            # Use direct, safe process handles instead of a global broad pkill
+            try:
+                subprocess.run(["sudo", "kill", "-15", str(tcpdump_proc.pid)], stderr=subprocess.DEVNULL)
+                subprocess.run(["sudo", "kill", "-15", str(client_tcpdump_proc.pid)], stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+
+            # Safe wait with a short definitive timeout to prevent permanent hangs
+            try:
+                tcpdump_proc.wait(timeout=5)
+                client_tcpdump_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Force kill if they refuse to exit smoothly
+                subprocess.run(["sudo", "kill", "-9", str(tcpdump_proc.pid)], stderr=subprocess.DEVNULL)
+                subprocess.run(["sudo", "kill", "-9", str(client_tcpdump_proc.pid)], stderr=subprocess.DEVNULL)
             
             try:
                 packets = rdpcap(pcap_file)
