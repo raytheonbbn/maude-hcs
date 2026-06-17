@@ -341,7 +341,7 @@ mod IODINE_NODE is
   op iodineReady:_ : Bool -> Attribute [ctor] .
   --- The per-packet overhead in bytes.
   op packetOverhead : -> Nat .
-  ---- the TxApp transmitting via this SendApp
+  --- The Alice address.
   op fromAddr:_ : Address -> Attribute [ctor] .
   --- The packet counter.
   op packetCounter:_ : Nat -> Attribute [ctor] .
@@ -591,10 +591,20 @@ mod IODINE_NODE is
   --- Handle a new packet (from Alice) (and bail on an old one).
   ---                   wClient Attributes Packet Max hostname length
   op handleNewPacket : AttributeSet Packet Nat -> AttributeSet .
-  ceq handleNewPacket((wattrs, outSeqNo: OUT_SEQNO, fragmentsToSend: FRAGMENT_LIST, fragmentsSize: NUM_FRAGS, outFragNo: OUT_FRAGNO, numAttempts: NUM_ATTEMPTS),
+  ceq handleNewPacket((wattrs,
+                        outSeqNo: OUT_SEQNO,
+                        fragmentsToSend: FRAGMENT_LIST,
+                        fragmentsSize: NUM_FRAGS,
+                        outFragNo: OUT_FRAGNO,
+                        numAttempts: NUM_ATTEMPTS),
                       packet(ADDR, ADDR1, FILE, N, P_LEN, LAST_PACKET),
                       HOSTNAME_LEN) =
-    wattrs, (outSeqNo: N), (fragmentsToSend: FRAGMENT_LIST'), (fragmentsSize: length(FRAGMENT_LIST'), (outFragNo: 1), (numAttempts: 0))
+    wattrs,
+    (outSeqNo: N),
+    (fragmentsToSend: FRAGMENT_LIST'),
+    (fragmentsSize: length(FRAGMENT_LIST'),
+    (outFragNo: 1),
+    (numAttempts: 0))
       if FRAGMENT_LIST' := makeFragments(packet(ADDR, ADDR1, FILE, N, P_LEN, LAST_PACKET), HOSTNAME_LEN) 
     [ print "Handle new packet, make fragments " FRAGMENT_LIST' ]
     . 
