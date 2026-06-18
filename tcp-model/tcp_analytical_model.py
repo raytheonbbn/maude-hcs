@@ -48,6 +48,7 @@ L = np.diag([0.0, 0.0, 1.0, 1.0])   # Loss indicator per state
 O   = 0.02                       # One-way propagation delay (s)
 RTT = 2 * O                      # Round-trip time (s)
 SER = 1514 * 8 / 1e9             # Per-packet serialization delay at 1 Gbps
+MAX_CWND = 40                    # Physical ceiling for the network path (in segments)
 
 # ─────────────────────── TCP Parameters (Ubuntu 22.04) ───────────────────────
 
@@ -159,6 +160,8 @@ def _handshake():
     pi_end = mix / mix.sum() if mix.sum() > 1e-15 else pi_stat.copy()
     pi_end = pi_end @ P          # advance 1 pkt for the ACK (3rd leg)
     """
+
+    """
     p = p_loss_stat
 
     # E[T_handshake] = RTT  +  Σ_{n=1}^∞ p^n · RTO(n)
@@ -174,6 +177,10 @@ def _handshake():
     # through the channel from stationary.
     pi_end = pi_stat @ P @ P
     return E_T, pi_end
+    """
+
+    # Assume the 3-way handshake completed perfectly on the very first try
+    return RTT, pi_stat @ P @ P
 
 # ==============================================================================
 #  CUBIC Window
@@ -218,9 +225,10 @@ def _build_timeline(max_k=2000):
     # ── Phase 2: Slow Start ──
     W_ss = IW
     last_p0 = 1.0
+
     while seg < max_k:
         p0, pa, el, pi_next = _flight_stats(W_ss, pi)
-        p_l = 1.0 - p0
+        p_l = 1.0 - p0  # Probability that Slow Start ends this flight
 
         # Record arrival times (burst at 1 Gbps)
         for i in range(W_ss):
@@ -229,7 +237,6 @@ def _build_timeline(max_k=2000):
                 times[k] = t + O + i * SER
                 flts[k]  = flt
         seg += W_ss
-        last_p0 = p0
 
         # Expected flight duration:
         #   no loss  → 1 RTT
@@ -239,10 +246,13 @@ def _build_timeline(max_k=2000):
         pi  = pi_next
         flt += 1
 
-        # Exit SS when loss is more likely than not in the next flight
         W_next_ss = W_ss * 2
-        p0_peek, _, _, _ = _flight_stats(W_next_ss, pi)
-        if (1 - p0_peek) > 0.5:
+        p0_next, pa_next, el_next, _ = _flight_stats(W_next_ss, pi)
+
+        # Let it stay in Slow Start until it expects more than 0.5 packet drops on average
+        if el_next > 0.5 or W_ss >= MAX_CWND:
+            # Ensures that transition to Congestion Avoidance adjust window appropriately
+            last_p0 = p0_next
             break
         W_ss = W_next_ss
 
@@ -252,8 +262,11 @@ def _build_timeline(max_k=2000):
     cwnd = last_p0 * (W_ss * 2) + p_l_last * max(W_ss * CUBIC_B, 2.0)
     cwnd = max(2.0, cwnd)
 
+    # Bound the initial window by the physical link ceiling
+    cwnd = max(2.0, min(cwnd, MAX_CWND))
+
     # CUBIC state
-    w_max   = cwnd / CUBIC_B      # infer W_max from post-loss cwnd
+    w_max   = min(cwnd / CUBIC_B, MAX_CWND)
     t_since = 0.0                 # time since last loss (CUBIC clock)
 
     # ── Phase 3: Congestion Avoidance ──
@@ -265,44 +278,63 @@ def _build_timeline(max_k=2000):
         p0, pa, el, pi_next = _flight_stats(W, pi)
         pp = max(0.0, 1.0 - p0 - pa)
 
-        # Segments delivered: partial loss recovers all W via SACK;
-        # all-loss delivers 0 (RTO + retransmit in next epoch).
-        E_del   = (p0 + pp) * W
-        del_int = max(1, int(round(E_del)))
+        # 1. Scale the expected delivery step size to represent a full pipeline 
+        # volume turnover. This stops the model from micro-stepping and 
+        # compounding artificial loss boundaries.
+        E_del = W * (MAX_CWND / max(1.0, cwnd))
 
-        # Epoch duration
-        E_dt = (p0 * RTT
-              + pp * (2 * RTT + RTT * RACK_FRAC)
-              + pa * RTO_MIN)
+        # 2. Map the continuous time step to the exact packet index boundaries
+        seg_start = int(np.floor(seg))
+        seg_end   = int(np.floor(seg + E_del))
 
-        for i in range(del_int):
-            k = seg + i + 1
-            if k <= max_k:
-                times[k] = t + O + i * SER
-                flts[k]  = flt
-        seg += del_int
+        # Calculate the expected time step duration for this flight step
+        #   p0 -> clean RTT
+        #   pp -> SACK recovery overhead
+        #   pa -> Complete loss forces a minimum RTO wait
+        E_dt_nominal = p0 * RTT + pp * (2 * RTT + RTT * RACK_FRAC) + pa * RTO_MIN
+
+        # Smoothly bound the time step by the physical serialization capacity.
+        # As the window saturates, the continuous pipeline time-delta scales down
+        # to match the wire-speed delivery rate instead of dropping to an idle pause.
+        E_dt = max(E_del * SER, E_dt_nominal * (E_del / MAX_CWND))
+
+        # Record arrival times for any packet boundary crossed during this flight step
+        for k_idx in range(seg_start + 1, seg_end + 1):
+            if k_idx <= max_k:
+                # Interpolate sub-flight serialization delay across the continuous window
+                fractional_offset = (k_idx - 1 - seg_start) / max(1.0, E_del)
+                times[k_idx] = t + O + (fractional_offset * W * SER)
+                flts[k_idx]  = flt
+
+        # 3. Accumulate data progress precisely as a float
+        seg += E_del
+        t   += E_dt
         pi   = pi_next
 
-        # ── Window dynamics ──
-        t_since += E_dt
+        # ── Window dynamics (Executed using the elapsed epoch time) ──
 
-        # No-loss: CUBIC growth with Reno friendliness
-        w_no = max(_cubic_w(t_since, w_max), cwnd + 1.0)
-        # Partial loss: CUBIC multiplicative decrease (fast recovery)
-        w_fr = max(cwnd * CUBIC_B, 2.0)
-        # All loss: RTO resets cwnd to 1
-        w_to = 1.0
+        # 1. Update the CUBIC clock cleanly first
+        p_loss_event = pp + pa
+        if p_loss_event > 1e-15:
+            # Shift the maximum window history proportionally based on loss probability
+            w_max = (1.0 - p_loss_event) * w_max + p_loss_event * cwnd
 
-        cwnd_next = p0 * w_no + pp * w_fr + pa * w_to
+            # Smoothly damp the expected time accumulation to reflect backoff probabilities
+            t_since = (1.0 - p_loss_event) * (t_since + E_dt)
+        else:
+            # Advance the timeline clock cleanly by the epoch duration
+            t_since += E_dt
 
-        # Update CUBIC state on loss events
-        p_le = pp + pa
-        if p_le > 1e-15:
-            w_max   = p0 * w_max + p_le * cwnd   # blend W_max
-            t_since = p0 * t_since                # proportional clock reset
+        # 2. Let the window growth track the newly updated clock state
+        w_reno = cwnd + (1.0 / max(1.0, cwnd))
+        w_no   = max(_cubic_w(t_since, w_max), w_reno)
 
-        cwnd = max(1.0, cwnd_next)
-        t   += E_dt
+        # 3. Compute the smooth, blended window target across all 3 outcomes
+        cwnd_next = p0 * w_no + pp * (cwnd * CUBIC_B) + pa * 1.0
+
+        # 4. Enforce the physical path limits
+        cwnd = max(2.0, min(cwnd_next, MAX_CWND))
+
         flt += 1
 
     return times, flts
