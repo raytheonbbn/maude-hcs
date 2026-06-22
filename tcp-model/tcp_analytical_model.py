@@ -1,7 +1,7 @@
 import numpy as np
 
 # ==============================================================================
-# TCP Analytical Model over a 4-State Gilbert-Elliott Channel
+# TCP Analytical Model over a Bidirectional 4-State Gilbert-Elliott Channel
 # ==============================================================================
 #
 # Computes E[T_k]: expected arrival time of the k-th TCP data segment at the
@@ -17,13 +17,13 @@ import numpy as np
 #   - Fast Retransmit / Fast Recovery via SACK
 #   - Retransmission Timeout (RTO) on complete flight loss
 #
-# Channel: 4-state Gilbert-Elliott Markov chain
+# Channel: Bidirectional 4-state Gilbert-Elliott Markov chain
 #   State 0: Good           — packet delivered
 #   State 1: Gap in burst   — packet delivered
 #   State 2: Burst loss     — packet DROPPED
 #   State 3: Isolated loss  — packet DROPPED
 #
-# Loss is asymmetric: only client→server is lossy; ACKs are lossless.
+# Loss is symmetric: applied in both the forward (data) and reverse (ACK) paths.
 # ==============================================================================
 
 # ─────────────────────── Channel Parameters ───────────────────────
@@ -34,14 +34,23 @@ p32 = 0.40    # Burst loss → Gap
 p23 = 0.30    # Gap → Burst loss
 p14 = 0.002   # Good → Isolated loss
 
-P = np.array([
+# Base 4-state Markov transition matrix for a single path direction
+P_base = np.array([
     [1 - p13 - p14, 0.0,           p13,           p14],    # State 0: Good
     [p31,           1 - p23 - p31, p23,           0.0],    # State 1: Gap
     [p31,           p32,           1 - p31 - p32, 0.0],    # State 2: Burst
     [1.0,           0.0,           0.0,           0.0],    # State 3: Isolated
 ])
 
-L = np.diag([0.0, 0.0, 1.0, 1.0])   # Loss indicator per state
+L_base = np.array([0.0, 0.0, 1.0, 1.0])   # Loss indicator vector per single path state
+
+# Construct the joint 16-state Kronecker product environment representing (Forward, Reverse) states
+P = np.kron(P_base, P_base)
+
+# Loss matrices mapping independent path interactions
+# Joint state space index mapped as: (fwd_state * 4) + rev_state
+L_fwd = np.kron(L_base, np.ones(4))
+L_rev = np.kron(np.ones(4), L_base)
 
 # ─────────────────────── Network Parameters ───────────────────────
 
@@ -61,20 +70,26 @@ RACK_FRAC = 0.25    # RACK reordering window ≈ RTT / 4
 
 # ─────────────────────── Derived Quantities ───────────────────────
 
-_N    = 4
-_loss = np.diag(L)                        # [0, 0, 1, 1]
+_N    = 16
 
-# Stationary distribution of the Markov chain
-_vals, _vecs = np.linalg.eig(P.T)
-_i = np.argmin(np.abs(_vals - 1.0))
-pi_stat = np.real(_vecs[:, _i])
-pi_stat = pi_stat / pi_stat.sum()
+# Compute stationary distributions for single path to find baseline roots
+_vals_b, _vecs_b = np.linalg.eig(P_base.T)
+_i_b = np.argmin(np.abs(_vals_b - 1.0))
+pi_stat_base = np.real(_vecs_b[:, _i_b])
+pi_stat_base = pi_stat_base / pi_stat_base.sum()
 
-# Per-packet conditional transition matrices
-M_s = np.diag(1 - _loss) @ P             # Packet delivered
-M_l = np.diag(_loss) @ P                 # Packet lost
+# The stationary distribution of the joint 16-state matrix
+pi_stat = np.kron(pi_stat_base, pi_stat_base)
 
-p_loss_stat = float(pi_stat @ _loss)      # Stationary loss rate
+# Step execution operators tracking delivery over both independent paths
+# For data to succeed: forward must deliver. For ACK to succeed: reverse must deliver.
+M_fwd_ok = np.diag(1.0 - L_fwd) @ P
+M_fwd_drop = np.diag(L_fwd) @ P
+
+M_rev_ok = np.diag(1.0 - L_rev) @ P
+M_rev_drop = np.diag(L_rev) @ P
+
+p_loss_stat = float(pi_stat_base @ L_base)      # Stationary single-path loss rate
 
 # ==============================================================================
 #  Channel Analysis
@@ -82,30 +97,50 @@ p_loss_stat = float(pi_stat @ _loss)      # Stationary loss rate
 
 def _flight_stats(W, pi):
     """
-    Compute loss statistics for a flight of W packets through the GE channel
-    starting from state distribution pi.
+    Compute loss statistics for a flight of W packets through the bidirectional
+    GE channel starting from the 16-state joint distribution pi.
 
-    Simultaneously tracks:
-      v_s : all-success path   → pi · M_s^W   (gives P(0 losses))
-      v_l : all-loss path      → pi · M_l^W   (gives P(W losses))
-      v   : unconditional path → pi · P^W     (gives post-flight state)
-      el  : E[losses]          → Σ (pi · P^i) · loss_vec
-
-    Returns (p0, pa, el, pi_after).
+    Tracks:
+      p0 : probability that all data packets and their ACKs arrive cleanly.
+      pa : probability of complete RTO timeout. This occurs if either all data packets 
+           fail the forward path, or if all returning ACKs fail the reverse path.
+      el : expected total number of packet drop events seen on the path.
     """
-    v_s = pi.copy()
-    v_l = pi.copy()
-    v   = pi.copy()
-    el  = 0.0
+    # 1. Forward Path execution (Data Segment delivery)
+    v_fwd_all_ok = pi.copy()
+    v_fwd_all_drop = pi.copy()
+    v_after_fwd = pi.copy()
+    el_fwd = 0.0
+
     for _ in range(W):
-        el += float(v @ _loss)
-        v_s = v_s @ M_s
-        v_l = v_l @ M_l
-        v   = v @ P
-    p0 = float(np.clip(v_s.sum(), 0, 1))
-    pa = float(np.clip(v_l.sum(), 0, 1))
-    s  = v.sum()
-    return p0, pa, el, (v / s if s > 0 else pi_stat.copy())
+        el_fwd += float(v_after_fwd @ L_fwd)
+        v_fwd_all_ok = v_fwd_all_ok @ M_fwd_ok
+        v_fwd_all_drop = v_fwd_all_drop @ M_fwd_drop
+        v_after_fwd = v_after_fwd @ P
+
+    # 2. Reverse Path execution (ACK delivery tracking back)
+    v_rev_all_ok = v_fwd_all_ok.copy()
+    v_rev_all_drop = v_after_fwd.copy()  # ACKs are generated from whatever survived the forward path
+    v_after_rev = v_after_fwd.copy()
+    el_rev = 0.0
+
+    for _ in range(W):
+        el_rev += float(v_after_rev @ L_rev)
+        v_rev_all_ok = v_rev_all_ok @ M_rev_ok
+        v_rev_all_drop = v_rev_all_drop @ M_rev_drop
+        v_after_rev = v_after_rev @ P
+
+    p0 = float(np.clip(v_rev_all_ok.sum(), 0, 1))
+    
+    p_fwd_fail = float(np.clip(v_fwd_all_drop.sum(), 0, 1))
+    p_rev_fail = float(np.clip(v_rev_all_drop.sum(), 0, 1))
+    # Timeout hits if either direction encounters a complete flight block
+    pa = float(np.clip(p_fwd_fail + (1.0 - p_fwd_fail) * p_rev_fail, 0, 1))
+    
+    el = el_fwd + el_rev
+    s = v_after_rev.sum()
+    
+    return p0, pa, el, (v_after_rev / s if s > 0 else pi_stat.copy())
 
 # ==============================================================================
 #  3-Way Handshake
@@ -113,73 +148,9 @@ def _flight_stats(W, pi):
 
 def _handshake():
     """
-    Expected handshake time and channel state after completion.
-
-    Only the SYN (client→server) traverses the lossy channel.  SYN-ACK
-    (server→client) is lossless.  The ACK (3rd leg) may be lost but the
-    first data segment implicitly ACKs the SYN-ACK, so ACK loss adds no
-    delay.  If a SYN is lost the client retransmits after exponential
-    backoff: 1 s, 2 s, 4 s, …
-
-    We use the stationary loss probability for all SYN attempts because
-    the multi-second RTO gaps between attempts decorrelate the channel
-    in any realistic deployment.  (In netem the chain doesn't advance
-    between packets, but the expected-value contribution from retries is
-    dominated by the massive RTO cost, not the conditional loss rate.)
+    Assume the 3-way handshake completed perfectly on the very first try.
+    Returns the baseline path propagation delays and synchronized end states.
     """
-    
-    """
-    Below is the old code, and it is correct, except the cost of single lost SYN is extremely
-    high and will skew greatly from the practical value because if the first SYN is lost,
-    The tcp experiment starts when the first SYN is transmitted,
-                                                                            -Dylan
-    pi  = pi_stat.copy()
-    E_T = 0.0
-    pw  = 1.0            # probability still waiting
-    rto = RTO_INIT
-    mix = np.zeros(_N)   # weighted end-state mixture
-
-    for _ in range(8):
-        pl = float(pi @ _loss)
-        ps = 1.0 - pl
-        # Success: pay 1 RTT
-        E_T += pw * ps * RTT
-        if ps > 0:
-            pi_s  = (pi * (1 - _loss)) @ P
-            pi_s /= pi_s.sum()
-            mix  += pw * ps * pi_s
-        if pl < 1e-15:
-            break
-        # Failure: pay RTO, advance channel
-        E_T += pw * pl * rto
-        pi_f = (pi * _loss) @ P
-        pi   = pi_f / pi_f.sum() if pi_f.sum() > 1e-15 else pi_stat.copy()
-        pw  *= pl
-        rto *= 2
-
-    pi_end = mix / mix.sum() if mix.sum() > 1e-15 else pi_stat.copy()
-    pi_end = pi_end @ P          # advance 1 pkt for the ACK (3rd leg)
-    """
-
-    """
-    p = p_loss_stat
-
-    # E[T_handshake] = RTT  +  Σ_{n=1}^∞ p^n · RTO(n)
-    # where RTO(n) = RTO_INIT · 2^{n-1}  (exponential backoff)
-    # = RTT + p·RTO_INIT · Σ_{k=0}^∞ (2p)^k = RTT + p·RTO_INIT / (1 − 2p)
-    if 2 * p < 1:
-        E_T = RTT + p * RTO_INIT / (1 - 2 * p)
-    else:
-        # Shouldn't happen for reasonable loss rates; cap at 5 retries
-        E_T = RTT + p * RTO_INIT * 5
-
-    # Channel state after handshake: SYN (1 pkt) + ACK (1 pkt) = 2 pkts
-    # through the channel from stationary.
-    pi_end = pi_stat @ P @ P
-    return E_T, pi_end
-    """
-
-    # Assume the 3-way handshake completed perfectly on the very first try
     return RTT, pi_stat @ P @ P
 
 # ==============================================================================
@@ -363,7 +334,8 @@ def expected_time_k(k):
 
 
 def get_tc_netem_params(P_mat, L_mat):
-    """Convert the transition matrix to tc-netem loss-state percentages."""
-    return (P_mat[0, 2] * 100, P_mat[2, 0] * 100,
-            P_mat[2, 1] * 100, P_mat[1, 2] * 100,
-            P_mat[0, 3] * 100)
+    """Convert the single-path transition matrix to tc-netem loss-state percentages."""
+    # Netem setup pulls from baseline 4-state parameters to initialize individual interfaces
+    return (P_base[0, 2] * 100, P_base[2, 0] * 100,
+            P_base[2, 1] * 100, P_base[1, 2] * 100,
+            P_base[0, 3] * 100)

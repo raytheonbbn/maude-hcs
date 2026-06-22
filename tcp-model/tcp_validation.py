@@ -16,7 +16,7 @@ except ImportError:
     print("Scapy is required. Please install it using: pip install scapy")
     sys.exit(1)
 
-from tcp_analytical_model import P, L, O, expected_time_k, get_tc_netem_params
+from tcp_analytical_model import P_base, L_base, O, expected_time_k, get_tc_netem_params
 
 # ==============================================================================
 # 2. Execution Environment & Ground Truth Setup
@@ -55,15 +55,15 @@ def setup_environment():
     run_cmd("sudo ip netns exec ns_client ip route add default via 10.0.0.2")
     run_cmd("sudo ip netns exec ns_server ip route add default via 10.0.0.1")
     
-    p13, p31, p32, p23, p14 = get_tc_netem_params(P, L)
+    p13, p31, p32, p23, p14 = get_tc_netem_params(P_base, L_base)
     
-    # Apply delay to both sides for RTT. Apply loss strictly to veth_c (client) 
-    # to drop DATA segments, not ACKs.
+    # Apply delay to both sides for RTT. Apply the exact same 4-state Markov loss model to BOTH sides.
+    # This simulates independent, symmetric Gilbert-Elliott drop rates for both directions (DATA segments and ACKs).
     # Apply Netem emulation: 20ms one-way delay, 10 Mbps bandwidth, and bursty loss
     # The 10Mbit rate enforces the exact serialization delay (1.211 ms per 1514B packet) modeled mathematically!
     O_ms = O * 1000
     run_cmd(f"sudo ip netns exec ns_client tc qdisc add dev veth_c root netem delay {O_ms}ms rate 1gbit loss state {p13:.2f}% {p31:.2f}% {p32:.2f}% {p23:.2f}% {p14:.2f}%")
-    run_cmd(f"sudo ip netns exec ns_server tc qdisc add dev veth_s root netem delay {O_ms}ms rate 1gbit")
+    run_cmd(f"sudo ip netns exec ns_server tc qdisc add dev veth_s root netem delay {O_ms}ms rate 1gbit loss state {p13:.2f}% {p31:.2f}% {p32:.2f}% {p23:.2f}% {p14:.2f}%")
 
 def teardown_environment():
     print("=== Tearing down network namespaces ===")
@@ -126,7 +126,7 @@ if __name__ == "__main__":
             
     pcap_file = "capture.pcap"
     client_pcap_file = "client_capture.pcap"
-    M_bytes = 50 * 1448
+    M_bytes = 300 * 1448
     num_trials = 100
     
     try:
@@ -301,7 +301,12 @@ if __name__ == "__main__":
         plt.plot(k_vals, theoretical_times, label='Theoretical Model ($E[T_k]$)', color='blue', linewidth=2)
         plt.plot(k_vals, empirical_mean, '-o', color='red', markersize=3, label='Empirical Measurements (Mean)')
         plt.plot(k_vals, empirical_median, '-^', color='orange', markersize=3, label='Empirical Measurements (Median)')
-        plt.fill_between(k_vals, empirical_mean - empirical_std, empirical_mean + empirical_std, color='lightcoral', alpha=0.3, label='Empirical Measurements (± STD)')
+        
+        # Clip the lower standard deviation bound at 0 ms
+        plt.fill_between(k_vals, 
+                 np.maximum(0, empirical_mean - empirical_std), 
+                 empirical_mean + empirical_std, 
+                 color='lightcoral', alpha=0.3, label='Empirical Measurements (± STD)')
         
         colors = ['#e6f2ff', '#cce5ff']
         for f_k, k_list in flights.items():
