@@ -17,7 +17,8 @@ except ImportError:
     print("Scapy is required. Please install it using: pip install scapy")
     sys.exit(1)
 
-from tcp_analytical_model import P_base, L_base, O, expected_time_k, get_tc_netem_params
+import tcp_analytical_model
+from tcp_analytical_model import O, expected_time_k, get_tc_netem_params
 
 # ==============================================================================
 # 2. Execution Environment & Ground Truth Setup
@@ -56,7 +57,7 @@ def setup_environment():
     run_cmd("sudo ip netns exec ns_client ip route add default via 10.0.0.2")
     run_cmd("sudo ip netns exec ns_server ip route add default via 10.0.0.1")
     
-    p13, p31, p32, p23, p14 = get_tc_netem_params(P_base, L_base)
+    p13, p31, p32, p23, p14 = get_tc_netem_params(tcp_analytical_model.P_base, tcp_analytical_model.L_base)
     
     # Apply delay to both sides for RTT. Apply the exact same 4-state Markov loss model to BOTH sides.
     # This simulates independent, symmetric Gilbert-Elliott drop rates for both directions (DATA segments and ACKs).
@@ -120,22 +121,26 @@ if __name__ == "__main__":
             run_client(sys.argv[2], int(sys.argv[3]), int(sys.argv[4]))
             sys.exit(0)
             
-    # Parse parameter to determine whether to rerun the empirical tests or load cache
+    # ── Parse profile arguments inside the validation orchestrator ──
     parser = argparse.ArgumentParser(description="Orchestrate TCP network validation profiles.")
-    parser.add_argument("--cached", action="store_true", default=False, help="Use cached results instead of re-executing network testbed trials.")
+    parser.add_argument("--cached", action="store_true", default=False, help="Load cached array instead of running network testbed trials.")
+    parser.add_argument("--tc_profile", type=str, default="none", help="Specify loss profile name.")
     args, unknown = parser.parse_known_args()
 
-    cache_file = "empirical_data.npy"
+    # Pass specified profile flag to dynamically update analytical baseline matrices
+    tcp_analytical_model.set_active_profile(args.tc_profile)
+
+    cache_file = f"empirical_data_{args.tc_profile}.npy"
     pcap_file = "capture.pcap"
     client_pcap_file = "client_capture.pcap"
     M_bytes = 300 * 1448
     num_segments = M_bytes // 1448
     
-    num_trials = 3000
+    num_trials = 100
     all_trials_data = []
 
     # Check execution pathway based on caching availability and user parameters
-    should_run_empirical = not (args.cached and os.path.exists(cache_file))
+    should_run_empirical = not args.cached or not os.path.exists(cache_file)
 
     if not should_run_empirical:
         print(f"=== Loading Cached Empirical Measurements: {cache_file} ===")
@@ -264,7 +269,8 @@ if __name__ == "__main__":
                     print(f"No payload segments captured in trial {trial_idx}.")
                     return None
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            # parallelize here by increasing max_workers (but there might be race conditions that cause things to hang)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 results = executor.map(run_trial, range(num_trials))
                 for res in results:
                     if res is not None:
@@ -324,7 +330,7 @@ if __name__ == "__main__":
 
     plt.xlabel('Segment Index ($k$)', fontsize=12)
     plt.ylabel('Relative Arrival Time (ms)', fontsize=12)
-    plt.title(f'TCP Segment Delivery Times ({len(all_trials_data)} Trials)', fontsize=14)
+    plt.title(f'TCP Segment Delivery Times ({len(all_trials_data)} Trials - Profile: {args.tc_profile})', fontsize=14)
     
     handles, labels = plt.gca().get_legend_handles_labels()
     by_label = dict(zip(labels, handles))

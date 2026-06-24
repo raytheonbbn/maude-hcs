@@ -91,6 +91,46 @@ M_rev_drop = np.diag(L_rev) @ P
 
 p_loss_stat = float(pi_stat_base @ L_base)      # Stationary single-path loss rate
 
+# ─────────────────────── Profile Switching Scaffolding ───────────────────────
+PROFILES = {
+    "none":      {"p13": 0.0,     "p31": 1.0,  "p32": 0.0,  "p23": 0.0,  "p14": 0.0},
+    "excellent": {"p13": 0.0005,  "p31": 0.50, "p32": 0.10, "p23": 0.20, "p14": 0.0001},
+    "good":      {"p13": 0.002,   "p31": 0.35, "p32": 0.15, "p23": 0.30, "p14": 0.0005},
+    "fair":      {"p13": 0.005,   "p31": 0.20, "p32": 0.40, "p23": 0.30, "p14": 0.002},
+    "poor":      {"p13": 0.015,   "p31": 0.15, "p32": 0.25, "p23": 0.50, "p14": 0.005},
+    "bad":       {"p13": 0.04,    "p31": 0.10, "p32": 0.30, "p23": 0.60, "p14": 0.015}
+}
+
+def set_active_profile(profile_name):
+    """Dynamically swap global matrices to reflect target loss configurations profile definitions."""
+    global P_base, P, M_fwd_ok, M_fwd_drop, M_rev_ok, M_rev_drop, pi_stat, p_loss_stat, _cache
+    if profile_name not in PROFILES:
+        return
+    prof = PROFILES[profile_name]
+    _p13, _p31, _p32, _p23, _p14 = prof["p13"], prof["p31"], prof["p32"], prof["p23"], prof["p14"]
+    
+    P_base = np.array([
+        [1 - _p13 - _p14, 0.0,           _p13,           _p14],
+        [_p31,           1 - _p23 - _p31, _p23,           0.0],
+        [_p31,           _p32,           1 - _p31 - _p32, 0.0],
+        [1.0,           0.0,           0.0,           0.0],
+    ])
+    P = np.kron(P_base, P_base)
+    
+    _vals_b, _vecs_b = np.linalg.eig(P_base.T)
+    _i_b = np.argmin(np.abs(_vals_b - 1.0))
+    pi_stat_base = np.real(_vecs_b[:, _i_b])
+    pi_stat_base = pi_stat_base / pi_stat_base.sum()
+    pi_stat = np.kron(pi_stat_base, pi_stat_base)
+    
+    M_fwd_ok = np.diag(1.0 - L_fwd) @ P
+    M_fwd_drop = np.diag(L_fwd) @ P
+    M_rev_ok = np.diag(1.0 - L_rev) @ P
+    M_rev_drop = np.diag(L_rev) @ P
+    p_loss_stat = float(pi_stat_base @ L_base)
+    _cache.clear()
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ==============================================================================
 #  Channel Analysis
 # ==============================================================================
@@ -336,6 +376,6 @@ def expected_time_k(k):
 def get_tc_netem_params(P_mat, L_mat):
     """Convert the single-path transition matrix to tc-netem loss-state percentages."""
     # Netem setup pulls from baseline 4-state parameters to initialize individual interfaces
-    return (P_base[0, 2] * 100, P_base[2, 0] * 100,
-            P_base[2, 1] * 100, P_base[1, 2] * 100,
-            P_base[0, 3] * 100)
+    return (np.clip(P_base[0, 2] * 100, 0.0, 100.0), np.clip(P_base[2, 0] * 100, 0.0, 100.0),
+            np.clip(P_base[2, 1] * 100, 0.0, 100.0), np.clip(P_base[1, 2] * 100, 0.0, 100.0),
+            np.clip(P_base[0, 3] * 100, 0.0, 100.0))
