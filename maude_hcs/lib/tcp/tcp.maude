@@ -1,0 +1,539 @@
+--- ================================================================
+--- TCP Analytical Model in Maude
+--- ================================================================
+---
+--- Faithful translation of tcp_analytical_model.py into pure
+--- equational Maude.  Computes E[T_k]: expected arrival time of
+--- the k-th TCP data segment at the server, measured from the
+--- client's first SYN transmission.
+---
+--- Models TCP as implemented in Ubuntu 22.04 (Linux 5.15+):
+---   CUBIC congestion control, SACK, RACK-TLP loss detection,
+---   3-way handshake, Slow Start, Congestion Avoidance,
+---   Fast Retransmit / Fast Recovery via SACK, RTO on total loss.
+---
+--- Channel: 4-state Gilbert-Elliott Markov chain
+---   State 0: Good           -- packet delivered
+---   State 1: Gap in burst   -- packet delivered
+---   State 2: Burst loss     -- packet DROPPED
+---   State 3: Isolated loss  -- packet DROPPED
+---
+--- Loss is asymmetric: only client->server is lossy.
+--- ================================================================
+
+
+--- ================================================================
+--- Module: TCP-LINALG
+---   Fixed-size 4-element vectors and 4x4 matrices with the
+---   linear algebra operations needed by the GE channel model.
+--- ================================================================
+fmod TCP-LINALG is
+  pr FLOAT .
+
+  --- -------- Vec4: 4-element float vector --------
+  sort Vec4 .
+  op v4 : Float Float Float Float -> Vec4 [ctor] .
+
+  --- -------- Mat4: 4x4 matrix as 4 row vectors --------
+  sort Mat4 .
+  op m4 : Vec4 Vec4 Vec4 Vec4 -> Mat4 [ctor] .
+
+  --- Variables
+  vars A B C D A2 B2 C2 D2 S : Float .
+  vars V V2 R0 R1 R2 R3 : Vec4 .
+
+  --- Element-wise addition
+  op vAdd : Vec4 Vec4 -> Vec4 .
+  eq vAdd(v4(A, B, C, D), v4(A2, B2, C2, D2)) =
+     v4(A + A2, B + B2, C + C2, D + D2) .
+
+  --- Element-wise multiplication
+  op vElMul : Vec4 Vec4 -> Vec4 .
+  eq vElMul(v4(A, B, C, D), v4(A2, B2, C2, D2)) =
+     v4(A * A2, B * B2, C * C2, D * D2) .
+
+  --- Scalar multiplication
+  op vScale : Float Vec4 -> Vec4 .
+  eq vScale(S, v4(A, B, C, D)) = v4(S * A, S * B, S * C, S * D) .
+
+  --- Dot product
+  op vDot : Vec4 Vec4 -> Float .
+  eq vDot(v4(A, B, C, D), v4(A2, B2, C2, D2)) =
+     A * A2 + B * B2 + C * C2 + D * D2 .
+
+  --- Sum of elements
+  op vSum : Vec4 -> Float .
+  eq vSum(v4(A, B, C, D)) = A + B + C + D .
+
+  --- Normalize: v / sum(v)
+  op vNorm : Vec4 -> Vec4 .
+  eq vNorm(V) =
+     if vSum(V) > 0.0
+     then vScale(1.0 / vSum(V), V)
+     else v4(2.5e-1, 2.5e-1, 2.5e-1, 2.5e-1)
+     fi .
+
+  --- Row-vector times matrix  (pi @ P in numpy)
+  ---   result[j] = sum_i v[i] * M[i][j]
+  ---   = v[0]*row0 + v[1]*row1 + v[2]*row2 + v[3]*row3
+  op rvMul : Vec4 Mat4 -> Vec4 .
+  eq rvMul(v4(A, B, C, D), m4(R0, R1, R2, R3)) =
+     vAdd(vScale(A, R0),
+       vAdd(vScale(B, R1),
+         vAdd(vScale(C, R2), vScale(D, R3)))) .
+
+  --- Diagonal-matrix times matrix: diag(d) @ M
+  ---   Scales each row i of M by d[i]
+  op diagMul : Vec4 Mat4 -> Mat4 .
+  eq diagMul(v4(A, B, C, D), m4(R0, R1, R2, R3)) =
+     m4(vScale(A, R0), vScale(B, R1),
+        vScale(C, R2), vScale(D, R3)) .
+
+  --- Clip to [0, 1]
+  op clip01 : Float -> Float .
+  eq clip01(A) =
+     if A < 0.0 then 0.0
+     else (if A > 1.0 then 1.0 else A fi)
+     fi .
+endfm
+
+
+--- ================================================================
+--- Module: TCP-ANALYTICAL-MODEL
+---   Channel model, flight analysis, timeline builder, public API.
+--- ================================================================
+fmod TCP-ANALYTICAL-MODEL is
+  pr TCP-LINALG .
+  pr NAT .
+  pr INT .
+  pr CONVERSION .
+
+  --- ============================================================
+  ---  FloatList
+  --- ============================================================
+  sort FloatList .
+  op nilFL : -> FloatList [ctor] .
+  op _::_ : Float FloatList -> FloatList [ctor] .
+
+  vars F G : Float .
+  vars L L1 L2 : FloatList .
+
+  op lenFL : FloatList -> Nat .
+  eq lenFL(nilFL) = 0 .
+  eq lenFL(F :: L) = s(lenFL(L)) .
+
+  op _++_ : FloatList FloatList -> FloatList .
+  eq nilFL ++ L = L .
+  eq (F :: L1) ++ L2 = F :: (L1 ++ L2) .
+
+
+  --- ============================================================
+  ---  Utility functions
+  --- ============================================================
+
+  --- Float -> Nat  (floor, non-negative)
+  --- Uses iterative subtraction; safe for values up to ~10000.
+  op f2n : Float -> Nat .
+  eq f2n(X:Float) =
+     if X:Float < 5.0e-1 then 0
+     else s(f2n(X:Float - 1.0))
+     fi .
+
+  --- Ceiling division for Nats:  ceil(A / B)
+  op ceilDiv : Nat Nat -> Nat .
+  eq ceilDiv(A1:Nat, B1:Nat) =
+     if B1:Nat == 0 then 0
+     else (A1:Nat + sd(B1:Nat, 1)) quo B1:Nat
+     fi .
+
+  --- Round a Float to nearest integer (as Float)
+  op roundF : Float -> Float .
+  eq roundF(X:Float) = floor(X:Float + 5.0e-1) .
+
+  --- Cube root (positive values only; returns 0 for <= 0)
+  op cbrt : Float -> Float .
+  eq cbrt(X:Float) =
+     if X:Float > 0.0
+     then exp(log(X:Float) / 3.0)
+     else 0.0
+     fi .
+
+
+  --- ============================================================
+  ---  TCP / Network Constants (Ubuntu 22.04 defaults)
+  --- ============================================================
+
+  --- Per-packet serialization delay at 1 Gbps (seconds)
+  --- = 1514 bytes * 8 bits / 1e9 bps
+  op serDly : -> Float .
+  eq serDly = 1514.0 * 8.0 / 1.0e9 .
+
+  --- CUBIC constants
+  op cubicC : -> Float .  eq cubicC = 4.0e-1 .
+  op cubicB : -> Float .  eq cubicB = 7.0e-1 .
+
+  --- RACK reordering window fraction (RTT / 4)
+  op rackF : -> Float .   eq rackF = 2.5e-1 .
+
+  --- Minimum retransmission timeout
+  op rtoMinC : -> Float .  eq rtoMinC = 2.0e-1 .
+
+  --- CUBIC W(t) = C * (t - K)^3 + wMax,   K = ((1-B)*wMax/C)^(1/3)
+  --- Returns max(1.0, result)
+  op cubicW : Float Float -> Float .
+  ceq cubicW(T:Float, WM:Float) =
+     max(1.0, cubicC * ((T:Float - K:Float) * (T:Float - K:Float)
+                                             * (T:Float - K:Float)) + WM:Float)
+     if K:Float := cbrt((1.0 - cubicB) * WM:Float / cubicC) .
+
+
+  --- ============================================================
+  ---  Channel Configuration
+  --- ============================================================
+
+  sort ChannelCfg .
+  ---          P      Ms     Ml     lossVec  piStat
+  op chCfg : Mat4   Mat4   Mat4   Vec4     Vec4   -> ChannelCfg [ctor] .
+
+  vars PM MS ML : Mat4 .
+  vars LV PIST : Vec4 .
+  var  CC : ChannelCfg .
+
+  op chP  : ChannelCfg -> Mat4 .
+  op chMs : ChannelCfg -> Mat4 .
+  op chMl : ChannelCfg -> Mat4 .
+  op chLV : ChannelCfg -> Vec4 .
+  op chPi : ChannelCfg -> Vec4 .
+
+  eq chP(chCfg(PM, MS, ML, LV, PIST))  = PM .
+  eq chMs(chCfg(PM, MS, ML, LV, PIST)) = MS .
+  eq chMl(chCfg(PM, MS, ML, LV, PIST)) = ML .
+  eq chLV(chCfg(PM, MS, ML, LV, PIST)) = LV .
+  eq chPi(chCfg(PM, MS, ML, LV, PIST)) = PIST .
+
+
+  --- Build channel config from 5 probabilities
+  ---   p13: Good -> Burst     p31: Burst -> Good
+  ---   p32: Burst -> Gap      p23: Gap -> Burst
+  ---   p14: Good -> Isolated
+  op makeChannel : Float Float Float Float Float -> ChannelCfg .
+  ceq makeChannel(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float) =
+     chCfg(P0:Mat4, MS0:Mat4, ML0:Mat4, LV0:Vec4, PI0:Vec4)
+  if P0:Mat4 := m4(
+       v4(1.0 - P13:Float - P14:Float,  0.0,
+          P13:Float,                     P14:Float),
+       v4(0.0,                           1.0 - P23:Float,
+          P23:Float,                     0.0),
+       v4(P31:Float,                     P32:Float,
+          1.0 - P31:Float - P32:Float,  0.0),
+       v4(1.0,                           0.0,
+          0.0,                           0.0))
+  /\ LV0:Vec4 := v4(0.0, 0.0, 1.0, 1.0)
+  /\ MS0:Mat4 := diagMul(v4(1.0, 1.0, 0.0, 0.0), P0:Mat4)
+  /\ ML0:Mat4 := diagMul(LV0:Vec4, P0:Mat4)
+  /\ PI0:Vec4 := stationaryDist(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float)
+  .
+
+  --- Closed-form stationary distribution for the 4-state GE channel.
+  ---   pi_2 = (p13 / p31) * pi_0
+  ---   pi_1 = (p13 * p32) / (p23 * p31) * pi_0
+  ---   pi_3 = p14 * pi_0
+  ---   pi_0 = 1 / (1 + r1 + r2 + p14)
+  op stationaryDist : Float Float Float Float Float -> Vec4 .
+  ceq stationaryDist(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float) =
+     v4(Pi0:Float, Pi1:Float, Pi2:Float, Pi3:Float)
+  if R1:Float  := (P13:Float * P32:Float) / (P23:Float * P31:Float)
+  /\ R2:Float  := P13:Float / P31:Float
+  /\ Pi0:Float := 1.0 / (1.0 + R1:Float + R2:Float + P14:Float)
+  /\ Pi1:Float := R1:Float * Pi0:Float
+  /\ Pi2:Float := R2:Float * Pi0:Float
+  /\ Pi3:Float := P14:Float * Pi0:Float
+  .
+
+
+  --- ============================================================
+  ---  Flight Statistics
+  --- ============================================================
+
+  --- Result of analysing one flight of W packets
+  sort FlightResult .
+  ---       p0     pa     el     pi_after
+  op fr : Float  Float  Float  Vec4     -> FlightResult [ctor] .
+
+  var FR FR2 : FlightResult .
+
+  op frP0 : FlightResult -> Float .
+  op frPa : FlightResult -> Float .
+  op frEl : FlightResult -> Float .
+  op frPi : FlightResult -> Vec4 .
+  eq frP0(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FP0:Float .
+  eq frPa(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FPA:Float .
+  eq frEl(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FEL:Float .
+  eq frPi(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FV:Vec4 .
+
+  --- flightStats(W, pi, channelCfg)
+  --- Compute loss statistics for a flight of W packets starting
+  --- from channel state distribution pi.
+  op flightStats : Nat Vec4 ChannelCfg -> FlightResult .
+  eq flightStats(W:Nat, V:Vec4, CC) =
+     flightLoop(W:Nat, V:Vec4, V:Vec4, V:Vec4, 0.0, CC) .
+
+  --- flightLoop(remaining, v_s, v_l, v, el, CC)
+  --- Iterates W times:
+  ---   el  += v . lossVec
+  ---   v_s  = v_s @ Ms       (all-success path)
+  ---   v_l  = v_l @ Ml       (all-loss path)
+  ---   v    = v @ P           (unconditional path)
+  op flightLoop : Nat Vec4 Vec4 Vec4 Float ChannelCfg -> FlightResult .
+
+  vars VS VL VU PI PINX : Vec4 .
+  var  EL : Float .
+
+  eq flightLoop(0, VS, VL, VU, EL, CC) =
+     fr(clip01(vSum(VS)), clip01(vSum(VL)), EL,
+        if vSum(VU) > 0.0
+        then vScale(1.0 / vSum(VU), VU)
+        else chPi(CC)
+        fi) .
+
+  eq flightLoop(s(N:Nat), VS, VL, VU, EL, CC) =
+     flightLoop(N:Nat,
+       rvMul(VS, chMs(CC)),
+       rvMul(VL, chMl(CC)),
+       rvMul(VU, chP(CC)),
+       EL + vDot(VU, chLV(CC)),
+       CC) .
+
+
+  --- ============================================================
+  ---  Segment Time Generators
+  --- ============================================================
+
+  --- genSSSegs(i, W, N, seg, baseTime, ser)
+  ---   Generates times for slow-start segments: seg+i+1 .. min(seg+W, N)
+  ---   time_k = baseTime + i * ser
+  op genSSSegs : Nat Nat Nat Nat Float Float -> FloatList .
+  eq genSSSegs(I:Nat, W:Nat, N:Nat, SG:Nat, BT:Float, SR:Float) =
+     if I:Nat >= W:Nat or (SG:Nat + I:Nat + 1) > N:Nat
+     then nilFL
+     else (BT:Float + float(I:Nat) * SR:Float)
+          :: genSSSegs(s(I:Nat), W:Nat, N:Nat, SG:Nat, BT:Float, SR:Float)
+     fi .
+
+  --- genCASegs(kIdx, segEnd, N, segStart, E_del, W, t, O, ser)
+  ---   Generates times for CA segments: kIdx .. min(segEnd, N)
+  ---   fractional_offset = (kIdx - 1 - segStart) / max(1.0, E_del)
+  ---   time_k = t + O + fractional_offset * W * ser
+  op genCASegs : Nat Nat Nat Nat Float Nat Float Float Float -> FloatList .
+  eq genCASegs(KI:Nat, SE:Nat, N:Nat, SS:Nat, ED:Float,
+              W:Nat, T:Float, OW:Float, SR:Float) =
+     if KI:Nat > SE:Nat or KI:Nat > N:Nat
+     then nilFL
+     else (T:Float + OW:Float +
+           ((float(sd(KI:Nat, s(SS:Nat))) / max(1.0, ED:Float))
+            * float(W:Nat) * SR:Float))
+          :: genCASegs(s(KI:Nat), SE:Nat, N:Nat, SS:Nat, ED:Float,
+                      W:Nat, T:Float, OW:Float, SR:Float)
+     fi .
+
+
+  --- ============================================================
+  ---  Slow Start Phase
+  --- ============================================================
+
+  --- SSResult: state after slow start completes
+  sort SSResult .
+  ---         t       seg    flt    pi    times     lastP0   Wss
+  op ssR : Float    Nat    Nat    Vec4  FloatList  Float    Nat
+           -> SSResult [ctor] .
+
+  --- ssLoop(t, seg, flt, pi, Wss, N, O, CC, acc)
+  --- Implements the slow-start while loop from _build_timeline.
+
+  op ssLoop : Float Nat Nat Vec4 Nat Nat Float ChannelCfg FloatList
+              -> SSResult .
+
+  vars T OW RTT0 DT P0 PA PP EDel EDT WM0 TSC0 WR WNO CNX PLOSS : Float .
+  vars CWND CWND0 LP : Float .
+  vars SG SG2 N W FLT WSS WNXT IT : Nat .
+  var  SGS SGE : Nat .
+  var  SEGF : Float .
+  var  ACC : FloatList .
+  var  SX : Bool .
+
+  --- Base case: all segments delivered during SS
+  ceq ssLoop(T, SG, FLT, PI, WSS, N, OW, CC, ACC) =
+     ssR(T, SG, FLT, PI, ACC, 1.0, WSS)
+  if SG >= N .
+
+  --- Recursive case: process one SS flight
+  ceq ssLoop(T, SG, FLT, PI, WSS, N, OW, CC, ACC) =
+     if SX
+     then ssR(T + DT, SG + WSS, s(FLT), PINX, ACC ++ NSEGS:FloatList,
+              frP0(FR2), WSS)
+     else ssLoop(T + DT, SG + WSS, s(FLT), PINX, WNXT,
+                 N, OW, CC, ACC ++ NSEGS:FloatList)
+     fi
+  if SG < N
+  /\ FR:FlightResult := flightStats(WSS, PI, CC)
+  /\ P0 := frP0(FR:FlightResult)
+  /\ PINX := frPi(FR:FlightResult)
+  /\ RTT0 := 2.0 * OW
+  /\ DT := P0 * RTT0 + (1.0 - P0) * (2.0 * RTT0 + RTT0 * rackF)
+  /\ NSEGS:FloatList := genSSSegs(0, WSS, N, SG, T + OW, serDly)
+  /\ WNXT := WSS + WSS
+  /\ FR2 := flightStats(WNXT, PINX, CC)
+  /\ SX := (frEl(FR2) > 5.0e-1 or WSS >= 40)
+  .
+
+
+  --- ============================================================
+  ---  Congestion Avoidance Phase
+  --- ============================================================
+
+  --- caPhase: transition from SS result to CA, then run CA loop
+  op caPhase : SSResult Nat Float ChannelCfg -> FloatList .
+
+  ceq caPhase(ssR(T, SG, FLT, PI, ACC, LP, WSS), N, OW, CC) =
+     if SG >= N
+     then ACC
+     else caLoop(100000, T, float(SG), FLT, PI, CW2:Float, WMX:Float,
+                 0.0, N, OW, CC, ACC)
+     fi
+  if PLL:Float := 1.0 - LP
+  /\ CW0:Float := LP * float(WSS + WSS)
+                   + PLL:Float * max(float(WSS) * cubicB, 2.0)
+  /\ CW1:Float := max(2.0, CW0:Float)
+  /\ CW2:Float := max(2.0, min(CW1:Float, float(40)))
+  /\ WMX:Float := min(CW2:Float / cubicB, float(40))
+  .
+
+  --- caLoop(iter, t, segF, flt, pi, cwnd, wMax, tSince,
+  ---        N, O, CC, acc)
+  --- Implements the congestion-avoidance for-loop from _build_timeline.
+
+  op caLoop : Nat Float Float Nat Vec4 Float Float Float
+              Nat Float ChannelCfg FloatList -> FloatList .
+
+  --- Base: iteration limit
+  eq caLoop(0, T, SEGF, FLT, PI, CWND, WM0, TSC0,
+            N, OW, CC, ACC) = ACC .
+
+  --- Base: all segments delivered
+  ceq caLoop(s(IT), T, SEGF, FLT, PI, CWND, WM0, TSC0,
+             N, OW, CC, ACC) = ACC
+  if SEGF >= float(N) .
+
+  --- Recursive: one CA step
+  ceq caLoop(s(IT), T, SEGF, FLT, PI, CWND, WM0, TSC0,
+             N, OW, CC, ACC) =
+     caLoop(IT, T + EDT, SEGF + EDel, s(FLT), PINX, CWF:Float,
+            WMF:Float, TSCF:Float, N, OW, CC, ACC ++ NS:FloatList)
+  if SEGF < float(N)
+  --- Window as integer
+  /\ W := max(1, f2n(roundF(CWND)))
+  --- Flight statistics
+  /\ FR:FlightResult := flightStats(W, PI, CC)
+  /\ P0  := frP0(FR:FlightResult)
+  /\ PA  := frPa(FR:FlightResult)
+  /\ PINX := frPi(FR:FlightResult)
+  /\ PP  := max(0.0, 1.0 - P0 - PA)
+  --- RTT
+  /\ RTT0 := 2.0 * OW
+  --- Expected delivery step size
+  /\ EDel := float(W) * (float(40) / max(1.0, CWND))
+  --- Integer segment boundaries
+  /\ SGS := f2n(floor(SEGF))
+  /\ SGE := f2n(floor(SEGF + EDel))
+  --- Expected time step
+  /\ EDT0:Float := P0 * RTT0
+                    + PP * (2.0 * RTT0 + RTT0 * rackF)
+                    + PA * rtoMinC
+  /\ EDT := max(EDel * serDly, EDT0:Float * (EDel / float(40)))
+  --- Generate segment times
+  /\ NS:FloatList := genCASegs(s(SGS), SGE, N, SGS, EDel,
+                               W, T, OW, serDly)
+  --- Window dynamics
+  /\ PLOSS := PP + PA
+  /\ WMF:Float :=
+       if PLOSS > 1.0e-15
+       then (1.0 - PLOSS) * WM0 + PLOSS * CWND
+       else WM0
+       fi
+  /\ TSCF0:Float :=
+       if PLOSS > 1.0e-15
+       then (1.0 - PLOSS) * (TSC0 + EDT)
+       else TSC0 + EDT
+       fi
+  /\ WR:Float  := CWND + (1.0 / max(1.0, CWND))
+  /\ WNO:Float := max(cubicW(TSCF0:Float, WMF:Float), WR:Float)
+  /\ CNX:Float := P0 * WNO:Float + PP * (CWND * cubicB) + PA * 1.0
+  /\ CWF:Float := max(2.0, min(CNX:Float, float(40)))
+  /\ TSCF:Float := TSCF0:Float
+  .
+
+  --- Fallback: return accumulated list if conditions cannot be met
+  eq caLoop(IT, T, SEGF, FLT, PI, CWND, WM0, TSC0,
+            N, OW, CC, ACC) = ACC [owise] .
+
+
+  --- ============================================================
+  ---  Public API
+  --- ============================================================
+
+  --- buildTimeline(N, O, CC)
+  ---   Phase 1: Handshake (simplified: first try always succeeds)
+  ---   Phase 2: Slow Start
+  ---   Phase 3: Congestion Avoidance (CUBIC)
+  op buildTimeline : Nat Float ChannelCfg -> FloatList .
+  eq buildTimeline(N, OW, CC) =
+     caPhase(
+       ssLoop(2.0 * OW,       --- t = RTT (handshake cost)
+              0,               --- seg = 0
+              1,               --- flt = 1
+              rvMul(rvMul(chPi(CC), chP(CC)), chP(CC)),  --- pi after handshake
+              10,              --- W_ss = IW = 10
+              N, OW, CC,
+              nilFL),
+       N, OW, CC) .
+
+  --- tcpDeliveryTimes(msgSizeBytes, p13, p31, p32, p23, p14, O)
+  ---   Returns a FloatList of delivery times (seconds) for each
+  ---   TCP data segment.  Index 0 is segment 1, etc.
+  op tcpDeliveryTimes : Nat Float Float Float Float Float Float
+                        -> FloatList .
+  ceq tcpDeliveryTimes(MSZ:Nat, P13:Float, P31:Float, P32:Float,
+                       P23:Float, P14:Float, OW) =
+     buildTimeline(NSeg:Nat, OW, CC0:ChannelCfg)
+  if NSeg:Nat := ceilDiv(MSZ:Nat, 1448)
+  /\ CC0:ChannelCfg := makeChannel(P13:Float, P31:Float, P32:Float,
+                                    P23:Float, P14:Float)
+  .
+
+endfm
+
+
+--- ================================================================
+---  Verification / Test Commands
+--- ================================================================
+
+--- Test 1: Stationary distribution for default channel params
+---   p13=0.005, p31=0.20, p32=0.40, p23=0.30, p14=0.002
+---   Expected: pi ~= (0.9431, 0.0314, 0.0236, 0.0019)
+red stationaryDist(5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3) .
+
+--- Test 2: Flight statistics for a 10-packet flight from stationary
+red flightStats(10,
+      stationaryDist(5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3),
+      makeChannel(5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3)) .
+
+--- Test 3: Full delivery times for 50 segments (50*1448 = 72400 bytes)
+---   Default channel + 20ms one-way delay
+red tcpDeliveryTimes(72400,
+      5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3,
+      2.0e-2) .
+
+--- Test 4: Small message - 10 segments (10*1448 = 14480 bytes)
+red tcpDeliveryTimes(14480,
+      5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3,
+      2.0e-2) .
