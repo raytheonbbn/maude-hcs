@@ -59,8 +59,6 @@ def setup_environment():
     
     # Apply delay to both sides for RTT. Apply the exact same 4-state Markov loss model to BOTH sides.
     # This simulates independent, symmetric Gilbert-Elliott drop rates for both directions (DATA segments and ACKs).
-    # Apply Netem emulation: 20ms one-way delay, 10 Mbps bandwidth, and bursty loss
-    # The 10Mbit rate enforces the exact serialization delay (1.211 ms per 1514B packet) modeled mathematically!
     O_ms = O * 1000
     run_cmd(f"sudo ip netns exec ns_client tc qdisc add dev veth_c root netem delay {O_ms}ms rate 1gbit loss state {p13:.2f}% {p31:.2f}% {p32:.2f}% {p23:.2f}% {p14:.2f}%")
     run_cmd(f"sudo ip netns exec ns_server tc qdisc add dev veth_s root netem delay {O_ms}ms rate 1gbit loss state {p13:.2f}% {p31:.2f}% {p32:.2f}% {p23:.2f}% {p14:.2f}%")
