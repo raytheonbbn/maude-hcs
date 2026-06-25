@@ -1,0 +1,82 @@
+--- MAUDE_HCS: maude_hcs
+--- FTP Server Actor
+---
+
+sload ../../../common/maude/cp2-interfaces
+sload ./ftp_messages.maude
+
+mod FTP-SERVER is
+  inc CP2-COMMON .
+  inc FTP-MESSAGES .
+
+  op FtpServer : -> ActorType .
+
+  op mkFtpServerA : Address -> Actor .
+  eq mkFtpServerA(addr:Address) = < addr:Address : FtpServer | noneAS > .
+
+  vars dAddr cAddr : Address .
+  vars msg : Msg .
+  vars attrs : AttributeSet .
+  vars reqId : Nat .
+  vars cmd arg : String .
+  vars T : Float .
+  vars rj : Nat .
+
+  --- Handling Control Requests
+  rl [rcvFtpReq]:
+    rCtr(rj)
+    {T, (to dAddr from cAddr : ftpReq(reqId, cmd, arg))}
+    < dAddr : FtpServer | attrs >
+  =>
+    rCtr(s rj)
+    < dAddr : FtpServer | attrs >
+    handleReq(dAddr, cAddr, reqId, cmd, arg)
+  [print "(" T ") FtpServer rcvFtpReq " cmd " " arg] .
+
+  op handleReq : Address Address Nat String String -> Config .
+  
+  eq handleReq(dAddr, cAddr, reqId, "NOOP", arg) =
+    [0.0, (to cAddr from dAddr : ftpRes(reqId, "200", "OK")), 0] .
+    
+  eq handleReq(dAddr, cAddr, reqId, "PASV", arg) =
+    [0.0, (to cAddr from dAddr : ftpRes(reqId, "227", "Entering Passive Mode (127,0,0,1,10,20)")), 0] .
+    
+  eq handleReq(dAddr, cAddr, reqId, "CWD", arg) =
+    [0.0, (to cAddr from dAddr : ftpRes(reqId, "250", "Directory successfully changed.")), 0] .
+    
+  --- Data transfers (MLSD, RETR, STOR, APPE)
+  eq handleReq(dAddr, cAddr, reqId, "MLSD", arg) =
+    [0.0, (to cAddr from dAddr : ftpRes(reqId, "150", "File status okay; about to open data connection.")), 0]
+    [0.001, (to cAddr from dAddr : ftpData(reqId, "mock_directory_listing")), 0]
+    [0.002, (to cAddr from dAddr : ftpRes(reqId, "226", "Closing data connection.")), 0] .
+    
+  eq handleReq(dAddr, cAddr, reqId, "RETR", arg) =
+    [0.0, (to cAddr from dAddr : ftpRes(reqId, "150", "File status okay; about to open data connection.")), 0]
+    [0.001, (to cAddr from dAddr : ftpData(reqId, "mock_file_data")), 0]
+    [0.002, (to cAddr from dAddr : ftpRes(reqId, "226", "Closing data connection.")), 0] .
+
+  --- For STOR and APPE, the server responds 150, waits for client to send data, then responds 226.
+  --- Since the server is stateless, we can either:
+  --- A) Respond 150, and when we receive ftpData, respond 226.
+  --- B) Just respond 150 immediately, and the data handler does 226.
+  eq handleReq(dAddr, cAddr, reqId, "STOR", arg) =
+    [0.0, (to cAddr from dAddr : ftpRes(reqId, "150", "File status okay; about to open data connection.")), 0] .
+
+  eq handleReq(dAddr, cAddr, reqId, "APPE", arg) =
+    [0.0, (to cAddr from dAddr : ftpRes(reqId, "150", "File status okay; about to open data connection.")), 0] .
+
+  eq handleReq(dAddr, cAddr, reqId, cmd, arg) =
+    [0.0, (to cAddr from dAddr : ftpRes(reqId, "500", "Command not understood.")), 0] [owise] .
+
+  --- Handling Data Uploads from Client (STOR, APPE)
+  rl [rcvFtpData]:
+    rCtr(rj)
+    {T, (to dAddr from cAddr : ftpData(reqId, arg))}
+    < dAddr : FtpServer | attrs >
+  =>
+    rCtr(s rj)
+    < dAddr : FtpServer | attrs >
+    [0.0, (to cAddr from dAddr : ftpRes(reqId, "226", "Closing data connection.")), 0]
+  [print "(" T ") FtpServer rcvFtpData " arg] .
+
+endm
