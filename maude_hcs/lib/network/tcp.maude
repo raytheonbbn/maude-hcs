@@ -1,0 +1,72 @@
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../../deps/dns_formalization/Maude/common/actor.maude
+
+mod TCP_SOCKET is
+  pr ACTOR-MODEL .
+  --- This indicates that the sending node wants a TCP connection.
+  sorts TcpAddress .
+  subsorts TcpAddress < Address .
+
+  op tcp : Address -> TcpAddress .
+endm
+
+mod TCP_NODE is
+  pr CP2_SORTS .
+  pr ACTOR-MODEL .
+
+  sorts TimePacketList .
+  subsort Float < TimePacketList . *** Allows a single float to be treated as a list
+
+  --- Constructors
+  op nil : -> TimePacketList [ctor] .
+  op __ : TimePacketList TimePacketList -> TimePacketList [ctor assoc id: nil] .
+
+  vars src dst SRC DST : Address .
+  vars attrs attrsNext : AttributeSet .
+  vars content : Content .
+  vars j : Nat .
+
+  op timePacketList:_ : TimePacketList  -> Attribute [ctor] .
+  op nextJ:_          : Nat             -> Attribute [ctor] .
+
+  ---                         Seed  Dst     Src     Content Net attr
+  op getSegmentDistribution : Nat   Address Address Content AttributeSet -> AttributeSet .
+  eq getSegmentDistribution(j, DST, SRC, content, attrs)
+    = (timePacketList: 0.,
+       nextJ: j)
+  .
+
+  op msgDelay : AttributeSet -> Float .
+  eq msgDelay(attrs) = 0.5 .
+
+endm
+
+

@@ -1,0 +1,123 @@
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../common/maude/sampler-x.maude
+sload ../common/maude/_aux.maude
+sload ../../deps/dns_formalization/Maude/common/actor.maude
+
+mod NETWORK_NODE is
+  pr SAMPLER-X .
+  pr CP2_SORTS .
+  pr ACTOR-MODEL .
+
+  vars addr remoteAddr localAddr ADDR REMOTE_ADDR REMOTE_CHANNEL_ADDR LOCAL_ADDR : Address .
+  vars attrs attrsNext attrsTrans CONNECTION_ATTRS : AttributeSet .
+  vars CONNECTION_REUSE : Bool .
+  vars count : Nat .
+
+
+  op NetClient : -> ActorType [ctor] .
+  op NetServer : -> ActorType [ctor] .
+
+  **** Attributes common to client and server.
+  op thisAddr:_           : Address -> Attribute [ctor] .
+  op remoteChannelAddr:_  : Address -> Attribute [ctor] .
+  op remoteEndpointAddr:_ : Address -> Attribute [ctor] .
+  op localIfaceAddr:_     : Address -> Attribute [ctor] .
+
+  **** Attributes for client only.
+  op connectionReuse:_    : Bool    -> Attribute [ctor] .
+  op connectionCount:_    : Nat     -> Attribute [ctor] .
+  **** Attribute for server only.
+  op currentConnection:_  : AttributeSet  -> Attribute [ctor] .
+
+  **** Flow Info attributes.
+  op flowId:_             : Nat     -> Attribute [ctor] .
+
+  ----                This    RemoteChan  RemoteEndpt LocalChan ReuseConnection
+  op makeNetClient :  Address Address     Address     Address   Bool -> Actor .
+  eq makeNetClient(ADDR, REMOTE_CHANNEL_ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
+    = < ADDR : NetClient |
+          thisAddr:           ADDR,
+          remoteChannelAddr:  REMOTE_CHANNEL_ADDR,
+          remoteEndpointAddr: REMOTE_ADDR,
+          localIfaceAddr:     LOCAL_ADDR,
+          connectionReuse:    CONNECTION_REUSE,
+          connectionCount:    0
+      >
+  .
+
+  ---                 This    RemoteEndpt LocalChan
+  op makeNetServer :  Address Address     Address -> Actor .
+  eq makeNetServer(ADDR, REMOTE_ADDR, LOCAL_ADDR)
+    = < ADDR : NetServer |
+          thisAddr: ADDR,
+          remoteEndpointAddr: REMOTE_ADDR,
+          localIfaceAddr:     LOCAL_ADDR,
+          currentConnection:  nilAttrs ****(flowId: 0)
+      >
+  .
+
+  op getLocalIfaceAddr : AttributeSet -> Address .
+  eq getLocalIfaceAddr(attrs, localIfaceAddr: ADDR) = ADDR .
+  eq getLocalIfaceAddr(attrs) = nullAddr [owise] .
+
+  --- Get the channel endpoint address (this thing above the network endpoint).
+  op getRemoteChannelAddr : AttributeSet -> Address .
+  eq getRemoteChannelAddr(attrs, remoteChannelAddr: REMOTE_ADDR) = REMOTE_ADDR [print "Ge remote" ].
+  eq getRemoteChannelAddr(attrs) = nullAddr [owise print "owise"] .
+
+  --- Get the network endpoint address.
+  op getRemoteEndpointAddr : AttributeSet -> Address .
+  eq getRemoteEndpointAddr(attrs, remoteEndpointAddr: REMOTE_ADDR) = REMOTE_ADDR .
+  eq getRemoteEndpointAddr(attrs) = nullAddr [owise] .
+
+  op getConnectionReuse : AttributeSet -> Bool .
+  eq getConnectionReuse(attrs, connectionReuse: CONNECTION_REUSE) = CONNECTION_REUSE .
+  eq getConnectionReuse(attrs) = true [owise] .
+
+  op getCurrentConnection : AttributeSet -> AttributeSet .
+  eq getCurrentConnection(attrs, currentConnection: CONNECTION_ATTRS) 
+    = CONNECTION_ATTRS
+  .
+  eq getCurrentConnection(attrs) = nilAttrs [owise] .
+
+  op getFlowInfo : AttributeSet Msg -> AttributeSetPair .
+  ceq getFlowInfo((attrs, connectionCount: count), msg:Msg) =
+    {attrsNext , (remoteChannelAddr: getRemoteChannelAddr(attrs),
+                  flowId: genRandomX(count))}
+    if attrsNext :=
+        (if getConnectionReuse(attrs)
+            then (attrs, connectionCount: count)
+            else (attrs, connectionCount: s count)
+        fi)
+  .
+
+endm
+

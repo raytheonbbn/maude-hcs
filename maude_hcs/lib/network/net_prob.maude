@@ -1,0 +1,125 @@
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ./_net_aux.maude
+sload ./tcp.maude
+sload ../common/maude/cp2-interfaces.maude
+
+mod NETWORK_CONNECTION is
+  pr CP2-COMMON .
+  pr NETWORK_NODE .
+  pr TCP_NODE .
+  pr TCP_SOCKET .
+
+  vars channelClientAddr channelServerAddr netAddr netClientAddr netServerAddr remoteAddr LOCAL_ADDR REMOTE_ADDR : Address .
+  vars flowAttrs netAttrs netAttrsNext netAttrsTrans logAttrs logAttrsNext pktAttrs : AttributeSet .
+  vars CURRENT_CONNECTION : AttributeSet .
+  vars content : Content .
+  vars T : Float .
+  vars msg : Msg .
+  vars j jNext n : Nat .
+
+  ****************************************************************************
+  **** Network Client Rules
+  ****************************************************************************
+  crl [net-client-req]:
+  rCtr(j)
+  < netAddr : NetClient | (netAttrs, remoteChannelAddr: REMOTE_ADDR) >
+****  < log : Log | logAttrs >
+    {T, (to tcp(REMOTE_ADDR) from channelClientAddr : content)}
+  =>
+  rCtr(jNext)
+  < netAddr : NetClient | netAttrsNext >
+****  < log : Log | logAttrsNext >
+    [delay:Float, msg, 0]
+  if netAttrsTrans := (netAttrs, remoteChannelAddr: REMOTE_ADDR)
+  /\ {netAttrsNext , flowAttrs} := getFlowInfo(netAttrsTrans, (to netAddr from getLocalIfaceAddr(netAttrsTrans) : content))
+    /\ netServerAddr := getRemoteEndpointAddr(netAttrs)
+    /\ (pktAttrs, nextJ: jNext) := getSegmentDistribution(j, netServerAddr, netAddr, content, flowAttrs)
+****      /\ lattrsNext := addPackets(lattrs, T, pattrs)
+    /\ delay:Float := msgDelay(pktAttrs)
+    /\ msg := (to REMOTE_ADDR from channelClientAddr : content 
+                                                    :: flowAttrs)
+    [ print "(" T ") Net client " netAddr " handling request to destination " REMOTE_ADDR ]
+  .
+
+  crl [net-client-resp]:
+  < netAddr : NetClient | (netAttrs, localIfaceAddr:LOCAL_ADDR) >
+  { T,  (to LOCAL_ADDR from remoteAddr : content
+      :: flowAttrs)}
+  =>
+  < netAddr : NetClient | netAttrsNext >
+  [0., (to LOCAL_ADDR from remoteAddr : content), 0]
+  if netAttrsNext := (netAttrs, localIfaceAddr: LOCAL_ADDR)
+    /\ getRemoteChannelAddr(netAttrsNext) == remoteAddr
+  [ print "(" T ") Net client " netAddr " handling response from " remoteAddr ]
+  .
+
+  ****************************************************************************
+  **** Network Server Rules
+  ****************************************************************************
+  rl [net-server-req]:
+  < netAddr : NetServer | (netAttrs,
+                           remoteChannelAddr: REMOTE_ADDR,
+                           localIfaceAddr: LOCAL_ADDR,
+                           currentConnection: CURRENT_CONNECTION) >
+****  < log : Log | lattrs >
+    {T, (to LOCAL_ADDR from remoteAddr : content :: flowAttrs)}
+  =>
+  < netAddr : NetServer | (netAttrs,
+                           remoteChannelAddr: getRemoteChannelAddr(flowAttrs),
+                           localIfaceAddr: LOCAL_ADDR,
+                           currentConnection: flowAttrs) >
+****  < log : Log | lattrs1 >
+  [0., (to LOCAL_ADDR from remoteAddr : content), 0]
+  [ print "(" T ") Net client " netAddr " handling request to destination " LOCAL_ADDR ]
+  .
+
+  crl [net-server-resp]:
+  rCtr(j)
+  < netAddr : NetServer | (netAttrs, remoteChannelAddr: REMOTE_ADDR) >
+****  < log : Log | lattrs >
+    {T, (to tcp(REMOTE_ADDR) from channelServerAddr : content)}
+  =>
+  rCtr(jNext)
+  < netAddr : NetServer | netAttrs >
+****  < log : Log | lattrs1 >
+    [delay:Float, msg, 0]
+  if netAttrsTrans := (netAttrs, remoteChannelAddr: REMOTE_ADDR)
+    /\ flowAttrs := getCurrentConnection(netAttrsTrans)
+    /\ netClientAddr := getRemoteEndpointAddr(netAttrsTrans)
+    /\ (pktAttrs, nextJ: jNext) := getSegmentDistribution(j, netClientAddr, netAddr, content, flowAttrs)
+****      /\ logAttrsNext := addPackets(logAttrs, T, pktAttrs) >
+    /\ delay:Float := msgDelay(pktAttrs)
+    /\ msg := (to REMOTE_ADDR from channelServerAddr : content
+                                                    :: flowAttrs)
+    [ print "(" T ") Net server " netAddr " handling response to destination " REMOTE_ADDR ]
+  .
+
+endm
