@@ -39,6 +39,7 @@ mod SMC_CP3 is
   vars attrs attrs' : AttributeSet .
   vars T T' Tsent Trcvd Tstart Tend Tdeadline Tn : Float .
   vars ADDR ADDR' ircAddr ircAddrFrom ircAddrFrom' ircAddrTo ircAddrTo' : Address .
+  var CO : Content .
 
   vars ircMTL ircMTL' :  MessageTimestampList .
   vars ircRoom ircRoom' : IrcName .
@@ -50,7 +51,6 @@ mod SMC_CP3 is
   var ircUserName : IrcUserName .
   var cMap : NameClientsMap .
 
- 
   vars F F' D : Float .
   var FL FL' : List{Float} .
   vars N N' N'' I J : Nat .
@@ -366,7 +366,6 @@ mod SMC_CP3 is
   eq getMTBF (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = avgDiff(sort(collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) collectDeliveryFailure(ircMTL', Tn, Tstart, Tend))) .
 
   --- Confidentiality (KS Statistic + CUSUM)
-  --- TBD FlowID
 
   sort TimedFloat .
   sort TimedFloatList .
@@ -418,16 +417,63 @@ mod SMC_CP3 is
   op KsStatisticZ : List{Float} List{Float} Float -> Float .
   eq KsStatisticZ (FL, FL', K) = KsDistance(FL, FL') - K .
 
+  sorts FlowId FlowIdList .
+  sort FloatMatrix .
+
+  op flow : Address Address -> FlowId [ctor] .
+  op nilFlow : -> FlowIdList [ctor] .
+  op _::_ : FlowId FlowIdList -> FlowIdList [ctro] .
+
+  vars Fid Fid' : FlowId .
+  var FidList : FlowIdList .
+
+  op inFlowIdList : FlowId FlowIdList -> Bool .
+  eq inFlowIdList (Fid, nilFlow) = false .
+  eq inFlowIdList (Fid, Fid' :: FidList) = if (Fid == Fid') then true else inFlowIdList(Fid, FidList) fi .
+
+  op addFlowIdList : FlowId FlowIdList -> FlowIdList . 
+  eq addFlowIdList (Fid, FidList) = if inFlowIdList(Fid, FidList) then FidList else Fid :: FidList fi .
+
+  op collectFlowId : TimeMsgList -> FlowIdList .
+  eq collectFlowId (nilTML) = nilFlow .
+  eq collectFlowId (tm(T, to ADDR from ADDR' : CO) ; TML) = addFlowIdList(flow(ADDR', ADDR), collectFlowId(TML)) .
+
+  op collectDNSFlowId : TimeMsgList -> FlowIdList .
+  eq collectDNSFlowId (nilTML) = nilFlow .
+  eq collectDNSFlowId (tm(T, to ADDR from ADDR' : QUERY) ; TML) = addFlowIdList(flow(ADDR', ADDR), collectDNSFlowId(TML)) .
+  eq collectDNSFlowId (tm(T, M) ; TML) = collectDNSFlowId(TML) [owise] .
+
+  op collectPreNATFlowId : FlowIdList -> FlowIdList .
+  eq collectPreNATFlowId (nilFlow) = nilFlow .
+  eq collectPreNATFlowId (flow(ADDR, X(ADDR')) :: FidList) = flow(ADDR, ADDR') :: collectPreNATFlowId(FidList) .
+  eq collectPreNATFlowId (Fid :: FidList) = collectPreNATFlowId(FidList) [owise] .
+
+  op isPreNATDNSQuery : Msg -> Bool .
+  eq isPreNATDNSQuery (to X(ADDR) from ADDR' : QUERY) = true .
+  eq isPreNATDNSQuery (M) = false [owise] .
+
   op isDNSQuery : Msg -> Bool .
   eq isDNSQuery (to ADDR from ADDR' : QUERY) = true .
   eq isDNSQuery (M) = false [owise] .
 
+  op isDNSQuery : Content -> Bool .
+  eq isDNSQuery (QUERY) = true .
+  eq isDNSQuery (CO) = false [owise] .
+
   op countDNSQuery : TimeMsgList Float Float -> Nat .
   eq countDNSQuery (nilTML, Tstart, Tend) = 0 .
   eq countDNSQuery (tm(T, M); TML, Tstart, Tend) = 
-    if T >= Tstart and T < Tend and isDNSQuery(M)  
+    if T >= Tstart and T < Tend and isPreNATDNSQuery(M)  
     then 1 + countDNSQuery(TML, Tstart, Tend) 
     else countDNSQuery(TML, Tstart, Tend) fi .
+
+  op countDNSQuery : FlowId TimeMsgList Float Float -> Nat .
+  eq countDNSQuery (Fid, nilTML, Tstart, Tend) = 0 .
+  eq countDNSQuery (Fid, tm(T, to X(ADDR) from ADDR' : CO) ; TML, Tstart, Tend) = 
+    if T >= Tstart and T < Tend and isDNSQuery(CO) and Fid == flow(ADDR', ADDR) 
+    then 1 + countDNSQuery(Fid, TML, Tstart, Tend) 
+    else countDNSQuery(Fid, TML, Tstart, Tend) fi .
+  eq countDNSQuery (Fid, tm(T, M) ; TML, Tstart, Tend) = countDNSQuery(Fid, TML, Tstart, Tend) [owise] .
 
   op compDNSQueryRate : TimeMsgList Float Float -> Float .
   eq compDNSQueryRate (nilTML, Tstart, Tend) = 0.0 .
@@ -435,6 +481,13 @@ mod SMC_CP3 is
     if Tend <= Tstart 
     then 0.0 
     else float(countDNSQuery(TML, Tstart, Tend)) / (Tend - Tstart) fi .
+
+  op compDNSQueryRate : FlowId TimeMsgList Float Float -> Float .
+  eq compDNSQueryRate (Fid, nilTML, Tstart, Tend) = 0.0 . 
+  eq compDNSQueryRate (Fid, TML, Tstart, Tend) = 
+    if Tend <= Tstart
+    then 0.0
+    else float(countDNSQuery(Fid, TML, Tstart, Tend)) / (Tend - Tstart) fi .
 
   op Tesp : -> Float .
   eq Tesp = 1.0e-9 .
@@ -448,8 +501,22 @@ mod SMC_CP3 is
   op collectDNSQueryRate : TimeMsgList Float Float Float -> List{Float} .
   eq collectDNSQueryRate (TML, Tstart, winSize, binSize) = collectDNSQueryRateX(TML, Tstart, Tstart + winSize, binSize) .
 
+  op collectDNSQueryRateX : FlowId TimeMsgList Float Float Float -> List{Float} .
+  eq collectDNSQueryRateX (Fid, TML, T, Tend, binSize) =
+    if (T + binSize) <= (Tend + Tesp)
+    then compDNSQueryRate(Fid, TML, T, T + binSize) collectDNSQueryRateX (Fid, TML, T + binSize, Tend, binSize)
+    else nil fi .
+
+  op collectDNSQueryRate : FlowId TimeMsgList Float Float Float -> List{Float} .
+  eq collectDNSQueryRate (Fid, TML, Tstart, winSize, binSize) = collectDNSQueryRateX(Fid, TML, Tstart, Tstart + winSize, binSize) .
+
+  op collectDNSQueryRateFlow : FlowIdList TimeMsgList Float Float Float -> List{Float} .
+  eq collectDNSQueryRateFlow (nilFlow, TML, Tstart, winSize, binSize) = nil .
+  eq collectDNSQueryRateFlow (Fid :: FidList, TML, Tstart, winSize, binSize) = collectDNSQueryRate(Fid, TML, Tstart, winSize, binSize) collectDNSQueryRateFlow(FidList, TML, Tstart, winSize, binSize) .
+
   op getECDFDNSQueryRate : TimeMsgList Float Float Float -> List{Float} . 
-  eq getECDFDNSQueryRate (TML, Tstart, winSize, binSize) = removeZero(sort(collectDNSQueryRate(TML, Tstart, winSize, binSize))) .
+  --- eq getECDFDNSQueryRate (TML, Tstart, winSize, binSize) = removeZero(sort(collectDNSQueryRate(TML, Tstart, winSize, binSize))) . 
+  eq getECDFDNSQueryRate (TML, Tstart, winSize, binSize) = removeZero(sort(collectDNSQueryRateFlow(collectPreNATFlowId(collectDNSFlowId(TML)), TML, Tstart, winSize, binSize))) .
 
   op getBaselineCDFDNSQueryRate : TimeMsgList Float Float Float -> List{Float} .
   eq getBaselineCDFDNSQueryRate (F0Z, Tstart, Tend, binSize) = getECDFDNSQueryRate(F0Z, Tstart, Tend, binSize) . 
@@ -490,6 +557,13 @@ mod SMC_CP3 is
   op getCUSUM : TimedFloatList Float -> Float . 
   eq getCUSUM (nilTimedFloatList, S) = S .
   eq getCUSUM (timedFloat(T, Z) TFL, S) = getCUSUM(TFL, max2(0.0, S + Z)) . 
+
+  op getTimedCUSUM : TimedFloatList Float Float Float -> Float . 
+  eq getTimedCUSUM (nilTimedFloatList, Tstart, Tend, S) = S .
+  eq getTimedCUSUM (timedFloat(T, Z) TFL, Tstart, Tend, S) = 
+    if (Tstart <= T) and (T <= Tend)
+    then getTimedCUSUM(TFL, Tstart, Tend, max2(0.0, S + Z)) 
+    else getTimedCUSUM(TFL, Tstart, Tend, max2(0.0, S)) fi .
 
   op alarmCUSUM : Float Float -> Bool .
   eq alarmCUSUM (S, H) = S >= H .
