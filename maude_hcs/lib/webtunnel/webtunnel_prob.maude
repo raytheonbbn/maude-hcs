@@ -61,6 +61,10 @@ mod WEBTUNNEL is
   vars j j1 : Nat .
   vars smsgs : Config .
 
+  --- The transport to be used for WebTunnel.
+  --- It can be nothing (transport(any:Address) = any:Address) or tcp.
+  op transport : Address -> Address .
+
   ---------------------------------------------------
   --- Webtunnel-specific timing constant
   ---
@@ -89,7 +93,7 @@ mod WEBTUNNEL is
   < THIS_ADDR : WtClient | tunnelState: Connecting, attrs >
     smsgs
   if {smsgs, j1} := delayMsgsX(j,
-       (to getServerProxyAddr(attrs) from THIS_ADDR
+       (to transport(getServerProxyAddr(attrs)) from THIS_ADDR
          : makeHttpRequest(getRequest, url("https://" + getTlsServerName(attrs) + "/" + getUpgradePath(attrs)))),
        null)
   [ print "(" T ") WtClient " THIS_ADDR " initiating tunnel." ]
@@ -121,7 +125,7 @@ mod WEBTUNNEL is
   < THIS_ADDR : WtClient | tunnelState: Open, ircClientAddr: newIrcClientAddr, attrs >
     smsgs
   if {smsgs, j1} := delayMsgsX(j,
-       (to getServerProxyAddr(attrs) from THIS_ADDR : makeHttpRequest(getRequest, IRC_MSG)),
+       (to transport(getServerProxyAddr(attrs)) from THIS_ADDR : makeHttpRequest(getRequest, IRC_MSG)),
        null)
     /\ newIrcClientAddr := (if OLD_ADDR == nullAddr
                             then IRC_CLIENT_ADDR
@@ -180,7 +184,7 @@ mod WEBTUNNEL is
       attrs >
     --- Schedule WtConnected with WtConnectOverhead to model TLS+HTTP 101 latency.
     [WtConnectOverhead,
-     (to WT_CLIENT_ADDR from THIS_ADDR : makeHttpResponse("101 Switching Protocols")),
+     (to transport(WT_CLIENT_ADDR) from THIS_ADDR : makeHttpResponse("101 Switching Protocols")),
      0]
   [ print "(" T ") WtServerProxy " THIS_ADDR " accepted tunnel from " WT_CLIENT_ADDR "." ]
   .
@@ -222,7 +226,7 @@ mod WEBTUNNEL is
   if WT_CLIENT_ADDR := getIrcClientAddr(attrs)
     /\ isKnownWtClient(WT_CLIENT_ADDR, WT_CLIENT_ADDR)
     /\ {smsgs, j1} := delayMsgsX(j,
-         (to WT_CLIENT_ADDR from THIS_ADDR : makeHttpResponse("OK", IRC_MSG)),
+         (to transport(WT_CLIENT_ADDR) from THIS_ADDR : makeHttpResponse("OK", IRC_MSG)),
          null)
   [ print "(" T ") WtServerProxy " THIS_ADDR " routing " IRC_MSG
           " to tunnel " WT_CLIENT_ADDR "." ]
