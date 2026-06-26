@@ -57,6 +57,11 @@ mod S3_PROTOCOL is
   vars headers : S3HeaderList .
   vars data : ByteSeq .
   
+  --- The transport to be used for S3.
+  --- It can be nothing (transport(any:Address) = any:Address) or tcp.
+  op transport : Address -> Address .
+  eq transport(any:Address) = any:Address [owise] .
+
   -----------------------------------------------------------
 --- SDK CLIENT RULES (Translate internal abstract -> S3 HTTP)
 -----------------------------------------------------------
@@ -78,7 +83,7 @@ mod S3_PROTOCOL is
        header("Host", BUCKET + ".s3.amazonaws.com") ;; 
        header("Expect", "100-continue") ;;
        header("Content-Length", string(getSize(DATA), 10))
-    /\ msg := (to AWS_ADDR from CLIENT
+    /\ msg := (to transport(AWS_ADDR) from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET + "/" + UUID,
                   "HTTP/1.1",
@@ -102,7 +107,7 @@ mod S3_PROTOCOL is
   if headers :=
         header("x-amz-request-id", string(ID, 10)) ;; 
         header("Host", BUCKET + ".s3.amazonaws.com")
-    /\ msg := (to AWS_ADDR from CLIENT
+    /\ msg := (to transport(AWS_ADDR) from CLIENT
         : HttpS3Req("GET",
                     "/" + BUCKET + "/" + UUID,
                     "HTTP/1.1",
@@ -124,7 +129,7 @@ mod S3_PROTOCOL is
  if headers :=
      header("x-amz-request-id", string(ID, 10)) ;;
      header("Host", BUCKET + ".s3.amazonaws.com")
-   /\ msg := (to AWS_ADDR from CLIENT
+   /\ msg := (to transport(AWS_ADDR) from CLIENT
       : HttpS3Req("DELETE",
                   "/" + BUCKET + "/" + UUID,
                   "HTTP/1.1", 
@@ -151,7 +156,7 @@ mod S3_PROTOCOL is
        header("Host", "s3.amazonaws.com") ;; 
        header("Expect", "100-continue") ;; 
        header("Content-Length", "100")
- /\ msg := (to AWS_ADDR from CLIENT
+ /\ msg := (to transport(AWS_ADDR) from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET,
                   "HTTP/1.1",
@@ -174,7 +179,7 @@ crl [sdk-put-policy]:
         header("Host", BUCKET + ".s3.amazonaws.com") ;;
         header("Expect", "100-continue") ;;
         header("Content-Length", string(length(POLICY), 10))
-  /\ msg := (to AWS_ADDR from CLIENT
+  /\ msg := (to transport(AWS_ADDR) from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET + "?policy",
                   "HTTP/1.1", 
@@ -197,7 +202,7 @@ crl [sdk-put-policy]:
       header("Host", BUCKET + ".s3.amazonaws.com") ;; 
       header("Expect", "100-continue") ;; 
       header("Content-Length", "100")
-    /\ msg := (to AWS_ADDR from CLIENT
+    /\ msg := (to transport(AWS_ADDR) from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET + "?publicAccessBlock",
                   "HTTP/1.1", 
@@ -224,7 +229,7 @@ crl [sdk-put-policy]:
     smsgs
   if REQ_ID == string(ID, 10)
     /\ msg := 
-       (to AWS_ADDR from CLIENT : HttpS3ReqBody("/" + BUCKET + "/" + UUID, ID, DATA))
+       (to transport(AWS_ADDR) from CLIENT : HttpS3ReqBody("/" + BUCKET + "/" + UUID, ID, DATA))
     /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
   [ print "(" T ") " "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Body Chunk for Request-ID: " ID ] 
   .
@@ -244,7 +249,7 @@ crl [sdk-put-policy]:
     /\ data := restToByteSeq("<CreateBucketConfiguration><LocationConstraint>" + 
                               S3_REGION +
                               "</LocationConstraint></CreateBucketConfiguration>")
-    /\ msg := (to AWS_ADDR from CLIENT
+    /\ msg := (to transport(AWS_ADDR) from CLIENT
                : HttpS3ReqBody("/" + BUCKET, ID, data))  
     /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
   [ print "(" T ") "  "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Body XML for Request-ID: " ID ]
@@ -262,7 +267,7 @@ crl [sdk-put-policy]:
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutBucketPolicyReq(BUCKET, POLICY) [ ADDR ])), attrs >
     smsgs
   if REQ_ID == string(ID, 10)
-    /\ msg := (to AWS_ADDR from CLIENT
+    /\ msg := (to transport(AWS_ADDR) from CLIENT
       : HttpS3ReqBody("/" + BUCKET + "?policy", ID,
                       restToByteSeq(POLICY)))
     /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
@@ -284,7 +289,7 @@ crl [sdk-put-policy]:
   if REQ_ID == string(ID, 10)
     /\ data := 
         restToByteSeq("<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>")
-    /\ msg := (to AWS_ADDR from CLIENT
+    /\ msg := (to transport(AWS_ADDR) from CLIENT
         : HttpS3ReqBody("/" + BUCKET + "?publicAccessBlock",ID,data))
     /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
   [ print "(" T ") " "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Access Block XML for Request-ID: " ID ]
@@ -429,7 +434,7 @@ crl [sdk-put-policy]:
   rCtr(j1)
   < AWS_ADDR : AwsS3HttpServer | attrs >
     smsgs
-  if msg := (to ADDR from AWS_ADDR
+  if msg := (to transport(ADDR) from AWS_ADDR
               : HttpS3Res(100,
                           "HTTP/1.1",
                           header("x-amz-request-id", REQ_ID),
@@ -447,7 +452,7 @@ crl [sdk-put-policy]:
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
     smsgs
   if msg :=  
-     (to ADDR from AWS_ADDR
+     (to transport(ADDR) from AWS_ADDR
       : HttpS3Res(200,
                   "HTTP/1.1",
                   header("x-amz-request-id", string(ID, 10)),
@@ -468,7 +473,7 @@ crl [sdk-put-policy]:
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: (DATA_MAP ; (URI -> BODY)), attrs >
     smsgs
   if msg :=
-    (to ADDR from AWS_ADDR
+    (to transport(ADDR) from AWS_ADDR
       : HttpS3Res(200,
                   "HTTP/1.1",
                   header("x-amz-request-id", REQ_ID),
@@ -490,7 +495,7 @@ crl [sdk-put-policy]:
     smsgs
   if not hasKey(DATA_MAP, URI)
     /\ msg :=
-        (to ADDR from AWS_ADDR
+        (to transport(ADDR) from AWS_ADDR
           : HttpS3Res(404,
                       "HTTP/1.1",
                       header("x-amz-request-id", REQ_ID),
@@ -510,7 +515,7 @@ crl [sdk-put-policy]:
   rCtr(j1)
   < AWS_ADDR : AwsS3HttpServer | s3DataMap: deleteObject(dataMap, URI), attrs >
     smsgs
-  if msg := (to ADDR from AWS_ADDR
+  if msg := (to transport(ADDR) from AWS_ADDR
             : HttpS3Res(204,
                         "HTTP/1.1",
                         header("x-amz-request-id", REQ_ID),

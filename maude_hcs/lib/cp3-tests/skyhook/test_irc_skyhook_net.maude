@@ -1,0 +1,502 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+***(
+(Retranscribed by AI)
+
++--------------------+  +------------------------------------------+  +------------------+
+|     Alice IRC      |  |                  Server IRC              |  |     Bob IRC      |
++---------+----------+  +--------+------------------------+--------+  +--------+---------+
+          |                      |                        |                    |
++---------v----------+  +--------v-----------+  +---------v--------+  +--------v---------+
+|     Alice          |  |   Server Alice     |  |     Server Bob   |  |    Alice         |
+|     SH PU          |  |    SH AH           |  |     SH AH        |  |    SH PU         |
+|     puaAddr        |  |    ahaAddr         |  |     ahbAddr      |  |    pubAddr       |
++---------+----------+  +--------+-----------+  +---------+--------+  +--------+---------+
+          |                      |                        |                    |
++---------v----------+  +--------v-----------+  +---------v--------+  +--------v---------+
+|     Alice S3 Cl    |  |   Server Alice     |  |     Server Bob   |  |    Bob S3 Cl     |
+|                    |  |    S3 Cl           |  |     S3 Cl        |  |                  |
+|     sdkacAddr      |  |    sdkasAddr       |  |     sdkbsAddr    |  |    sdkbcAddr     |
++---------+----------+  +--------+-----------+  +---------+--------+  +--------+---------+
+          |                      |                        |                    |
++---------v----------+  +--------v-----------+  +---------v--------+  +--------v---------+
+|     Alice Net Cl   |  |  ServerAliceNetCl  |  |   ServerBobNetCl |  |    Bob Net Cl    |
+|  aliceNetClientAddr|  |serverAliceNetClient|  |serverBobNetClient|  | bobNetClientAddr |
++---------+----------+  +--------+-----------+  +---------+--------+  +--------+---------+
+          |                      |                        |                    |
+      ....|....              ....|....                ....|....            ....|....
+          |                      |                        |                    |
++---------+----------+  +--------+-----------+  +---------+--------+  +--------+---------+
+|S3AliceNetServerAddr|  | S3ServerAliceNet   |  |   S3ServerBobNet |  |S3BobNetServerAddr|
+|                    |  |    ServerAddr      |  |     ServerAddr   |  |                  |
+| s3AliceNetServer   |  | s3ServerAliceNetCl |  |  s3ServerBobNet  |  |  s3BobNetServer  |
++---------+----------+  +--------+-----------+  +---------+--------+  +--------+---------+
+          |                      |                        |                    |
+          +----------------------+------------+-----------+--------------------+
+                                              |
+                                  +-----------+---------+
+                                  |       s3SrvAddr     |
+                                  |                     |
+                                  |        S3Server     |
+                                  +---------------------+
+)
+
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+---- raceboat  user models
+sload ../../../deps/dns_formalization/Maude/common/apmaude
+sload ../../common/maude/user-action-actor
+sload skyhook-um-mamodel-1
+
+**** sload ../../../common/maude/http-overhead.maude
+
+---- irc 
+sload ../../irc/common/irc_name
+sload ../../irc/common/irc-msg-model
+sload ../../irc/common/_aux
+sload ../../irc/irc_prob
+
+---- this should go in a scenario dir
+sload ../../common/maude/cp2-interfaces.maude
+sload ../../irc/irc_monitor
+
+------ raceboat 4 skyhook
+sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
+
+----- skyhook
+
+sload ../../skyhook/skyhook_prob
+sload ../../s3/s3_protocol
+
+sload ../../network/net_prob.maude
+
+mod IRC-RB-SKYHOOK-SCENARIO is
+  inc SCHEDULER .
+  inc USER-ACTION-ACTOR .
+  inc SKYHOOK-UM-MAMODEL-1 .
+  inc IRC .
+  pr IRC-DISPATCHER-INTERFACE .
+  inc CONTENT-MANAGER-SIMPLE-BI .
+  inc SKYHOOK .
+  inc S3_PROTOCOL .
+  inc IRC_MONITOR .
+  pr TCP_SOCKET .
+  pr NETWORK_NODE .
+  pr NETWORK_CONNECTION .
+ 
+vars j : Nat .
+
+eq encOH(fsize:Nat,ksize:Nat)  = 0 .
+eq noiseMin(msg:Msg) = 0.001 .
+
+**** addresses
+*** alice
+ops aliceAddr ircaAddr : -> Address .
+**** alice channel endpoint interfaces
+ops ifaceACAddr ifaceASAddr : -> Address .
+
+*** client endpoint ac
+ops umacAddr  cmacAddr puaAddr sdkacAddr : -> Address .
+*** server endpoint as
+ops umasAddr  cmasAddr ahaAddr sdkasAddr : -> Address .
+
+*** Net clients
+ops aliceNetClientAddr  serverAliceNetClientAddr  : -> Address .
+
+*** bob
+ops bobAddr ircbAddr : -> Address .
+**** bobs channel endpoint interfaces
+ops ifaceBCAddr ifaceBSAddr : -> Address .
+
+*** client endpoint  ..bc.. 
+ops umbcAddr  cmbcAddr pubAddr sdkbcAddr : -> Address .
+*** server endpoint ..bs..
+ops umbsAddr  cmbsAddr ahbAddr sdkbsAddr : -> Address .
+
+*** Net clients
+ops bobNetClientAddr  serverBobNetClientAddr  : -> Address .
+
+ops ircSrvAddr  s3SrvAddr : -> Address .
+op ircMonitorAddr : -> Address .
+
+*** Net servers
+*** Facing IRC clients
+ops s3AliceNetServerAddr s3BobNetServerAddr             : -> Address .
+*** Facing IRC server
+ops s3ServerAliceNetServerAddr s3ServerBobNetServerAddr : -> Address .
+
+-----------------------
+**** actors
+*** alice
+op ircaAct : -> Actor .
+ops ifaceACAct ifaceASAct : -> Actor .
+
+*** client endpoint ac
+ops umacAct  cmacAct puaAct sdkacAct : -> Actor .
+*** server endpoint as
+ops umasAct  cmasAct ahaAct sdkasAct : -> Actor .
+
+*** Net clients
+ops aliceNetClient  serverAliceNetClient  : -> Actor .
+
+*** bob
+op ircbAct : -> Actor .
+ops ifaceBCAct ifaceBSAct : -> Actor .
+
+*** client endpoint  ..bc.. 
+ops umbcAct  cmbcAct pubAct sdkbcAct : -> Actor .
+*** server endpoint ..bs..
+ops umbsAct  cmbsAct ahbAct sdkbsAct : -> Actor .
+
+*** Net clients
+ops bobNetClient  serverBobNetClient  : -> Actor .
+
+ops ircSrvAct  s3SrvAct : -> Actor .
+op ircMonitorAct : -> Actor .
+*** Net servers
+*** Facing IRC clients
+ops s3AliceNetServer s3BobNetServer             : -> Actor .
+*** Facing IRC server
+ops s3ServerAliceNetServer s3ServerBobNetServer : -> Actor .
+
+************** actor defns
+**** TODO: Change this to match testbed.
+op room1DML : -> IrcMsgDelayList .
+eq room1DML =
+  imd( 0.000,"#room1",279) ::
+  imd( 8.989,"#room1",258) ::
+  imd(38.913,"#room1",171) ::
+  imd(58.978,"#room1",127) ::
+  imd(68.549,"#room1",111) ::
+  imd(119.482,"#room1",381)
+.
+
+***** aliceIrc
+eq ircaAct =
+  mkIrcClient(ircaAddr, ifaceACAddr, "alice", room1DML) .
+  
+**** TEST-PKG2 uses 2.0 3.5 5.4
+eq ifaceACAct =
+   mkIrcByteSeqIface(ifaceACAddr,ircaAddr,
+                     cmacAddr,cmacAddr) .
+
+**** alice client rb endpoint
+eq umacAct = 
+   mkUMactor(umacAddr,skyhook-um-mamodel-1-ma,cmacAddr) 
+   .
+eq cmacAct = 
+    mkCMSimpleBi(cmacAddr,ifaceACAddr,puaAddr) .
+
+
+**** buckets: "bucket:a2s"  "bucket:s2a"  
+**** uuidSeeds: "uuid:a2s"  "uuid:s2a"  
+eq puaAct = makeSkyhookPU(
+          puaAddr,
+          cmacAddr,  --- rbc0Tos0Addr
+          sdkacAddr,  ---  s3Client0Tos0Addr,
+          "s_to_c_bucket_a",
+          "c_to_s_bucket_a",
+          "s_to_c_uuid_a",  --- fetch
+          "c_to_s_uuid_a-hash" --- post
+                ----"c_to_s_uuid_a"
+          )
+      .
+eq sdkacAct = makeS3Client(sdkacAddr, s3SrvAddr) .
+
+***  alice server endpoint
+eq ifaceASAct =
+   mkIrcByteSeqIface(ifaceASAddr,ircSrvAddr,
+                     cmasAddr,cmasAddr) .
+
+eq umasAct = 
+   mkUMactor(umasAddr,skyhook-um-mamodel-1-ma,cmasAddr) 
+   .
+eq cmasAct = 
+    mkCMSimpleBi(cmasAddr,ifaceASAddr,ahaAddr) .
+
+eq ahaAct = mkSkyhookAH(ahaAddr,
+              cmasAddr,  ---- rbs0Toc0Addr,
+              sdkasAddr, 
+                      ---- s3Client0Toc0Addr,
+              "c_to_s_bucket_a",
+              "s_to_c_bucket_a",
+              "c_to_s_uuid_a",
+              "s_to_c_uuid_a",
+              "s_to_c_uuid_a",   ---"post_uuid_a"
+              1
+              )
+.
+
+eq sdkasAct = makeS3Client(sdkasAddr, s3SrvAddr) .
+
+eq aliceNetClient = makeNetClient(aliceNetClientAddr,
+                                  s3SrvAddr,
+                                  s3AliceNetServerAddr,
+                                  sdkacAddr,
+                                  true)
+.
+eq serverAliceNetClient = makeNetClient(serverAliceNetClientAddr,
+                                        s3SrvAddr,
+                                        s3ServerAliceNetServerAddr,
+                                        sdkasAddr,
+                                        true)
+.
+
+********************************
+*** bob
+***** bob Irc 
+eq ircbAct = mkIrcClient(ircbAddr, ifaceBCAddr) .
+
+eq ifaceBCAct =
+   mkIrcByteSeqIface(ifaceBCAddr,ircbAddr,
+                     cmbcAddr,cmbcAddr) .
+
+**** bob client rb endpoint
+eq umbcAct = 
+   mkUMactor(umbcAddr,skyhook-um-mamodel-1-ma,cmbcAddr) 
+   .
+eq cmbcAct = 
+    mkCMSimpleBi(cmbcAddr,ifaceBCAddr,pubAddr) .
+
+**** buckets: "bucket:a2s"  "bucket:s2a"  
+**** uuidSeeds: "uuid:a2s"  "uuid:s2a"  
+eq pubAct = makeSkyhookPU(
+          pubAddr,
+          cmbcAddr,  --- rbc0Tos0Addr
+          sdkbcAddr,  ---  s3Client0Tos0Addr,
+          "s_to_c_bucket_b",
+          "c_to_s_bucket_b",
+          "s_to_c_uuid_b",
+          "c_to_s_uuid_b-hash")
+      .
+
+eq sdkbcAct = makeS3Client(sdkbcAddr, s3SrvAddr) .
+
+eq bobNetClient = makeNetClient(bobNetClientAddr,
+                                s3SrvAddr,
+                                s3BobNetServerAddr,
+                                sdkbcAddr,
+                                true)
+.
+eq serverBobNetClient = makeNetClient(serverBobNetClientAddr,
+                                      s3SrvAddr,
+                                      s3ServerBobNetServerAddr,
+                                      sdkbsAddr,
+                                      true)
+.
+
+***  alice server endpoint
+eq ifaceBSAct =
+   mkIrcByteSeqIface(ifaceBSAddr,ircSrvAddr,
+                     cmbsAddr,cmbsAddr) .
+
+eq umbsAct = 
+   mkUMactor(umbsAddr,skyhook-um-mamodel-1-ma,cmbsAddr) 
+   .
+eq cmbsAct = 
+    mkCMSimpleBi(cmbsAddr,ifaceBSAddr,ahbAddr) .
+
+eq ahbAct = mkSkyhookAH(ahbAddr,
+                  cmbsAddr,  ---- rbs0Toc0Addr,
+                  sdkbsAddr, ---- s3Client0Toc0Addr,
+                  "c_to_s_bucket_b",
+                  "s_to_c_bucket_b",
+                  "c_to_s_uuid_b",
+                  "s_to_c_uuid_b",
+                  "s_to_c_uuid_b", ---- "post_uuid_b"
+              1
+              )
+.
+
+eq sdkbsAct = makeS3Client(sdkbsAddr, s3SrvAddr) .
+
+
+******** global actors
+eq s3SrvAct  = makeS3Server(s3SrvAddr) .
+
+eq s3AliceNetServer       = makeNetServer(s3AliceNetServerAddr,
+                                          aliceNetClientAddr,
+                                          s3SrvAddr)
+.
+eq s3BobNetServer         = makeNetServer(s3BobNetServerAddr,
+                                          bobNetClientAddr,
+                                          s3SrvAddr)
+.
+eq s3ServerAliceNetServer = makeNetServer(s3ServerAliceNetServerAddr,
+                                          serverAliceNetClientAddr,
+                                          s3SrvAddr)
+.
+eq s3ServerBobNetServer   = makeNetServer(s3ServerBobNetServerAddr,
+                                          serverBobNetClientAddr,
+                                          s3SrvAddr)
+.
+
+**** makeIrcServer takes an unused address arg
+eq ircSrvAct =
+    < ircSrvAddr : IrcServer |
+        thisAddr: ircSrvAddr,
+        channelMap: emptyNameClientsMap,
+        clientTimestampMap: emptyClientTimestampMap,
+        clientAddressMap: emptyClientAddressMap
+    >
+  .
+
+eq ircMonitorAct = 
+    makeIrcMonitor(ircMonitorAddr,
+                  (ircSrvAddr ;; ircaAddr ;; ircbAddr)) .  
+                
+------------ end actors               
+
+eq transport(any:Address) = tcp(any:Address) .
+
+op LinkType-2 : -> AttributeSet .
+eq LinkType-2 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.005),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+**** ircc-if-rb...pu-skdc === s3srv sdkbcAddr s3SrvAddr
+**** ircs ifs-rbs--ah-skds ==== s3srv sdkbsAddr
+
+eq LinkData =
+  aaa(s3SrvAddr,sdkacAddr,LinkType-2)
+  aaa(s3SrvAddr,sdkasAddr,LinkType-2)
+  aaa(s3SrvAddr,sdkbcAddr,LinkType-2)
+  aaa(s3SrvAddr,sdkbsAddr,LinkType-2)
+ 
+  aaa(sdkacAddr,s3SrvAddr,LinkType-2)
+  aaa(sdkasAddr,s3SrvAddr,LinkType-2)
+  aaa(sdkbcAddr,s3SrvAddr,LinkType-2)
+  aaa(sdkbsAddr,s3SrvAddr,LinkType-2)
+.
+ 
+op initState : Nat -> Config .
+eq initState(j ) =
+  rCtr(j + 8)
+******* alice 
+  ircaAct 
+*** alice client endpoint
+  ifaceACAct
+  umacAct  cmacAct
+  puaAct
+  sdkacAct
+**** alice server endpoint
+  ifaceASAct
+  umasAct cmasAct
+  ahaAct
+  sdkasAct
+*** Net clients
+  aliceNetClient
+  serverAliceNetClient 
+
+******* bob
+  ircbAct 
+**** bob client endpoint
+  ifaceBCAct
+  umbcAct cmbcAct
+  pubAct
+  sdkbcAct
+***** bob server endpoint
+  ifaceBSAct
+  umbsAct cmbsAct
+  ahbAct
+  sdkbsAct
+*** Net clients
+  bobNetClient
+  serverBobNetClient
+   
+**** global
+  ircSrvAct s3SrvAct
+  ircMonitorAct
+*** Net servers
+  s3AliceNetServer
+  s3BobNetServer
+  s3ServerAliceNetServer
+  s3ServerBobNetServer
+   
+**** start messages  
+**** alice channel  
+  [1.0 + genRandomX(j,0.0, 0.0001),
+   (to umacAddr from umacAddr : actionR("ok")),0]
+  [1.0  + genRandomX(s s j,0.0, 0.0001),
+    (to umasAddr from umasAddr : actionR("ok")),0]
+
+**** bob channel   
+  [1.0 + genRandomX(j + 4,0.0, 0.0001),
+   (to umbcAddr from umbcAddr : actionR("ok")),0]
+  [1.0  + genRandomX(j + 6,0.0, 0.0001),
+   (to umbsAddr from umbsAddr : actionR("ok")),0]
+
+**** start ahAlice
+    [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
+**** start ahBob
+    [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
+
+**** start alice
+  [0.25, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
+**** start bob
+  [0.33, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
+**** alice joins with cnx rb server send addr
+**** if sent by alice, it would come from rcv addr!!
+  [0.40, (to ircSrvAddr from ifaceASAddr : 
+        JoinChannel(makeIrcChannelName("#room1"), ircaAddr)),
+     0]
+  [0.5, (to ircSrvAddr from ifaceBSAddr :
+       JoinChannel(makeIrcChannelName("#room1"), ircbAddr)),
+     0]
+.
+
+op slimit : -> Float .
+eq slimit = 1000.0 .
+
+op initConfig : -> Config .
+rl[init]: initConfig 
+   => run({0.0 | nil} initState(counter),slimit) .
+
+ endm
+**** eof
+ red "Alice,Bob join ab, Alice,Bob send 3 texts ircMonitor" .
+**** red initState(0) .
+set print attribute on .
+ rew initConfig .
+ q
+ eof
+
+  
