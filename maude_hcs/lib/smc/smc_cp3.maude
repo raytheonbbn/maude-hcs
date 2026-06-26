@@ -124,15 +124,15 @@ mod SMC_CP3 is
   op getIrcSrv : Config -> Actor .
   eq getIrcSrv (C < ADDR : IrcServer | attrs >) = < ADDR : IrcServer | attrs > .
 
-  --- to be extracted from Monitor 
   op isIrcServerAddr : Address -> Bool .
-  eq isIrcServerAddr (ADDR) = (ADDR == ircSrvAddr) . 
+  eq isIrcServerAddr (ADDR) = (ADDR == ircServerAddr) . 
 
-  op allClientsAddr : -> AddrList . 
-  eq allClientsAddr = ircaAddr ; ircbAddr ; irccAddr . 
-      ---getAddressesFromUserNames(makeIrcUserName(ircaAddr) : makeIrcUserName(ircbAddr) : makeIrcUserName(irccAddr)) .
+  op makeIrcUserNameList : AddrList -> IrcUserNameList .
+  eq makeIrcUserNameList (nil) = emptyIrcUserNameList .
+  eq makeIrcUserNameList (ADDR ; aList) = makeIrcUserName (ADDR) : makeIrcUserNameList(aList) . 
+
   op allClientsUserName : -> IrcUserNameList . 
-  eq allClientsUserName = makeIrcUserName(ircaAddr) : makeIrcUserName(ircbAddr) : makeIrcUserName(irccAddr) .
+  eq allClientsUserName = makeIrcUserNameList(allClientsAddr) .
 
   op inAddrList : Address AddrList -> Bool .
   eq inAddrList (ADDR, nil) = false . 
@@ -140,7 +140,6 @@ mod SMC_CP3 is
 
   op isIrcClientAddr : Address -> Bool .
   eq isIrcClientAddr (ADDR) = inAddrList(ADDR, allClientsAddr) .
-  -------- 
 
   op countMsgs : MessageTimestampList -> Nat .
   eq countMsgs (nilMessageTimestampList) = 0 .
