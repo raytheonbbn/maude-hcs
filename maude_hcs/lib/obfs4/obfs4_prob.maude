@@ -48,6 +48,9 @@ mod OBFS4 is
   vars T : Float .
   vars ATTRS : AttributeSet .
 
+  op transport : Address -> Address .
+  eq transport(any:Address) = any:Address [owise] .
+
   --- Note
   --- MaximumSegmentLength = 1500 - (40 + 12) (TCP/IP overheads) = 1448
   --- FrameOverhead = lengthLength (2) + secretbox.Overhead (16) = 18
@@ -70,10 +73,10 @@ mod OBFS4 is
     /\ PAD1 := if P <= 1450 then sd(1450, P) else 0 fi
     /\ PAD2 := sd(PAD, PAD1)
     /\ msgs := if PAD + P > 1450 then
-                 (to REMOTE from THIS : obfs4Frame(BSEQ, PAD1))
-                 (to REMOTE from THIS : obfs4Frame(noBytes, PAD2))
+                 (to transport(REMOTE) from THIS : obfs4Frame(BSEQ, PAD1))
+                 (to transport(REMOTE) from THIS : obfs4Frame(noBytes, PAD2))
                else
-                 (to REMOTE from THIS : obfs4Frame(BSEQ, PAD))
+                 (to transport(REMOTE) from THIS : obfs4Frame(BSEQ, PAD))
                fi
     /\ {scheduledMsgs, jnext} := delayMsgsX(s j, msgs, null)
     [ print "(" T ") Obfs4Node " THIS " encapsulating msg from " LOCAL ", appending " PAD "B padding and sending " msgs ]

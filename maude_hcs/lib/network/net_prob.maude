@@ -50,34 +50,38 @@ mod NETWORK_CONNECTION is
   ****************************************************************************
   crl [net-client-req]:
   rCtr(j)
-  < netAddr : NetClient | (netAttrs, remoteChannelAddr: REMOTE_ADDR) >
+  < netAddr : NetClient | (netAttrs,
+                           remoteChannelAddr: REMOTE_ADDR,
+                           localIfaceAddr: LOCAL_ADDR) >
 ****  < log : Log | logAttrs >
-    {T, (to tcp(REMOTE_ADDR) from channelClientAddr : content)}
+    {T, (to tcp(REMOTE_ADDR) from LOCAL_ADDR : content)}
   =>
   rCtr(jNext)
   < netAddr : NetClient | netAttrsNext >
 ****  < log : Log | logAttrsNext >
     [delay:Float, msg, 0]
-  if netAttrsTrans := (netAttrs, remoteChannelAddr: REMOTE_ADDR)
-  /\ {netAttrsNext , flowAttrs} := getFlowInfo(netAttrsTrans, (to netAddr from getLocalIfaceAddr(netAttrsTrans) : content))
+  if netAttrsTrans := (netAttrs, remoteChannelAddr: REMOTE_ADDR, localIfaceAddr: LOCAL_ADDR)
+    /\ {netAttrsNext , flowAttrs} := getFlowInfo(netAttrsTrans, (to netAddr from getLocalIfaceAddr(netAttrsTrans) : content))
     /\ netServerAddr := getRemoteEndpointAddr(netAttrs)
     /\ (pktAttrs, nextJ: jNext) := getSegmentDistribution(j, netServerAddr, netAddr, content, flowAttrs)
 ****      /\ lattrsNext := addPackets(lattrs, T, pattrs)
     /\ delay:Float := msgDelay(pktAttrs)
-    /\ msg := (to REMOTE_ADDR from channelClientAddr : content 
-                                                    :: flowAttrs)
-    [ print "(" T ") Net client " netAddr " handling request to destination " REMOTE_ADDR " with flow (" flowAttrs ")." ]
+    /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : content 
+                                              :: flowAttrs)
+    [ print "(" T ") Net client " netAddr " handling request, sending " msg "." ]
   .
 
-  crl [net-client-resp]:
-  < netAddr : NetClient | (netAttrs, localIfaceAddr: LOCAL_ADDR) >
-    { T,  (to LOCAL_ADDR from remoteAddr : content :: flowAttrs)}
+  rl [net-client-resp]:
+  < netAddr : NetClient | (netAttrs,
+                           remoteChannelAddr: REMOTE_ADDR,
+                           localIfaceAddr: LOCAL_ADDR) >
+    {T, (to LOCAL_ADDR from REMOTE_ADDR : content :: flowAttrs)}
   =>
-  < netAddr : NetClient | netAttrsNext >
-  [0., (to LOCAL_ADDR from remoteAddr : content), 0]
-  if netAttrsNext := (netAttrs, localIfaceAddr: LOCAL_ADDR)
-    /\ getRemoteChannelAddr(netAttrsNext) == remoteAddr
-  [ print "(" T ") Net client " netAddr " handling response from " remoteAddr ", decapsulating transport." ]
+  < netAddr : NetClient | (netAttrs,
+                           remoteChannelAddr: REMOTE_ADDR,
+                           localIfaceAddr: LOCAL_ADDR) >
+    [0., (to LOCAL_ADDR from REMOTE_ADDR : content), 0]
+  [ print "(" T ") Net client " netAddr " handling response from " REMOTE_ADDR ", decapsulating transport." ]
   .
 
   ****************************************************************************
@@ -115,7 +119,7 @@ mod NETWORK_CONNECTION is
 ****      /\ logAttrsNext := addPackets(logAttrs, T, pktAttrs) >
     /\ delay:Float := msgDelay(pktAttrs)
     /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
-    [ print "(" T ") Net server " netAddr " handling response to destination " REMOTE_ADDR " with flow (" flowAttrs ")." ]
+    [ print "(" T ") Net server " netAddr " handling response, sending " msg "." ]
   .
 
 endm
