@@ -34,7 +34,6 @@ load ../common/_mas_aux
 mod MASTODON is
   inc CP2-COMMON .
   inc MASAUX .
- *** inc DNS .
   
   vars raceboatCl ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
   vars attrs attrsNext : AttributeSet .
@@ -51,6 +50,19 @@ mod MASTODON is
   vars T : Float . ---timestamp
   vars URL : Url .
 
+  --- The transport to be used for Mastodon.
+  --- It can be nothing (transport(any:Address) = any:Address) or tcp.
+  op transport : Address -> Address .
+  eq transport(any:Address) = any:Address [owise] .
+
+  op insertTransport : Msg -> Msg .
+  eq insertTransport((to DEST:Address from SRC:Address : content:Content))
+    = (to transport(DEST:Address) from SRC:Address : content:Content)
+  .
+  eq insertTransport((to transport(DEST:Address) from SRC:Address : content:Content))
+    = (to transport(DEST:Address) from SRC:Address : content:Content)
+  .
+
   -------------------------------
   --- [Mastodon Client] --- Rules
   -------------------------------
@@ -61,7 +73,7 @@ mod MASTODON is
   => 
   < MAS_CLIENT_ADDR : MasClient | attrsNext >
   --- TODO: Figure out what the correct delay should be.
-    (if msgOut == nullMsg then null else delayMsgs(msgOut, null) fi)
+    (if msgOut == nullMsg then null else delayMsgs(insertTransport(msgOut), null) fi)
   if {attrsNext, msgOut} := handleReply(httpResponse, attrs)
     /\ opStack:OpStack := getOpStack(attrsNext)
   [print "(" T ") Mastodon Client " MAS_CLIENT_ADDR " handling HTTP Response from Server, sending " msgOut]
@@ -75,7 +87,7 @@ mod MASTODON is
   => 
   < MAS_CLIENT_ADDR : MasClient | attrsNext >
     --- TODO: Figure out what the correct delay should be.
-    delayMsgs(msgOut, null)
+    delayMsgs(insertTransport(msgOut), null)
   if { attrsNext, msgOut } := dispatchRaceboatCommand(attrs, raceboatReq)
     /\ opStack:OpStack := getOpStack(attrsNext)
   [ print "(" T ") Mastodon Client " MAS_CLIENT_ADDR " handling command " raceboatReq " from Raceboat, sending " msgOut ]
@@ -97,7 +109,7 @@ mod MASTODON is
   rCtr(s j)
   < MAS_SERVER_ADDR : MasServer | attrsNext >
     --- TODO: Figure out what the correct delay should be.
-    delayMsgs(msgOut, null)
+    delayMsgs(insertTransport(msgOut), null)
   if { attrsNext, msgOut } := handleRequest((to MAS_SERVER_ADDR from MAS_CLIENT_ADDR : REQ:Content), j, attrs)
   [print "(" T ") Mastodon Server handling HTTP Request, sending " msgOut]
   .
