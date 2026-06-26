@@ -29,8 +29,10 @@
 --- MAUDE_HCS: end
 
 sload ../irc/irc_prob
+sload ../irc/irc_monitor.maude
 sload ./skyhook_prob
 sload ../s3/s3_protocol
+sload ../common/maude/cp2-interfaces.maude
 
 set print attribute on .
 
@@ -38,6 +40,7 @@ mod TEST_PACKAGE_2 is
   pr IRC .
   pr S3_PROTOCOL .
   pr SKYHOOK .
+  pr IRC_MONITOR .
 
   **** .-------.       .--------------.      .--------.
   **** |IRC Cl0|  ---> |(rbC0toS0) pu0| ---> |S3C0toS0| -
@@ -57,17 +60,27 @@ mod TEST_PACKAGE_2 is
   ops ircClient0 ircClient1 ircServer s3Server : -> Actor .
   ops skyhookPU0 skyhookPU1 skyhookAH0 skyhookAH1 awsServer awsSdkActor : -> Actor .
   ops s3Client0Tos0 s3Client1Tos1 s3Client0Toc0 s3Client1Toc1 s3Server : -> Actor .
+  ops client0Iface serverClientIface client1Iface serverClient1Iface : -> Actor .
+  ops ircMonitor : -> Actor .
   ops ircClient0Addr ircClient1Addr ircServerAddr : -> Address .
+  ops client0IfaceAddr serverClient0IfaceAddr client1IfaceAddr serverClient1IfaceAddr : -> Address .
   ops pu0Addr pu1Addr ah0Addr ah1Addr rbc0Tos0Addr rbc1Tos1Addr rbs0Toc0Addr rbs1Toc1Addr userAddr awsAddr s3ClientAddr : -> Address .
   ops s3Client0Tos0Addr s3Client1Tos1Addr s3Client0Toc0Addr s3Client1Toc1Addr s3ServerAddr : -> Address .
+  ops ircMonitorAddr : -> Address .
 
-  eq ircClient0 = makeIrcClient(ircClient0Addr,
-                                pu0Addr,
-                                ((2.0 ~> ("Alice message 0", makeIrcChannelName("bbn")))
-                                 : (3.5 ~> ("Alice message 1", makeIrcChannelName("bbn")))
-                                 : (5.4 ~> ("Alice message 2", makeIrcChannelName("bbn"))))) .
+  eq ircClient0 = mkIrcClient(ircClient0Addr,
+                              pu0Addr,
+                              "alice",
+                                 imd(2.0, "bbn", 279)
+                              :: imd(3.5, "bbn", 258)
+                              :: imd(5.4, "bbn", 171)) .
   eq ircClient1 = makeIrcClient(ircClient1Addr, pu1Addr) .
-  eq ircServer  = makeIrcServer(ircServerAddr, rbc1Tos1Addr) .
+  eq ircServer  = makeIrcServer(ircServerAddr) .
+
+  eq client0Iface     = mkIrcByteSeqIface(client0IfaceAddr, ircServerAddr, pu0Addr, pu0Addr) .
+  eq serverClient0Iface = mkIrcByteSeqIface(serverClient0IfaceAddr, ircClient0Addr, ah0Addr, ah0Addr) .
+  eq client1Iface     = mkIrcByteSeqIface(client1IfaceAddr, ircServerAddr, pu1Addr, pu1Addr) .
+  eq clientClient1Iface = mkIrcByteSeqIface(serverClient1IfaceAddr, ircClient1Addr, ah1Affr, ah1Addr) .
 
   eq skyhookPU0 = makeSkyhookPU(pu0Addr,
                                 rbc0Tos0Addr,
@@ -119,34 +132,17 @@ mod TEST_PACKAGE_2 is
 
   op toByteseq : IrcMsg -> ByteSeq .
 
-  rl [irc-server-translation]:
-    (to ircClient1Addr from ircServerAddr : ircMsg:IrcMsg)
-  =>
-    (to ah1Addr from ircServerAddr : ircMsg:IrcMsg)
-    [ print "Irc server translation to SkyhookAH1" ]
-  .
-
-  rl [pu1-rb-translation]:
-    (to rbc1Tos1Addr from PUADDR:Address : SkyhookPostCmd(toByteseq(ircMsg:IrcMsg)))
-  =>
-    (to ircClient1Addr from PUADDR:Address : ircMsg:IrcMsg)
-    [ print "PU translate fetch data to " ircMsg:IrcMsg ]
-  .
-
-  crl [ah-rb-translation]:
-    (to RBADDR:Address from AHADDR:Address : SkyhookPostCmd(toByteseq(ircMsg:IrcMsg)))
-  =>
-    [0.000001, (to ircServerAddr from AHADDR:Address : ircMsg:IrcMsg), 0]
-    if AHADDR:Address == ah0Addr or AHADDR:Address == ah1Addr
-    [ print "AH translate fetch data to " ircMsg:IrcMsg ]
-  .
-
+  eq ircMonitor = 
+      makeIrcMonitor(ircMonitorAddr,
+                    (ircServerAddr ;; ircClient0Addr ;; ircClient1Addr)) .
+                  
   op initState : -> Config .
   eq initState =
     rCtr(0)
     ircClient0
     ircClient1
     ircServer
+    ircMonitor
     skyhookPU0
     s3Client0Tos0
     skyhookPU1
@@ -157,14 +153,12 @@ mod TEST_PACKAGE_2 is
     s3Client1Toc1
     s3Server
     [0.001, (to ah0Addr from rbs0Toc0Addr : SkyhookStartCmd), 0]
-    [0.25, (to ircClient0Addr : StartIrc), 0]
+    [0.25, (to ircClient0Addr from ircClient0Addr : ircMsgSendTime), 0]
     --- Bypass RB for these joins.
-    [0.40, (to ircServerAddr from ircClient0Addr :
-           JoinChannel(makeIrcChannelName("bbn"),
-                       ircClient0Addr)), 0]
-    [0.5, (to ircServerAddr from ircClient1Addr :
-           JoinChannel(makeIrcChannelName("bbn"),
-                       ircClient1Addr)), 0]
+    [0.40, (to ircServerAddr from ircClient0Addr
+              : JoinChannel(makeIrcChannelName("bbn"), ircClient0Addr)), 0]
+    [0.5, (to ircServerAddr from ircClient1Addr
+              : JoinChannel(makeIrcChannelName("bbn"), ircClient1Addr)), 0]
     [2.0, (to ah0Addr from rbs0Toc0Addr : SkyhookFetchCmd), 0]
     [3.2, (to pu1Addr from rbc1Tos1Addr : SkyhookFetchCmd), 0]
     [4.0, (to ah0Addr from rbs0Toc0Addr : SkyhookFetchCmd), 0]
@@ -178,5 +172,6 @@ mod TEST_PACKAGE_2 is
   eq initConfig = run({0.0 | nil} initState, limit) .
 endm
 
-
+rew initConfig .
+q
 
