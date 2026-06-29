@@ -1,0 +1,170 @@
+---- Formal Modelling and Analysis of BPMN using Maude
+---- authors: Francisco Duran, Gwen Salaun, and Camilo Rocha
+---- file: mgDistributions.maude
+---- This spec was originally developed by E. Rivera, A. Vallecillo and
+---- F. Duran as part of the Maudeling and e-Motions tools.
+----
+---- This file contains the definitions for the representation of the BPMN
+----  process and the rules describing the BPMN behavioral semantics.
+
+fmod MGDISTRIBUTIONS-WITH-BETA is
+  pr RANDOM .
+  pr CONVERSION .
+
+  vars F L M SG SH SC ND DD P LB UB : Float .
+     --- L: lambda, M: mu, SG: sigma [Varianze = sigma^2]
+     --- SH: shape, SC: scale NN:numerator degree
+  	 --- DD: denominator degree
+  	 --- LB: lower bound, UB: upper bound
+  vars S LI MI SGI SHI SCI NDI DDI PI LBI UBI : Int .
+     --- S: seed, LI: lambda-integer, MI: mu-integer
+  	 --- SGI: sigma-integer, SHI: shape-integer
+  	 --- SCI: scale-integer --- NDI: numerator degree integer
+  	 --- DDI: denominator degree integer
+  	 --- LBI: lower bound integer, upper bound integer
+  vars LPR MPR SGPR SHPR SCPR NDPR DDPR PPR LBPR UBPR : PosRat .
+     --- LPR: lambda-posrat MPR: mu-posrat
+  	 --- SGPR: sigma-posrat SHPR: shape-posrat SCPR: scale-posrat
+  	 --- NDPR: numerator degree posrat DDPR: denominator degree posrat
+  	 --- LBPR: lower bound PosRat UBPR: upper bound PosRat
+
+  op round : Float -> Int .
+  eq round(F) = if F - floor(F) >= 0.5 then ceiling(rat(F)) else floor(rat(F)) fi .
+
+  ------------------------------EXPONENTIAL DISTRIBUTION-------------------------------------
+  --- Mean = 1/L: this is the parameter as argument
+  --- exp(L) = (ln(1000) - ln(rand(1000))) / L
+  op expDistr : Float Int -> Float .
+  eq expDistr(L, S) = (6.9077553 - log(float(random(S) rem 1000 + 1))) / L .
+
+  --------------------------------------------------------------------------------------------
+  --------------------------------WEIBULL DISTRIBUTION----------------------------------------
+  --- weib(M,SG) = ( -1/M ln(1 - rand(0,1)) ) ^ (1/SG)
+  --- M is the scale and SG is the shape
+  op weibDistr : Float Float Int -> Float .
+  eq weibDistr(M, SG, S)
+    = (-1.0 * M * log(float((random(S) rem 1000 + 1) / 1000))) ^ (1.0 / SG) .
+
+  --------------------------------------------------------------------------------------------
+  ------------------------------NORMAL/GAUSS DISTRIBUTION--------------------------------------
+  --- standard normal = norm(0,1) = sqrt(-2ln(rand(0,1)))*cos(2pi*rand(0,1))
+  --- norm(M,SG) =  SG*norm(0,1) + M
+  op standNormDistr : Int -> Float . --- Standard normal distribution (mean = 0, varianze = 1)
+  eq standNormDistr(S)
+    = sqrt(-2.0 * log(float((random(S) rem 1000 + 1) / 1000))) *
+   				 cos(6.283185307 * float((random(S + 1) rem 1000 + 1) / 1000)) .
+  op normDistr : Float Float Int -> Float .
+  eq normDistr(M, SG, S) = SG * standNormDistr(S) + M .
+
+  --------------------------------------------------------------------------------------------
+  -----------------------------GAMMA DISTRIBUTION---------------------------------------------
+  --- The gamma distribution is a generalization of the Erlang distribution and allows noninteger
+  --- shape paremeters. Like exponential and Erland distributions, it is used in queuing modeling.
+  --- gammaDistr(SH, SC) = the addition of SH exponential variables with parameter = SC
+  op gammaDistr : Float Float Int -> Float .
+  op gammaDistr : Int Float Int -> Float .
+  eq gammaDistr(SH, SC, S) = gammaCalculation(round(SH), SC, S) .
+  eq gammaDistr(SHI, SC, S) = gammaCalculation(SHI, SC, S) .
+
+  --- Auxiliary function for the calculation of the gamma distribution
+  op gammaCalculation : Int Float Int -> Float .
+  eq gammaCalculation(SHI, SC, S)
+    = if SHI == 0
+  		then 0.0
+  		else expDistr(SC, S) + gammaCalculation(SHI - 1, SC, S + SHI)
+  		fi .
+  --------------------------------------------------------------------------------------------
+  --------------------------CHI-SQUARE DISTRIBUTION-------------------------------------------
+  --- The chi-square distribution X -> X2(k) is a special case of the camm distribution, in that
+  --- X -> G(k/2, 2), where k/2 is the shape and 2 is the scale
+  op chiSDistr : Float Int -> Float .
+  eq chiSDistr(SH, S) = gammaCalculation(round(SH / 2.0), 2.0, S) .
+
+  --------------------------------------------------------------------------------------------
+  ---------------------------ERLANG DISTRIBUTION----------------------------------------------
+  --- The Erlang distribution is commonly used in queuing models as an extension of the
+  --- exponential distribution. It is like the gamma distribution with the restriction that
+  --- the shape must be a positive integer.
+  op erlangDistr : Int Float Int -> Float .
+  eq erlangDistr(SHI, SC, S) = gammaCalculation(SHI, SC, S) .
+
+  --------------------------------------------------------------------------------------------
+  ------------------------------F DISTRIBUTION------------------------------------------------
+  --- The F distribution is used to model the ratio of sample variances, for example, in the
+  --- F-test for regression and analysis of variance
+  --- F(nd, dd) = (chi(nd)/nd) / (chi(dd)/dd)
+  --- nd: numerator degree of freedom, dd: denominator degree of freedom
+  op fDistr : Float Float Int -> Float .
+  eq fDistr(ND, DD, S) = (chiSDistr(ND, S) / ND) / (chiSDistr(DD, S) / DD) .
+
+  -------------------------------------------------------------------------------------------
+  ----------------------------GEOMETRIC DISTRIBUTION------------------------------------------
+  --- It is a discrete equivalent of the exponential distribution, so it is memoryless. It is
+  --- used to model the number of attemps between successive failures or successes.
+  --- Mean = 1/L: this is the parameter as argument
+  op geomDistr : Float Int -> Float .
+  eq geomDistr(L, S) = log(float((random(S) rem 100000 + 1) / 100000)) / log(1.0 - L) .
+
+  --------------------------------------------------------------------------------------------
+  --------------------------LOG-NORMAL DISTRIBUTION-------------------------------------------
+  --- M is the scale and SG is the log-shape
+  op logNormDistr : Float Float Int -> Float .
+  eq logNormDistr(M, SG, S) = expDistr(1.0 / normDistr(M, SG, S), S) .
+
+  --------------------------------------------------------------------------------------------
+  --------------------------PASCAL DISTRIBUTION---------------------------------------------
+  --- It is an extension of the geometric distribution. To generate Pascal variates, generate
+  --- m geometric variates G(p) and return their sum as Pascal(p,m)
+  --- p has to be < 1
+  op pascalDistr : Float Float Int -> Float .
+  eq pascalDistr(P, M, S) = pascalSum(P, round(M), S) .
+
+  op pascalSum : Float Int Int -> Float .
+  eq pascalSum(P, 0, S) = 0.0 .
+  eq pascalSum(P, MI, S) = geomDistr(P, S) + pascalSum(P, MI - 1, S + MI) [owise] .
+
+  ---------------------------------------------------------------------------------------------
+  ------------------------------PARETO DISTRIBUTION-----------------------------------
+  --- Pareto distribution is useful to fit a distribution to observed data. It is sometimes
+  --- used to model the distribution of incomes
+  --- To generate random samples, we use the inverse transformation method:
+  --- Generate u=U(0,1) and return p(a)=1/(u^(1/a))
+  op paretDistr : Float Float Int -> Float .
+  eq paretDistr(SH, SC, S) = SC / (float(random(S) rem 100000 + 1) / 100000.0) ^ (1.0 / SH) .
+
+  -----------------------------------------------------------------------------------
+  -----------------------------BINOMIAL DISTRIBUTION-------------------------------
+  --- B(n,p). n: Number of trials, p: success Probability in each trial
+  --- Generation of n U(0,1) random numbers. The number of random numbers that are
+  --- less than p is binomial(p,n) .
+
+  ---------------------------------------------------------------------------------
+  -------------------------------UNIFORM DISTRIBUTION-----------------------------
+  --- A uniform distribution is commonly used if a random variable is bounded and
+  --- no further information is available
+  --- U(LB, UB) : LB: lower bound, UB: upper bound
+  op unifDistr : Float Float Int -> Float .
+  eq unifDistr(LB, UB, S) = LB + (float(random(S) rem 100000 + 1) / 100000.0) * (UB - LB) .
+  
+  
+  ---------------------------------------------------------------------------------
+  ------------------------- provided by Ruben -------------------------------------
+	--- Beta distribution B(α, β) with shape parameters α and β
+	---
+	--- It consumes 2 * round(α) + round(β) values from the psuedorandom sequence
+	--- starting from S, although not the first ones according to the implementation
+	--- of gammaDistr
+	---
+	op betaDistr : Float Float Int -> Float .
+
+	vars A B : Float .
+***	var  S   : Int .
+
+	eq betaDistr(A, B, S) = gammaDistr(A, 1.0, S) /
+		(gammaDistr(A, 1.0, S + round(A)) + gammaDistr(B, 1.0, S + 2 * round(A))) .
+
+---- CLT it seems to me that the indices used are
+---- S S + Ar, S + Ar - 1, ... S + 1
+---- Ar = round(A)
+  
+endfm
