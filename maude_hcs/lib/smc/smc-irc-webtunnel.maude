@@ -80,8 +80,8 @@ mod HCS_TEST is
   ---------------------------------------------------
 
   --- IRC layer actors
-  ops ircClient1Addr ircClient2Addr : -> Address .  --- Alice, Bob
-  ops ircServerAddr ircMonitorAddr  : -> Address .  --- IRC server
+  ops ircaAddr ircbAddr : -> Address .  --- Alice, Bob
+  ops ircSrvAddr ircMonitorAddr  : -> Address .  --- IRC server
 
   --- Translation interface actors
   ops client1IfaceAddr client2IfaceAddr : -> Address .
@@ -116,8 +116,8 @@ mod HCS_TEST is
     aaa(wtClient2Addr, wtProxy2Addr,  LinkParams)
     aaa(wtProxy2Addr,  wtClient2Addr, LinkParams)
     --- Proxy <-> IRC server (local / low latency)
-****    aaa(wtProxy1Addr,   ircServerAddr,  LinkParams)
-****    aaa(ircServerAddr, wtProxyAddr,    LinkParams)
+****    aaa(wtProxy1Addr,   ircSrvAddr,  LinkParams)
+****    aaa(ircSrvAddr, wtProxyAddr,    LinkParams)
   .
 
   ---------------------------------------------------
@@ -165,7 +165,7 @@ mod HCS_TEST is
   --- Actors
   ---------------------------------------------------
 
-  ops ircClient1 ircClient2 ircServer : -> Actor .
+  ops irca ircb ircServer : -> Actor .
   ops client1Iface client2Iface       : -> Actor .
   ops server1Iface server2Iface       : -> Actor .
   ops wtClient1 wtClient2             : -> Actor .
@@ -173,15 +173,15 @@ mod HCS_TEST is
 
   --- IRC clients.  Their raceboatAddr points to the WtClient actor,
   --- which acts as the transparent next-hop toward the IRC server.
-  eq ircClient1 =
-    mkIrcClient(ircClient1Addr,
+  eq irca =
+    mkIrcClient(ircaAddr,
                 client1IfaceAddr,     --- raceboatAddr = WtClient (not server directly)
                 "alice",
                 aliceMessages)
   .
 
-  eq ircClient2 =
-    mkIrcClient(ircClient2Addr,
+  eq ircb =
+    mkIrcClient(ircbAddr,
                 client2IfaceAddr,     --- raceboatAddr = WtClient
                 "bob",
                 bobMessages)
@@ -189,22 +189,22 @@ mod HCS_TEST is
 
   --- Translation interfaces.
   eq client1Iface = mkIrcByteSeqIface(client1IfaceAddr,
-                                      ircClient1Addr,
+                                      ircaAddr,
                                       wtClient1Addr,
                                       wtClient1Addr)
   .
   eq client2Iface = mkIrcByteSeqIface(client2IfaceAddr,
-                                      ircClient2Addr,
+                                      ircbAddr,
                                       wtClient2Addr,
                                       wtClient2Addr)
   .
   eq server1Iface = mkIrcByteSeqIface(server1IfaceAddr,
-                                      ircServerAddr,
+                                      ircSrvAddr,
                                       wtProxy1Addr,
                                       wtProxy1Addr)
   .
   eq server2Iface = mkIrcByteSeqIface(server2IfaceAddr,
-                                      ircServerAddr,
+                                      ircSrvAddr,
                                       wtProxy2Addr,
                                       wtProxy2Addr)
   .
@@ -215,7 +215,7 @@ mod HCS_TEST is
   eq wtClient1 =
     makeWtClient(wtClient1Addr,
                  wtProxy1Addr,
-                 ircServerAddr,
+                 ircSrvAddr,
                  "irc.example.com",   --- TLS SNI
                  "secret/path/v1")    --- HTTP Upgrade path
   .
@@ -223,7 +223,7 @@ mod HCS_TEST is
   eq wtClient2 =
     makeWtClient(wtClient2Addr,
                  wtProxy2Addr,
-                 ircServerAddr,
+                 ircSrvAddr,
                  "irc.example.com",
                  "secret/path/v1")
   .
@@ -242,7 +242,7 @@ mod HCS_TEST is
   --- IRC server.  raceboatAddr = wtProxyAddr so all server-originated
   --- messages are delivered to the proxy, which routes them into tunnels.
   eq ircServer =
-    mkIrcServer(ircServerAddr)
+    mkIrcServer(ircSrvAddr)
   .
 
   ---------------------------------------------------
@@ -254,8 +254,8 @@ mod HCS_TEST is
     rCtr(0)
 
     --- Actors
-    ircClient1
-    ircClient2
+    irca
+    ircb
     client1Iface
     client2Iface
     wtClient1
@@ -266,9 +266,9 @@ mod HCS_TEST is
     wtProxy2
     ircServer
     mkIrcMonitor(ircMonitorAddr,
-                 (ircClient1Addr ;; ircClient2Addr ;; ircServerAddr),
-                 (ircClient1Addr ;; ircClient2Addr),
-                 (rm("#room1", ircClient1Addr ;; ircClient2Addr) rm("#room2", ircClient1Addr ;; ircClient2Addr)))
+                 (ircaAddr ;; ircbAddr ;; ircSrvAddr),
+                 (ircaAddr ;; ircbAddr),
+                 (rm("#room1", ircaAddr ;; ircbAddr) rm("#room2", ircaAddr ;; ircbAddr)))
 
     --- Phase 1: Tunnel setup
     --- Alice's WtClient initiates its tunnel.
@@ -280,20 +280,20 @@ mod HCS_TEST is
     --- These go to the WtClient, which wraps them in WtData and forwards.
     --- t=0.50 > 0.15 + 0.050 (link) + 0.35 (WtConnectOverhead) = 0.55
     --- (Using 0.65 to be safely after both tunnels are up.)
-    [0.65, (to client1IfaceAddr from ircClient1Addr
-             : JoinChannel(makeIrcChannelName("#room1"), ircClient1Addr)), 0]
-    [0.70, (to client1IfaceAddr from ircClient1Addr
-             : JoinChannel(makeIrcChannelName("#room2"), ircClient1Addr)), 0]
-    [1.70, (to client2IfaceAddr from ircClient2Addr
-             : JoinChannel(makeIrcChannelName("#room1"), ircClient2Addr)), 0]
-    [1.75, (to client2IfaceAddr from ircClient2Addr
-             : JoinChannel(makeIrcChannelName("#room2"), ircClient2Addr)), 0]
+    [0.65, (to client1IfaceAddr from ircaAddr
+             : JoinChannel(makeIrcChannelName("#room1"), ircaAddr)), 0]
+    [0.70, (to client1IfaceAddr from ircaAddr
+             : JoinChannel(makeIrcChannelName("#room2"), ircaAddr)), 0]
+    [1.70, (to client2IfaceAddr from ircbAddr
+             : JoinChannel(makeIrcChannelName("#room1"), ircbAddr)), 0]
+    [1.75, (to client2IfaceAddr from ircbAddr
+             : JoinChannel(makeIrcChannelName("#room2"), ircbAddr)), 0]
 
     --- Phase 3: IRC message send timers.
     --- ircMsgSendTime is the internal trigger used by the IRC actor's
     --- message-schedule machinery (from irc_prob.maude).
-    [2.00, (to ircClient1Addr from ircClient1Addr : ircMsgSendTime), 0]
-    [4.00, (to ircClient2Addr from ircClient2Addr : ircMsgSendTime), 0]
+    [2.00, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
+    [4.00, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
   .
 
   ---------------------------------------------------
