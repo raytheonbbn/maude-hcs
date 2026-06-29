@@ -1,0 +1,99 @@
+set show advisories off .
+
+sload irc-mamodel-v2
+sload ../common/maude/irc-action-actor-v2.maude
+sload irc_prob-v2
+
+mod IRC-V2-TEST is
+  inc IRC-USER-ACTION-ACTOR-V2 .
+  inc IRC-MAMODEL-V2 .
+  inc IRC-V2 .
+
+  
+***** Global constants  
+**** the user model database
+  eq MAModelMap = ("irc-test" |-> irc-ma-v2 ) .
+
+*** for the default case
+  eq noiseMax(msg:Msg) = 0.00001 .
+   
+****  op IRC-STALE-DURATION-S : -> Float .
+  eq IRC-STALE-DURATION-S = 340.  .
+****  op IRC-PING-INTV-S : -> Float .
+  eq IRC-PING-INTV-S = 300.   .
+
+  ops ircCAddr1 ircUAddr1 : -> Address .
+  ops ircCAddr2 ircUAddr2 : -> Address .
+  op  ircSAddr : -> Address .
+
+  ops ircClient1 ircUM1 : -> Actor .
+  ops ircClient2 ircUM2 : -> Actor .
+  op ircServer : -> Actor .
+
+  eq ircServer = mkIrcServer(ircSAddr) .
+
+  eq ircClient1 = 
+     mkIrcClient-v2(ircCAddr1, ircSAddr,"irc1") .
+  eq ircUM1 = 
+      mkIrcUMV2Actor(ircUAddr1,"irc-test",ircCAddr1) .
+
+  eq ircClient2 = 
+     mkIrcClient-v2(ircCAddr2, ircSAddr,"irc2") .
+  eq ircUM2 = 
+      mkIrcUMV2Actor(ircUAddr2,"irc-test",ircCAddr2) .
+
+**** config with 1 client  
+  op iS1 : Nat -> Config .
+  eq iS1(j:Nat) = 
+       rCtr(j:Nat)
+       ircUM1 ircClient1 
+       ircServer  
+       [.1, to ircUAddr1 from ircUAddr1 : 
+               burstDelayTO,0]  .
+
+  op iC1 : -> Config .
+  rl[init]: 
+    iC1 => run({0.0 | nil} iS1(counter), 10000.0)
+   .
+
+**** config with 2 clients
+  op iS2 : Nat -> Config .
+  eq iS2(j:Nat) = 
+       rCtr(j:Nat)
+       ircUM1 ircClient1 
+       ircUM2 ircClient2
+       ircServer  
+       [.1, to ircUAddr1 from ircUAddr1 : 
+               burstDelayTO,0]  
+       [.2, to ircUAddr2 from ircUAddr2 : 
+               burstDelayTO,0]  
+      .
+
+  op iC2 : -> Config .
+  rl[init]: 
+    iC2 => run({0.0 | nil} iS2(counter), 10000.0)
+   .
+  
+    
+endm
+
+set print attribute on .
+set print attr select on .
+print attr select umv2-rcv-timeout .
+print attr select uumv2-rcv-actionR .
+print attr select initMode .
+print attr select chooseBurst . 
+print attr select chooseBurstSteps .
+
+eof
+
+rew [150] run({0.0 | nil} iS1(10),5000.0) .
+
+rew [200] run({0.0 | nil} iS2(10),5000.0) .
+
+rew iC1 .
+rew iC2 .
+
+set print attr select off .
+print attr select <ids> .
+print attr deselect <ids> .

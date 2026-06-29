@@ -1,0 +1,115 @@
+set show advisories off .
+
+sload user-action-actor-v2-aux.maude
+
+mod IRC-USER-ACTION-ACTOR-V2 is
+  inc USER-ACTION-ACTOR-V2-SHARED .
+  
+vars mname str mstr mstr1 astr astr1 rstr 
+     type room room1 : String .
+vars cmAddr  umAddr addr : Address .
+vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+vars nd nd1 nb  nb1 ns nj j j0 j1 j2 : Nat .
+vars T Ts d  bd  bp fl flc flf : Float .
+vars smsgs msgs : Config .
+vars msg : Msg .
+vars dmsg : ScheduleMsg .
+vars mj mj0 mj1 stateB pars acts aspec  aspec1 
+     : Map{String,JV} .
+vars b : Bool .
+
+op getInitialRoom :  Map{String,JV} -> String .
+eq getInitialRoom(pars) =
+    if $hasMapping (pars,"initial_room")
+    then jv2str(pars["initial_room"])
+    else "#default_room"
+    fi
+  .
+
+
+op mkIrcUMV2Actor : Address String Address -> Actor .
+eq mkIrcUMV2Actor(umAddr,mname,cmAddr) =
+  < umAddr : UM-V2 | 
+    v2mname:  mname,
+    cmAddr:  cmAddr, ---- (role of fnmap),
+    stopTime:  getModelTimeOut(getPars(mname)),
+    modelSteps: getModelSteps(getPars(mname)),
+    nextMode: getInitialState(mname), --- starting_state
+    nextRoom: getInitialRoom(getPars(mname)),
+    newMode: false,
+    isIrc: true,
+    dwellSteps: 0,
+    burstSteps: 0,
+    nextAction: "",
+    curState: empty,  ---- sm[curMode]
+    w4: null
+  >
+  .        
+
+------------------------------------------
+eq exeActionIrc(attrs,umAddr,j) = {attrs,null,j} [owise] .
+
+ceq exeActionIrc(attrs,umAddr,j) =
+  (if type == "delay"
+   then exeIrcDelay(attrs2,umAddr,aspec1,j1)
+   else (if type == "select_room"
+        then exeIrcRoom(attrs2,umAddr,aspec1,j1)
+        else exeIrcMsg(attrs2,umAddr,aspec1,j1)
+        fi)                   
+  fi)
+if attrs0, cmAddr: cmAddr, curState: stateB := attrs
+/\ attrs1, w4: null,  nextAction: astr  := attrs
+/\ jo(acts) := stateB["actions"]
+/\ jo(aspec) := acts[astr]
+/\ {aspec1,j1}  := realizeParams(aspec,j)
+/\ js(type) := aspec1["type"]
+/\ jo(mj) := stateB["markov"]
+/\ astr1 := nextByWt(astr, mj, j1)
+/\ attrs2 := attrs1, w4: null, nextAction: astr1
+.
+
+op exeIrcDelay : AttributeSet Address Map{String,JV} Nat
+                 -> AttributeSetMsgsNat .
+op exeIrcRoom : AttributeSet Address Map{String,JV} Nat
+                 -> AttributeSetMsgsNat .
+op exeIrcMsg : AttributeSet Address Map{String,JV} Nat
+                 -> AttributeSetMsgsNat .                 
+  
+ceq exeIrcDelay(attrs2,umAddr,aspec1,j1) = {decrDwellSteps(attrs2),dmsg,j1}
+if jf(fl) := aspec1["duration_seconds"]
+/\ msg := to umAddr from umAddr : burstDelayTO
+/\ dmsg := [fl,msg,0]
+.
+
+  
+ceq exeIrcRoom(attrs2,umAddr,aspec1,j1) = {attrs,smsgs,j0}
+if attrs0, w4: null, nextRoom: room := attrs2
+/\ attrs1, cmAddr: cmAddr,  v2mname: mname := attrs2
+/\ room1 := nextByWt("rooms",getPars(mname), j1)
+/\ msg := to cmAddr from umAddr : 
+            actionQ(("type" |-> js("joinmsg"),
+                     "room" |-> js(room)) )
+/\ attrs := attrs0, w4: msg, nextRoom: room1
+/\ {smsgs,j0} := delayMsgsX(s j1,msg,null)
+.
+
+ceq exeIrcMsg(attrs2,umAddr,aspec1,j1) =
+   {attrs,smsgs,j2}
+if attrs0, w4: null := attrs2
+/\ attrs1, cmAddr: cmAddr, nextRoom: room := attrs2
+/\ aspec := (aspec1, ("room" |-> js(room)))
+/\ msg := (to cmAddr from umAddr : actionQ(aspec))
+/\ attrs := attrs0, w4: msg
+/\ {smsgs,j2} := delayMsgsX(j1,msg,null)
+.
+
+***(
+ "type" |-> "roommsg",
+ "message_length_bytes" |-> jf(fl)
+)
+ 
+
+ 
+endm
+eof
+

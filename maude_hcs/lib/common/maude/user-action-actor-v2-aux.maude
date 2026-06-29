@@ -1,0 +1,323 @@
+set show advisories off .
+sload markov-action-model-v2.maude
+sload cp2-interfaces
+sload delay-drop-x
+sload ./_aux  ---- CP2_SORTS  attrsmsgs ....
+sload ../../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
+
+-------------------------------------------
+---- assume global constant umv2Models : String -> UMv2
+---------------------------------------------
+
+
+mod USER-ACTION-ACTOR-V2-SHARED is
+  inc MARKOV-ACTION-MODEL-V2 .
+  inc CP2-COMMON .
+       **** ACTOR-MODEL SCHEDULER PARAMETERS, rCtr
+  inc TGEN-INTERFACE .
+  inc CP2_SORTS . ---- AttributeSet combos
+  inc MAP{String,MAModel-v2} .
+  inc DELAY-X .
+  
+vars mname str mstr mstr1 astr astr1 rstr : String .
+vars cmAddr  umAddr addr : Address .
+vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+vars nd nd1 nb  nb1 ns nj j j0 j1 j2 : Nat .
+vars T Ts d  bd  bp fl flc flf : Float .
+vars smsgs msgs : Config .
+vars msg : Msg .
+vars dmsg : ScheduleMsg .
+vars mj mj0 mj1 stateB pars acts aspec  aspec1 
+     : Map{String,JV} .
+vars b b1 : Bool .
+
+
+---- A UM-V2 actor executes a 2 level MA
+op UM-V2 : -> ActorType .
+
+*****  global constant to be defined in scenario config
+op MAModelMap : -> Map{String,MAModel-v2} .
+
+***** accessing components of the global model
+op getModeMM : String -> Map{String,JV}  .
+op getInitialState : String -> String  .
+op getStateMap : String -> Map{String,JV}  .
+op getPars : String -> Map{String,JV}  .
+ 
+eq getModeMM(str) = getModeMM(MAModelMap[str]) .
+eq getInitialState(str) = getInitialState(MAModelMap[str]) .
+eq getStateMap(str) = getStateMap(MAModelMap[str]) .
+eq getPars(str) = getPars(MAModelMap[str]) .
+ 
+     
+op v2mname:_ : String -> Attribute [ctor] .
+op modelSteps:_ : Nat -> Attribute [ctor] .
+op stopTime:_ : Float -> Attribute [ctor] .
+op nextMode:_ : String -> Attribute [ctor] .
+op nextAction:_ : String -> Attribute [ctor] .
+op cmAddr:_ : Address -> Attribute [ctor] .
+op dwellSteps:_ : Nat -> Attribute [ctor] .
+op burstSteps:_ : Nat -> Attribute [ctor] .
+---- curren mode model -- state_block
+op curState:_ : Map{String,JV} -> Attribute [ctor] . 
+op w4:_ : Config  -> Attribute [ctor] .
+op newMode:_ : Bool -> Attribute [ctor] .
+
+op nextRoom:_ : String -> Attribute [ctor] .
+op isIrc:_ : Bool -> Attribute [ctor] .
+
+op burstDelayTO : -> Content .
+   
+
+------------------------------------------
+------------------------------------------
+op initMode : AttributeSet Address Nat 
+              -> AttributeSetMsgsNat .  
+eq initMode(attrs,umAddr,j) = {attrs,null,j} [owise] .
+
+ceq [initMode] :
+  initMode(attrs,umAddr,j) 
+       = exeAction(attrs2,umAddr,j1)
+if attrs0, newMode: b, curState: mj, 
+           nextAction: astr,
+    dwellSteps: 0, burstSteps: nb, nextMode: mstr
+    := attrs
+/\ attrs1, v2mname: mname := attrs
+/\ mstr1 := nextByWt(mstr,getModeMM(mname),j) --- s j
+/\ jo(stateB) := getStateMap(mname)[mstr]
+/\ jo((("random" |-> js(rstr)), mj0 ))
+              := stateB["dwell_steps"]
+/\ {"dwell_steps" |-> jf(fl),j1}
+         := realizeRand("dwell_steps",rstr,mj0, s j)
+/\ nd1 := round(fl)
+/\ astr1 := getInitialAction(stateB)
+/\ attrs2 := attrs0, nextMode: mstr1, newMode: true,
+             dwellSteps: nd1, burstSteps: 0, 
+             curState: stateB, nextAction: astr1
+[print "---- initMode at " umAddr  "\n----   mode: " mstr  ", dwellSteps: " nd1  ", nextAction: " astr1]
+.    
+
+
+------------------------------------------
+***(
+  if not burstP ensure burst == 0 call exeNextAction
+  if burstP  set burstSteps, wait ibd then call next action
+) 
+***** burstSteps == 0
+op chooseBurst : AttributeSet Address Nat 
+                 -> AttributeSetMsgsNat .
+
+ceq [chooseBurst] :
+   chooseBurst(attrs,umAddr,j) =
+   (if b
+   then exeWait(attrs1,umAddr,"inter_burst_delay",j1)
+   else exeAction(attrs1,umAddr,j1)
+   fi)
+if attrs0, curState: mj := attrs
+/\ jf(bp) := mj["burst_prob"]
+/\ b := randX(j)  < bp
+/\ {attrs1,null,j1} := 
+      (if b 
+      then chooseBurstSteps(attrs, s j)
+      else {attrs,null, s j}
+      fi)
+[print "---- Burst? " b " at " umAddr]      
+.
+
+op chooseBurstSteps : AttributeSet Nat 
+                      -> AttributeSetMsgsNat .
+
+ceq [chooseBurstSteps] :
+   chooseBurstSteps(attrs,j) = {attrs2,null,j1}
+if attrs0, curState: stateB := attrs
+/\ attrs1, burstSteps: nb := attrs
+/\ jo((("random" |-> js(rstr)), mj0 ))
+              := stateB["burst_steps"]
+/\ {"burst_steps" |-> jf(fl),j1}
+         := realizeRand("burst_steps",rstr,mj0, j)
+/\ nb1 := round(fl)
+/\ attrs2 := attrs1, burstSteps: nb1         
+[print "---- set burst steps " nb1] 
+.
+
+
+------------------------------------------
+op exeAction : AttributeSet Address Nat
+                   -> AttributeSetMsgsNat .
+
+eq exeAction(attrs,umAddr,j) = {attrs,null,j} [owise] .
+eq exeAction((attrs,isIrc: b),umAddr,j) = 
+   (if b
+   then exeActionIrc((attrs,isIrc: b),umAddr,j) 
+   else exeActionTgen((attrs,isIrc: b),umAddr,j) 
+  fi)
+  .
+
+op exeActionIrc : AttributeSet Address Nat
+                   -> AttributeSetMsgsNat .
+op exeActionTgen : AttributeSet Address Nat
+                   -> AttributeSetMsgsNat .
+
+
+--------------------- wait action
+-----  deal with special case of 0 delay
+----- str is "intra/inter_burst_delay"
+  op exeWait : AttributeSet Address String Nat 
+       -> AttributeSetMsgsNat .
+  ceq exeWait(attrs,umAddr,str,j) = 
+   if bd < .000001
+   then rcvTimeOutV2(attrs1,umAddr,j1) 
+   else {attrs1, dmsg, j1}
+   fi
+  if attrs0, curState: stateB := attrs
+  /\ { (str |-> jf(bd)), j1} 
+           := realizeParam(str, stateB[str], j)
+  /\ dmsg := 
+       [bd,(to umAddr from umAddr : burstDelayTO),0]
+  /\ attrs1 := decrModelSteps(attrs)      
+ .
+ 
+---------------   
+  op isDoneV2 : AttributeSet Float -> Bool .
+  eq isDoneV2((attrs, modelSteps: ns, stopTime: Ts),T)
+     = T > Ts or ns <= 1 .
+     
+---------------- decrementing counters
+ op decrModelSteps : AttributeSet -> AttributeSet .
+ eq decrModelSteps((attrs, modelSteps: s ns))
+     = (attrs,  modelSteps: ns) .
+ eq decrModelSteps(attrs) = attrs [owise] .
+
+ op getNewMode : AttributeSet -> Bool .
+ eq getNewMode((attrs, newMode: b)) = b .
+ eq getNewMode(attrs) = false [owise] .
+
+ op setNewMode : AttributeSet Bool -> AttributeSet .
+ eq setNewMode((attrs, newMode: b),b1) = (attrs, newMode: b1) .
+ eq setNewMode(attrs,b) = attrs, newMode: b [owise] .
+
+ op decrDwellSteps : AttributeSet -> AttributeSet .
+ ceq decrDwellSteps((attrs, dwellSteps: (s nd)))
+  = ((if b
+     then setNewMode(attrs,false) 
+     else attrs
+     fi), 
+     dwellSteps: (if b then s nd else nd fi) )
+if b := getNewMode(attrs)
+.
+
+ eq decrDwellSteps(attrs) = 
+     (if getNewMode(attrs)
+      then setNewMode(attrs,false) 
+      else attrs
+     fi)
+     [owise] .
+
+
+
+------------------------------------------
+------------------------------------------
+crl [umv2-rcv-timeout] :
+  rCtr(j)
+   < umAddr : UM-V2 | attrs >
+   {T, to umAddr from umAddr : burstDelayTO }
+=>
+  rCtr(j1)
+   < umAddr : UM-V2 | attrs1 >
+  smsgs
+  if {attrs1,smsgs,j1} :=
+         rcvTimeOutV2(attrs,umAddr,j) 
+  [print "(" T ")" " UM-V2 " umAddr " rcvTO sending " smsgs]
+  .
+  
+op rcvTimeOutV2 : AttributeSet Address Nat -> AttributeSetMsgsNat .
+ceq rcvTimeOutV2(attrs,umAddr,j) =  {attrs1,smsgs,j0}
+  if attrs0, dwellSteps: nd, burstSteps: nb := attrs
+  /\ {attrs1, smsgs, j0} :=
+    (if nd == 0
+    then initMode(attrs,umAddr,j)
+    else (if nb == 0
+          then chooseBurst(attrs,umAddr,j)
+          else exeAction(attrs,umAddr,j)
+          fi) fi)
+ .          
+
+------------------------------------------
+------------------------------------------
+  op rcvActRv2 : AttributeSet Address  Float Nat 
+                   ->   AttributeSetMsgsNat .
+  op rcvActRv2$ : AttributeSet Address  Nat 
+                   ->   AttributeSetMsgsNat .
+
+**** case isDone
+ eq rcvActRv2(attrs,umAddr,T,j)  =
+  (if isDoneV2(attrs,T)
+  then {attrs,null,j}
+  else rcvActRv2$(decrDwellSteps(decrModelSteps(attrs)), 
+                  umAddr,j)
+  fi) .
+  
+**** case newMode  
+ ceq rcvActRv2$(attrs,umAddr,j) = 
+    exeWait(attrs2, umAddr,"inter_burst_delay",j)
+ if attrs0, newMode: true, w4: msg  := attrs 
+ /\ attrs2 := attrs0, newMode: false, w4: null
+ .
+
+**** case oldMode, burst 0
+ ceq rcvActRv2$(attrs,umAddr,j)  =  
+      exeWait(attrs2,umAddr,"inter_burst_delay",j)
+ if attrs0, w4: msg := attrs 
+ /\ attrs1, burstSteps: 0 := attrs
+ /\ attrs2 := attrs0, w4: null
+  .
+    
+**** case oldMode, burst > 0
+ ceq rcvActRv2$(attrs,umAddr,j)  = 
+      exeWait(attrs2, umAddr,"intra_burst_delay",j)
+ if attrs0, w4: msg, burstSteps: s nb  := attrs 
+ /\ attrs1,  newMode: false := attrs
+ /\ attrs2 := attrs0, w4: null, burstSteps: nb
+  .
+
+--------------------------------------------
+crl [umv2-rcv-actionR] :
+  rCtr(j)
+   < umAddr : UM-V2 | attrs >
+   {T, to umAddr from cmAddr : actionR(str)}
+=>
+  rCtr(j0)
+   < umAddr : UM-V2 | attrs1 >
+  smsgs
+  if {attrs1,smsgs,j0} := rcvActRv2(attrs,umAddr,T,j)
+  [print "(" T ")" " UM-V2 actor " umAddr " rcv actR,  sending " smsgs]
+  .
+  
+        
+endm
+eof
+
+ftp,minio v2  special cases
+  has idle mode
+    "idle": {
+        "type": "wait",
+        "sleep": {"random": "gaussian","mean": 300.0,"std": 80.0}
+      no initial_x keys
+        
+>>
+
+"idle":
+   {
+      "type": "state",
+      "initial_action": "noop",
+      "dwell_steps": 0.0,
+      "actions": { "noop": "type": "noop" },
+      "markov": { "noop": { "noop": 1.0 } },
+      "burst_steps": 0.0,
+      "inter_burst_delay": 
+         {"random": "gaussian","mean": 300.0,"std": 80.0},
+      "intra_burst_delay": 0.0
+    }
+        
+
