@@ -1,0 +1,89 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ./_obfs4_aux
+sload ../common/maude/sampler-x
+
+mod OBFS4 is
+  pr OBFS4_AUX .
+  pr ACTOR-MODEL .
+  pr SAMPLER-X .
+
+  op Obfs4Node : -> ActorType [ctor] .
+
+  vars THIS LOCAL REMOTE FROM_ADDR : Address .
+  vars MSG : Content .
+  vars msg : Msg .
+  vars PAD J P PAD1 PAD2 : Nat .
+  vars ATTRS : AttributeSet .
+  vars BSEQ : ByteSeq .
+
+  --- Note
+  --- MaximumSegmentLength = 1500 - (40 + 12) (TCP/IP overheads) = 1448
+  --- FrameOverhead = lengthLength (2) + secretbox.Overhead (16) = 18
+  --- MaximumFramePayloadLength = MaximumSegmentLength - FrameOverhead (1448 - 18) = 1430
+  --- packetOverhead = 2 + 1 (length + type) = 3
+  --- maxPacketPayloadLength = MaximumFramePayloadLength - packetOverhead (1430 - 3) = 1427
+  --- maxPacketPaddingLength = maxPacketPayloadLength = 1427
+
+  --- Obfs4 Node: Encapsulate plain message from local application and send out to remote
+  crl [obfs4-send]:
+    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, padCtr: J, ATTRS >
+    (to THIS from LOCAL : MSG)
+    =>
+    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, padCtr: s J, ATTRS >
+    if PAD + P > 1450 then
+      (to REMOTE from THIS : obfs4Frame(toByteseq(MSG), PAD1))
+      (to REMOTE from THIS : obfs4Frame(noBytes, PAD2))
+    else
+      (to REMOTE from THIS : obfs4Frame(toByteseq(MSG), PAD))
+    fi
+  if PAD := sampleUniWithIntX(J, 1427)
+    /\ P := nbytes(toByteseq(MSG))
+    /\ PAD1 := if P <= 1450 then sd(1450, P) else 0 fi
+    /\ PAD2 := sd(PAD, PAD1)
+    [ print "Obfs4Node " THIS " encapsulating msg from " LOCAL ", appending " PAD "B padding" ]
+  .
+
+  --- Obfs4 Node: Receive encapsulated message, unwrap, forward to local application
+  crl [obfs4-recv-frame]:
+    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, ATTRS >
+    (to THIS from REMOTE : obfs4Frame(BSEQ, PAD))
+    =>
+    < THIS : Obfs4Node | localNode: LOCAL, remoteNode: REMOTE, ATTRS >
+    (if msg == nullMsg then null else msg fi)
+  if msg := (if BSEQ == noBytes
+              then nullMsg
+              else (to LOCAL from THIS : BSEQ)
+            fi)
+    [ print "Obfs4Node " THIS " decapsulating msg from " REMOTE " to " LOCAL ]
+  .
+
+endm

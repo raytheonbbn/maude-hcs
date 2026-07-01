@@ -32,6 +32,7 @@ set show advisories off .
 
 sload byteseq.maude
 sload json.maude
+sload sampler-x
 
 sload ../../../deps/dns_formalization/Maude/common/actor.maude
 sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
@@ -39,7 +40,8 @@ sload ../../../deps/dns_formalization/Maude/dns/probabilistic-model/parameters.m
 
 sload ../../mastodon/maude/common/tag.maude
 sload ../../mastodon/maude/common/media_file.maude
-***** load ../../mastodon/maude/common/_aux.maude
+sload ../../irc/_irc_aux.maude
+sload ../../irc/common/_aux.maude
 
 ***(
 There are two flavors of interface: 
@@ -107,6 +109,86 @@ eq setAttrs(< addr : atype | attrs > , attrs0 )
 eq setAttrs(attrs,attrs0)  = attrs, attrs0 [owise] .
 
      
+
+endm
+
+mod IRC-DISPATCHER-INTERFACE is
+  pr ACTOR-MODEL .
+  pr BYTESEQ .
+  pr CP2-COMMON .
+  pr SAMPLER-X .
+  pr IRC_AUX  .
+  pr IRC_NODE .
+
+  vars j : Nat .
+  vars attrs : AttributeSet .
+  vars ifAddr ircAddr rbSAddr rbRAddr ircEndp : Address .
+  vars msg : Msg .
+  vars ircMsg : IrcMsg .
+  vars byteseq : ByteSeq .
+  vars T : Float .
+
+  op ircToByteseq : IrcMsg -> ByteSeq [ctor] .
+  op ircFromByteseq : ByteSeq -> IrcMsg .
+  eq ircFromByteseq(ircToByteseq(ircMsg)) = ircMsg .
+
+  **** op getSize : Content -> Nat .
+  eq getSize(ircToByteseq(ircMsg)) = getSize(ircMsg) .
+  eq nbytes(ircToByteseq(ircMsg)) = getSize(ircMsg) .
+
+  op getSrcAddr : ByteSeq -> Address .
+  eq getSrcAddr(ircToByteseq(ircMsg))
+    = getIrcSrcAddr((ircMsg))
+  .
+  eq getSrcAddr(byteseq)  = nullAddr [owise] .
+
+  op IrcByteSeqIface : -> ActorType .
+  *** The IRC endpoint to which this is attached.
+  op ircEndp:_ : Address -> Attribute [ctor] .
+  *** The "Raceboat" sender.
+  op rbSndr:_  : Address -> Attribute [ctor] .
+  *** The "Raceboat" receiver.
+  op rbRcvr:_  : Address -> Attribute [ctor] .
+
+  ---                     This    IRC endpt attached  Tx RB   Rx RB
+  op mkIrcByteSeqIface :  Address Address             Address Address 
+                     -> Actor .
+  eq mkIrcByteSeqIface(ifAddr, ircAddr, rbSAddr, rbRAddr)
+     =
+     < ifAddr : IrcByteSeqIface | 
+        ircEndp: ircAddr,
+        rbSndr: rbSAddr,
+        rbRcvr: rbRAddr >
+    .
+
+  crl [fromIrc2rbS]:
+    rCtr(j)
+    {T, (to ifAddr from ircAddr : ircMsg)}
+    < ifAddr : IrcByteSeqIface | attrs,
+       ircEndp: ircAddr,
+       rbSndr: rbSAddr,
+       rbRcvr: rbRAddr >
+  =>
+    rCtr(s j)
+    < ifAddr : IrcByteSeqIface | attrs,
+       ircEndp: ircAddr, rbSndr: rbSAddr, rbRcvr: rbRAddr >
+    [genRandomX(j, 0.0, 0.0001), msg, 0]
+    if msg := (to rbSAddr from ifAddr : ircToByteseq(ircMsg))
+    [print "(" T ") IrcIface " ifAddr " translating " ircMsg " from Irc to Raceboat, sending " msg ]  
+  .
+
+  crl [fromRbs2Irc]:
+    rCtr(j)
+    {T, (to ifAddr from rbRAddr : byteseq)}
+    < ifAddr : IrcByteSeqIface | attrs,
+       ircEndp: ircAddr, rbSndr: rbSAddr, rbRcvr: rbRAddr >
+   =>
+    rCtr(s j)
+    < ifAddr : IrcByteSeqIface | attrs,
+       ircEndp: ircAddr, rbSndr: rbSAddr, rbRcvr: rbRAddr >
+   [genRandomX(j, 0.0, 0.0001), msg, 0]
+   if msg := (to ircAddr from ifAddr : ircFromByteseq(byteseq))
+  [print "(" T ") IrcIface " ifAddr " translating " byteseq " from Raceboat to IRC messages, sending " msg ]  .
 
 endm
 

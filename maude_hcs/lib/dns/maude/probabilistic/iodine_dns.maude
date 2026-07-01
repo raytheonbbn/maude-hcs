@@ -187,7 +187,7 @@ crl [wnameserver-receive-query-weird]:
       then (to getToAddr(query(ID, QNAME, QTYPE)) : start)
       else nullMsg
     fi
-  [print "(" T ") WServer receiving query " ID ", sending " msgOut "." ]
+  [print "(" T ") WServer receiving query " ID ", sending " msgOut " + " appMsgOut " + " msgOutExt ]
   .
 
   --- TODO remove when done testing
@@ -269,10 +269,10 @@ crl [wnameserver-receive-query-weird]:
       /\ appAttrsNext := (appAttrsTrans, fileDestAddr: ADDR2, rcvd: (PACKETS ; Pkt))
       /\ msgOut :=
           (if txComplete == true
-              then (to ADDR2 : getFile(Pkt))
+              then (to ADDR2 from ADDR : getFile(Pkt))
               else nullMsg
            fi)
-    [print "(" T ") Bob rcv app received pkt " Pkt]
+    [print "(" T ") IodineRcvApp " ADDR " received pkt " Pkt]
   .
 
   --- ***
@@ -427,7 +427,7 @@ crl [wnameserver-receive-query-weird]:
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
        /\ sentFragment := grabCurrentFragment(wattrsNext)
-    [print "(" T ") iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout" "\n ??? sentFragment " sentFragment "\n??? wattrsNext " wattrsNext]
+    [print "(" T ") iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout." ]
     .
 
   --- Handle a response from the resolver to WClient.
@@ -476,7 +476,7 @@ crl [wnameserver-receive-query-weird]:
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
       /\ {wattrs2, appMsgOut} := updateRcvAppAlice(wattrsNext, (to ADDR from RESOLVER : response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)))
-      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt " following received " downstreamdata "."  "\n??? sentFragment " sentFragment "\n??? wattrs2 " wattrs2] 
+      [print "(" T ") WClient got response " ID ": sending possible fragment " msgOutExt " following received " downstreamdata "." ] 
     .
 
   --- Handle a response from the resolver to WClient that is for a past Fragment.

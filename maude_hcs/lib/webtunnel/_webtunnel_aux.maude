@@ -1,0 +1,276 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+---
+--- _webtunnel_aux.maude
+---
+--- Sorts, attributes, content constructors, size functions, and helper
+--- operators for the lyrebird webtunnel pluggable transport model.
+---
+--- Webtunnel wraps application traffic (here: IRC) in TLS + HTTP Upgrade,
+--- making it look like ordinary HTTPS to a passive observer.
+---
+--- Wire protocol sequence:
+---   Client                             Server/Proxy
+---     |                                    |
+---     |  WtConnect(tlsName, path)          |
+---     | =================================> |   (TLS ClientHello + HTTP Upgrade)
+---     |                                    |
+---     |  WtConnected                       |
+---     | <================================= |   (TLS handshake + HTTP 101)
+---     |                                    |
+---     |  WtData(ircMsg)  <bidirectional>   |
+---     | =================================> |   (TLS records carrying IRC data)
+---
+
+--- _aux provides IRC_NAMES, IRC_AUX, IRC_NODE, CP2_SORTS, CP2_NODE transitively.
+sload ../mastodon/maude/common/_aux
+
+set show advisories off .
+
+mod WEBTUNNEL_AUX is
+  pr CP2_SORTS .
+  pr CONVERSION .
+  pr MASTODON_NODE .
+
+  ---------------------------------------------------
+  --- TunnelState sort
+  ---------------------------------------------------
+  --- Tracks the lifecycle of a single webtunnel connection on the client side.
+  sort TunnelState .
+  ops Closed Connecting Open : -> TunnelState [ctor] .
+
+  ---------------------------------------------------
+  --- IrcMsgQueue — simple ordered queue for buffering
+  --- IRC messages while tunnel is being established.
+  ---------------------------------------------------
+  sort MsgQueue .
+  op emptyQueue : -> MsgQueue [ctor] .
+  op enqueue    : MsgQueue ByteSeq -> MsgQueue [ctor] .
+
+  --- Dequeue from front (oldest first).
+  op dequeue : MsgQueue -> MsgQueue .
+  op front   : MsgQueue ~> ByteSeq .
+  op isEmpty : MsgQueue -> Bool .
+
+  vars Q : MsgQueue .
+  vars M : ByteSeq .
+
+  eq isEmpty(emptyQueue) = true .
+  eq isEmpty(enqueue(Q, M)) = false .
+
+  --- front/dequeue follow FIFO: enqueue adds to back,
+  --- we flatten to a list and pop from front.
+  --- For simplicity we model the queue as a right-nested
+  --- structure: front = first enqueued (leftmost).
+  eq front(enqueue(emptyQueue, M)) = M .
+  ceq front(enqueue(Q, M)) = front(Q) if not isEmpty(Q) .
+
+  eq dequeue(enqueue(emptyQueue, M)) = emptyQueue .
+  ceq dequeue(enqueue(Q, M)) = enqueue(dequeue(Q), M) if not isEmpty(Q) .
+
+  ---------------------------------------------------
+  --- Attributes
+  ---------------------------------------------------
+
+  ---- shared by WtClient and WtServerProxy
+  --- This address.
+  op thisAddr:_        : Address      -> Attribute [ctor] .
+  --- The address of the IRC server.
+  op ircServerAddr:_   : Address      -> Attribute [ctor] .
+  ---- The IRC client actor this WtClient serves (used when relaying responses).
+  op ircClientAddr:_   : Address      -> Attribute [ctor] .
+
+  ---- WtClient-specific
+  --- The server proxy address.
+  op serverProxyAddr:_ : Address      -> Attribute [ctor] .
+  --- The TLS_NAME.
+  op tlsServerName:_   : String       -> Attribute [ctor] .
+  --- The upgrade path.
+  op upgradePath:_     : String       -> Attribute [ctor] .
+  --- The tunnel state (Closed, Connecting, Open).
+  op tunnelState:_     : TunnelState  -> Attribute [ctor] .
+  --- The queued up byteseq messages.
+  op pendingMsgs:_     : MsgQueue     -> Attribute [ctor] .
+
+  ---------------------------------------------------
+  --- Actor types
+  ---------------------------------------------------
+  op WtClient      : -> ActorType [ctor] .
+  op WtServerProxy : -> ActorType [ctor] .
+
+  ---------------------------------------------------
+  --- Actor constructors
+  ---------------------------------------------------
+  vars THIS_ADDR PROXY_ADDR IRC_SRV_ADDR IRC_CLIENT_ADDR : Address .
+  vars TLS_NAME PATH : String .
+
+  ---               ThisAddr ProxyAddr    IrcSrvAddr   TlsName  UpgradePath
+  op makeWtClient : Address  Address      Address      String   String -> Actor .
+  eq makeWtClient(THIS_ADDR, PROXY_ADDR, IRC_SRV_ADDR, TLS_NAME, PATH) =
+    < THIS_ADDR : WtClient |
+        thisAddr:        THIS_ADDR,
+        serverProxyAddr: PROXY_ADDR,
+        ircServerAddr:   IRC_SRV_ADDR,
+        ircClientAddr:   nullAddr,    --- set when first IrcMsg arrives
+        tlsServerName:   TLS_NAME,
+        upgradePath:     PATH,
+        tunnelState:     Closed,
+        pendingMsgs:     emptyQueue
+    >
+  .
+
+  ---                    ThisAddr  IrcSrvAddr 
+  op makeWtServerProxy : Address   Address    -> Actor .
+  eq makeWtServerProxy(THIS_ADDR, IRC_SRV_ADDR) =
+    < THIS_ADDR : WtServerProxy |
+        thisAddr:        THIS_ADDR,
+        ircServerAddr:   IRC_SRV_ADDR,
+        --- There is no client at the other endi yet.
+        ircClientAddr:   nullAddr
+    >
+  .
+
+  ---------------------------------------------------
+  --- Attribute accessors
+  ---------------------------------------------------
+  vars ATTRS : AttributeSet .
+  var  ADDR  : Address .
+  var  TS    : TunnelState .
+
+  op getThisAddr        : AttributeSet -> Address .
+  eq getThisAddr((ATTRS, thisAddr: ADDR)) = ADDR .
+
+  op getServerProxyAddr : AttributeSet -> Address .
+  eq getServerProxyAddr((ATTRS, serverProxyAddr: ADDR)) = ADDR .
+
+  op getIrcServerAddr   : AttributeSet -> Address .
+  eq getIrcServerAddr((ATTRS, ircServerAddr: ADDR)) = ADDR .
+
+  op getIrcClientAddr   : AttributeSet -> Address .
+  eq getIrcClientAddr((ATTRS, ircClientAddr: ADDR)) = ADDR .
+
+  op getTunnelState     : AttributeSet -> TunnelState .
+  eq getTunnelState((ATTRS, tunnelState: TS)) = TS .
+
+  op getPendingMsgs     : AttributeSet -> MsgQueue .
+  eq getPendingMsgs((ATTRS, pendingMsgs: Q)) = Q .
+
+  op getTlsServerName   : AttributeSet -> String .
+  eq getTlsServerName((ATTRS, tlsServerName: TLS_NAME)) = TLS_NAME .
+
+  op getUpgradePath     : AttributeSet -> String .
+  eq getUpgradePath((ATTRS, upgradePath: PATH)) = PATH .
+
+  ---
+  --- size : MsgQueue -> Nat
+  --- Returns the number of queued messages.
+  ---
+  op size : MsgQueue -> Nat .
+  eq size(emptyQueue)      = 0 .
+  eq size(enqueue(Q, M))   = 1 + size(Q) .
+
+  ---------------------------------------------------
+  --- Content constructors (wire messages)
+  ---------------------------------------------------
+
+  --- Client -> Proxy.  Models TCP connect + TLS ClientHello + HTTP Upgrade.
+  --- Now modeled as an HttpRequest: makeHttpRequest(getRequest, url(TLS_NAME + "/" + PATH))
+
+  --- Proxy -> Client.  Models TLS ServerHello/Finished + HTTP 101.
+  --- Now modeled as an HttpResponse: makeHttpResponse("101 Switching Protocols")
+
+  --- Bidirectional tunnel data frame carrying an IRC message.
+  --- Modeled as HTTP messages to satisfy the requirement that client and server communicate using HTTP messages.
+  op makeHttpRequest : GetRequest ByteSeq -> HttpRequest [ctor] .
+  op makeHttpResponse : String ByteSeq -> HttpResponse [ctor] .
+
+  --- Internal control: kick off tunnel establishment.
+  --- Not a network message; zero wire size.
+  op WtStartCmd : -> Content [ctor] .
+
+  ---------------------------------------------------
+  --- Wire size functions
+  ---------------------------------------------------
+  --- These feed into delayParamd via getSize(Content).
+
+  vars IRC_MSG : ByteSeq .
+  vars NAME PATH2 STATUS_STR : String .
+
+  op getSize : Content -> Nat .
+
+  --- TLS ClientHello (~300 B) + HTTP/1.1 Upgrade request headers.
+  --- Webtunnel uses a GET request to a URL.
+  eq getSize(makeHttpRequest(getRequest, url(PATH2)))
+    = 300 + 200 + length(PATH2)
+  .
+
+  --- TLS ServerHello + Certificate + Finished + HTTP 101 Switching Protocols.
+  eq getSize(makeHttpResponse("101 Switching Protocols")) = 600 .
+
+  --- One TLS record header (5 B) + HMAC + IV/padding overhead (~35 B).
+  eq getSize(makeHttpRequest(getRequest, IRC_MSG))
+    = 40 + getSize(IRC_MSG)
+  .
+  eq getSize(makeHttpResponse(STATUS_STR, IRC_MSG))
+    = 40 + getSize(IRC_MSG)
+  .
+
+  --- Internal control message; no network bytes.
+  eq getSize(WtStartCmd) = 0 .
+
+  --- Fall-through: unknown content has zero size.
+  eq getSize(c:Content) = 0 [owise] .
+
+  ---------------------------------------------------
+  --- Tunnel client map helpers
+  --- (extend ClientAddressMap from IRC_NAMES)
+  ---------------------------------------------------
+
+  vars WT_CLIENT_ADDR IRC_CL_ADDR OLD_ADDR : Address .
+
+  --- Helper: is a WtClient address the other end of the tunnel?
+  op isKnownWtClient : Address Address -> Bool .
+  eq isKnownWtClient(OLD_ADDR, WT_CLIENT_ADDR) = (OLD_ADDR == WT_CLIENT_ADDR) .
+
+  ---------------------------------------------------
+  --- Flush queue: turn pending IrcMsg queue into
+  --- a Config of WtData messages to the proxy.
+  ---------------------------------------------------
+  vars FROM_ADDR TO_ADDR : Address .
+
+  op flushQueue : Address Address MsgQueue -> Config .
+  eq flushQueue(FROM_ADDR, TO_ADDR, emptyQueue) = null .
+  eq flushQueue(FROM_ADDR, TO_ADDR, enqueue(Q, M))
+    = (to TO_ADDR from FROM_ADDR : makeHttpRequest(getRequest, M))
+      flushQueue(FROM_ADDR, TO_ADDR, Q)
+  .
+
+endm

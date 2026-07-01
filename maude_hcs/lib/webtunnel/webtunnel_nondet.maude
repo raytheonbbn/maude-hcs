@@ -1,0 +1,173 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+---
+--- webtunnel_nondet.maude
+---
+--- Non-deterministic rewrite rules for the webtunnel model.
+--- No timing or probabilistic delays; useful for quick reachability
+--- checks and step-by-step rule tracing.
+---
+--- Actors modeled here:
+---   WtClient      — one per IRC client; initiates and holds the tunnel
+---   WtServerProxy — terminates tunnel connections; bridges to IRC server
+---
+--- The IRC actors (IrcClient, IrcServer) are imported unchanged from
+--- lib/irc/irc_prob.maude.  From an IRC client's perspective, the
+--- WtClient address IS its "raceboat" (next-hop) address.
+---
+
+sload ./_webtunnel_aux
+sload ../irc/irc_prob
+
+mod WEBTUNNEL is
+  pr WEBTUNNEL_AUX .
+  pr IRC .
+
+  vars THIS_ADDR PROXY_ADDR IRC_SRV_ADDR IRC_CLIENT_ADDR WT_CLIENT_ADDR OLD_ADDR : Address .
+  vars FROM_ADDR DEST_ADDR : Address .
+  vars attrs attrsNext : AttributeSet .
+  vars TLS_NAME PATH : String .
+  vars IRC_MSG : IrcMsg .
+  vars Q : IrcMsgQueue .
+  vars CAM : ClientAddressMap .
+
+  ---------------------------------------------------
+  --- WtClient rules
+  ---------------------------------------------------
+
+  --- [wt-client-start]
+  --- An external WtStartCmd kicks off tunnel establishment.
+  --- The client transitions Closed -> Connecting and sends WtConnect
+  --- to the proxy, modelling the TLS handshake + HTTP Upgrade.
+  rl [wt-client-start]:
+  < THIS_ADDR : WtClient | tunnelState: Closed, attrs >
+    (to THIS_ADDR from FROM_ADDR : WtStartCmd)
+  =>
+  < THIS_ADDR : WtClient | tunnelState: Connecting, attrs >
+    (to getServerProxyAddr(attrs) from THIS_ADDR
+      : makeHttpRequest(getRequest, url("https://" + getTlsServerName(attrs) + "/" + getUpgradePath(attrs))))
+  [ print "WtClient " THIS_ADDR " initiating tunnel." ]
+  .
+
+  --- [wt-client-connected]
+  --- Proxy confirms TLS+HTTP handshake complete (101 Switching Protocols).
+  --- Transitions: Connecting -> Open; flushes pending IRC messages.
+  rl [wt-client-connected]:
+  < THIS_ADDR : WtClient | tunnelState: Connecting, pendingMsgs: Q, attrs >
+    (to THIS_ADDR from PROXY_ADDR : makeHttpResponse("101 Switching Protocols"))
+  =>
+  < THIS_ADDR : WtClient | tunnelState: Open, pendingMsgs: emptyQueue, attrs >
+    flushQueue(THIS_ADDR, PROXY_ADDR, Q)
+  [ print "WtClient " THIS_ADDR " tunnel now Open." ]
+  .
+
+  --- [wt-client-send-open]
+  --- Tunnel is Open.  Wrap outgoing IrcMsg in WtData and forward to proxy.
+  rl [wt-client-send-open]:
+  < THIS_ADDR : WtClient | tunnelState: Open, ircClientAddr: OLD_ADDR, attrs >
+    (to THIS_ADDR from IRC_CLIENT_ADDR : IRC_MSG)
+  =>
+  < THIS_ADDR : WtClient | ircClientAddr: IRC_CLIENT_ADDR, tunnelState: Open, attrs >
+    (to getServerProxyAddr(attrs) from THIS_ADDR : makeHttpRequest(getRequest, IRC_MSG))
+  [ print "WtClient " THIS_ADDR " (Open) wrapping " IRC_MSG " as HttpRequest." ]
+  .
+
+  --- [wt-client-send-connecting]
+  --- Tunnel still Connecting.  Queue the IrcMsg for later.
+  rl [wt-client-send-connecting]:
+  < THIS_ADDR : WtClient | tunnelState: Connecting, ircClientAddr: OLD_ADDR, pendingMsgs: Q, attrs >
+    (to THIS_ADDR from IRC_CLIENT_ADDR : IRC_MSG)
+  =>
+  < THIS_ADDR : WtClient |
+      ircClientAddr: IRC_CLIENT_ADDR,
+      tunnelState: Connecting,
+      pendingMsgs: enqueue(Q, IRC_MSG),
+      attrs >
+  [ print "WtClient " THIS_ADDR " (Connecting) queuing " IRC_MSG "." ]
+  .
+
+  --- [wt-client-recv]
+  --- WtData arrives from proxy (server->client direction).
+  --- Unwrap and deliver IrcMsg to the IRC client actor.
+  rl [wt-client-recv]:
+  < THIS_ADDR : WtClient | ircClientAddr: IRC_CLIENT_ADDR, attrs >
+    (to THIS_ADDR from PROXY_ADDR : makeHttpResponse("OK", IRC_MSG))
+  =>
+  < THIS_ADDR : WtClient | ircClientAddr: IRC_CLIENT_ADDR, attrs >
+    (to IRC_CLIENT_ADDR from THIS_ADDR : IRC_MSG)
+  [ print "WtClient " THIS_ADDR " delivering " IRC_MSG " to " IRC_CLIENT_ADDR "." ]
+  .
+
+  ---------------------------------------------------
+  --- WtServerProxy rules
+  ---------------------------------------------------
+
+  --- [wt-proxy-connect]
+  --- WtConnect (HttpRequest) from a WtClient. Register the tunnel, reply with 101 Switching Protocols.
+  rl [wt-proxy-connect]:
+  < THIS_ADDR : WtServerProxy | tunnelClientMap: CAM, attrs >
+    (to THIS_ADDR from WT_CLIENT_ADDR : makeHttpRequest(getRequest, url(PATH)))
+  =>
+  < THIS_ADDR : WtServerProxy |
+      tunnelClientMap: registerTunnelClient(CAM, WT_CLIENT_ADDR, nullAddr),
+      attrs >
+    (to WT_CLIENT_ADDR from THIS_ADDR : makeHttpResponse("101 Switching Protocols"))
+  [ print "WtServerProxy " THIS_ADDR " accepted tunnel from " WT_CLIENT_ADDR "." ]
+  .
+
+  --- [wt-proxy-client-to-server]
+  --- Data flows from WtClient to IRC server: unwrap WtData and forward.
+  --- Updates tunnelClientMap to record the IRC client address from the message.
+  crl [wt-proxy-client-to-server]:
+  < THIS_ADDR : WtServerProxy | tunnelClientMap: CAM, attrs >
+    (to THIS_ADDR from WT_CLIENT_ADDR : makeHttpRequest(getRequest, IRC_MSG))
+  =>
+  < THIS_ADDR : WtServerProxy |
+      tunnelClientMap: registerTunnelClient(CAM, WT_CLIENT_ADDR,
+                         getAddressFromUserName(getSrcUser(IRC_MSG))),
+      attrs >
+    (to getIrcServerAddr(attrs) from WT_CLIENT_ADDR : IRC_MSG)
+  if isKnownWtClient(CAM, WT_CLIENT_ADDR)
+  .
+
+  --- [wt-proxy-server-to-client]
+  --- IRC server sends IrcMsg to an IRC client address.
+  --- Proxy looks up the WtClient tunnel, wraps in WtData, and delivers.
+  crl [wt-proxy-server-to-client]:
+  < THIS_ADDR : WtServerProxy | tunnelClientMap: CAM, ircServerAddr: IRC_SRV_ADDR, attrs >
+    (to WT_CLIENT_ADDR from IRC_SRV_ADDR : IRC_MSG)
+  =>
+  < THIS_ADDR : WtServerProxy | attrs >
+    (to WT_CLIENT_ADDR from THIS_ADDR : makeHttpResponse("OK", IRC_MSG))
+  if isKnownWtClient(CAM, WT_CLIENT_ADDR)
+  .
+
+endm

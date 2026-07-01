@@ -54,17 +54,21 @@ mod IRC_MONITOR is
   vars caddrs : AddrSet . 
   vars rooms : StringAddrsSet .
 
+  --- Messages sent (Time_of_send Address_of_node Dest_addr Size_bytes Irc_name_dest Unique_id)
   op msgSent:_ : MessageTimestampList -> Attribute [format (nss d d)] .
+  --- Messages received (Time_of_receive Address_of_node Dest_addr Size_bytes Irc_name_dest Unique_id)
   op msgRcvd:_ : MessageTimestampList -> Attribute [format (nss d d)] .
+  --- The IRC node addresses.
   op ircAddrs:_ : AddrSet -> Attribute [ctor] .
   **** addresses of ircClients
   op ircClients:_ : AddrSet -> Attribute [ctor] .
   **** room members  rm(room, member addrs)
   op roomClients:_ : StringAddrsSet -> Attribute [ctor] .
-   
-  op mkIrcMonitor : Address AddrSet  AddrSet StringAddrsSet
+
+  ---               ThisAddr  AddressesIRCNodes   AddressesIrcClients Rooms
+  op mkIrcMonitor : Address   AddrSet             AddrSet             StringAddrsSet
                    -> Actor .
-  eq mkIrcMonitor(addr,addrs,caddrs,rooms) =
+  eq mkIrcMonitor(addr, addrs, caddrs, rooms) =
     < addr : IrcMonitor |
         msgSent: nilMessageTimestampList,
         msgRcvd: nilMessageTimestampList,
@@ -74,6 +78,7 @@ mod IRC_MONITOR is
     >
   .
 
+  --- Deprecating
   op makeIrcMonitor : Address AddrSet -> Actor .
   eq makeIrcMonitor(monitorAddr:Address, ircAddresses:AddrSet) =
     < monitorAddr:Address : IrcMonitor |
