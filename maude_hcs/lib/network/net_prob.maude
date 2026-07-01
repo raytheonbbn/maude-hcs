@@ -38,11 +38,12 @@ mod NETWORK_CONNECTION is
   pr TCP_SOCKET .
 
   vars channelClientAddr channelServerAddr netAddr netClientAddr netServerAddr remoteAddr LOCAL_ADDR REMOTE_ADDR : Address .
-  vars flowAttrs netAttrs netAttrsNext netAttrsTrans logAttrs logAttrsNext pktAttrs : AttributeSet .
+  vars flowAttrs linkAttrs netAttrs netAttrsNext netAttrsTrans logAttrs logAttrsNext pktAttrs : AttributeSet .
   vars CURRENT_CONNECTION : AttributeSet .
   vars content : Content .
   vars T : Float .
-  vars msg : Msg .
+  vars TIME_LIST : FloatList .
+  vars msg transportMsg : Msg .
   vars j jNext n : Nat .
 
   ****************************************************************************
@@ -59,16 +60,18 @@ mod NETWORK_CONNECTION is
   rCtr(jNext)
   < netAddr : NetClient | netAttrsNext >
 ****  < log : Log | logAttrsNext >
-    [delay:Float, msg, 0]
+    [delay:Float, transportMsg, 0]
   if netAttrsTrans := (netAttrs, remoteChannelAddr: REMOTE_ADDR, localIfaceAddr: LOCAL_ADDR)
-    /\ {netAttrsNext , flowAttrs} := getFlowInfo(netAttrsTrans, (to netAddr from getLocalIfaceAddr(netAttrsTrans) : content))
+    /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : content)
+    /\ {netAttrsNext , flowAttrs} := getFlowInfo(netAttrsTrans, msg)
     /\ netServerAddr := getRemoteEndpointAddr(netAttrs)
-    /\ (pktAttrs, nextJ: jNext) := getSegmentDistribution(j, netServerAddr, netAddr, content, flowAttrs)
+    /\ linkAttrs := getLinkData(msg)
+    /\ (pktAttrs, nextJ: jNext) := getSegmentDistribution(j, msg, get4stateLoss(linkAttrs))
 ****      /\ lattrsNext := addPackets(lattrs, T, pattrs)
-    /\ delay:Float := msgDelay(pktAttrs)
-    /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : content 
-                                              :: flowAttrs)
-    [ print "(" T ") Net client " netAddr " handling request, sending " msg "." ]
+    /\ (timePacketList: TIME_LIST) := pktAttrs
+    /\ delay:Float := msgDelay(TIME_LIST)
+    /\ transportMsg := (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
+    [ print "(" T ") Net client " netAddr " handling request, sending " transportMsg " whose last packet will arrive in " delay:Float "s." ]
   .
 
   rl [net-client-resp]:
@@ -111,15 +114,18 @@ mod NETWORK_CONNECTION is
   rCtr(jNext)
   < netAddr : NetServer | netAttrsTrans >
 ****  < log : Log | lattrs1 >
-    [delay:Float, msg, 0]
+    [delay:Float, transportMsg, 0]
   if netAttrsTrans := (netAttrs, localIfaceAddr: LOCAL_ADDR)
+    /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : content)
     /\ flowAttrs := getCurrentConnection(netAttrsTrans)
     /\ netClientAddr := getRemoteEndpointAddr(netAttrsTrans)
-    /\ (pktAttrs, nextJ: jNext) := getSegmentDistribution(j, netClientAddr, netAddr, content, flowAttrs)
+    /\ linkAttrs := getLinkData(msg)
+    /\ (pktAttrs, nextJ: jNext) := getSegmentDistribution(j, msg, get4stateLoss(linkAttrs))
 ****      /\ logAttrsNext := addPackets(logAttrs, T, pktAttrs) >
-    /\ delay:Float := msgDelay(pktAttrs)
-    /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
-    [ print "(" T ") Net server " netAddr " handling response, sending " msg "." ]
+    /\ (timePacketList: TIME_LIST) := pktAttrs
+    /\ delay:Float := msgDelay(TIME_LIST)
+    /\ transportMsg := (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
+    [ print "(" T ") Net server " netAddr " handling response, sending " transportMsg "." ]
   .
 
 endm
