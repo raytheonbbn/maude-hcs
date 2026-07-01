@@ -1,0 +1,39 @@
+--- MAUDE_HCS: maude_hcs
+--- FTP TGEN TEST
+---
+
+sload ./ftpTgen-actor.maude
+sload ./ftpServer-actor.maude
+
+mod TEST-FTP-TGEN is
+  inc FTP-TGEN .
+  inc FTP-SERVER .
+
+  ops umDAddr ftpTGAddr ftpSrvAddr : -> Address .
+
+  op ftpTGenA : -> Actor .
+  eq ftpTGenA = mkFtpTgenA(ftpTGAddr, ftpSrvAddr, 5.0, 2) .
+
+  op ftpSrvA : -> Actor .
+  eq ftpSrvA = mkFtpServerA(ftpSrvAddr) .
+  
+  op initConfig : -> Config .
+  eq initConfig = 
+    rCtr(1) 
+    ftpTGenA 
+    ftpSrvA 
+    {0.0 | nil} .
+endm
+
+set print attribute on .
+
+--- Test 1: browse_list
+rew run(initConfig {0.0001, to ftpTGAddr from umDAddr : actionQ("type" |-> js("browse_list"))}, 100.0) .
+
+--- Test 2: upload_store
+rew run(initConfig {0.0001, to ftpTGAddr from umDAddr : actionQ("type" |-> js("upload_store"))}, 100.0) .
+
+--- Test 3: change_to_random_directory (browse_cd)
+rew run(initConfig {0.0001, to ftpTGAddr from umDAddr : actionQ("type" |-> js("browse_cd"))}, 100.0) .
+
+eof
