@@ -308,15 +308,18 @@ if __name__ == "__main__":
 
     plt.figure(figsize=(12, 7))
     k_vals = list(range(1, N + 1))
-    
+
+    # HACK: Adjust by 20ms, because the segment timestamps are from the transmission side instead of reception side 
+    O_ms = O * 1000.0  # 20.0 ms
+
     plt.plot(k_vals, theoretical_times, label='Theoretical Model ($E[T_k]$)', color='blue', linewidth=2)
-    plt.plot(k_vals, empirical_mean, label='Empirical Measurements (Mean)', color='red', linewidth=2)
-    plt.plot(k_vals, empirical_median, color='darkred', linestyle='--', linewidth=1.5, label='Empirical Measurements (Median)')
+    plt.plot(k_vals, empirical_mean + O_ms, label='Empirical Measurements (Mean)', color='red', linewidth=2)
+    plt.plot(k_vals, empirical_median + O_ms, color='darkred', linestyle='--', linewidth=1.5, label='Empirical Measurements (Median)')
     
     # Clip the lower standard deviation bound at 0 ms
     plt.fill_between(k_vals, 
-             np.maximum(0, empirical_mean - empirical_std), 
-             empirical_mean + empirical_std, 
+             np.maximum(0, (empirical_mean - empirical_std) + O_ms),
+             (empirical_mean + empirical_std) + O_ms,
              color='lightcoral', alpha=0.3, label='Empirical Measurements (± STD)')
     
     colors = ['#e6f2ff', '#cce5ff']
