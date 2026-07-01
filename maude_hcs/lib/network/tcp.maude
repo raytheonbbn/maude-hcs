@@ -28,7 +28,9 @@
 --- MAUDE_HCS: end
 
 sload ../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../deps/dns_formalization/Maude/common/parameters.maude
 sload ../common/maude/_aux.maude
+sload ../common/maude/cp2-interfaces.maude
 
 mod TCP_SOCKET is
   pr ACTOR-MODEL .
@@ -37,37 +39,6 @@ mod TCP_SOCKET is
   subsorts TcpAddress < Address .
 
   op tcp : Address -> TcpAddress .
-endm
-
-mod TCP_NODE is
-  pr CP2_SORTS .
-  pr ACTOR-MODEL .
-
-  sorts TimePacketList .
-  subsort Float < TimePacketList . *** Allows a single float to be treated as a list
-
-  --- Constructors
-  op nil : -> TimePacketList [ctor] .
-  op _._ : TimePacketList TimePacketList -> TimePacketList [ctor assoc id: nil] .
-
-  vars src dst SRC DST : Address .
-  vars attrs attrsNext : AttributeSet .
-  vars content : Content .
-  vars j : Nat .
-
-  op timePacketList:_ : TimePacketList  -> Attribute [ctor] .
-  op nextJ:_          : Nat             -> Attribute [ctor] .
-
-  ---                         Seed  Dst     Src     Content Net attr
-  op getSegmentDistribution : Nat   Address Address Content AttributeSet -> AttributeSet .
-  eq getSegmentDistribution(j, DST, SRC, content, attrs)
-    = (timePacketList: 0.,
-       nextJ: j)
-  .
-
-  op msgDelay : AttributeSet -> Float .
-  eq msgDelay(attrs) = 0.05 .
-
 endm
 
 --- ================================================================
@@ -175,18 +146,20 @@ endfm
 --- Module: TCP-ANALYTICAL-MODEL
 ---   Channel model, flight analysis, timeline builder, public API.
 --- ================================================================
-fmod TCP-ANALYTICAL-MODEL is
+mod TCP-ANALYTICAL-MODEL is
   pr TCP-LINALG .
   pr NAT .
   pr INT .
   pr CONVERSION .
+  pr PARAMETERS-BASE-COMMON .
 
   --- ============================================================
   ---  FloatList
   --- ============================================================
   sort FloatList .
+  subsort Float < FloatList .
   op nilFL : -> FloatList [ctor] .
-  op _::_ : Float FloatList -> FloatList [ctor] .
+  op _::_ : FloatList FloatList -> FloatList [ctor assoc id: nilFL] .
 
   vars F G : Float .
   vars L L1 L2 : FloatList .
@@ -198,6 +171,14 @@ fmod TCP-ANALYTICAL-MODEL is
   op _++_ : FloatList FloatList -> FloatList .
   eq nilFL ++ L = L .
   eq (F :: L1) ++ L2 = F :: (L1 ++ L2) .
+
+  op max  : FloatList -> Float .
+  eq max(nilFL) = 0. .
+  eq max(F) = F .
+  eq max(L :: F) = $max(L, F) .
+  op $max : FloatList Float -> Float .
+  eq $max(F, G) = (if F > G then F else G fi) .
+  eq $max((L :: F), G) = $max(L, $max(F, G)) .
 
 
   --- ============================================================
@@ -268,13 +249,6 @@ fmod TCP-ANALYTICAL-MODEL is
   ---          P      Ms     Ml     lossVec  piStat
   op chCfg : Mat4   Mat4   Mat4   Vec4     Vec4   -> ChannelCfg [ctor] .
   
-  op p13:_          : Float -> Attribute .
-  op p31:_          : Float -> Attribute .
-  op p32:_          : Float -> Attribute .
-  op p23:_          : Float -> Attribute .
-  op p14:_          : Float -> Attribute .
-  op oneWayDelay:_  : Float -> Attribute .
-
   vars linkAttrs : AttributeSet .
   vars PM MS ML : Mat4 .
   vars LV PIST : Vec4 .
@@ -291,12 +265,6 @@ fmod TCP-ANALYTICAL-MODEL is
   eq chMl(chCfg(PM, MS, ML, LV, PIST)) = ML .
   eq chLV(chCfg(PM, MS, ML, LV, PIST)) = LV .
   eq chPi(chCfg(PM, MS, ML, LV, PIST)) = PIST .
-
-  op getOneWayDelay : AttributeSet -> Float .
-  eq getOneWayDelay(linkAttrs, oneWayDelay: OW:Float)
-    = OW:Float
-  .
-  eq getOneWayDelay(linkAttrs) = 0. [owise] .
 
   op makeChannel : AttributeSet -> ChannelCfg .
   eq makeChannel(linkAttrs,
@@ -617,7 +585,44 @@ fmod TCP-ANALYTICAL-MODEL is
                                     P23:Float, P14:Float)
   .
 
-endfm
+endm
+
+mod TCP_NODE is
+  pr CP2_SORTS .
+  pr ACTOR-MODEL .
+  pr IRC-DISPATCHER-INTERFACE .
+  pr TCP-ANALYTICAL-MODEL .
+
+  vars src dst SRC DST : Address .
+  vars attrs attrsNext : AttributeSet .
+  vars content : Content .
+  vars msg : Msg .
+  vars j msgSize  : Nat .
+
+  op timePacketList:_ : FloatList -> Attribute [ctor] .
+  op nextJ:_          : Nat             -> Attribute [ctor] .
+
+  ---                         Seed  Msg LinkAttrs
+  op getSegmentDistribution : Nat   Msg AttributeSet -> AttributeSet .
+  ceq getSegmentDistribution(j, msg, attrs) =
+    (timePacketList: times:FloatList,
+     nextJ: j)
+    if content := getContent(msg)
+      /\ attrs =/= nilAttrs
+      /\ msgSize := getSize(content)
+      /\ times:FloatList := tcpDeliveryTimes(msgSize, attrs)
+    [ print "Time dispersion of segments from " j "B message is " times:FloatList  "." ]
+  .
+  eq getSegmentDistribution(j, msg, nilAttrs) =
+    (timePacketList: 0.0001, nextJ: j)
+    [owise print "Time dispersion of segments from " j "B message on unspecd link 0.1ms." ]
+  .
+
+  op msgDelay : FloatList -> Float .
+  eq msgDelay(nilFL) = 0. .
+  eq msgDelay(times:FloatList) = max(times:FloatList) .
+
+endm
 
 
 --- ================================================================
@@ -653,5 +658,23 @@ red tcpDeliveryTimes(14480,
                       p23: 3.e-1,
                       p14: 2.e-3,
                       oneWayDelay: 2.e-2))
+.
+
+red tcpDeliveryTimes(14480,
+                     (p13: 0.,
+                      p31: 0.,
+                      p32: 0.,
+                      p23: 0.,
+                      p14: 0.,
+                      oneWayDelay: 2.e-2))
+.
+
+red tcpDeliveryTimes(8,
+                     (p13: 0.001,
+                      p31: 0.4,          
+                      p32: 0.5,          
+                      p23: 0.04,         
+                      p14: 0.1,          
+                      oneWayDelay: 0.050))
 .
 
