@@ -39,6 +39,7 @@ mod SMC_CP3 is
   vars attrs attrs' : AttributeSet .
   vars T T' Tsent Trcvd Tstart Tend Tdeadline Tn : Float .
   vars ADDR ADDR' ircAddr ircAddrFrom ircAddrFrom' ircAddrTo ircAddrTo' : Address .
+  var CO : Content .
 
   vars ircMTL ircMTL' :  MessageTimestampList .
   vars ircRoom ircRoom' : IrcName .
@@ -50,10 +51,6 @@ mod SMC_CP3 is
   var ircUserName : IrcUserName .
   var cMap : NameClientsMap .
 
-  vars winSize binSize : Float .
-	vars kExpKsDistance hEvidenceTh S : Float .  
-	var M : Msg .
- 
   vars F F' D : Float .
   var FL FL' : List{Float} .
   vars N N' N'' I J : Nat .
@@ -88,9 +85,9 @@ mod SMC_CP3 is
   eq sort(nil) = nil .
   eq sort(F FL) = insert(F, sort(FL)) .
 
-	op removeZero : List{Float} -> List{Float} .
-	eq removeZero(nil) = nil .
-	eq removeZero(F FL) = if F == 0.0 then removeZero(FL) else F removeZero(FL) fi .
+  op removeZero : List{Float} -> List{Float} .
+  eq removeZero(nil) = nil .
+  eq removeZero(F FL) = if F == 0.0 then removeZero(FL) else F removeZero(FL) fi .
 
   op nth : List{Float} Nat -> Float .
   eq nth(nil, N) = 0.0 .
@@ -108,8 +105,8 @@ mod SMC_CP3 is
   op min3 : Nat Nat Nat -> Nat .
   eq min3(N, N', N'') = min2(N, min2(N', N'')) . 
 
-	op max2 : Float Float -> Float .
-	eq max2(F, F') = if (F <= F') then F' else F fi .
+  op max2 : Float Float -> Float .
+  eq max2(F, F') = if (F <= F') then F' else F fi .
 
   op sumDiff : List{Float} -> Float .
   eq sumDiff(nil) = 0.0 .
@@ -127,23 +124,22 @@ mod SMC_CP3 is
   op getIrcSrv : Config -> Actor .
   eq getIrcSrv (C < ADDR : IrcServer | attrs >) = < ADDR : IrcServer | attrs > .
 
-  --- to be extracted from Monitor 
   op isIrcServerAddr : Address -> Bool .
-  eq isIrcServerAddr (ADDR) = (ADDR == ircSrvAddr) . 
+  eq isIrcServerAddr (ADDR) = (ADDR == ircServerAddr) . 
 
-  op allClientsAddr : -> AddrList . 
-  eq allClientsAddr = ircaAddr ; ircbAddr ; irccAddr . 
-      ---getAddressesFromUserNames(makeIrcUserName(ircaAddr) : makeIrcUserName(ircbAddr) : makeIrcUserName(irccAddr)) .
+  op makeIrcUserNameList : AddrList -> IrcUserNameList .
+  eq makeIrcUserNameList (nil) = emptyIrcUserNameList .
+  eq makeIrcUserNameList (ADDR ; aList) = makeIrcUserName (ADDR) : makeIrcUserNameList(aList) . 
+
   op allClientsUserName : -> IrcUserNameList . 
-  eq allClientsUserName = makeIrcUserName(ircaAddr) : makeIrcUserName(ircbAddr) : makeIrcUserName(irccAddr) .
+  eq allClientsUserName = makeIrcUserNameList(allClientsAddr) .
 
   op inAddrList : Address AddrList -> Bool .
-	eq inAddrList (ADDR, nil) = false . 
-	eq inAddrList (ADDR, ADDR' ; aList) = if (ADDR == ADDR') then true else inAddrList(ADDR, aList) fi .
+  eq inAddrList (ADDR, nil) = false . 
+  eq inAddrList (ADDR, ADDR' ; aList) = if (ADDR == ADDR') then true else inAddrList(ADDR, aList) fi .
 
   op isIrcClientAddr : Address -> Bool .
   eq isIrcClientAddr (ADDR) = inAddrList(ADDR, allClientsAddr) .
-  -------- 
 
   op countMsgs : MessageTimestampList -> Nat .
   eq countMsgs (nilMessageTimestampList) = 0 .
@@ -225,11 +221,11 @@ mod SMC_CP3 is
   op _:::_ : MsgIdList MsgIdList -> MsgIdList [ctor assoc id: nilMsgIdList] .
 
   op lenMsgIdList : MsgIdList -> Nat .
-	eq lenMsgIdList (nilMsgIdList) = 0 .
+  eq lenMsgIdList (nilMsgIdList) = 0 .
   eq lenMsgIdList (N ::: NL) = 1 + lenMsgIdList(NL) .
 
   op collectGlobalView : IrcName MessageTimestampList Float Float -> MsgIdList . 
-	eq collectGlobalView (ircRoom, nilMessageTimestampList, Tstart, Tend) = nilMsgIdList .
+  eq collectGlobalView (ircRoom, nilMessageTimestampList, Tstart, Tend) = nilMsgIdList .
   eq collectGlobalView (ircRoom, messageTimestamp(Tsent, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; ircMTL, Tstart, Tend) = 
     if (Tstart <= Tsent) and (Tsent <= Tend) and isIrcClientAddr(ircAddrFrom) and (ircRoom == ircRoom')
     then ircMsgId ::: collectGlobalView(ircRoom, ircMTL, Tstart, Tend)
@@ -310,7 +306,7 @@ mod SMC_CP3 is
     individualClientIntegrity (ircAddr, getChannels(cMap, ircAddr), ircMTL, ircMTL', Tstart, Tend) .
 
   op lenUserNameList : IrcUserNameList -> Nat .
-	eq lenUserNameList (nilIrcUserName) = 0 .
+  eq lenUserNameList (nilIrcUserName) = 0 .
   eq lenUserNameList (emptyIrcUserNameList) = 0 .
   eq lenUserNameList (ircUserName : uList) = if (uList == nilIrcUserName) then lenUserNameList(uList) else 1 + lenUserNameList(uList) fi .
 
@@ -368,107 +364,219 @@ mod SMC_CP3 is
   op getMTBF : Actor Float Float Float -> List{Float} .
   eq getMTBF (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = avgDiff(sort(collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) collectDeliveryFailure(ircMTL', Tn, Tstart, Tend))) .
 
-***(
   --- Confidentiality (KS Statistic + CUSUM)
 
-	op countEqPrefix : Float List{Float} -> Nat .
-	eq countEqPrefix (F, nil) = 0 .
-	eq countEqPrefix (F, F' FL) = if F == F' then 1 + countEqPrefix(F, FL) else 0 fi .  
+  sort TimedFloat .
+  sort TimedFloatList .
+  
+  var TFL : TimedFloatList .
+  vars winSize binSize : Float .
+  vars S Z H : Float .
 
-	op rmEqPrefix : Float List{Float} -> List{Float} .
-	eq rmEqPrefix (F, nil) = nil .
-	eq rmEqPrefix (F, F' FL) = if F == F' then rmEqPrefix(F, FL) else F' FL fi .
+  var M : Msg .
+  vars TML F0Z GtZ : TimeMsgList .
+  var QUERY : Query .
+  vars K Ksum : Float .
+
+  op timedFloat : Float Float -> TimedFloat .
+  op nilTimedFloatList : -> TimedFloatList [ctor] .
+  op __ : TimedFloat TimedFloatList -> TimedFloatList [ctor assoc id: nilTimedFloatList] .
+
+  op collectTimedZDNSQueryRate : List{Float} TimeMsgList Float Float Float Float Float -> TimedFloatList .
+
+  op countEqPrefix : Float List{Float} -> Nat .
+  eq countEqPrefix (F, nil) = 0 .
+  eq countEqPrefix (F, F' FL) = if F == F' then 1 + countEqPrefix(F, FL) else 0 fi .  
+
+  op rmEqPrefix : Float List{Float} -> List{Float} .
+  eq rmEqPrefix (F, nil) = nil .
+  eq rmEqPrefix (F, F' FL) = if F == F' then rmEqPrefix(F, FL) else F' FL fi .
 
   op KsDistanceX : List{Float} List{Float} Nat Nat Nat Nat Float -> Float .
-	eq KsDistanceX (nil, nil, I, J, N, N', D) = D .
-	eq KsDistanceX (F FL, nil, I, J, N, N', D) = 
-		KsDistanceX(FL, nil, I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float (N'))))) .
-	eq KsDistanceX (nil, F' FL', I, J, N, N', D) = 
-		KsDistanceX(nil, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float (N'))))) .  
-	eq KsDistanceX (F FL, F' FL', I, J, N, N', D) = 
-		if F == F' 
-		then KsDistanceX(rmEqPrefix(F, F FL), rmEqPrefix(F', F' FL'), 
-			I + countEqPrefix(F, F FL), J + countEqPrefix(F', F' FL'), N, N', 
-			max2(D, abs((float(I + countEqPrefix(F, F FL)) / float(N)) - (float(J + countEqPrefix(F', F' FL')) / float(N'))))) 
-		else if F < F' 
-		then KsDistanceX(FL, F' FL', I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float (N')))))
-		else  
-		KsDistanceX(F FL, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float (N'))))) fi fi .  
+  eq KsDistanceX (nil, nil, I, J, N, N', D) = D .
+  eq KsDistanceX (F FL, nil, I, J, N, N', D) = 
+    KsDistanceX(FL, nil, I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float (N'))))) .
+  eq KsDistanceX (nil, F' FL', I, J, N, N', D) = 
+    KsDistanceX(nil, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float (N'))))) .  
+  eq KsDistanceX (F FL, F' FL', I, J, N, N', D) = 
+    if F == F' 
+    then KsDistanceX(rmEqPrefix(F, F FL), rmEqPrefix(F', F' FL'), 
+      I + countEqPrefix(F, F FL), J + countEqPrefix(F', F' FL'), N, N', 
+      max2(D, abs((float(I + countEqPrefix(F, F FL)) / float(N)) - (float(J + countEqPrefix(F', F' FL')) / float(N'))))) 
+    else if F < F' 
+    then KsDistanceX(FL, F' FL', I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float (N')))))
+    else  
+    KsDistanceX(F FL, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float (N'))))) fi fi .  
 
   op KsDistance : List{Float} List{Float} -> Float .
-	eq KsDistance (nil, FL) = 0.0 .
-	eq KsDistance (FL, nil) = 0.0 .
-	eq KsDistance (FL, FL') = KsDistanceX(FL, FL', 0, 0, len(FL), len(FL'), 0.0) .
+  eq KsDistance (nil, FL) = 0.0 .
+  eq KsDistance (FL, nil) = 0.0 .
+  eq KsDistance (FL, FL') = KsDistanceX(FL, FL', 0, 0, len(FL), len(FL'), 0.0) .
 
-	op KsStatisticZ : List{Float} List{Float} Float -> Float .
-  eq KsStatisticZ (FL, FL', kExpKsDistance) = KsDistance(FL, FL') - kExpKsDistance .
+  op KsStatisticZ : List{Float} List{Float} Float -> Float .
+  eq KsStatisticZ (FL, FL', K) = KsDistance(FL, FL') - K .
 
-	--- TBD FlowID
-	var TML F0Z GtZ : TimeMsgList .
-	var QUERY : Query .
-	var Ksum : Float .
+  sorts FlowId FlowIdList .
+  sort FloatMatrix .
 
-	op isDNSQuery : Msg -> Bool .
-	eq isDNSQuery (to ADDR from ADDR' : QUERY) = true .
-	eq isDNSQuery (M) = false [owise] .
+  op flow : Address Address -> FlowId [ctor] .
+  op nilFlow : -> FlowIdList [ctor] .
+  op _::_ : FlowId FlowIdList -> FlowIdList [ctro] .
+
+  vars Fid Fid' : FlowId .
+  var FidList : FlowIdList .
+
+  op inFlowIdList : FlowId FlowIdList -> Bool .
+  eq inFlowIdList (Fid, nilFlow) = false .
+  eq inFlowIdList (Fid, Fid' :: FidList) = if (Fid == Fid') then true else inFlowIdList(Fid, FidList) fi .
+
+  op addFlowIdList : FlowId FlowIdList -> FlowIdList . 
+  eq addFlowIdList (Fid, FidList) = if inFlowIdList(Fid, FidList) then FidList else Fid :: FidList fi .
+
+  op collectFlowId : TimeMsgList -> FlowIdList .
+  eq collectFlowId (nilTML) = nilFlow .
+  eq collectFlowId (tm(T, to ADDR from ADDR' : CO) ; TML) = addFlowIdList(flow(ADDR', ADDR), collectFlowId(TML)) .
+
+  op collectDNSFlowId : TimeMsgList -> FlowIdList .
+  eq collectDNSFlowId (nilTML) = nilFlow .
+  eq collectDNSFlowId (tm(T, to ADDR from ADDR' : QUERY) ; TML) = addFlowIdList(flow(ADDR', ADDR), collectDNSFlowId(TML)) .
+  eq collectDNSFlowId (tm(T, M) ; TML) = collectDNSFlowId(TML) [owise] .
+
+  op collectPreNATFlowId : FlowIdList -> FlowIdList .
+  eq collectPreNATFlowId (nilFlow) = nilFlow .
+  eq collectPreNATFlowId (flow(ADDR, X(ADDR')) :: FidList) = flow(ADDR, ADDR') :: collectPreNATFlowId(FidList) .
+  eq collectPreNATFlowId (Fid :: FidList) = collectPreNATFlowId(FidList) [owise] .
+
+  op isPreNATDNSQuery : Msg -> Bool .
+  eq isPreNATDNSQuery (to X(ADDR) from ADDR' : QUERY) = true .
+  eq isPreNATDNSQuery (M) = false [owise] .
+
+  op isDNSQuery : Msg -> Bool .
+  eq isDNSQuery (to ADDR from ADDR' : QUERY) = true .
+  eq isDNSQuery (M) = false [owise] .
+
+  op isDNSQuery : Content -> Bool .
+  eq isDNSQuery (QUERY) = true .
+  eq isDNSQuery (CO) = false [owise] .
 
   op countDNSQuery : TimeMsgList Float Float -> Nat .
   eq countDNSQuery (nilTML, Tstart, Tend) = 0 .
   eq countDNSQuery (tm(T, M); TML, Tstart, Tend) = 
-		if T >= Tstart and T < Tend and isDNSQuery(M)  
-		then 1 + countDNSQuery(TML, Tstart, Tend) 
-		else countDNSQuery(TML, Tstart, Tend) fi .
+    if T >= Tstart and T < Tend and isPreNATDNSQuery(M)  
+    then 1 + countDNSQuery(TML, Tstart, Tend) 
+    else countDNSQuery(TML, Tstart, Tend) fi .
 
-	op compDNSQueryRate : TimeMsgList Float Float -> Float .
-	eq compDNSQueryRate (nilTML, Tstart, Tend) = 0.0 .
-	eq compDNSQueryRate (TML, Tstart, Tend) = 
-		if Tend <= Tstart 
-		then 0.0 
-		else float(countDNSQuery(TML, Tstart, Tend)) / (Tend - Tstart) fi .
+  op countDNSQuery : FlowId TimeMsgList Float Float -> Nat .
+  eq countDNSQuery (Fid, nilTML, Tstart, Tend) = 0 .
+  eq countDNSQuery (Fid, tm(T, to X(ADDR) from ADDR' : CO) ; TML, Tstart, Tend) = 
+    if T >= Tstart and T < Tend and isDNSQuery(CO) and Fid == flow(ADDR', ADDR) 
+    then 1 + countDNSQuery(Fid, TML, Tstart, Tend) 
+    else countDNSQuery(Fid, TML, Tstart, Tend) fi .
+  eq countDNSQuery (Fid, tm(T, M) ; TML, Tstart, Tend) = countDNSQuery(Fid, TML, Tstart, Tend) [owise] .
 
-	op Tesp : -> Float .
-	eq Tesp = 1.0e-9 .
+  op compDNSQueryRate : TimeMsgList Float Float -> Float .
+  eq compDNSQueryRate (nilTML, Tstart, Tend) = 0.0 .
+  eq compDNSQueryRate (TML, Tstart, Tend) = 
+    if Tend <= Tstart 
+    then 0.0 
+    else float(countDNSQuery(TML, Tstart, Tend)) / (Tend - Tstart) fi .
 
-	op collectDNSQueryRateX : TimeMsgList Float Float Float -> List{Float} .
+  op compDNSQueryRate : FlowId TimeMsgList Float Float -> Float .
+  eq compDNSQueryRate (Fid, nilTML, Tstart, Tend) = 0.0 . 
+  eq compDNSQueryRate (Fid, TML, Tstart, Tend) = 
+    if Tend <= Tstart
+    then 0.0
+    else float(countDNSQuery(Fid, TML, Tstart, Tend)) / (Tend - Tstart) fi .
+
+  op Tesp : -> Float .
+  eq Tesp = 1.0e-9 .
+
+  op collectDNSQueryRateX : TimeMsgList Float Float Float -> List{Float} .
   eq collectDNSQueryRateX (TML, T, Tend, binSize) =
-		if (T + binSize) <= (Tend + Tesp)
+    if (T + binSize) <= (Tend + Tesp)
     then compDNSQueryRate(TML, T, T + binSize) collectDNSQueryRateX (TML, T + binSize, Tend, binSize)
     else nil fi .
 
   op collectDNSQueryRate : TimeMsgList Float Float Float -> List{Float} .
   eq collectDNSQueryRate (TML, Tstart, winSize, binSize) = collectDNSQueryRateX(TML, Tstart, Tstart + winSize, binSize) .
 
-	op getECDFDNSQueryRate : TimeMsgList Float Float Float -> List{Float} . 
-	eq getECDFDNSQueryRate (TML, Tstart, winSize, binSize) = removeZero(sort(collectDNSQueryRate(TML, Tstart, winSize, binSize))) .
+  op collectDNSQueryRateX : FlowId TimeMsgList Float Float Float -> List{Float} .
+  eq collectDNSQueryRateX (Fid, TML, T, Tend, binSize) =
+    if (T + binSize) <= (Tend + Tesp)
+    then compDNSQueryRate(Fid, TML, T, T + binSize) collectDNSQueryRateX (Fid, TML, T + binSize, Tend, binSize)
+    else nil fi .
 
-  op expectedKDNSQueryRate : TimeMsgList TimeMsgList Float Float Float Float -> Float . 
-	eq expectedKDNSQueryRate (F0Z, GtZ, Tstart, Tend, winSize, binSize) = expectedKDNSQueryRateX(getECDFDNSQueryRate(F0Z, 0.0, Tstart, binSize), GtZ, Tstart, Tend, winSize, binSize, 0.0, 0) .
+  op collectDNSQueryRate : FlowId TimeMsgList Float Float Float -> List{Float} .
+  eq collectDNSQueryRate (Fid, TML, Tstart, winSize, binSize) = collectDNSQueryRateX(Fid, TML, Tstart, Tstart + winSize, binSize) .
 
-	op expectedKDNSQueryRateX : List{Float} TimeMsgList Float Float Float Float Float Nat -> Float .
-	eq expectedKDNSQueryRateX (FL, GtZ, T, Tend, winSize, binSize, Ksum, N) =
-		if (T + winSize) <= (Tend + Tesp) 
-		then if KsDistance(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize)) > 0.0 
-			then expectedKDNSQueryRateX(FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum + KsDistance(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize)), N + 1) 
-			else expectedKDNSQueryRateX(FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum, N) 
-	 	  fi 
-		else if N == 0 then 0.0 else Ksum / float(N) fi fi .
+  op collectDNSQueryRateFlow : FlowIdList TimeMsgList Float Float Float -> List{Float} .
+  eq collectDNSQueryRateFlow (nilFlow, TML, Tstart, winSize, binSize) = nil .
+  eq collectDNSQueryRateFlow (Fid :: FidList, TML, Tstart, winSize, binSize) = collectDNSQueryRate(Fid, TML, Tstart, winSize, binSize) collectDNSQueryRateFlow(FidList, TML, Tstart, winSize, binSize) .
 
-  op getBaselineCDFDNSQueryRate : TimeMsgList Float Float -> List{Float} .
-	eq getBaselineCDFDNSQueryRate (F0Z, Tstart, binSize) = getECDFDNSQueryRate(F0Z, 0.0, Tstart, binSize) . 
+  op getECDFDNSQueryRate : TimeMsgList Float Float Float -> List{Float} . 
+  --- eq getECDFDNSQueryRate (TML, Tstart, winSize, binSize) = removeZero(sort(collectDNSQueryRate(TML, Tstart, winSize, binSize))) . 
+  eq getECDFDNSQueryRate (TML, Tstart, winSize, binSize) = removeZero(sort(collectDNSQueryRateFlow(collectPreNATFlowId(collectDNSFlowId(TML)), TML, Tstart, winSize, binSize))) .
 
-	op getKDNSQueryRate : TimeMsgList Float Float Float Float -> Float .
-	eq getKDNSQueryRate (TML, Tstart, Tend, winSize, binSize ) = expectedKDNSQueryRate(TML, TML, Tstart, Tend, winSize, binSize) .
-)
-***(
-  op updateCUSUM : Float List{Float} List{Float} Float -> Float . 
-	eq updateCUSUM (S, FL, FL', kExpKsDistance) = max2(0.0, S + KsStatisticZ (FL, FL', kExpKsDistance)) . 
+  op getBaselineCDFDNSQueryRate : TimeMsgList Float Float Float -> List{Float} .
+  eq getBaselineCDFDNSQueryRate (F0Z, Tstart, Tend, binSize) = getECDFDNSQueryRate(F0Z, Tstart, Tend, binSize) . 
 
-	op alarmCUSUM : Float Float -> Bool .
-	op alarmCUSUM (S, hEvidenceTh) = S >= hEvidenceTh .
+  op expectedKDNSQueryRate : List{Float} TimeMsgList Float Float Float Float Float Nat -> Float .
+  eq expectedKDNSQueryRate (FL, GtZ, T, Tend, winSize, binSize, Ksum, N) =
+    if (T + winSize) <= (Tend + Tesp) 
+    then if KsDistance(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize)) > 0.0 
+      then expectedKDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum + KsDistance(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize)), N + 1) 
+      else expectedKDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum, N) 
+      fi 
+    else if N == 0 then 0.0 else Ksum / float(N) fi fi .
 
-	op getToDDNSQueryRate : Actor Float Float Float Float Float -> Float .
-	eq getToDDNSQueryRate (< ADDR : Adversary | attrs >, Tstart, Tend, winSize, binSize, hEvidenceTh) =
-		if alarmCUSUM(0.0, hEvidenceTh) 
-		then Tend.
-)
+  op getKDNSQueryRate : TimeMsgList Float Float Float Float -> Float .
+  eq getKDNSQueryRate (TML, Tstart, Tend, winSize, binSize) = expectedKDNSQueryRate(getBaselineCDFDNSQueryRate(TML, Tstart, Tend, binSize), TML, Tstart, Tend, winSize, binSize, 0.0, 0) .
+
+  op collectZDNSQueryRate : List{Float} TimeMsgList Float Float Float Float Float -> List{Float} .
+  eq collectZDNSQueryRate (FL, GtZ, T, Tend, winSize, binSize, K) =
+    if (T + winSize) <= (Tend + Tesp) 
+    then if KsDistance(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize)) > 0.0 
+      then KsStatisticZ(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize), K) collectZDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, K)
+      else collectZDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, K) fi 
+    else nil fi .
+
+  op getZDNSQueryRate : TimeMsgList Float Float Float Float -> List{Float} .
+  eq getZDNSQueryRate (TML, Tstart, Tend, winSize, binSize) = collectZDNSQueryRate(getBaselineCDFDNSQueryRate(TML, 0.0, Tstart, binSize), TML, Tstart, Tend, winSize, binSize, getKDNSQueryRate(TML, 0.0, Tstart, winSize, binSize)) .
+
+  eq collectTimedZDNSQueryRate (FL, GtZ, T, Tend, winSize, binSize, K) =
+    if (T + winSize) <= (Tend + Tesp) 
+    then if KsDistance(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize)) > 0.0 
+      then timedFloat(T + winSize, KsStatisticZ(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize), K)) collectTimedZDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, K)
+      else collectTimedZDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, K) fi
+    else nilTimedFloatList fi .
+
+  op getTimedZDNSQueryRate : TimeMsgList Float Float Float Float -> TimedFloatList .
+  eq getTimedZDNSQueryRate (TML, Tstart, Tend, winSize, binSize) = collectTimedZDNSQueryRate(getBaselineCDFDNSQueryRate(TML, 0.0, Tstart, binSize), TML, Tstart, Tend, winSize, binSize, getKDNSQueryRate(TML, 0.0, Tstart, winSize, binSize)) .
+
+  op getCUSUM : TimedFloatList Float -> Float . 
+  eq getCUSUM (nilTimedFloatList, S) = S .
+  eq getCUSUM (timedFloat(T, Z) TFL, S) = getCUSUM(TFL, max2(0.0, S + Z)) . 
+
+  op getTimedCUSUM : TimedFloatList Float Float Float -> Float . 
+  eq getTimedCUSUM (nilTimedFloatList, Tstart, Tend, S) = S .
+  eq getTimedCUSUM (timedFloat(T, Z) TFL, Tstart, Tend, S) = 
+    if (Tstart <= T) and (T <= Tend)
+    then getTimedCUSUM(TFL, Tstart, Tend, max2(0.0, S + Z)) 
+    else getTimedCUSUM(TFL, Tstart, Tend, max2(0.0, S)) fi .
+
+  op alarmCUSUM : Float Float -> Bool .
+  eq alarmCUSUM (S, H) = S >= H .
+
+  op alarmTimeCUSUM : TimedFloatList Float Float -> Float .
+  eq alarmTimeCUSUM (nilTimedFloatList, H, S) = 0.0 .
+  eq alarmTimeCUSUM (timedFloat(T, Z) TFL, H, S) = 
+    if max2(0.0, S + Z) >= H
+    then T
+    else alarmTimeCUSUM (TFL, H, max2(0.0, S + Z)) fi .
+
+---  op getToDDNSQueryRate : Actor Float Float Float Float Float -> Float .
+---  eq getToDDNSQueryRate (< ADDR : Adversary | sent: TML, attrs >, Tstart, Tend, winSize, binSize, H) =
+  op getToDDNSQueryRate : TimeMsgList Float Float Float Float Float -> Float .
+  eq getToDDNSQueryRate (TML, Tstart, Tend, winSize, binSize, H) = alarmTimeCUSUM(getTimedZDNSQueryRate(TML, Tstart, Tend, winSize, binSize), H, 0.0) .
+
 endm
