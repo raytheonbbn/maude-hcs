@@ -57,7 +57,7 @@ L_rev = np.kron(np.ones(4), L_base)
 O   = 0.02                       # One-way propagation delay (s)
 RTT = 2 * O                      # Round-trip time (s)
 SER = 1514 * 8 / 1e9             # Per-packet serialization delay at 1 Gbps
-MAX_CWND = 40                    # Physical ceiling for the network path (in segments)
+MAX_CWND = 50                    # Physical ceiling for the network path (in segments)
 
 # ─────────────────────── TCP Parameters (Ubuntu 22.04) ───────────────────────
 
@@ -241,15 +241,18 @@ def _build_timeline(max_k=2000):
         p0, pa, el, pi_next = _flight_stats(W_ss, pi)
         p_l = 1.0 - p0  # Probability that Slow Start ends this flight
 
+        # 1. Clamp the flight size to ensure doubling doesn't overshoot MAX_CWND
+        current_flight_size = min(int(W_ss), MAX_CWND)
+
         # Record arrival times (burst at 1 Gbps)
-        for i in range(W_ss):
+        for i in range(current_flight_size):
             k = seg + i + 1
             if k <= max_k:
                 times[k] = t + O + i * SER
                 flts[k]  = flt
-        seg += W_ss
+        seg += current_flight_size
 
-        # Expected flight duration:
+        # Expected flight duration uses the actual flight size sent
         #   no loss  → 1 RTT
         #   loss     → 2 RTT + RACK quarter-RTT for SACK/RACK recovery
         dt  = p0 * RTT + p_l * (2 * RTT + RTT * RACK_FRAC)
@@ -257,16 +260,17 @@ def _build_timeline(max_k=2000):
         pi  = pi_next
         flt += 1
 
-        W_next_ss = W_ss * 2
+        # 2. Bound the next step evaluation by MAX_CWND
+        W_next_ss = min(W_ss * 2, MAX_CWND)
         p0_next, pa_next, el_next, _ = _flight_stats(W_next_ss, pi)
 
         # Let it stay in Slow Start until it expects more than 0.5 packet drops on average
-        if el_next > 0.5 or W_ss >= MAX_CWND:
+        if el_next > 0.5 or current_flight_size >= MAX_CWND:
             # Ensures that transition to Congestion Avoidance adjust window appropriately
             last_p0 = p0_next
             break
         W_ss = W_next_ss
-
+        
     # ── Transition to CA ──
     # Expected post-SS cwnd weighted by last flight's loss probability
     p_l_last = 1.0 - last_p0
