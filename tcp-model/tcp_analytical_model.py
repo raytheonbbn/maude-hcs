@@ -57,8 +57,8 @@ L_rev = np.kron(np.ones(4), L_base)
 O   = 0.02                       # One-way propagation delay (s)
 RTT = 2 * O                      # Round-trip time (s)
 SER = 1514 * 8 / 1e9             # Per-packet serialization delay at 1 Gbps
-MAX_CWND = 80                    # Physical ceiling for the network path (in segments)
-BUFFER_CAPACITY = 60            # Physical limit where tail-drop loss occurs
+MAX_CWND = 60                    # Physical ceiling for the network path (in segments)
+BUFFER_CAPACITY = 55             # Physical limit where tail-drop loss occurs
 
 # ─────────────────────── TCP Parameters (Ubuntu 22.04) ───────────────────────
 
