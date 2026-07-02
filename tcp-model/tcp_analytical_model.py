@@ -57,7 +57,8 @@ L_rev = np.kron(np.ones(4), L_base)
 O   = 0.02                       # One-way propagation delay (s)
 RTT = 2 * O                      # Round-trip time (s)
 SER = 1514 * 8 / 1e9             # Per-packet serialization delay at 1 Gbps
-MAX_CWND = 50                    # Physical ceiling for the network path (in segments)
+MAX_CWND = 80                    # Physical ceiling for the network path (in segments)
+BUFFER_CAPACITY = 60            # Physical limit where tail-drop loss occurs
 
 # ─────────────────────── TCP Parameters (Ubuntu 22.04) ───────────────────────
 
@@ -241,6 +242,18 @@ def _build_timeline(max_k=2000):
         p0, pa, el, pi_next = _flight_stats(W_ss, pi)
         p_l = 1.0 - p0  # Probability that Slow Start ends this flight
 
+        # Check if the flight pushes total segments past the physical ceiling
+        if seg + W_ss > BUFFER_CAPACITY:
+            # The capacity is reached mid-flight, causing drops on the tail end
+            dropped_packets = (seg + W_ss) - BUFFER_CAPACITY
+            p_l = dropped_packets / W_ss
+            p0 = 1.0 - p_l
+            
+        # Override loss probability if the flight exceeds buffer capacity
+#        if W_ss > BUFFER_CAPACITY:
+#            p_l = (W_ss - BUFFER_CAPACITY) / W_ss
+#            p0 = 1.0 - p_l
+
         # 1. Clamp the flight size to ensure doubling doesn't overshoot MAX_CWND
         current_flight_size = min(int(W_ss), MAX_CWND)
 
@@ -265,9 +278,10 @@ def _build_timeline(max_k=2000):
         p0_next, pa_next, el_next, _ = _flight_stats(W_next_ss, pi)
 
         # Let it stay in Slow Start until it expects more than 0.5 packet drops on average
-        if el_next > 0.5 or current_flight_size >= MAX_CWND:
+        # OR if we just explicitly forced a physical buffer overflow drop
+        if el_next > 0.5 or p_l > 0.0 or current_flight_size >= MAX_CWND:
             # Ensures that transition to Congestion Avoidance adjust window appropriately
-            last_p0 = p0_next
+            last_p0 = p0_next if p_l == 0.0 else p0
             break
         W_ss = W_next_ss
         
@@ -283,7 +297,7 @@ def _build_timeline(max_k=2000):
     # CUBIC state
     w_max   = min(cwnd / CUBIC_B, MAX_CWND)
     t_since = 0.0                 # time since last loss (CUBIC clock)
-
+    
     # ── Phase 3: Congestion Avoidance ──
     for _ in range(100_000):
         if seg >= max_k:
