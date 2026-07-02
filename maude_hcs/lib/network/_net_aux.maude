@@ -37,9 +37,11 @@ mod NETWORK_NODE is
   pr ACTOR-MODEL .
 
   vars addr remoteAddr localAddr ADDR REMOTE_ADDR REMOTE_CHANNEL_ADDR LOCAL_ADDR : Address .
-  vars attrs attrsNext attrsTrans CONNECTION_ATTRS : AttributeSet .
+  vars attrs attrsNext attrsTrans netAttrs netAttrsTrans netAttrsNext CONNECTION_ATTRS : AttributeSet .
+  vars flowAttrs linkAttrs pktAttrs : AttributeSet .
   vars CONNECTION_REUSE : Bool .
-  vars count : Nat .
+  vars msg : Msg .
+  vars count j : Nat .
 
   op NetClient : -> ActorType [ctor] .
   op NetServer : -> ActorType [ctor] .
@@ -49,6 +51,7 @@ mod NETWORK_NODE is
   op remoteChannelAddr:_  : Address -> Attribute [ctor] .
   op remoteEndpointAddr:_ : Address -> Attribute [ctor] .
   op localIfaceAddr:_     : Address -> Attribute [ctor] .
+  op ixpAddr: _           : Address -> Attribute [ctor] .
 
   **** Attributes for client only.
   op connectionReuse:_    : Bool    -> Attribute [ctor] .
@@ -59,6 +62,9 @@ mod NETWORK_NODE is
   **** Flow Info attributes.
   op flowId:_             : Nat     -> Attribute [ctor] .
 
+  --- Default IXP router address. There should be only one in CP3.
+  op IXP-DEFAULT-ADDR : -> Address .
+
   ----                This    RemoteChan  RemoteEndpt LocalChan ReuseConnection
   op makeNetClient :  Address Address     Address     Address   Bool -> Actor .
   eq makeNetClient(ADDR, REMOTE_CHANNEL_ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
@@ -67,6 +73,7 @@ mod NETWORK_NODE is
           remoteChannelAddr:  REMOTE_CHANNEL_ADDR,
           remoteEndpointAddr: REMOTE_ADDR,
           localIfaceAddr:     LOCAL_ADDR,
+          ixpAddr:            IXP-DEFAULT-ADDR,
           connectionReuse:    CONNECTION_REUSE,
           connectionCount:    0
       >
@@ -79,6 +86,7 @@ mod NETWORK_NODE is
           thisAddr: ADDR,
           remoteEndpointAddr: REMOTE_ADDR,
           localIfaceAddr:     LOCAL_ADDR,
+          ixpAddr:            IXP-DEFAULT-ADDR,
           currentConnection:  nilAttrs ****(flowId: 0)
       >
   .
@@ -117,6 +125,5 @@ mod NETWORK_NODE is
             else (attrs, connectionCount: s count)
         fi)
   .
-
 endm
 
