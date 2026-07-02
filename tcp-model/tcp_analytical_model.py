@@ -145,7 +145,7 @@ def _flight_stats(W, pi):
       p0 : probability that all data packets and their ACKs arrive cleanly.
       pa : probability of complete RTO timeout. This occurs if either all data packets 
            fail the forward path, or if all returning ACKs fail the reverse path.
-      el : expected total number of packet drop events seen on the path.
+      el_fwd : expected number of data packet drop events seen on the forward path only.
     """
     # 1. Forward Path execution (Data Segment delivery)
     v_fwd_all_ok = pi.copy()
@@ -163,10 +163,8 @@ def _flight_stats(W, pi):
     v_rev_all_ok = v_fwd_all_ok.copy()
     v_rev_all_drop = v_after_fwd.copy()  # ACKs are generated from whatever survived the forward path
     v_after_rev = v_after_fwd.copy()
-    el_rev = 0.0
 
     for _ in range(W):
-        el_rev += float(v_after_rev @ L_rev)
         v_rev_all_ok = v_rev_all_ok @ M_rev_ok
         v_rev_all_drop = v_rev_all_drop @ M_rev_drop
         v_after_rev = v_after_rev @ P
@@ -178,10 +176,9 @@ def _flight_stats(W, pi):
     # Timeout hits if either direction encounters a complete flight block
     pa = float(np.clip(p_fwd_fail + (1.0 - p_fwd_fail) * p_rev_fail, 0, 1))
     
-    el = el_fwd + el_rev
     s = v_after_rev.sum()
     
-    return p0, pa, el, (v_after_rev / s if s > 0 else pi_stat.copy())
+    return p0, pa, el_fwd, (v_after_rev / s if s > 0 else pi_stat.copy())
 
 # ==============================================================================
 #  3-Way Handshake
@@ -210,24 +207,11 @@ def _cubic_w(t, w_max):
 def _build_timeline(max_k=2000):
     """
     Build E[T_k] for k = 1 … max_k.
-
-    Phase 1 — Handshake
-        Expected SYN exchange time with possible retransmissions.
-
-    Phase 2 — Slow Start
-        Window doubles each flight. Flight durations use probability-
-        weighted RTT and SACK-recovery penalties from the GE model.
-        SS ends when the per-flight loss probability exceeds 50%.
-
-    Phase 3 — Congestion Avoidance (CUBIC)
-        Expected-value model: for each flight the next cwnd is
-            cwnd_next = p0·w_grow + p_partial·w_fast_rec + p_all·1
-        Converges quickly to the CUBIC steady state.
     """
     times = np.full(max_k + 1, np.nan)
     flts  = np.zeros(max_k + 1, dtype=int)
     times[0] = 0.0
-    total_el = 0.0  # Tracks expected cumulative drop events
+    total_el = 0.0  # Tracks expected cumulative drop events (Forward-path only)
 
     # ── Phase 1: Handshake ──
     t_hs, pi = _handshake()
@@ -240,7 +224,7 @@ def _build_timeline(max_k=2000):
     last_p0 = 1.0
 
     while seg < max_k:
-        p0, pa, el, pi_next = _flight_stats(W_ss, pi)
+        p0, pa, el_fwd, pi_next = _flight_stats(W_ss, pi)
         p_l = 1.0 - p0  # Probability that Slow Start ends this flight
 
         # Check if the flight pushes total segments past the physical ceiling
@@ -251,7 +235,7 @@ def _build_timeline(max_k=2000):
             p0 = 1.0 - p_l
             total_el += float(dropped_packets)
         else:
-            total_el += el
+            total_el += el_fwd
             
         # 1. Clamp the flight size to ensure doubling doesn't overshoot MAX_CWND
         current_flight_size = min(int(W_ss), MAX_CWND)
@@ -268,8 +252,6 @@ def _build_timeline(max_k=2000):
         LOCAL_RECOVERY_FACTOR = 0.5  # Adjust this to damp the vertical overshoot
         
         # Expected flight duration uses the actual flight size sent
-        #   no loss  → 1 RTT
-        #   loss     → 2 RTT + RACK quarter-RTT for SACK/RACK recovery
         dt_loss = (2 * RTT + RTT * RACK_FRAC) * LOCAL_RECOVERY_FACTOR
         dt = p0 * RTT + p_l * dt_loss
         t += dt
@@ -277,11 +259,11 @@ def _build_timeline(max_k=2000):
 
         # 2. Bound the next step evaluation by MAX_CWND
         W_next_ss = min(W_ss * 2, MAX_CWND)
-        p0_next, pa_next, el_next, _ = _flight_stats(W_next_ss, pi)
+        p0_next, pa_next, el_fwd_next, _ = _flight_stats(W_next_ss, pi)
 
         # Let it stay in Slow Start until it expects more than 0.5 packet drops on average
         # OR if we just explicitly forced a physical buffer overflow drop
-        if el_next > 0.5 or p_l > 0.0 or current_flight_size >= MAX_CWND:
+        if el_fwd_next > 0.5 or p_l > 0.0 or current_flight_size >= MAX_CWND:
             # Ensures that transition to Congestion Avoidance adjust window appropriately
             last_p0 = p0_next if p_l == 0.0 else p0
             break
@@ -306,7 +288,7 @@ def _build_timeline(max_k=2000):
             break
 
         W = max(1, int(round(cwnd)))
-        p0, pa, el, pi_next = _flight_stats(W, pi)
+        p0, pa, el_fwd, pi_next = _flight_stats(W, pi)
         
         # Only log droptail events if we are actively growing/forcing the window wider 
         # than the path's steady-state capacity limit.
@@ -317,13 +299,11 @@ def _build_timeline(max_k=2000):
             pa = 0.0  # Partial drop, not a full timeout block
             total_el += float(ca_dropped)
         else:
-            total_el += el
+            total_el += el_fwd
             
         pp = max(0.0, 1.0 - p0 - pa)
 
-        # 1. Scale the expected delivery step size to represent a full pipeline 
-        # volume turnover. This stops the model from micro-stepping and 
-        # compounding artificial loss boundaries.
+        # 1. Scale the expected delivery step size to represent a full pipeline volume turnover
         E_del = W * (MAX_CWND / max(1.0, cwnd))
 
         # 2. Map the continuous time step to the exact packet index boundaries
@@ -331,14 +311,9 @@ def _build_timeline(max_k=2000):
         seg_end   = int(np.floor(seg + E_del))
 
         # Calculate the expected time step duration for this flight step
-        #   p0 -> clean RTT
-        #   pp -> SACK recovery overhead
-        #   pa -> Complete loss forces a minimum RTO wait
         E_dt_nominal = p0 * RTT + pp * (2 * RTT + RTT * RACK_FRAC) + pa * RTO_MIN
 
         # Smoothly bound the time step by the physical serialization capacity.
-        # As the window saturates, the continuous pipeline time-delta scales down
-        # to match the wire-speed delivery rate instead of dropping to an idle pause.
         E_dt = max(E_del * SER, E_dt_nominal * (E_del / MAX_CWND))
 
         # Record arrival times for any packet boundary crossed during this flight step
@@ -354,7 +329,7 @@ def _build_timeline(max_k=2000):
         t   += E_dt
         pi   = pi_next
 
-        # ── Window dynamics (Executed using the elapsed epoch time) ──
+        # ── Window dynamics ──
 
         # 1. Update the CUBIC clock cleanly first
         p_loss_event = pp + pa
@@ -392,8 +367,6 @@ def expected_time_k(k):
     """
     Expected arrival time of the k-th TCP data segment at the server,
     measured from the client's first SYN transmission.
-
-    Returns (time_in_seconds, flight_number).
     """
     global _cache
     if 'times' not in _cache or k >= len(_cache['times']):
@@ -415,7 +388,6 @@ def get_total_retransmissions():
 
 def get_tc_netem_params(P_mat, L_mat):
     """Convert the single-path transition matrix to tc-netem loss-state percentages."""
-    # Netem setup pulls from baseline 4-state parameters to initialize individual interfaces
     return (np.clip(P_base[0, 2] * 100, 0.0, 100.0), np.clip(P_base[2, 0] * 100, 0.0, 100.0),
             np.clip(P_base[2, 1] * 100, 0.0, 100.0), np.clip(P_base[1, 2] * 100, 0.0, 100.0),
             np.clip(P_base[0, 3] * 100, 0.0, 100.0))
