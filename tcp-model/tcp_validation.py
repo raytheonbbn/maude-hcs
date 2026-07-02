@@ -18,7 +18,7 @@ except ImportError:
     sys.exit(1)
 
 import tcp_analytical_model
-from tcp_analytical_model import O, expected_time_k, get_tc_netem_params
+from tcp_analytical_model import O, expected_time_k, get_tc_netem_params, get_total_retransmissions
 
 # ==============================================================================
 # 2. Execution Environment & Ground Truth Setup
@@ -344,3 +344,8 @@ if __name__ == "__main__":
     plot_file = 'tcp_validation_plot.png'
     plt.savefig(plot_file, dpi=300)
     print(f"Plot successfully saved to {plot_file}")
+
+    # ── Print the expected retransmissions to stdout ──
+    total_retrans = get_total_retransmissions()
+    print(f"\n[MODEL OUTPUT] Total Expected Retransmissions for profile '{args.tc_profile}': {total_retrans:.2f}")
+

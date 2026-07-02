@@ -227,6 +227,7 @@ def _build_timeline(max_k=2000):
     times = np.full(max_k + 1, np.nan)
     flts  = np.zeros(max_k + 1, dtype=int)
     times[0] = 0.0
+    total_el = 0.0  # Tracks expected cumulative drop events
 
     # ── Phase 1: Handshake ──
     t_hs, pi = _handshake()
@@ -248,12 +249,10 @@ def _build_timeline(max_k=2000):
             dropped_packets = (seg + W_ss) - BUFFER_CAPACITY
             p_l = dropped_packets / W_ss
             p0 = 1.0 - p_l
+            total_el += float(dropped_packets)
+        else:
+            total_el += el
             
-        # Override loss probability if the flight exceeds buffer capacity
-#        if W_ss > BUFFER_CAPACITY:
-#            p_l = (W_ss - BUFFER_CAPACITY) / W_ss
-#            p0 = 1.0 - p_l
-
         # 1. Clamp the flight size to ensure doubling doesn't overshoot MAX_CWND
         current_flight_size = min(int(W_ss), MAX_CWND)
 
@@ -308,6 +307,18 @@ def _build_timeline(max_k=2000):
 
         W = max(1, int(round(cwnd)))
         p0, pa, el, pi_next = _flight_stats(W, pi)
+        
+        # Only log droptail events if we are actively growing/forcing the window wider 
+        # than the path's steady-state capacity limit.
+        if W > BUFFER_CAPACITY and W > int(round(w_max)):
+            ca_dropped = W - BUFFER_CAPACITY
+            p_l_ca = ca_dropped / W
+            p0 = max(0.0, 1.0 - p_l_ca)
+            pa = 0.0  # Partial drop, not a full timeout block
+            total_el += float(ca_dropped)
+        else:
+            total_el += el
+            
         pp = max(0.0, 1.0 - p0 - pa)
 
         # 1. Scale the expected delivery step size to represent a full pipeline 
@@ -369,7 +380,7 @@ def _build_timeline(max_k=2000):
 
         flt += 1
 
-    return times, flts
+    return times, flts, total_el
 
 # ==============================================================================
 #  Public API
@@ -387,11 +398,19 @@ def expected_time_k(k):
     global _cache
     if 'times' not in _cache or k >= len(_cache['times']):
         n = max(2000, k + 500)
-        t, f = _build_timeline(n)
-        _cache = {'times': t, 'flights': f}
+        t, f, el = _build_timeline(n)
+        _cache = {'times': t, 'flights': f, 'total_el': el}
     if k <= 0:
         return 0.0, 0
     return float(_cache['times'][k]), int(_cache['flights'][k])
+
+
+def get_total_retransmissions():
+    """Returns the total accumulated expected retransmissions for the cached timeline."""
+    global _cache
+    if 'total_el' in _cache:
+        return float(_cache['total_el'])
+    return 0.0
 
 
 def get_tc_netem_params(P_mat, L_mat):
