@@ -265,12 +265,15 @@ def _build_timeline(max_k=2000):
                 flts[k]  = flt
         seg += current_flight_size
 
+        # Tweaks the dt calculation to scale the recovery overhead for local buffers
+        LOCAL_RECOVERY_FACTOR = 0.5  # Adjust this to damp the vertical overshoot
+        
         # Expected flight duration uses the actual flight size sent
         #   no loss  → 1 RTT
         #   loss     → 2 RTT + RACK quarter-RTT for SACK/RACK recovery
-        dt  = p0 * RTT + p_l * (2 * RTT + RTT * RACK_FRAC)
-        t  += dt
-        pi  = pi_next
+        dt_loss = (2 * RTT + RTT * RACK_FRAC) * LOCAL_RECOVERY_FACTOR
+        dt = p0 * RTT + p_l * dt_loss
+        t += dt
         flt += 1
 
         # 2. Bound the next step evaluation by MAX_CWND
