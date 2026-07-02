@@ -1,0 +1,85 @@
+--- MAUDE_HCS: maude_hcs
+--- MinIO TGEN V2 TEST
+---
+--- Tests the UM-V2 user model driving the MinIO tgen actor
+--- with the v2 two-level Markov model.
+--- Uses the S3 protocol stack (S3SdkClient + AwsS3HttpServer).
+---
+
+set show advisories off .
+
+sload ./minio-mamodel-v2.maude
+sload ../../../common/maude/tgen-action-actor-v2.maude
+sload ./minioTgen-actor.maude
+
+mod MINIO-TGEN-V2-TEST is
+  inc MINIO-CONFIG-MAMODEL-V2 .
+  inc USER-ACTION-ACTOR-V2 .
+  inc MINIO-TGEN .
+
+  --- Global constants
+  --- The user model database: map model name to MAModel-v2
+  eq MAModelMap = ("minio" |-> minio-config-ma-v2) .
+
+  --- Override default model timeout — the MinIO idle states
+  --- have ~300s mean sleep, so the default 1000s is too low.
+  eq defaultModelTimeOut = 100000.0 .
+
+  --- Override model steps for testing
+  eq defaultModelSteps = 100 .
+
+  --- Minimal delay and noise for testing
+  eq defaultDelay = 0.001 .
+  eq noiseMax(msg:Msg) = 0.00001 .
+
+  --- Actor addresses
+  ops minioUMAddr minioTGAddr s3ClientAddr s3ServerAddr : -> Address .
+
+  --- UM-V2 Actor: drives the MinIO tgen with Markov model
+  op umAct : -> Actor .
+  eq umAct = mkTgenUMV2Actor(minioUMAddr, "minio", minioTGAddr) .
+
+  --- MinIO Tgen Actor: translates actions to S3 calls
+  op minioTGenA : -> Actor .
+  eq minioTGenA = mkMinioTgenA(minioTGAddr, s3ClientAddr, "tgen") .
+
+  --- S3 SDK Client Actor: translates abstract S3 -> HTTP
+  op s3ClientA : -> Actor .
+  eq s3ClientA = makeS3Client(s3ClientAddr, s3ServerAddr) .
+
+  --- S3 HTTP Server Actor: mock S3 server with pre-seeded data
+  op s3ServerA : -> Actor .
+  eq s3ServerA =
+    < s3ServerAddr : AwsS3HttpServer |
+        s3DataMap: (
+          --- Pre-seed some objects so GET operations succeed
+          ("/tgen/list-1" -> restToByteSeq("obj1.zip;obj2.zip;data/")) ;
+          ("/tgen/stat-1" -> restToByteSeq("obj1.zip:1024:2025-01-01")) ;
+          ("/tgen/cd-1" -> restToByteSeq("subdir1/;subdir2/")) ;
+          ("/tgen/retr-1" -> restToByteSeq("mock_file_content_bytes"))
+        )
+    > .
+
+  --- Initial configuration
+  op iS : Nat -> Config .
+  eq iS(j:Nat) =
+    rCtr(j:Nat)
+    umAct
+    minioTGenA
+    s3ClientA
+    s3ServerA
+    --- Kickoff: trigger the UM-V2 to start executing
+    [0.1, to minioUMAddr from minioUMAddr : burstDelayTO, 0]
+    .
+
+endm
+
+set print attribute on .
+
+eof
+
+--- Basic test: run for 100000 time units
+rew [5000] run({0.0 | nil} iS(1), 100000.0) .
+
+--- Different random seed
+rew [5000] run({0.0 | nil} iS(42), 100000.0) .
