@@ -156,10 +156,13 @@ mod TCP-ANALYTICAL-MODEL is
   --- ============================================================
   ---  FloatList
   --- ============================================================
-  sort FloatList .
+  sorts FloatList NatList .
   subsort Float < FloatList .
+  subsort Nat < NatList .
   op nilFL : -> FloatList [ctor] .
   op _::_ : FloatList FloatList -> FloatList [ctor assoc id: nilFL] .
+  op nilNatList : -> NatList [ctor] .
+  op _::_ : NatList NatList -> NatList [ctor assoc id: nilNatList] .
 
   vars F G : Float .
   vars L L1 L2 : FloatList .
@@ -545,6 +548,15 @@ mod TCP-ANALYTICAL-MODEL is
   ---  Public API
   --- ============================================================
 
+  op TCP-HEADER-BYTES : -> Nat .
+  op IP-HEADER-BYTES  : -> Nat .
+  op MTU-SIZE-BYTES   : -> Nat .
+  op ETH-SIZE-BYTES   : -> Nat .
+  eq TCP-HEADER-BYTES = 32 [owise].
+  eq IP-HEADER-BYTES  = 20 [owise] .
+  eq MTU-SIZE-BYTES   = 1500 [owise] .
+  eq ETH-SIZE-BYTES   = MTU-SIZE-BYTES - IP-HEADER-BYTES - TCP-HEADER-BYTES .
+
   --- buildTimeline(N, O, CC)
   ---   Phase 1: Handshake (simplified: first try always succeeds)
   ---   Phase 2: Slow Start
@@ -567,7 +579,7 @@ mod TCP-ANALYTICAL-MODEL is
   op tcpDeliveryTimes : Nat AttributeSet -> FloatList .
   ceq tcpDeliveryTimes(MSZ:Nat, linkAttrs) =
     buildTimeline(NSeg:Nat, getOneWayDelay(linkAttrs), CC0:ChannelCfg)
-  if NSeg:Nat := ceilDiv(MSZ:Nat, 1448)
+  if NSeg:Nat := ceilDiv(MSZ:Nat, ETH-SIZE-BYTES)
     /\ CC0:ChannelCfg := makeChannel(linkAttrs)
   .
 
@@ -580,11 +592,31 @@ mod TCP-ANALYTICAL-MODEL is
   ceq tcpDeliveryTimes(MSZ:Nat, P13:Float, P31:Float, P32:Float,
                        P23:Float, P14:Float, OW) =
      buildTimeline(NSeg:Nat, OW, CC0:ChannelCfg)
-  if NSeg:Nat := ceilDiv(MSZ:Nat, 1448)
+  if NSeg:Nat := ceilDiv(MSZ:Nat, ETH-SIZE-BYTES)
   /\ CC0:ChannelCfg := makeChannel(P13:Float, P31:Float, P32:Float,
                                     P23:Float, P14:Float)
   .
 
+  vars deliveryTimes : FloatList .
+  vars msgSize lastPktSizeBytes numOriginalSegments n : Nat .
+  vars deliverySizes : NatList .
+
+  --- Make a list of n segments with a certain size.
+  ---                     NumSeg  TheirSize CurrentList (it is recursive).
+  op $makeDeliverySizes : Nat     Nat       NatList -> NatList .
+  eq $makeDeliverySizes(s n, msgSize, deliverySizes)
+    = $makeDeliverySizes(n, msgSize, deliverySizes :: msgSize)
+  .
+  eq $makeDeliverySizes(0, msgSize, deliverySizes) = deliverySizes .
+
+  --- Get the TCP delivery sizes, in Bytes.
+  ---                   TotalMsgSize  DeliveryTimes
+  op tcpDeliverySizes : Nat           FloatList -> NatList .
+  ceq tcpDeliverySizes(msgSize, deliveryTimes) = deliverySizes
+    if numOriginalSegments := ceilDiv(msgSize, ETH-SIZE-BYTES)
+      /\ lastPktSizeBytes := (msgSize + IP-HEADER-BYTES + TCP-HEADER-BYTES) - ((numOriginalSegments - 1) * ETH-SIZE-BYTES)
+      /\ deliverySizes := $makeDeliverySizes(lenFL(deliveryTimes) - 1, MTU-SIZE-BYTES, nilNatList) :: lastPktSizeBytes
+  .
 endm
 
 mod TCP_NODE is
@@ -678,3 +710,13 @@ red tcpDeliveryTimes(8,
                       oneWayDelay: 0.050))
 .
 
+red $makeDeliverySizes(5, 120, nilNatList) == 120 :: 120 :: 120 :: 120 :: 120 .
+
+red tcpDeliverySizes(14480,
+                     tcpDeliveryTimes(14480,(p13: 5.e-3,
+                                             p31: 2.e-1,
+                                             p32: 4.e-1,
+                                             p23: 3.e-1,
+                                             p14: 2.e-3,
+                                             oneWayDelay: 2.e-2)))
+.
