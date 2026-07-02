@@ -1,0 +1,241 @@
+--- MAUDE_HCS: maude_hcs
+--- MinIO Tgen Actor
+---
+--- Translates UM-V2 actionQ commands into S3 API calls
+--- via the S3SdkClient from lib/s3.
+---
+
+sload ../../../common/maude/sampler-x
+sload ../../../common/maude/cp2-interfaces
+sload ../../../s3/s3_protocol
+
+mod MINIO-TGEN is
+  inc CP2-COMMON .
+  inc SAMPLER-X .
+  inc S3_PROTOCOL .
+  inc TGEN-INTERFACE .
+
+  --- MinIO task types (what we're waiting for from S3)
+  sort MinioTask .
+  op noMinioTask : -> MinioTask .
+  op waitS3Put : String String -> MinioTask .    --- bucket, uuid
+  op waitS3Get : String String -> MinioTask .    --- bucket, uuid
+  op waitS3GetForAppend : String String -> MinioTask . --- bucket, uuid (GET before re-PUT)
+
+  op MinioTgen : -> ActorType .
+
+  --- Attributes
+  op s3Addr:_ : Address -> Attribute [ctor] .   --- S3SdkClient address
+  op bucket:_ : String -> Attribute [ctor] .    --- default bucket
+  op w4:_ : MinioTask -> Attribute [ctor] .
+  op replyTo:_ : Config -> Attribute [ctor] .
+  op reqId:_ : Nat -> Attribute [ctor] .
+
+  vars dAddr umAddr s3Addr : Address .
+  vars attrs attrs1 attrs2 : AttributeSet .
+  vars msg msg0 msg1 : Msg .
+  vars msgs msgs0 smsgs : Config .
+  vars rj rj1 j j1 reqId reqId0 : Nat .
+  vars T : Float .
+  vars ract : Map{String,JV} .
+  vars cmd bucketName uuid dataStr : String .
+  vars task : MinioTask .
+  vars ac : Content .
+  vars data body : ByteSeq .
+
+  --- Constructor
+  op mkMinioTgenA : Address Address String -> Actor .
+  eq mkMinioTgenA(dAddr, s3Addr, bucketName) =
+    < dAddr : MinioTgen |
+      s3Addr: s3Addr,
+      bucket: bucketName,
+      w4: noMinioTask,
+      replyTo: null,
+      reqId: 0
+    > .
+
+  --- =========================================================
+  --- Receive actionQ from UM-V2 and dispatch to S3
+  --- =========================================================
+  crl [rcvMinioAction]:
+    rCtr(rj)
+    {T, (to dAddr from umAddr : actionQ(ract))}
+    < dAddr : MinioTgen | attrs, w4: noMinioTask, replyTo: null,
+                          s3Addr: s3Addr, bucket: bucketName, reqId: reqId >
+  =>
+    rCtr(rj1)
+    < dAddr : MinioTgen | attrs1 >
+    smsgs
+  if {attrs1, smsgs, rj1} :=
+       dispatchAction((attrs, w4: noMinioTask,
+                       replyTo: (to dAddr from umAddr : actionQ(ract)),
+                       s3Addr: s3Addr, bucket: bucketName, reqId: s reqId),
+                      ract, dAddr, s3Addr, bucketName, rj)
+  [print "(" T ") MinioTgen rcvMinioAction " ract] .
+
+  --- =========================================================
+  --- Dispatch action based on type string
+  --- =========================================================
+  op dispatchAction : AttributeSet Map{String,JV} Address Address String Nat
+                      -> AttributeSetMsgsNat .
+
+  --- browse_list: S3 GET on bucket (list objects)
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+    { (attrs, reqId: reqId, w4: waitS3Get(bucketName, "list-" + string(reqId,10))),
+      smsgs, j1 }
+  if js("browse_list") := ract["type"]
+  /\ msg := (to s3Addr from dAddr : S3GetObjReq(bucketName, "list-" + string(reqId,10)))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  .
+
+  --- browse_stat: Same as browse_list (stat = list with metadata in real S3)
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+    { (attrs, reqId: reqId, w4: waitS3Get(bucketName, "stat-" + string(reqId,10))),
+      smsgs, j1 }
+  if js("browse_stat") := ract["type"]
+  /\ msg := (to s3Addr from dAddr : S3GetObjReq(bucketName, "stat-" + string(reqId,10)))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  .
+
+  --- browse_cd: S3 GET on bucket (list prefixes to find dirs)
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+    { (attrs, reqId: reqId, w4: waitS3Get(bucketName, "cd-" + string(reqId,10))),
+      smsgs, j1 }
+  if js("browse_cd") := ract["type"]
+  /\ msg := (to s3Addr from dAddr : S3GetObjReq(bucketName, "cd-" + string(reqId,10)))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  .
+
+  --- upload_store: S3 PUT (new object)
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+    { (attrs, reqId: reqId, w4: waitS3Put(bucketName, "upload-" + string(reqId,10))),
+      smsgs, j1 }
+  if js("upload_store") := ract["type"]
+  /\ msg := (to s3Addr from dAddr :
+              S3PutObjReq(bucketName, "upload-" + string(reqId,10),
+                          restToByteSeq("mock_zip_data")))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  .
+
+  --- upload_appe: S3 GET existing + PUT combined (append)
+  --- First do a GET; on response, we'll re-PUT with combined data
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+    { (attrs, reqId: reqId, w4: waitS3GetForAppend(bucketName, "append-" + string(reqId,10))),
+      smsgs, j1 }
+  if js("upload_appe") := ract["type"]
+  /\ msg := (to s3Addr from dAddr :
+              S3GetObjReq(bucketName, "append-" + string(reqId,10)))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  .
+
+  --- download_retr: S3 GET (download object)
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+    { (attrs, reqId: reqId, w4: waitS3Get(bucketName, "retr-" + string(reqId,10))),
+      smsgs, j1 }
+  if js("download_retr") := ract["type"]
+  /\ msg := (to s3Addr from dAddr :
+              S3GetObjReq(bucketName, "retr-" + string(reqId,10)))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  .
+
+  --- *_noop actions: immediate actionR("ok"), no S3 call
+  ceq dispatchAction((attrs, replyTo: (to dAddr from umAddr : ac), w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+    { (attrs, replyTo: null, w4: noMinioTask), smsgs, j1 }
+  if js(cmd) := ract["type"]
+  /\ find(cmd, "noop", 0) :: Nat
+  /\ msg := (to umAddr from dAddr : actionR("ok"))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  .
+
+  --- Fallback: unknown action → immediate actionR("ok")
+  ceq dispatchAction((attrs, replyTo: (to dAddr from umAddr : ac), w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+    { (attrs, replyTo: null, w4: noMinioTask), smsgs, j1 }
+  if msg := (to umAddr from dAddr : actionR("ok"))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [owise] .
+
+  --- =========================================================
+  --- Handle S3 responses
+  --- =========================================================
+
+  --- S3 PUT completed → send actionR("ok") to UM
+  crl [rcvS3PutRes]:
+    rCtr(rj)
+    {T, (to dAddr from s3Addr : S3PutObjRes(bucketName, uuid))}
+    < dAddr : MinioTgen | w4: waitS3Put(bucketName, uuid),
+                          replyTo: (to dAddr from umAddr : ac),
+                          attrs >
+  =>
+    rCtr(j1)
+    < dAddr : MinioTgen | w4: noMinioTask, replyTo: null, attrs >
+    smsgs
+  if msg := (to umAddr from dAddr : actionR("ok"))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [print "(" T ") MinioTgen rcvS3PutRes " bucketName "/" uuid] .
+
+  --- S3 GET completed (browse/download) → send actionR("ok") to UM
+  crl [rcvS3GetRes]:
+    rCtr(rj)
+    {T, (to dAddr from s3Addr : S3GetObjRes(bucketName, uuid, body))}
+    < dAddr : MinioTgen | w4: waitS3Get(bucketName, uuid),
+                          replyTo: (to dAddr from umAddr : ac),
+                          attrs >
+  =>
+    rCtr(j1)
+    < dAddr : MinioTgen | w4: noMinioTask, replyTo: null, attrs >
+    smsgs
+  if msg := (to umAddr from dAddr : actionR("ok"))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [print "(" T ") MinioTgen rcvS3GetRes " bucketName "/" uuid] .
+
+  --- S3 GET error (404) for browse/download → send actionR("ok") anyway
+  --- (matches Python client behavior which catches exceptions)
+  crl [rcvS3GetErr]:
+    rCtr(rj)
+    {T, (to dAddr from s3Addr : S3GetObjErr(bucketName, uuid))}
+    < dAddr : MinioTgen | w4: waitS3Get(bucketName, uuid),
+                          replyTo: (to dAddr from umAddr : ac),
+                          attrs >
+  =>
+    rCtr(j1)
+    < dAddr : MinioTgen | w4: noMinioTask, replyTo: null, attrs >
+    smsgs
+  if msg := (to umAddr from dAddr : actionR("ok"))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [print "(" T ") MinioTgen rcvS3GetErr (404) " bucketName "/" uuid] .
+
+  --- S3 GET completed for APPEND → now PUT combined data
+  crl [rcvS3GetForAppend]:
+    rCtr(rj)
+    {T, (to dAddr from s3Addr : S3GetObjRes(bucketName, uuid, body))}
+    < dAddr : MinioTgen | w4: waitS3GetForAppend(bucketName, uuid),
+                          s3Addr: s3Addr, attrs >
+  =>
+    rCtr(j1)
+    < dAddr : MinioTgen | w4: waitS3Put(bucketName, uuid),
+                          s3Addr: s3Addr, attrs >
+    smsgs
+  if msg := (to s3Addr from dAddr :
+              S3PutObjReq(bucketName, uuid,
+                          restToByteSeq("mock_append_data")))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [print "(" T ") MinioTgen rcvS3GetForAppend -> re-PUT " bucketName "/" uuid] .
+
+  --- S3 GET error for APPEND → just PUT new data anyway
+  crl [rcvS3GetErrForAppend]:
+    rCtr(rj)
+    {T, (to dAddr from s3Addr : S3GetObjErr(bucketName, uuid))}
+    < dAddr : MinioTgen | w4: waitS3GetForAppend(bucketName, uuid),
+                          s3Addr: s3Addr, attrs >
+  =>
+    rCtr(j1)
+    < dAddr : MinioTgen | w4: waitS3Put(bucketName, uuid),
+                          s3Addr: s3Addr, attrs >
+    smsgs
+  if msg := (to s3Addr from dAddr :
+              S3PutObjReq(bucketName, uuid,
+                          restToByteSeq("mock_new_data")))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [print "(" T ") MinioTgen rcvS3GetErrForAppend -> fresh PUT " bucketName "/" uuid] .
+
+endm
