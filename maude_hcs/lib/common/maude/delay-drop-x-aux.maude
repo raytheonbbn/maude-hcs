@@ -1,0 +1,54 @@
+set show advisories off .
+sload delay-drop-x
+
+mod DELAY-X-AUX is
+  inc DELAY-X .
+
+  vars msg : Msg .
+  vars msgl : MsgList .
+  vars j j1 p : Nat .
+  vars conf conf0 : Config .
+  vars dd d  d0 : Float .
+  
+  sort MsgList .
+  subsort Msg < MsgList .
+  op nilML : -> MsgList .
+  op _;;_ : MsgList MsgList 
+            -> MsgList [ctor assoc id: nilML] .
+
+  op interMsgDelay : -> Float .
+  eq interMsgDelay = 0.001 [owise] .
+  
+ op delayMsgLX : Nat MsgList -> ConfigNat .
+ op delayMsgLXX : Nat Float MsgList Config -> ConfigNat .
+ eq delayMsgLX(j,msgl) = delayMsgLXX(j,0.0,msgl,null) .
+ eq delayMsgLXX(j,dd,nilML,conf) = {conf,j} .
+ ceq delayMsgLXX(j,dd,msg ;; msgl,conf) = 
+      delayMsgLXX(j1,d0,msgl,conf [d0,msg,p])
+ if {[d,msg,p],j1} := delayMsgsX(j,msg,null)
+ /\ d0 := (if d > dd then d else dd + interMsgDelay fi)
+ .
+
+endm  
+
+
+mod TEST-DELAY-X-AUX is
+  inc DELAY-X-AUX .
+
+
+ops cAd dAd : -> Address .
+ops content1 content2 content3 : -> Content .
+op testML : -> MsgList .
+
+eq testML  =
+  (to cAd from dAd : content1) ;;
+  (to cAd from dAd : content2) ;;
+  (to cAd from dAd : content3)
+   .
+
+  --- Minimal delay and noise for testing
+****  eq defaultDelay = 0.001 .
+****  eq noiseMax(msg:Msg) = 0.00001 .
+
+**** red delayMsgLX(2,testML)  .
+endm
