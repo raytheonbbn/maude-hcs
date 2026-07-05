@@ -1,0 +1,142 @@
+sload ./net_prob-clt.maude
+
+mod TEST_NET is
+  pr NETWORK_CONNECTION .
+
+  ops channelClientAddr channelServerAddr : -> Address .
+
+  --- Network actors
+  ops netClientAddr netServerAddr : -> Address .
+
+  ops netClient netServer         : -> Actor .
+
+  eq netClient  = makeNetClient(netClientAddr,
+                                channelServerAddr,
+                                netServerAddr,
+                                channelClientAddr,
+                                true)
+  .
+  
+  eq netServer  = makeNetServer(netServerAddr,
+                                netClientAddr,
+                                channelServerAddr)
+  .
+
+  op adverAddr : -> Address .
+  op adverActor : -> Actor .
+  eq adverActor = mkAdversaryCp3(adverAddr) .  
+  
+  op toContent : String -> Content .
+  eq getSize(toContent(str:String)) = length(str:String) .
+
+  rl [server-req]:
+  {T:Float, (to channelServerAddr from client:Address : content:Content)}
+  =>
+    null
+    [ print "Server received message." ]
+  .
+
+  rl [client-res]:
+  {T:Float, (to channelClientAddr from server:Address : content:Content)}
+  =>
+    null
+    [ print "Client received message." ]
+  .
+
+  op initState : -> Config . 
+  eq initState =
+    rCtr(0)                  
+    netClient
+    netServer 
+    adverActor
+    [1.0, (to tcp(channelServerAddr) from channelClientAddr : toContent("CONTENT REQ")), 0]
+    [2.0, (to tcp(channelClientAddr) from channelServerAddr : toContent("CONTENT RES")), 0]
+  .
+
+op LinkType-TCPsm : -> AttributeSet .
+op LinkType-TCPsmX : -> AttributeSet .
+eq LinkType-TCPsm = 
+  (4stateLoss: 
+     (p13: 0.001,
+      p31: 0.4,          
+      p32: 0.5,          
+      p23: 0.04,         
+      p14: 0.1,          
+      oneWayDelay: 0.050) 
+  ) .
+  
+eq LinkType-TCPsmX = 
+  (4stateLoss: 
+     (p13: 0.001,
+      p31: 0.4,          
+      p32: 0.5,          
+      p23: 0.04,         
+      p14: 0.1,          
+      oneWayDelay: 0.030) 
+  ) .
+  
+op LinkType-TCPbig : -> AttributeSet .
+op LinkType-TCPbigX : -> AttributeSet .
+
+eq LinkType-TCPbig = 
+  (4stateLoss: 
+   (p13: 5.e-3,
+    p31: 2.e-1,
+    p32: 4.e-1,
+    p23: 3.e-1,
+    p14: 2.e-3,
+    oneWayDelay: .020)
+  ) .
+ 
+eq LinkType-TCPbigX = 
+  (4stateLoss: 
+   (p13: 5.e-3,
+    p31: 2.e-1,
+    p32: 4.e-1,
+    p23: 3.e-1,
+    p14: 2.e-3,
+    oneWayDelay: 0.011)
+  ) .
+ 
+ op LinkDataBig : -> AdrAdrAttrsSet .
+ eq LinkDataBig =
+   aaa(channelClientAddr,channelServerAddr,LinkType-TCPbig)
+   aaa(channelServerAddr,channelClientAddr,LinkType-TCPbig)
+   aaa(IXP-DEFAULT-ADDR,channelClientAddr,LinkType-TCPbigX)
+   aaa(channelClientAddr,IXP-DEFAULT-ADDR,LinkType-TCPbigX)
+   aaa(IXP-DEFAULT-ADDR,channelServerAddr,LinkType-TCPbigX)
+   aaa(channelServerAddr,IXP-DEFAULT-ADDR,LinkType-TCPbigX)
+   .
+ 
+ op LinkDataSm : -> AdrAdrAttrsSet .
+ eq LinkDataSm =
+   aaa(channelClientAddr,channelServerAddr,LinkType-TCPsm)
+   aaa(channelServerAddr,channelClientAddr,LinkType-TCPsm)
+   aaa(IXP-DEFAULT-ADDR,channelClientAddr,LinkType-TCPsmX)
+   aaa(channelClientAddr,IXP-DEFAULT-ADDR,LinkType-TCPsmX)
+   aaa(IXP-DEFAULT-ADDR,channelServerAddr,LinkType-TCPsmX)
+   aaa(channelServerAddr,IXP-DEFAULT-ADDR,LinkType-TCPsmX)
+   .
+  
+   eq LinkData = LinkDataSm .
+****  eq LinkData = LinkDataBig .
+  ---------------------------------------------------
+  --- Run parameters                  
+  ---------------------------------------------------
+  op limit : -> Float .
+  eq limit = 20.0 .    --- simulate 30 simulated seconds
+    
+  op initConfig : -> Config .
+  eq initConfig = run({0.0 | nil} initState, limit) .
+
+endm
+eof
+
+red getLinkData((to channelServerAddr from channelClientAddr : toContent("CONTENT REQ"))) .
+
+red getLinkData((to IXP-DEFAULT-ADDR from channelClientAddr : toContent("CONTENT REQ"))) .
+
+red getSize(toContent("CONTENT REQ")) .
+set print attribute on .
+rew initConfig .
+q
