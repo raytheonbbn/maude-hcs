@@ -1,0 +1,386 @@
+set show advisories off .
+
+sload ../../deps/dns_formalization/Maude/common/actor
+sload tcp
+
+---- Structureed addresses 
+---- for actors sending visible messages.
+---- Viewpoint captured by NetId
+
+mod STRUCTURED-ADDRESSES is
+  inc ACTOR-MODEL .
+  inc CONVERSION .
+
+
+vars netId : NetId .
+vars tclass : TClass .
+vars prot : Protocol .
+vars ix : Nat .
+vars addr : Address .
+
+sorts NetId TClass Protocol .
+
+---- defaults for non structured addresses
+op noNetId : -> NetId [ctor] .
+op noTClass : -> TClass [ctor] .
+op noProtocol : -> Protocol [ctor] .
+
+op a : NetId TClass Protocol Nat -> Address [ctor] .
+---- client network ids
+ops c1 c2 c3 c4 c5 c6 c7 c8 c9 : -> NetId  [ctor] .
+---- other network ids
+ops isrv msrv s3srv dsrv  : -> NetId .  --- servers
+----  traffic classes
+ops hcs tgen othertc  : -> TClass .  --- traffic class
+ops dns mas s3 ftp   : -> Protocol  .
+
+op getNetId : Address ->  NetId .
+eq getNetId(a(netId,tclass,prot,ix)) = netId .
+eq getNetId(addr) = noNetId [owise] .
+
+op getTClass : Address ->  TClass .
+eq getTClass(a(netId,tclass,prot,ix)) = tclass .
+eq getTClass(addr) = noTClass [owise] .
+
+op getProtocol : Address ->  Protocol .
+eq getProtocol(a(netId,tclass,prot,ix)) = prot .
+eq getProtocol(addr) = noProtocol [owise] .
+
+endm
+
+mod ADVERSARY-CP3-DATA is
+  inc ACTOR-MODEL .
+  inc CONVERSION .
+  inc STRUCTURED-ADDRESSES .
+
+vars tsnd : Float .
+vars tixp trcv : FloatInf .
+vars msg : Msg .
+vars pkt : Pkt  .
+vars addr src tgt : Address .
+vars new? : Bool .
+vars cnx size : Nat .
+
+sort FloatInf .
+subsort Float < FloatInf .
+op infty : -> FloatInf [ctor] .
+
+sorts TimesMsg TimesMsgList .
+subsort TimesMsg < TimesMsgList .
+op nilTimesMsg : -> TimesMsgList [ctor] .
+op _;;_ : TimesMsgList TimesMsgList -> TimesMsgList
+            [ctor assoc id: nilTimesMsg] .
+op tm : Float FloatInf FloatInf Msg -> TimesMsg [ctor] .
+
+op getSendTime : TimesMsg -> Float .
+eq getSendTime(tm(tsnd,tixp,trcv,msg)) = tsnd .
+op getRecvTime : TimesMsg -> FloatInf .
+eq getRecvTime(tm(tsnd,tixp,trcv,msg)) = trcv .
+op getIXPTime : TimesMsg -> FloatInf .
+eq getIXPTime(tm(tsnd,tixp,trcv,msg)) = tixp .
+
+
+sort Pkt .
+-----                     new? cnx size
+op pkt : Address Address  Bool Nat Nat -> Pkt [ctor] .
+
+sorts TimesPkt TimesPktList .
+subsort TimesPkt < TimesPktList .
+op nilTimesPkt : -> TimesPktList [ctor] .
+op _;;_ : TimesPktList TimesPktList -> TimesPktList
+            [ctor assoc id: nilTimesPkt] .
+op tp : Float FloatInf FloatInf Pkt -> TimesPkt [ctor] .
+
+
+op getSendTime : TimesPkt -> Float .
+eq getSendTime(tp(tsnd,tixp,trcv,pkt)) = tsnd .
+op getRecvTime : TimesPkt -> FloatInf .
+eq getRecvTime(tp(tsnd,tixp,trcv,pkt)) = trcv .
+op getIXPTime : TimesPkt -> FloatInf .
+eq getIXPTime(tp(tsnd,tixp,trcv,pkt)) = tixp .
+
+
+sort Flow .
+op flow : Address Address Nat -> Flow [ctor] .
+
+op getFlow : TimesPkt -> Flow .
+op getFlow : Pkt -> Flow .
+eq getFlow (tp(tsnd,tixp,trcv,pkt)) = getFlow(pkt) .
+eq getFlow(pkt(tgt,src,new?,cnx,size)) =
+           flow(tgt,src,cnx) .
+
+op getSize : TimesPkt -> Nat .
+op getSize : Pkt -> Nat .
+eq getSize (tp(tsnd,tixp,trcv,pkt)) = getSize(pkt) .
+eq getSize(pkt(tgt,src,new?,cnx,size)) = size .
+
+endm
+
+mod ADVERSARY-CP3 is
+  inc ADVERSARY-CP3-DATA .
+  
+vars addr : Address .
+  
+op Adversary : -> ActorType .
+
+op dns:_ : TimesMsgList -> Attribute [ctor] .
+op tcp:_ : TimesPktList -> Attribute [ctor] .
+
+op mkAdversaryCp3 : Address -> Actor .
+eq mkAdversaryCp3(addr) =
+  < addr : Adversary | 
+      dns: nilTimesMsg, 
+      tcp: nilTimesPkt
+  >
+.   
+     
+endm
+
+
+**** For testing
+mod GEN-TPL is
+  inc ADVERSARY-CP3 .
+  inc TCP_NODE .
+
+vars attrs : AttributeSet .
+vars tpl tpl0 tpl1 : TimesPktList .
+vars tpkt : TimesPkt .
+vars T startT curT f0 f1 sndDelay : Float .
+vars msg : Msg .
+vars tgt src : Address .
+vars rcvFL ixpFL fl : FloatList . 
+vars ctr msize psize psize0 accumSize accumSize0  k : Nat .
+vars new? more? : Bool .
+
+
+---- the time between pkt arrivals  
+op estSendDelay : FloatList -> Float .
+eq estSendDelay(f0 :: f1 :: fl) = f1 - f0 .
+eq estSendDelay(fl) = 0.0 [owise] .
+
+***(
+input: startT msg rcvFL ixpFL counter connectionReuse
+
+generator state
+  name     init     update
+  startT    T       -
+  sndDelay  snd(rcvFL) - first(rcvFL) -
+  flowId   counter     -
+  msize    getSize(msg) -
+  psize    msize quo lenFL(rcvFL) -  
+-----  
+  curT      T       + sndDelay   
+  rcvl      rcvFL   tail
+  ixpl      ixpFL   tail
+  sizeSent  0       + pktsize   
+  new?      connectionReuse   false
+)
+*******        startT         rcvFL     ixpFL     ctr  reuse?
+op genTcpTPL : Float Msg FloatList FloatList Nat Bool 
+                 -> TimesPktList .
+
+*****           startT tgt     src  sndDelay  fId msize psize
+op genTcpTPL$ : Float Address Address Float    Nat Nat Nat
+*****           curT  rcvl      ixpl      sent new?
+                Float FloatList FloatList Nat Bool 
+                TimesPktList
+                 -> TimesPktList .
+  
+ceq genTcpTPL(startT,(to tgt from src : c:Content),
+             rcvFL,ixpFL,ctr,new?)  =
+   genTcpTPL$(startT, tgt, src,
+              sndDelay,  
+              ctr,  --- fId
+              msize, psize,
+              startT, rcvFL, ixpFL,
+              0, --- accumsize
+              new?,
+              nilTimesPkt)
+  if sndDelay := estSendDelay(rcvFL)
+  /\ msize :=  getSize(c:Content)    ---- add tcpOH?          
+  /\ k := lenFL(rcvFL)
+  /\ psize := if k > 1 then msize quo sd(k,1) else msize fi
+ .  
+
+
+eq genTcpTPL$(startT, tgt, src, sndDelay, ctr, msize, psize,
+              curT, nilFL,nilFL, accumSize, new?, tpl)
+     = tpl .
+                 
+ceq genTcpTPL$(startT, tgt, src, sndDelay, ctr, msize, psize,
+              curT, f0 :: rcvFL, f1 :: ixpFL, accumSize, new?, tpl)
+ =  genTcpTPL$(startT, tgt, src, sndDelay, ctr, msize, psize,
+          curT + sndDelay, rcvFL, ixpFL, accumSize0, false, 
+          tpl ;; tpkt)
+if more? := psize + accumSize < msize 
+/\ psize0 := (if more?
+              then psize 
+              else _-_(msize,accumSize) fi)
+/\ accumSize0 := (if more? then accumSize + psize else msize fi)
+/\ tpkt := tp(curT,f1 + startT, f0 + startT, 
+              pkt(tgt,src,new?,ctr,psize0))
+.
+
+ceq genTcpTPL$(startT, tgt, src, sndDelay, ctr, msize, psize,
+              curT, nilFL, f1 :: ixpFL, accumSize, new?, tpl)
+ =  genTcpTPL$(startT, tgt, src, sndDelay, ctr, msize, psize,
+          curT + sndDelay, nilFL, ixpFL, accumSize0, false, 
+          tpl ;; tpkt)
+if more? := psize + accumSize < msize 
+/\ psize0 := (if more?
+              then psize 
+              else _-_(msize,accumSize) fi)
+/\ accumSize0 := (if more? then accumSize + psize else msize fi)
+/\ tpkt := tp(curT,f1 + startT, infty,
+              pkt(tgt,src,new?,ctr,psize0))
+.
+
+**** should not happen
+eq[ixp-missing-pkt]:
+  genTcpTPL$(startT, tgt, src, sndDelay, ctr, msize, psize,
+              curT, f0 :: rcvFL, nilFL, accumSize, new?, tpl)
+     =   tpl 
+[print "gemTcpTPL ixpFL shorter than rcvFL: tgt " tgt " src " src]
+.
+
+
+op addTPL2tcp : AttributeSet TimesPktList -> AttributeSet .
+eq addTPL2tcp((attrs, tcp: tpl0), tpl) 
+     = attrs, tcp: (tpl0 ;; tpl) .
+eq addTPL2tcp(attrs, tpl) = (attrs, (tcp: tpl)) [owise] .
+
+
+endm
+  
+  
+  
+mod TEST-ADVERSARY-CP3 is
+  inc GEN-TPL .
+
+
+ops smC bigC medC : -> Content .
+eq getSize(smC) = 8 .
+eq getSize(bigC) = 14480 .
+eq getSize(medC) = 7711 .
+
+ops toAddr fromAddr ixpAddr  : -> Address .
+ops mkMsg mkMsgX : Content -> Msg .
+eq mkMsg (c:Content) = (to toAddr from fromAddr : c:Content) .
+eq mkMsg (c:Content) = (to ixpAddr from fromAddr : c:Content) .
+
+ops sm4StateLossX sm4StateLoss : -> AttributeSet .
+eq sm4StateLoss =
+           (p13: 0.001,
+            p31: 0.4,          
+            p32: 0.5,          
+            p23: 0.04,         
+            p14: 0.1,          
+            oneWayDelay: 0.050) .
+
+eq sm4StateLossX =
+           (p13: 0.001,
+            p31: 0.4,          
+            p32: 0.5,          
+            p23: 0.04,         
+            p14: 0.1,          
+            oneWayDelay: 0.030) .
+
+    
+ops big4StateLossX big4StateLoss : -> AttributeSet .
+eq big4StateLoss =
+           (p13: 5.e-3,
+            p31: 2.e-1,
+            p32: 4.e-1,
+            p23: 3.e-1,
+            p14: 2.e-3,
+            oneWayDelay: .020) .
+
+eq big4StateLossX =
+           (p13: 5.e-3,
+            p31: 2.e-1,
+            p32: 4.e-1,
+            p23: 3.e-1,
+            p14: 2.e-3,
+            oneWayDelay: 0.011) .
+
+
+op rcvTimesSm : -> FloatList .
+eq rcvTimesSm =  tcpDeliveryTimes(8, sm4StateLoss) .
+op ixpTimesSm : -> FloatList .
+eq ixpTimesSm =  tcpDeliveryTimes(8, sm4StateLossX) .
+
+op rcvTimesMed : -> FloatList .
+eq rcvTimesMed =  tcpDeliveryTimes(7711, big4StateLoss) .
+op ixpTimesMed : -> FloatList .
+eq ixpTimesMed =  tcpDeliveryTimes(7711, big4StateLossX) .
+
+
+op rcvTimesBig : -> FloatList .
+eq rcvTimesBig =  tcpDeliveryTimes(14480, big4StateLoss) .
+op ixpTimesBig : -> FloatList .
+eq ixpTimesBig =  tcpDeliveryTimes(14480, big4StateLossX) .
+
+
+
+op testTPLsm : -> TimesPktList .
+eq testTPLsm = genTcpTPL(1.0,mkMsg(smC),
+             rcvTimesSm,ixpTimesSm,1,true) .
+
+op testTPLmed : -> TimesPktList .
+eq testTPLmed = genTcpTPL(2.0,mkMsg(medC),
+             rcvTimesMed,ixpTimesMed,2,true) .
+
+op testTPLsmF : -> TimesPktList .
+eq testTPLsmF = genTcpTPL(1.0,mkMsg(smC),
+             rcvTimesSm,ixpTimesSm,1,false) .
+
+op testTPLbig : -> TimesPktList .
+eq testTPLbig = genTcpTPL(3.0,mkMsg(bigC),
+             rcvTimesBig,ixpTimesBig,3,true) .
+
+
+op advAttrs : -> AttributeSet .
+eq advAttrs = tcp: nilTimesPkt .
+
+ops advAttrsSm advAttrsMed advAttrsMB : -> AttributeSet .
+eq advAttrsSm = addTPL2tcp(advAttrs,testTPLsm) .
+eq advAttrsMed = addTPL2tcp(advAttrsSm,testTPLmed) .
+eq advAttrsMB = addTPL2tcp(advAttrsMed,testTPLbig) .
+
+endm
+eof
+
+
+red testTPLsm .
+---- tp(1.0, 1.0900000000000001, 1.1499999999999999, pkt(toAddr, fromAddr, true, 1, 8))
+red testTPLsmF .
+---- tp(1.0, 1.0900000000000001, 1.1499999999999999, pkt(toAddr, fromAddr, false, 1, 8))
+
+red testTPLbig .
+----  tp(1.0, 1.0329999999999999, 1.0600000000000001, pkt( toAddr, fromAddr, true, 1, 1608)) ;; tp(1.0000121120000001, 1.033012112, 1.0600121119999999, pkt(toAddr, fromAddr, false, 1, 1608)) ;; tp(1.0000242240000001, 1.033024224, 1.060024224, pkt(toAddr, fromAddr, false, 1, 1608)) ;; tp(1.0000363360000002, 1.0330363359999999, 1.060036336, pkt(toAddr, fromAddr, false, 1, 1608)) ;; tp(1.0000484480000003, 1.033048448, 1.0600484480000001, pkt( toAddr, fromAddr, false, 1, 1608)) ;; tp(1.0000605600000003, 1.03306056, 1.0600605599999999, pkt(toAddr, fromAddr, false, 1, 1608)) ;; tp(1.0000726720000004, 1.0330726720000001, 1.060072672, pkt(toAddr, fromAddr, false, 1, 1608)) ;; tp(1.0000847840000004, 1.0330847839999999, 1.0600847840000001, pkt(toAddr, fromAddr, false, 1, 1608)) ;; tp(1.0000968960000005, 1.033096896, 1.0600968959999999, pkt(toAddr, fromAddr, false, 1, 1608)) ;; tp(1.0001090080000006, 1.0331090080000001, 1.060109008, pkt(toAddr, fromAddr, false, 1, 8))
+
+
+red testTPLmed .
+---- tp(1.0, 1.0329999999999999, 1.0600000000000001, pkt( toAddr, fromAddr, true, 1, 1542)) ;; tp(1.0000121120000001, 1.033012112, 1.0600121119999999, pkt(toAddr, fromAddr, false, 1, 1542)) ;; tp(1.0000242240000001, 1.033024224, 1.060024224, pkt(toAddr, fromAddr, false, 1, 1542)) ;; tp(1.0000363360000002, 1.0330363359999999, 1.060036336, pkt(toAddr, fromAddr, false, 1, 1542)) ;; tp(1.0000484480000003, 1.033048448, 1.0600484480000001, pkt( toAddr, fromAddr, false, 1, 1542)) ;; tp(1.0000605600000003, 1.03306056, 1.0600605599999999, pkt(toAddr, fromAddr, false, 1, 1)) 
+
+
+red rcvTimesSm . ---- 1.5000000000000002e-1
+red ixpTimesSm .  ---- 8.9999999999999997e-2
+
+red rcvTimesMed .
+----5.9999999999999998e-2 :: 6.0012111999999999e-2 :: 6.0024224000000001e-2 :: 6.0036335999999996e-2 :: 6.0048447999999997e-2 :: 6.0060559999999999e-2
+
+red ixpTimesMed .
+---- 3.3000000000000002e-2 :: 3.3012112000000003e-2 :: 3.3024224000000005e-2 :: 3.3036335999999999e-2 :: 3.3048448000000001e-2 :: 3.3060560000000003e-2
+
+red rcvTimesBig .
+---- 5.9999999999999998e-2 :: 6.0012111999999999e-2 :: 6.0024224000000001e-2 :: 6.0036335999999996e-2 :: 6.0048447999999997e-2 :: 6.0060559999999999e-2 :: 6.0072672000000001e-2 :: 6.0084783999999995e-2 :: 6.0096895999999997e-2 :: 6.0109007999999998e-2
+
+red ixpTimesBig .  
+---- 3.3000000000000002e-2 :: 3.3012112000000003e-2 :: 3.3024224000000005e-2 :: 3.3036335999999999e-2 :: 3.3048448000000001e-2 :: 3.3060560000000003e-2 :: 3.3072672000000004e-2 :: 3.3084783999999999e-2 :: 3.3096896000000001e-2 :: 3.3109008000000002e-2
+
+
+red advAttrs .
+red advAttrsSm .
+red advAttrsMed .
+red advAttrsMB .
