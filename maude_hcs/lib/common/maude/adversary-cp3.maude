@@ -1,0 +1,92 @@
+set show advisories off .
+
+sload ../../../deps/dns_formalization/Maude/common/actor
+
+
+mod ADVERSARY-CP3-DATA is
+  inc ACTOR-MODEL .
+  inc CONVERSION .
+
+vars tsnd : Float .
+vars tixp trcv : FloatInf .
+vars msg : Msg .
+vars pkt : Pkt  .
+vars addr src tgt : Address .
+vars new? : Bool .
+vars cnx size : Nat .
+
+sort FloatInf .
+subsort Float < FloatInf .
+op infty : -> FloatInf [ctor] .
+
+sorts TimesMsg TimesMsgList .
+subsort TimesMsg < TimesMsgList .
+op nilTimesMsg : -> TimesMsgList [ctor] .
+op _;;_ : TimesMsgList TimesMsgList -> TimesMsgList
+            [ctor assoc id: nilTimesMsg] .
+op tm : Float FloatInf FloatInf Msg -> TimesMsg [ctor] .
+
+op getSendTime : TimesMsg -> Float .
+eq getSendTime(tm(tsnd,tixp,trcv,msg)) = tsnd .
+op getRecvTime : TimesMsg -> FloatInf .
+eq getRecvTime(tm(tsnd,tixp,trcv,msg)) = trcv .
+op getIXPTime : TimesMsg -> FloatInf .
+eq getIXPTime(tm(tsnd,tixp,trcv,msg)) = tixp .
+
+
+sort Pkt .
+-----                     new? cnx size
+op pkt : Address Address  Bool Nat Nat -> Pkt [ctor] .
+
+sorts TimesPkt TimesPktList .
+subsort TimesPkt < TimesPktList .
+op nilTimesPkt : -> TimesPktList [ctor] .
+op _;;_ : TimesPktList TimesPktList -> TimesPktList
+            [ctor assoc id: nilTimesPkt] .
+op tp : Float FloatInf FloatInf Pkt -> TimesPkt [ctor] .
+
+
+op getSendTime : TimesPkt -> Float .
+eq getSendTime(tp(tsnd,tixp,trcv,pkt)) = tsnd .
+op getRecvTime : TimesPkt -> FloatInf .
+eq getRecvTime(tp(tsnd,tixp,trcv,pkt)) = trcv .
+op getIXPTime : TimesPkt -> FloatInf .
+eq getIXPTime(tp(tsnd,tixp,trcv,pkt)) = tixp .
+
+
+sort Flow .
+op flow : Address Address Nat -> Flow [ctor] .
+
+op getFlow : TimesPkt -> Flow .
+op getFlow : Pkt -> Flow .
+eq getFlow (tp(tsnd,tixp,trcv,pkt)) = getFlow(pkt) .
+eq getFlow(pkt(tgt,src,new?,cnx,size)) =
+           flow(tgt,src,cnx) .
+
+op getSize : TimesPkt -> Nat .
+op getSize : Pkt -> Nat .
+eq getSize (tp(tsnd,tixp,trcv,pkt)) = getSize(pkt) .
+eq getSize(pkt(tgt,src,new?,cnx,size)) = size .
+
+endm
+
+mod ADVERSARY-CP3 is
+  inc ADVERSARY-CP3-DATA .
+  
+vars addr : Address .
+  
+op Adversary : -> ActorType .
+
+op dns:_ : TimesMsgList -> Attribute [ctor] .
+op tcp:_ : TimesPktList -> Attribute [ctor] .
+
+op mkAdversaryCp3 : Address -> Actor .
+eq mkAdversaryCp3(addr) =
+  < addr : Adversary | 
+      dns: nilTimesMsg, 
+      tcp: nilTimesPkt
+  >
+.   
+     
+endm
+
