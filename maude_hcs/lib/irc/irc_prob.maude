@@ -41,17 +41,20 @@ sload ./common/_aux
 sload ./common/irc-msg-model
 sload ../common/maude/cp2-interfaces
 sload ../common/maude/delay-drop-x
+sload ../common/maude/cp2-interfaces
 
 mod IRC is
   pr IRC_NODE .
   pr IRC_AUX .
   pr CP2-COMMON .
+  inc TGEN-INTERFACE .
   inc IRC-MSG-MODEL .
   inc DELAY-X .
   pr IRC_MONITOR .
 
-  vars IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr rbAddr  addr : Address .
+  vars IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr : Address .
   vars monitorAddr : Address .
+  vars rbAddr addr ircAddr umAddr : Address .
   vars channelClientAddrs : AddrList .
   vars attrs attrsTrans attrsTrans1 attrsNext monitorAttrs monitorAttrsNext : AttributeSet .
   vars ircName  : IrcName .
@@ -62,32 +65,26 @@ mod IRC is
   vars T : Float . ---timestamp
   vars dmsg : ScheduleMsg .
   vars msgs smsgs : Config .
-  vars msg : Msg .
+  vars msg msg0 msg1 : Msg .
   vars attrs0 attrs1 attrs2 : AttributeSet .
   vars ctr j j1 j2 size : Nat .
-  vars userid room : String .
-  vars dt : Float .
+  vars userId room astr : String .
+  vars dt fl : Float .
   vars dml : IrcMsgDelayList .
   vars ircMsg : IrcMsg .
+  vars aspec : Map{String,JV} .
 
   ------------------------
   --- IRC Client Rules ---
   ------------------------
   
-  op ircMsgSendTime : -> Content .
-
-  **** assume irc client initial configuration message 
-  **** is ircMsgSendTime sent with delay = startTime + dt0
-  **** where dt0 is the delay of the first scheduled msg 
-  **** if the client has no msgs to send,
-  **** it doesn't get a initial msg
-
-  --- Send ircMsg and schedule next if any
-  crl [irc-client-send-time]:
+ **** irc messages driven by um
+ --- Send ircMsg and schedule next if any
+  crl [irc-client-rcv-actionQ]:
   rCtr(j)
   < IRC_CLIENT_ADDR : IrcClient | attrs >
   < monitorAddr : IrcMonitor | monitorAttrs, msgSent: msgSentList >
-    {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ircMsgSendTime)}
+    {T, (to IRC_CLIENT_ADDR from umAddr : actionQ(aspec) )}
   =>
   rCtr(j1)
   < IRC_CLIENT_ADDR : IrcClient | attrs1 >
@@ -101,70 +98,120 @@ mod IRC is
                                                              1,
                                                              ircUserName,
                                                              stringHash(chatText))) >
-    msgs
-    if {attrs1, msgs, j1} := ircSendMsg(attrs, IRC_CLIENT_ADDR, j)
+    smsgs
+    if {attrs1, smsgs, j1} := 
+      ircExeAction(attrs,
+                   IRC_CLIENT_ADDR,
+                   umAddr,
+                   jv2str(aspec["type"]),
+                   aspec,
+                   j)
       /\ attrsTrans, ircName: ircUserName := attrs
-      /\ chatText :=  getNextDelayMsgText(attrs)
-      /\ sending:Bool := (msgs =/= null)
-      /\ msgSentListNext :=
-          (if sending:Bool
-              then (msgSentList ; messageTimestamp(T,
-                                                   IRC_CLIENT_ADDR,
-                                                   nullAddr,
-                                                   1,
-                                                   ircUserName,
-                                                   stringHash(chatText)))
-              else msgSentList
-          fi)
-      /\ debugMsg:String := 
-          (if sending:Bool
-              then "<<<" + chatText + ">>>"
-              else ""
-          fi)
-  [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " time for IrcMsg, sending " msgs " " debugMsg:String ] 
+      /\ chatText := "FIX THIS!!! Should be message text"
+****      /\ sending:Bool := (msgs =/= null)
+****      /\ msgSentListNext :=
+****          (if sending:Bool
+****              then (msgSentList ; messageTimestamp(T,
+****                                                   IRC_CLIENT_ADDR,
+****                                                   nullAddr,
+****                                                   1,
+****                                                   ircUserName,
+****                                                   stringHash(chatText)))
+****              else msgSentList
+****          fi)
+****      /\ debugMsg:String := 
+****          (if sending:Bool
+****              then "<<<" + chatText + ">>>"
+****              else ""
+****          fi)
+  [print "(" T ") IRC Client " IRC_CLIENT_ADDR " received actionQ : " aspec " sending <<<" smsgs ">>>."]
   .
   
+ op ircExeAction : AttributeSet Address Address String
+                   Map{String,JV} Nat 
+                   -> AttributeSetMsgsNat .  
+
+ceq [irc-action-not-understood] :
+  ircExeAction(attrs,ircAddr,umAddr,astr,aspec,j) 
+    = {attrs,smsgs,j1}
+ if msg := (to umAddr from ircAddr : actionR("notUnderstood"))
+ /\ {smsgs,j1}  := delayMsgsX(j,msg,null)
+ [owise print "IRC client " ircAddr " action " astr " not understood "]
+  .
+
+ceq ircExeAction(attrs,ircAddr,umAddr,"roommsg",aspec,j) 
+    =  {attrs2,smsgs,j1}
+if jf(fl) := aspec["message_length_bytes"]
+/\ js(room) := aspec["room"]
+/\ attrs0, msgCtr: ctr := attrs
+/\ attrs1, userId: userId, raceboatAddr: rbAddr := attrs
+/\ ircMsg := 
+     genPrivMsgReq(ircAddr,ctr,userId,room,round(fl)) 
+/\ msg0 := to rbAddr from ircAddr : ircMsg
+/\ msg1 := to umAddr from ircAddr : actionR("ok")     
+/\ {smsgs,j1} := delayMsgsX(j,msg0 msg1,null)
+/\ attrs2 := attrs0, msgCtr: s ctr
+.
+
+
+ceq  ircExeAction(attrs,ircAddr,umAddr,"joinmsg",aspec,j) 
+     = {attrs,smsgs,j1}
+if js(room) := aspec["room"]
+/\ attrs1, raceboatAddr: rbAddr := attrs
+/\ ircMsg :=  genJoinMsgReq(ircAddr,room) 
+/\ msg0 := to rbAddr from ircAddr : ircMsg
+/\ msg1 := to umAddr from ircAddr : actionR("ok")     
+/\ {smsgs,j1} := delayMsgsX(j,msg0 msg1,null)
+.
+
+                   
   ----             ircAddr   ctr   myid   room  size
   op genPrivMsgReq : Address  Nat String String Nat -> IrcMsg .
-  eq genPrivMsgReq(IRC_CLIENT_ADDR ,ctr,userid,room,size) =
+  eq genPrivMsgReq(IRC_CLIENT_ADDR ,ctr,userId,room,size) =
      PrivMsgReq(makeIrcChannelName(room),  
                 makeIrcUserName(IRC_CLIENT_ADDR),
-                genIrcText(userid,ctr,size))
+                genIrcText(userId,ctr,size))
   .
 
-  op ircSendMsg : AttributeSet Address  Nat -> AttributeSetMsgsNat .
-  ceq ircSendMsg(attrs, addr, j) 
-    = setIrcMsgTimer(attrs2, addr, msgs, j1)
-  if attrs0,
-      raceboatAddr: rbAddr, 
-      ircName: ircUserName,
-      userId: userid := attrs
-  /\ attrs1, msgCtr: ctr, msgSched: (imd(dt,room,size) :: dml) 
-       := attrs
-  /\ attrs2 := attrs1, msgCtr: (s ctr), msgSched: dml   
-  /\ ircMsg := genPrivMsgReq(addr,ctr,userid,room,size) 
-  /\ msg := (to rbAddr from addr : ircMsg)
-  /\ chatText := getIrcMsgText(ircMsg)
-  /\ {msgs,j1} := delayMsgsX(j,msg,null) 
-  .
-
-  eq ircSendMsg(attrs, addr,j) =  {attrs,null,j}
-  [print "IRC Client " addr "ircSendMsg ignored (probably no message to send)." ]
-  .
-
-  op setIrcMsgTimer : AttributeSet Address Config Nat 
-                     -> AttributeSetMsgsNat .
-  ceq setIrcMsgTimer(attrs,addr,msgs,j)
-        = {attrs,msgs dmsg, s j}
-  if attrs0, msgSched: (imd(dt,room,size) :: dml) := attrs
-  /\ msg := (to addr from addr : ircMsgSendTime)
-  /\ dmsg := [dt + genRandomX(j,0.0,0.0001),msg,0]
-  . 
-
-  eq setIrcMsgTimer((attrs, msgSched: nilIMD), addr, msgs, j)
-    = {(attrs, msgSched: nilIMD), msgs, j} 
-  .
+****  op ircSendMsg : AttributeSet Address  Nat -> AttributeSetMsgsNat .
+****  ceq ircSendMsg(attrs, addr, j) 
+****    = setIrcMsgTimer(attrs2, addr, msgs, j1)
+****  if attrs0,
+****      raceboatAddr: rbAddr, 
+****      ircName: ircUserName,
+****      userId: userid := attrs
+****  /\ attrs1, msgCtr: ctr, msgSched: (imd(dt,room,size) :: dml) 
+****       := attrs
+****  /\ attrs2 := attrs1, msgCtr: (s ctr), msgSched: dml   
+****  /\ ircMsg := genPrivMsgReq(addr,ctr,userid,room,size) 
+****  /\ msg := (to rbAddr from addr : ircMsg)
+****  /\ chatText := getIrcMsgText(ircMsg)
+****  /\ {msgs,j1} := delayMsgsX(j,msg,null) 
+****  .
+****
+****  eq ircSendMsg(attrs, addr,j) =  {attrs,null,j}
+****  [print "IRC Client " addr "ircSendMsg ignored (probably no message to send)." ]
+****  .
+****
+****  op setIrcMsgTimer : AttributeSet Address Config Nat 
+****                     -> AttributeSetMsgsNat .
+****  ceq setIrcMsgTimer(attrs,addr,msgs,j)
+****        = {attrs,msgs dmsg, s j}
+****  if attrs0, msgSched: (imd(dt,room,size) :: dml) := attrs
+****  /\ msg := (to addr from addr : ircMsgSendTime)
+****  /\ dmsg := [dt + genRandomX(j,0.0,0.0001),msg,0]
+****  . 
+****
+****  eq setIrcMsgTimer((attrs, msgSched: nilIMD), addr, msgs, j)
+****    = {(attrs, msgSched: nilIMD), msgs, j} 
+****  .
 ----------------- END IRC Msg Model Update
+                   
+  ----               ircAddr      room  
+  op genJoinMsgReq : Address  String  -> IrcMsg .
+  eq genJoinMsgReq(ircAddr,room) =
+       JoinChannel(makeIrcChannelName(room),ircAddr) 
+  .       
 
   **** ircDestinationName >> ircName
   --- Handle IRC messages from the server.
