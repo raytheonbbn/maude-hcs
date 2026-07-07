@@ -1,0 +1,138 @@
+sload  ../../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../common/maude/byteseq
+
+
+fmod HASHTAG-MANAGER-BASE is
+  inc ACTOR-MODEL .  --- for attributes
+  inc BYTESEQ .   --- for hashtags
+
+---- Generic hashtag management
+---- valid hashtag: hashTag(hashtag:String)) :: ByteSeq  
+---- noneAS
+
+vars attrs : AttributeSet .
+vars byteseq byteseq0 : ByteSeq .
+
+--- required actor attributes
+--- where an actor can find the hashtag to use
+
+---- the current hashtag
+op  bHashtag:_ : ByteSeq -> Attribute [ctor] .
+op  wHashtag:_ : ByteSeq -> Attribute [ctor] .
+
+---- setters, getters
+
+op getBHashtag : AttributeSet -> ByteSeq .
+eq getBHashtag((attrs, bHashtag: byteseq)) = byteseq .
+eq getBHashtag(attrs) = noBytes [owise] .
+
+op getWHashtag : AttributeSet -> ByteSeq .
+eq getWHashtag((attrs, wHashtag: byteseq)) = byteseq .
+eq getWHashtag(attrs) = noBytes [owise] .
+
+op setBHashtag : AttributeSet ByteSeq  -> AttributeSet .
+eq setBHashtag((attrs, bHashtag: byteseq), byteseq0) 
+   = (attrs, bHashtag: byteseq0) .
+eq setBHashtag(attrs,byteseq) 
+   = (attrs, bHashtag: byteseq) [owise] .
+
+op setWHashtag : AttributeSet ByteSeq  -> AttributeSet .
+eq setWHashtag((attrs, wHashtag: byteseq), byteseq0)
+   = (attrs, wHashtag: byteseq0) .
+eq setWHashtag(attrs,byteseq)
+   = (attrs, wHashtag: byteseq) [owise] .
+
+***(
+---- set wHashtag/bHashtag to noBytes.
+op clearHashtag : AttributeSet -> AttributeSet .
+eq clearHashtag(attrs) = setHashtag(attrs, noBytes) .
+)
+
+----- set wHashtag/bHashtag to the next hashtag to use.
+---- application specific
+op  nextWHashtag : AttributeSet -> AttributeSet .
+op  nextBHashtag : AttributeSet -> AttributeSet .
+
+eq nextWHashtag(attrs) = attrs [owise] .
+eq nextBHashtag(attrs) = attrs [owise] .
+
+endfm
+  
+***(
+default CP3 hashtag management
+
+receiver fetches str0 until it gets a msg (which is sent to user)
+then it fetches str1 ... str2 ....
+
+sender upon media action sends str0  (no content or current msg) 
+until the first msg is transmitted and the second msg is ready
+then sends  msg1 with str1 until the next msg is available ...
+
+An alternate the sender would start sending with strj+1 as soon as
+msgj is transmitted. In this case the receiver would get a bunch of
+empty images is every case not just for the first msg.
+
+Either way there is no need for benign hashtags
+)
+  
+fmod HASHTAG-MANAGER is
+   inc HASHTAG-MANAGER-BASE .
+   
+ vars str : String .
+ vars j : Nat .
+ vars bytes : ByteSeq .
+ vars attrs : AttributeSet .
+ 
+ op hashStr:_ : String -> Attribute [ctor] .
+ op bHashCtr:_ : Nat -> Attribute [ctor] .  --- initally 0
+ op wHashCtr:_ : Nat -> Attribute [ctor] .  --- initally 0
+
+ eq nextWHashtag(attrs, hashStr: str, wHashCtr: j, wHashtag: bytes)
+   = attrs, hashStr: str, wHashCtr: s j, 
+            wHashtag: hashTag(str + "W" + string(s j,10) ) .
+
+ eq nextBHashtag(attrs, hashStr: str, bHashCtr: j, bHashtag: bytes)
+   = attrs, hashStr: str, bHashCtr: s j, 
+            bHashtag: hashTag(str + "B" + string(s j,10) ) .
+
+
+op initHashtagAttrs : String -> AttributeSet .
+eq initHashtagAttrs(str) = 
+hashStr: str, 
+bHashCtr: 0, 
+wHashCtr: 0, 
+bHashtag: hashTag(str + "B" + "0"),
+wHashtag: hashTag(str + "W" + "0")
+.
+
+
+endfm
+
+
+fmod TEST-HASHTAG-MANAGER is
+  inc HASHTAG-MANAGER .
+  
+  op HTattrs : -> AttributeSet .
+  eq HTattrs = initHashtagAttrs("htdstr") .
+
+endfm
+eof
+
+red HTattrs .
+
+bHashtag: hashTag("htdstrB0"), 
+wHashtag: hashTag("htdstrW0"), 
+hashStr: "htdstr", bHashCtr: 0, wHashCtr: 0
+
+red setBHashtag(HTattrs,hashTag("a0"))   .
+
+bHashtag: hashTag("a0"), 
+wHashtag: hashTag("htdstrW0"),
+hashStr: "htdstr", bHashCtr: 0, wHashCtr: 0
+
+red nextWHashtag(HTattrs) .
+
+bHashtag: hashTag("htdstrB0"), 
+wHashtag: hashTag("htdstrW1"), 
+hashStr: "htdstr", bHashCtr: 0, wHashCtr: 1
+

@@ -1,0 +1,444 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+sload ../../common/maude/markov-action-model.maude
+sload ../../common/maude/cp2-interfaces 
+sload cm-aux.maude
+sload rb-cm-sender-mas-aux
+sload rb-cm-receiver-mas-aux
+sload ../../common/maude/sampler-x
+sload ../../common/maude/delay-drop-x
+
+***(
+user -appMsg:ByteSeq-> CMSndRcv
+user <-appMsg:ByteSeq- CMSndRcv
+
+CM - ED message content 
+ capQ(fsize-remaining), capR(fragsize)  --- next frag
+ encQ(frag), encR(image)
+ decQ(imagel), decR(fragl)
+
+)
+***(
+-----------------
+[case no files
+UM -actionQ(mediaAct(n))-> CM
+ for i in [1,n]
+    CM -encQ(noBytes)-> ED
+    CM <-encR(image)- ED
+  CM -tootQ(ht,imagel)-> MC
+  CM <-tootR(...)- MC
+UM <-actionR("ok")- CMC   
+)
+
+***(
+-----------------
+[case file list has one or more files ]
+  if nofrag, initiate and set curht
+UM -actionA(mediaAct(n))-> CM
+ for i in [1,n]
+    CMC -capQ(fsize)-> ED
+    CMC <-capR(cap)- ED
+     [split off frag, i]     
+ 
+    CM -encQ(frag)-> ED
+    CM <-encR(image)- ED
+  CM -tootQ(ht,imagel)-> MC
+  CM <-tootR(...)- MC
+UM <-actionR("ok")- CMC   
+)
+
+
+---- {attrs,conf} defined in lib/.../common/_aux.maude
+mod CONTENT-MANAGER-BIDIR is
+  inc CONTENT-MANAGER-SENDER-AUX .
+  inc CONTENT-MANAGER-RECEIVER-AUX .
+  ***(
+  inc CONTENT-MANAGER .
+  inc HASHTAG-MANAGER .
+  inc MARKOV-ACTION-MODEL .
+  inc CP2-COMMON .
+  inc MC-INTERFACE  .
+  inc ED-INTERFACE .
+  inc TGEN-INTERFACE .
+)
+  inc SAMPLER-X .
+  inc DELAY-X .
+
+
+vars attrs attrs0 attrs1 attrs2 attrsTrans attrsNext 
+     : AttributeSet .
+vars cmcAtts cmcAtts1 cmcAtts2 cmsAtts cmsAtts1 
+     : AttributeSet .
+vars msg msg0 capacityMsg encodeMsg lastMsg : Msg .
+vars msgs msgs0 config config0 dmsgs smsgs : Config .
+vars j j1 i k l n n0 n1 cap randCtr randCtr' : Nat .
+vars tot remains remains0 ix  id : Nat .
+vars aAddr cmcAddr cmsAddr umAddr edAddr
+     mcAddr mastodonClientAddr : Address .
+vars T : Float .
+vars mcResponse : Content .
+vars efile efrag efrag0 efrag1 image ht hashtag bytes EFRAG : ByteSeq .
+vars efilel efragl hashtagl images FILES IMAGES
+       cachedhashtagl : ByteSeqL .
+vars str : String .
+vars ract : Map{String,JV} .
+vars tag : Tag .
+vars mediaFileList : MediaFileList .
+
+vars natstr : Map{Nat,String} .
+vars mamodel : MAModel .
+
+
+------------ Sender interface rule  --------------------------
+----- rcv byteseq from iface actor
+rl [rbc-rcv-file] :
+{T, (to cmcAddr from aAddr :  bytes)}
+< cmcAddr : CMSndRcv | cmcAtts, 
+                       sndrcvAddress: aAddr,
+                       cachedTag: cachedhashtagl,
+                       pendingFiles: efilel,
+                       weirdFileRcvTime: rcvTime:Float >
+=>
+< cmcAddr : CMSndRcv | cmcAtts, 
+       sndrcvAddress: aAddr,
+       pendingFiles: (efilel :: bytes ),
+       cachedTag: getWHashtag(getSndHashTagAttrs(cmcAtts)),
+       weirdFileRcvTime: T >
+[print "(" T ") Raceboat client " cmcAddr " got " bytes " from " aAddr " adding to pending, setting weirdFileRcvTime."]
+.
+
+
+----------- begiin handle actionQ ------------------------
+
+crl [rbc-rcv-action] :
+rCtr(j)
+{T,(to cmcAddr from umAddr :  actionQ(ract) )}
+< cmcAddr : CMSndRcv | cmcAtts >
+=>
+rCtr(j1)
+< cmcAddr : CMSndRcv | cmcAtts1 >
+dmsgs
+if {cmcAtts1,msgs} :=
+    cmRcvActionQ(cmcAtts,getType(ract),T,
+               (to cmcAddr from umAddr : actionQ(ract) ))
+/\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat cm " cmcAddr " got action request " ract " sending " msgs]
+.
+
+op cmRcvActionQ : AttributeSet String Float Msg 
+                -> AttributeSetMsgs .
+
+
+
+eq cmRcvActionQ(attrs, "media",T, msg) = {attrs,null} [owise] .
+
+
+ceq cmRcvActionQ(attrs, "media", T, msg)
+   =  crcvActionQ(attrsTrans,"media",msg)       
+if attrs0, weirdFileRcvTime: rcvTime:Float,
+           postingWeird: b:Bool, pendingFiles: efilel
+           := attrs
+/\ b0:Bool :=  rcvTime:Float + 5.0 <= T and efilel =/= nilBS  --- no file ready
+/\ attrsTrans := attrs0,
+                 (weirdFileRcvTime: rcvTime:Float),
+                 postingWeird: b0:Bool,
+                 pendingFiles: efilel
+ .
+
+eq cmRcvActionQ(attrs, "download", T, msg)
+    =  srcvActionQ(attrs,"download",msg) .
+
+----------- end handle actionQ ------------------------
+
+----------- begin handle MC Response ------------------------
+
+crl [rbc-rcv-mc-response] :
+rCtr(j)
+{T,(to cmcAddr from mcAddr :  mcResponse )}
+< cmcAddr : CMSndRcv | cmcAtts, mcAddress: mcAddr >
+=>
+rCtr(j1)
+< cmcAddr : CMSndRcv | cmcAtts1 >
+dmsgs
+if {cmcAtts1,msgs} := 
+  cmRcvMCResponse((cmcAtts, mcAddress: mcAddr), 
+                 (to cmcAddr from mcAddr :  mcResponse ))  
+/\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat client " cmcAddr " got Mastodon client response " mcResponse ", sends " msgs]
+.
+
+op cmRcvMCResponse : AttributeSet Msg -> AttributeSetMsgs .
+eq cmRcvMCResponse(attrs,msg) = {attrs,null}
+[owise print "cmRcvMCResponse msg " msg " not understood."]
+.
+
+ceq cmRcvMCResponse(attrs,msg) = crcvMCResponse(attrs,msg)
+if (to cmcAddr from mcAddr : mkRequestResponse(str) ) := msg .
+
+ceq cmRcvMCResponse(attrs,msg) = 
+  srcvFetchR(attrs, (to cmsAddr from mcAddr : c:Content))
+if (to cmsAddr from mcAddr :
+    ResponseMediaList(tag,mediaFileList) ) := msg
+/\  c:Content := translate2FetchR( 
+                  ResponseMediaList(tag,mediaFileList))
+.
+
+----------- end handle MC Response ------------------------
+
+------------- sending mode interaction w ed ---------------
+crl [rbc-rcv-capR] :
+rCtr(j)
+{T,(to cmcAddr from edAddr :  capR(cap) )}
+< cmcAddr : CMSndRcv | cmcAtts >
+=>
+rCtr(j1)
+< cmcAddr : CMSndRcv | cmcAtts1 >
+dmsgs
+if {cmcAtts1,msgs} := 
+  crcvCapR(cmcAtts,(to cmcAddr from edAddr : capR(cap)))
+/\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat client " cmcAddr " received capacity " cap " limit from Destini, sending " msgs ]
+.
+
+
+crl [rbc-rcv-encR] :
+rCtr(j)
+{T,(to cmcAddr from edAddr :  encR(image) )}
+< cmcAddr : CMSndRcv | cmcAtts >
+=>
+rCtr(j1)
+< cmcAddr : CMSndRcv | cmcAtts1 >
+dmsgs 
+if {cmcAtts1,msgs} := 
+  crcvEncR(cmcAtts,(to cmcAddr from edAddr : encR(image)))
+/\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat client " cmcAddr " got encoded " image " from Destini, sending " msgs ].
+
+------------- receiving mode interaction w ed ---------------
+
+---- rcv dec response from edAddr
+crl [rbs-rcv-decR] :
+rCtr(j)
+{T,(to cmsAddr from edAddr :  decR(efragl))}
+< cmsAddr : CMSndRcv | cmsAtts >
+=>
+< cmsAddr : CMSndRcv | cmsAtts1 >
+rCtr(j1)
+smsgs
+if {cmsAtts1,msgs} :=
+    srcvDecR(cmsAtts,
+             (to cmsAddr from edAddr : decR(efragl)) )   
+/\ {smsgs,j1} := delayMsgsX(j,msgs,null)
+[print "(" T ") Raceboat cm " cmsAddr " got decoded image from Destini, " efragl " sending " msgs ]
+.
+
+endm  
+
+
+sload ../../common/maude/user-action-actor
+sload user_models/client_config_mastodon_bidi.maude
+sload ../../common/maude/cp2-interfaces.maude
+sload ../../mastodon/maude/probabilistic/mastodon.maude
+sload enc-dec-actor
+
+mod CM-BIDIR-TEST is
+  inc CONTENT-MANAGER-BIDIR . 
+  inc ENC-DEC .
+  inc MASTODON .
+  inc USER-ACTION-ACTOR .
+  inc MASTODON-CLIENT-CONFIG-MASTODON-BIDI-MAMODEL .
+  inc SCHEDULER .
+  
+vars T : Float .
+vars j : Nat .
+
+
+eq encOH(fsize:Nat,ksize:Nat)  = 0 .
+eq noiseMin(msg:Msg) = 0.001 .
+
+op ed-images : -> ByteSeqL .
+eq ed-images = image(1, 3779, 500) :: image(2, 2405, 1000) :: image(3, 36861, 1000) :: image(4, 25377, 500) :: image(5, 2440, 300) :: image(6, 1275, 300) :: image(7, 7710, 1000) :: image(8, 3577, 500) :: image(9, 3415, 300) :: image(10, 74123, 600) .
+
+  
+**** tunnel clientside  
+op ircIAd : -> Address .  
+ops umAd cmAd  edAd : -> Address .
+ops mcAd msAd : -> Address .
+ops umAct cmAct edAct : -> Actor .
+ops mcAct msAct : -> Actor .
+
+eq umAct =
+  mkUMactor(umAd, 
+            mastodon-client-config-mastodon-bidi-ma,
+            cmAd) .
+eq cmAct = mkCMSndRcvActor(cmAd, edAd,mcAd,ircIAd, 
+                            "zzz", "zzz") . 
+eq edAct = makeDestiniActor(edAd, ed-images) .
+eq mcAct =  makeMastodonClient(mcAd,msAd, cmAd) .
+eq msAct = makeMastodonServer(msAd) .
+
+
+ops ircBytes0 ircBytes1 : -> ByteSeq . 
+eq getSize(ircBytes0) = 100 .
+eq getSize(ircBytes1) = 500 .
+eq nbytes(ircBytes0) = 100 .
+eq nbytes(ircBytes1) = 500 .
+
+op LinkType-2 : -> AttributeSet .
+eq LinkType-2 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.005),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
+  .
+
+eq LinkData =
+  aaa(msAd,mcAd,LinkType-2)
+  aaa(mcAd,msAd,LinkType-2)
+  aaa(msAd,mcAdC,LinkType-2)
+  aaa(mcAdC,msAd,LinkType-2)
+  aaa(msAd,mcAdS,LinkType-2)
+  aaa(mcAdS,msAd,LinkType-2)
+ .
+ 
+op initState : Nat -> Config .
+eq initState(j) =
+  rCtr(j)
+  umAct
+  cmAct
+  edAct
+  mcAct
+  msAct
+**** [1.0 + genRandomX(j,0.0, 0.0001), (to umAd from umAd : actionR("ok")),0]
+[5.0 + genRandomX(j,0.0, 0.0001), (to umAd from umAd : actionR("ok")),0]
+
+**** [5.0, (to cmAd from ircIAdd :  ircBytes1),0] 
+[1.0, (to cmAd from ircIAd :  ircBytes0),0] 
+.
+
+op initConfig : -> Config .
+rl[init]: initConfig 
+   => run({0.0 | nil} initState(counter),1000.0) .
+
+
+rl [eat2irc] :
+   {T, to ircIAd from cmAd : c:Content} => null .
+
+**** shared  reused
+***(
+ops edAd msAd : -> Address .
+ops msAct edAct : -> Actor .
+
+eq edAct = makeDestiniActor(edAd, ed-images) .
+eq msAct = makeMastodonServer(msAd) .
+)
+
+**** tunnel clientside  
+op ircCAd : -> Address .  
+ops umAdC cmAdC mcAdC : -> Address .
+ops umActC cmActC mcActC : -> Actor .
+
+eq umActC =
+  mkUMactor(umAdC, 
+            mastodon-client-config-mastodon-bidi-ma,
+            cmAdC) .
+eq cmActC = 
+  mkCMSndRcvActor(cmAdC, edAd,mcAdC,ircCAd, "zzz","yyy") . 
+eq mcActC =  makeMastodonClient(mcAdC,msAd, cmAdC) .
+
+**** tunnel server side  
+op ircSAd : -> Address .  
+ops umAdS cmAdS mcAdS : -> Address .
+ops umActS cmActS mcActS : -> Actor .
+
+eq umActS =
+  mkUMactor(umAdS, 
+            mastodon-client-config-mastodon-bidi-ma,
+            cmAdS) .
+eq cmActS = 
+  mkCMSndRcvActor(cmAdS, edAd,mcAdS,ircSAd, "yyy","zzz") . 
+eq mcActS =  makeMastodonClient(mcAdS,msAd, cmAdS) .
+
+op initStateCS : Nat -> Config .
+eq initStateCS(j) =
+  rCtr(j)
+  umActC  cmActC  mcActC
+  umActS cmActS  mcActS
+  edAct
+  msAct
+
+[5.0 + genRandomX(j,0.0, 0.0001), (to umAdC from umAdC : actionR("ok")),0]
+[5.1 + genRandomX(j,0.0, 0.0001), (to umAdS from umAdS : actionR("ok")),0]
+
+[1.0, (to cmAdC from ircCAd :  ircBytes0),0] 
+[6.0, (to cmAdS from ircSAd :  ircBytes1),0] 
+.
+
+op initConfigCS : -> Config .
+rl[init]: initConfigCS
+   => run({0.0 | nil} initStateCS(counter),1000.0) .
+
+
+rl [eat2ircC] : 
+   {T, to ircCAd from cmAdC : c:Content} => null .
+rl [eat2ircS] : 
+   {T, to ircSAd from cmAdS : c:Content} => null .
+
+   
+endm 
+
+
+--------------------------------------------------
+
+set print attribute on .
+***(
+use with pxmaude
+set print attr select on .
+print attr select rbc-rcv-file .
+print attr select rbc-rcv-action .
+print attr select rbc-rcv-mc-response .
+print attr select rbc-rcv-capR .
+print attr select rbc-rcv-encR .
+print attr select rbs-rcv-decR .
+)
+eof
+
+rew [200] initConfig .
+
+rew [300] initConfigCS .
