@@ -1,0 +1,162 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set show advisories off .
+
+sload ../../common/maude/byteseq.maude
+sload ../../../deps/dns_formalization/Maude/common/actor.maude
+
+**** sload ../../../deps/dns_formalization/Maude/dns/probabilistic-model/parameters.maude
+
+sload ../../common/maude/_aux.maude  ---- AttributeSetMsgs
+sload ../../common/maude/cp2-interfaces
+sload cp3-hashtag-manager
+
+---- {attrs,conf} defined in lib/.../common/_aux.maude
+mod CONTENT-MANAGER is
+  inc BYTESEQ .
+  inc ACTOR-MODEL .
+  inc HASHTAG-MANAGER .
+
+
+vars cmcAddr cmsAddr edAddr mcAddr senderAddr receiverAddr
+     addr  cmAddr sndrcvAddr : Address .
+vars str hashSnd hashRcv : String .
+vars attrs hattrs hattrs0 : AttributeSet .
+
+
+  
+ops CMSndRcv  : -> ActorType .
+
+**** Attributes
+---- for sending
+op sndHashTagAtts:_ : AttributeSet -> Attribute [ctor] .
+op pendingFiles:_ : ByteSeqL -> Attribute [ctor] .
+op currentFrags:_  : ByteSeqL -> Attribute [ctor] .
+---- 
+--- The number of images that have still to be encoded in the batch.
+op numPendingImages:_ : Nat -> Attribute [ctor] .
+--- The encoded images to be sent as a batch.
+op encodedImages:_ : ByteSeqL -> Attribute [ctor] .
+
+---- for receiving
+op rcvHashTagAtts:_ : AttributeSet -> Attribute [ctor] .
+op pendingFilesR:_ : ByteSeqL -> Attribute [ctor] .
+op currentFragsR:_  : ByteSeqL -> Attribute [ctor] .
+
+---- shared
+op edAddress:_  : Address -> Attribute [ctor] .
+op mcAddress:_ : Address -> Attribute [ctor] .
+***** op senderAddress:_  : Address -> Attribute [ctor] .
+***** op receiverAddress:_  : Address -> Attribute [ctor] .
+op sndrcvAddress:_ : Address -> Attribute [ctor] .
+op w4c:_ : Config -> Attribute [ctor] . ---msg or null
+op replyTo:_ : Config -> Attribute [ctor] . ---- ""
+
+---- used for sending
+op cachedTag:_ : ByteSeqL -> Attribute [ctor] .
+op postingWeird:_ : Bool -> Attribute [ctor] .
+--- The time the last exfil file (contract) was received in Raceboat.
+--- It must be at least 5s before the next POST opportunity.
+op weirdFileRcvTime:_ : Float -> Attribute [ctor] .
+
+
+**********  CM BIDIR
+
+----                        Destini MasClient sndrcv 
+op mkCMSndRcvActor : Address Address Address Address 
+----                hashSnd hashRcv
+                     String String  -> Actor .
+eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr, 
+                  hashSnd,hashRcv) =
+  < cmAddr : CMSndRcv |
+   --- sending attributes
+   sndHashTagAtts: initHashtagAttrs(hashSnd),
+   pendingFiles: nilBS,
+   currentFrags: nilBS,
+   numPendingImages: 0,
+   encodedImages: nilBS,
+   postingWeird: false, 
+   weirdFileRcvTime: 0.0 ,
+   cachedTag: nilBS,
+   --- receiving attributes   
+   rcvHashTagAtts: initHashtagAttrs(hashRcv), 
+ ****  pendingFilesR: nilBS,
+   currentFragsR: nilBS,
+   ---  shared attributes      
+   edAddress: edAddr,
+   mcAddress: mcAddr,
+   sndrcvAddress: sndrcvAddr,
+   w4c: null,
+   replyTo: null
+  >
+  .
+
+ op getReceiverAddress : AttributeSet -> Address .
+ eq getReceiverAddress(attrs, sndrcvAddress: addr)
+    = addr .
+ eq getReceiverAddress(attrs) = nullAddr [owise] .
+
+
+ op getSndHashTagAttrs : AttributeSet -> AttributeSet .
+ eq getSndHashTagAttrs((attrs, sndHashTagAtts: hattrs))
+     = hattrs .
+ eq getSndHashTagAttrs(attrs)  = noneAS [owise] .     
+     
+ op getRcvHashTagAttrs : AttributeSet -> AttributeSet .
+ eq getRcvHashTagAttrs((attrs, rcvHashTagAtts: hattrs))
+     = hattrs .
+ eq getRcvHashTagAttrs(attrs)  = noneAS [owise] .     
+     
+
+
+ op setSndHashTagAttrs : AttributeSet  AttributeSet 
+                       -> AttributeSet .
+ eq setSndHashTagAttrs((attrs, sndHashTagAtts: hattrs0),
+                       hattrs)
+     = attrs,  sndHashTagAtts: hattrs .
+ eq setSndHashTagAttrs(attrs,hattrs) 
+     = attrs,  sndHashTagAtts: hattrs [owise] .     
+     
+ op setRcvHashTagAttrs : AttributeSet  AttributeSet 
+                       -> AttributeSet .
+ eq setRcvHashTagAttrs((attrs, rcvHashTagAtts: hattrs0),
+                       hattrs)
+     = attrs,  rcvHashTagAtts: hattrs .
+ eq setRcvHashTagAttrs(attrs,hattrs ) 
+     = attrs,  rcvHashTagAtts: hattrs [owise] .     
+     
+     
+endm
+
+eof
+
+
+
