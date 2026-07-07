@@ -51,13 +51,13 @@ sload ../../irc/common/irc_name
 sload ../../irc/common/irc-msg-model
 sload ../../irc/common/_aux
 sload ../../irc/irc_prob.maude
+sload ../../irc/irc_monitor.maude
 sload ../../common/maude/irc-action-actor-v2.maude
 sload ./irc-mamodel-v2.maude
 
 **** sload ../../common/maude/irc-rbmas-interface
 ---- this should go in a scenario dir
-sload ../../raceboatMastodon/maude/irc-rbmas-interface  
-sload ../../raceboatMastodon/maude/ircMonitor
+sload ../../common/maude/cp2-interfaces.maude
 
 mod RB-BIDIR-MAS-IRC-SCENARIO is
   inc USER-ACTION-ACTOR .
@@ -73,7 +73,7 @@ mod RB-BIDIR-MAS-IRC-SCENARIO is
   inc IRC .
   inc IRC-MAMODEL-V2 .
   inc IRC-USER-ACTION-ACTOR-V2 .
-  inc IRC-RBMAS-INTERFACE  .
+  inc IRC-DISPATCHER-INTERFACE .
   inc IRC_MONITOR .
  
 vars j : Nat .
@@ -160,9 +160,11 @@ ops ircMonitorAct : -> Actor .
 eq ircaAct = mkIrcClient(ircaAddr, ifaceACAddr, "alice") .
 eq ircaUserModel = mkIrcUMV2Actor(ircaUserModelAddr, "irc-test", ircaAddr) .
   
-eq ifaceACAct =
-mkIrcMasIface(ifaceACAddr,ircaAddr,
-              cmacSndAddr,cmacRcvAddr) .
+eq ifaceACAct = mkIrcByteSeqIface(ifaceACAddr,
+                                  ircaAddr,
+                                  cmacSndAddr,
+                                  cmacRcvAddr)
+.
 
 **** alice client rb endpoint
 eq umacSndAct = mkUMactor(umacSndAddr, 
@@ -189,8 +191,11 @@ eq edacAct = makeDestiniActor(edacAddr, ed-images) .
 
 ***  alice server endpoint
 
-eq ifaceASAct = mkIrcMasIface(ifaceASAddr,ircSrvAddr, 
-                              cmasSndAddr,cmasRcvAddr) .
+eq ifaceASAct = mkIrcByteSeqIface(ifaceASAddr,
+                                  ircSrvAddr, 
+                                  cmasSndAddr,
+                                  cmasRcvAddr)
+.
 eq umasSndAct = mkUMactor(umasSndAddr, 
             mastodon-client-config-mastodon-bidi-ma,
             cmasSndAddr) .
@@ -218,9 +223,11 @@ eq edasAct = makeDestiniActor(edasAddr, ed-images) .
 eq ircbAct = mkIrcClient(ircbAddr, ifaceBCAddr, "bob") .
 eq ircbUserModel = mkIrcUMV2Actor(ircbUserModelAddr, "irc-test", ircbAddr) .
 
-eq ifaceBCAct =
-mkIrcMasIface(ifaceBCAddr,ircbAddr,
-              cmbcSndAddr,cmbcRcvAddr) .
+eq ifaceBCAct = mkIrcByteSeqIface(ifaceBCAddr,
+                                  ircbAddr,
+                                  cmbcSndAddr,
+                                  cmbcRcvAddr)
+.
 
 *** bob client  rbendpoint
 eq umbcSndAct = mkUMactor(umbcSndAddr, 
@@ -246,8 +253,11 @@ eq mcbcRcvAct =
 eq edbcAct = makeDestiniActor(edbcAddr, ed-images) .
 
 *** bob server endpoint
-eq ifaceBSAct = mkIrcMasIface(ifaceBSAddr,ircSrvAddr, 
-              cmbsSndAddr,cmbsRcvAddr) .
+eq ifaceBSAct = mkIrcByteSeqIface(ifaceBSAddr,
+                                  ircSrvAddr, 
+                                  cmbsSndAddr,
+                                  cmbsRcvAddr)
+.
 
 eq umbsSndAct = mkUMactor(umbsSndAddr, 
             mastodon-client-config-mastodon-bidi-ma,
