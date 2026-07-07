@@ -1,0 +1,214 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set show advisories off .
+sload json
+sload sampler-x
+sload markov-action-model
+
+fmod MARKOV-ACTION-MODEL-V2 is
+  inc MARKOV-ACTION-MODEL .
+****  inc JSON .
+****  inc SAMPLER-X .
+
+  vars mmm sm wtMap :  Map{String,JV} .
+  vars actions pars  mj mj0 mj1 stateBlock : Map{String,JV} .
+  vars n j j1 j2 min max : Nat .
+  vars start str : String .
+  vars wt wsum  rnd fl scale A B : Float .
+  vars jv : JV .
+ 
+
+sort MAModel-v2 .
+op mav2 : Map{String,JV}  --- markov
+          Map{String,JV}  --- states
+          Map{String,JV}  --- parameters
+           -> MAModel-v2 .
+           
+op getModeMM : MAModel-v2 ->  Map{String,JV} .
+op getStateMap : MAModel-v2 ->  Map{String,JV} .      
+op getPars : MAModel-v2 ->  Map{String,JV} .   
+
+eq getModeMM(mav2(mmm,sm,pars)) = mmm .
+eq getStateMap(mav2(mmm,sm,pars)) = sm .
+eq getPars(mav2(mmm,sm,pars)) = pars .
+
+
+***(
+
+**** move to json
+op jv2fl : JV -> Float .
+eq jv2fl(jf(fl)) = fl .
+eq jv2fl(jv) = 0.0 [owise] .
+
+op jv2nat : JV -> Nat .
+eq jv2nat(jn(j)) = j .
+eq jv2nat(jv) = 0 [owise] .
+
+op jv2str : JV -> String .
+eq jv2str(js(str)) = str .
+eq jv2str(jv) = "" [owise] .
+)
+
+***(
+default_params = {
+    "model_timeout": None,
+    "model_steps": None,
+})
+op defaultModelTimeOut : -> Float .
+eq defaultModelTimeOut = 1000.0 [owise] .
+
+op defaultModelSteps : -> Nat . 
+eq defaultModelSteps = 1000 [owise] .
+
+op defaultInitialState : -> String . 
+eq defaultInitialState = "idle" [owise] .
+
+op getModelTimeOut : MAModel-v2 -> Float .
+op getModelSteps : MAModel-v2 -> Nat .
+op getInitialState :  MAModel-v2 -> String .
+
+op getModelTimeOut : Map{String,JV} -> Float .
+op getModelSteps : Map{String,JV} -> Nat .
+op getInitialState : Map{String,JV} -> String .
+
+eq getModelTimeOut(mav2(mmm,sm,pars))
+   = getModelTimeOut(pars) .
+eq getModelSteps(mav2(mmm,sm,pars))
+   = getModelSteps(pars) .
+eq getInitialState(mav2(mmm,sm,pars))
+   = getInitialState(pars) .
+
+eq getModelTimeOut(pars) =
+    if $hasMapping (pars,"model_timeout")
+    then jv2fl(pars["model_timeout"])
+    else defaultModelTimeOut
+    fi
+  .
+
+eq getModelSteps(pars) =
+    if $hasMapping (pars,"model_steps")
+    then jv2nat(pars["model_steps"])
+    else defaultModelSteps
+    fi
+  .
+
+eq getInitialState(pars) =
+    if $hasMapping(pars,"initial_state")
+    then jv2str(pars["initial_state"])
+    else defaultInitialState
+    fi
+  .
+
+op getInitialAction :  Map{String,JV} -> String .
+eq getInitialAction(stateBlock) =
+    if $hasMapping (stateBlock,"initial_action")
+    then jv2str(stateBlock["initial_action"])
+    else "none"
+    fi
+  .
+
+
+**** 
+ op nextByWt : String Map{String,JV}  Nat -> String .
+ op nextByWtX :  Map{String,JV}  Float Float
+                 -> String .
+ eq nextByWt(str,( (str |-> jo(mj)), mj0),j)
+    = nextByWtX(mj,float(random(j) / 4294967296),0.0) .
+ eq nextByWt(str,mj,j) = "" [owise] .
+
+eq nextByWtX( (str |-> jf(wt), mj) , rnd, wsum) 
+   =  
+    if( wsum <= rnd) and (rnd < wsum + wt)    
+    then str
+    else nextByWtX(mj,rnd, wsum + wt)
+    fi .
+
+eq nextByWtX(empty , rnd, wsum) = "" . --- should not
+
+***** extending random choices to beta
+ceq realizeRand(str,"beta",
+      (("alpha" |-> jf(A) ), ("beta" |-> jf(B)),
+       ("scale" |-> jf(scale)  ), 
+       mj), 
+       j )
+ = {(str |-> jf(fl)), j1}
+if fl := betaDistr(A, B, j)  * scale  
+**** /\  j1 :=  j + ((2 * round(A)) + round(B)) --- rubens count
+/\  j1 := s j +  round(A) --- clt count
+.
+
+***( 
+**** should go somewhere sharable
+
+op round : Float -> Nat .
+ceq  round(fl) = 
+   if _-_(flc:Float,fl) < _-_(fl,flf:Float)
+   then rat(flc:Float)
+   else rat(flf:Float)
+   fi
+if flc:Float := ceiling(fl)
+/\ flf:Float := floor(fl)
+.
+)
+
+endfm    
+
+ 
+view MAModel-v2  from TRIV to MARKOV-ACTION-MODEL-V2 is
+  sort Elt to MAModel-v2  .
+endv
+
+fmod TEST-MAMV2 is
+  inc MARKOV-ACTION-MODEL-V2 .
+
+op testmkv : -> Map{String,JV} .
+eq testmkv = 
+   ("a" |-> jo((("a" |-> jf(.30 )), ("b" |-> jf(.70)) ))),
+   ("b" |-> jo((("a" |-> jf(.75)), ("b" |-> jf(.25)) )))
+   .
+
+op test-mav2 : -> MAModel-v2 .
+eq test-mav2 = mav2(testmkv,empty,empty) .
+
+endfm  
+
+
+
+eof
+**** 10 11 12 13:a 14   b ow
+red nextByWt("a",testmkv,10) .
+**** 10 11 12 13 14:b  a ow
+red nextByWt("b",testmkv,10) .
+
+red getModeMM(test-mav2) .
+red getModeStart(test-mav2) .
+red getStateMap(test-mav2) .
+red getPars(test-mav2) .

@@ -34,6 +34,8 @@ sload ../irc/common/app_chat
 sload ../irc/irc_monitor
 sload ../irc/_irc_aux
 sload ../irc/irc_prob
+sload ../cp3-tests/skyhook/irc-mamodel-v2.maude
+sload ../common/maude/irc-action-actor-v2.maude
 sload ./_obfs4_aux
 sload ./obfs4_prob
 sload ../../deps/dns_formalization/Maude/common/apmaude.maude
@@ -45,25 +47,39 @@ mod OBFS4_TESTS is
   pr IRC_NODE .
   pr IRC_MONITOR .
   pr IRC .
+  pr IRC-MAMODEL-V2 .
+  pr IRC-USER-ACTION-ACTOR-V2 .
   pr OBFS4 .
   pr SCHEDULER .
   pr IRC-DISPATCHER-INTERFACE .
 
-  ops aliceAddr bobAddr : -> Address .
+  ***** Global constants  
+  **** the user model database
+  eq MAModelMap = ("irc-test" |-> irc-ma-v2 ) .
+
+  *** for the default case
+  eq noiseMax(msg:Msg) = 0.00001 .
+     
   ops aliceIrcClientAddr bobIrcClientAddr : -> Address .
+  ops aliceIrcUserModelAddr bobIrcUserModelAddr : -> Address .
   ops aliceIfaceAddr bobIfaceAddr aliceServerIfaceAddr bobServerIfaceAddr : -> Address .
   ops aliceObfs4ClientAddr bobObfs4ClientAddr : -> Address .
   ops obfs4AliceServerAddr obfs4BobServerAddr ircServerAddr : -> Address .
 
   ops aliceIrcClient bobIrcClient : -> Actor .
+  ops aliceIrcUserModel bobIrcUserModel : -> Actor .
   ops aliceObfs4Client bobObfs4Client : -> Actor .
   ops obfs4AliceServer obfs4BobServer ircServer : -> Actor .
   ops aliceIface bobIface aliceServerIface bobServerIface : -> Actor .
 
   eq aliceIrcClient = mkIrcClient(aliceIrcClientAddr,
                                   aliceIfaceAddr,
-                                  "Alice",
-                                  imd(0.000, "#room1", 279) :: imd(28.0, "#room1", 388)) .
+                                  "Alice")
+  .
+  eq aliceIrcUserModel = mkIrcUMV2Actor(aliceIrcUserModelAddr,
+                                        "irc-test",
+                                        aliceIrcClientAddr)
+  .
   eq aliceIface = mkIrcByteSeqIface(aliceIfaceAddr, aliceIrcClientAddr, aliceObfs4ClientAddr, aliceObfs4ClientAddr) .
   eq aliceObfs4Client = makeObfs4Node(aliceObfs4ClientAddr, aliceIfaceAddr, obfs4AliceServerAddr) .
 
@@ -71,8 +87,11 @@ mod OBFS4_TESTS is
 
   eq bobIrcClient = mkIrcClient(bobIrcClientAddr,
                                 bobIfaceAddr,
-                                "Bob",
-                                imd(4.000, "#room1", 1400))
+                                "Bob")
+  .
+  eq bobIrcUserModel  = mkIrcUMV2Actor(bobIrcUserModelAddr,
+                                       "irc-test",
+                                       bobIrcClientAddr)
   .
   eq bobIface = mkIrcByteSeqIface(bobIfaceAddr,
                                   bobIrcClientAddr,
@@ -100,9 +119,11 @@ mod OBFS4_TESTS is
   eq initState = 
     rCtr(0)
     aliceIrcClient
+    aliceIrcUserModel
     aliceIface
     aliceObfs4Client
     bobIrcClient
+    bobIrcUserModel
     bobIface
     bobObfs4Client
     ircServer
@@ -118,16 +139,14 @@ mod OBFS4_TESTS is
             : JoinChannel(makeIrcChannelName("#room1"), aliceIrcClientAddr)), 0]
     [0.60, (to bobIfaceAddr from bobIrcClientAddr
             : JoinChannel(makeIrcChannelName("#room1"), bobIrcClientAddr)), 0]
-    [1.0,
-      (to aliceIrcClientAddr from aliceIrcClientAddr : ircMsgSendTime),
-      0]
-    [1.5,
-      (to bobIrcClientAddr from bobIrcClientAddr : ircMsgSendTime),
-      0]
+    **** start alice
+    [0.1, (to aliceIrcUserModelAddr from aliceIrcUserModelAddr : burstDelayTO), 0]
+    **** start bob
+    [0.2, (to bobIrcUserModelAddr from bobIrcUserModelAddr : burstDelayTO), 0]
   .
 
   op initConfig : -> Config .
-  eq initConfig = run({0.0 | nil} initState, 300.) .
+  eq initConfig = run({0.0 | nil} initState, 1300.) .
 endm
 
 set print attribute on .
@@ -135,4 +154,5 @@ set print attribute on .
 
 --- Experiment with 2 IRC clients and 1 IRC server, traffic encapsulated with obfs4
 rew initConfig .
+q
 

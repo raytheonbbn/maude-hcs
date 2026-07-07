@@ -1,0 +1,248 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../common/maude/markov-action-model-v2.maude
+
+fmod IRC-MAMODEL-V2 is
+  inc  MARKOV-ACTION-MODEL-V2 .
+
+
+op irc-markov  : ->  Map{String,JV} .
+op irc-states  :  -> Map{String,JV} .
+op irc-params  :  -> Map{String,JV} .
+  
+
+op irc-ma-v2 : -> MAModel-v2 . 
+eq irc-ma-v2  =  
+    mav2(irc-markov, irc-states,irc-params) .
+
+eq irc-markov =  
+  "idle" |->  jo((
+    ("idle" |->  jf(0.349679)),
+    ("casual_chat" |->  jf(0.356498)),
+    ("active_chat" |->  jf(0.293823))
+    )),
+  "casual_chat" |->  jo((
+     ("idle" |->  jf(0.436088)),
+     ("casual_chat" |->  jf(0.563912))
+     )),
+    "active_chat" |->  jo((
+      ("idle" |->  jf(0.074496)),
+      ("active_chat" |->  jf(0.925504))
+      ))
+  .  
+
+**** Map{String,JV}
+eq irc-states = 
+
+    "idle" |->  jo(( 
+      ("type" |->  js("state")),
+      ("initial_action" |->  js("wait")),
+  
+      ("dwell_steps" |-> jo((
+         ("random" |->  js("uniform") ),
+         ("min" |->  jf(3.0) ),
+         ("max" |->  jf(3.0)) )) 
+         ),
+ 
+ 
+      ("actions" |->  jo((
+        ("wait" |->  jo((
+          ("type" |->  js("delay")),
+          ("duration_seconds" |->  jo((
+            ("random" |->  js("uniform")),
+            ("min" |->  jf(300.0)),
+            ("max" |->  jf(900.0) )) ) )
+        )) ),
+
+        ("select_room" |->  jo((
+          ("type" |->  js("select_room"))
+         )) ),
+     
+        ("send_message" |->  jo((
+          ("type" |->  js("roommsg")),
+          ("message_length_bytes" |->  jo((
+            ("random" |->  js("beta")),
+            ("alpha" |->  jf(1.0627)),
+            ("beta" |->  jf(15.5944)),
+            ("scale" |->  jf(893.0) ) 
+            )) )
+        )) )
+       )) ),
+
+      ("markov" |->  jo((
+        ("wait" |-> jo(
+             ("select_room" |->  jf(1.0))) ), 
+        ("select_room" |-> jo(
+             ("send_message" |->  jf(1.0))) ),
+        ("send_message" |-> jo(
+             ("wait" |->  jf(1.0))) )
+        ))
+      ),
+      
+    ("burst_steps" |->  jo((
+      ("random" |->  js("uniform")),
+      ("min" |->  jf(3.)),
+      ("max" |->  jf(3.)) ))
+      ),
+    ( "burst_prob" |-> jf( 0.2)),     
+    ("inter_burst_delay" |-> jo((
+       ("random" |->  js("uniform")),
+       ("min" |->  jf(0.0)),
+       ("max" |->  jf(0.0))
+       )) ),
+    ("intra_burst_delay" |->  jo((
+      ("random" |->  js("uniform")),
+      ("min" |->  jf(0.0)),
+      ("max" |->  jf(0.0)) )) 
+      )
+      
+      )), --- idle jo
+
+  "casual_chat" |->  jo((    
+    ("type" |->  js("state")),
+    ("initial_action" |->  js("send_message")),
+
+    ("dwell_steps" |->  jo((
+      ("random" |->  js("gaussian")),
+      ("mean" |->  jf(2.6337)),
+      ("std" |->  jf(0.8153))
+        ))
+      ),
+
+    ("actions" |->  jo((
+      ("send_message" |->  jo((
+        ("type" |->  js("roommsg")),
+        ("message_length_bytes" |->  jo((
+          ("random" |->  js("beta")),
+          ("alpha" |->  jf(1.0627)),
+          ("beta" |->  jf(15.5944)),
+          ("scale" |->  jf(893.0) ) 
+          )) )
+      )) )
+     ))  --- actions jo
+    ),  --- actions
+
+    ("markov" |->  jo((
+      ("send_message" |-> jo(
+          ("send_message" |->  jf(1.0))) )
+    )) ),   --- end markov
+
+    ("burst_steps" |->  jo((
+       ("random" |->  js("gaussian")),
+       ("mean" |->  jf(1.4542)),
+       ("std" |->  jf(.8593)) )) ),
+    ( "burst_prob" |-> jf( 0.2)),     
+    ("inter_burst_delay" |-> jo((
+       ("random" |->  js("gaussian")),
+       ("mean" |->  jf(87.8257)),
+       ("std" |->  jf(47.4949))
+       )) ),
+       
+    ("intra_burst_delay" |->  jo((
+       ("random" |->  js("uniform")),
+       ("min" |->  jf(0.0)),
+       ("max" |->  jf(60.0)) )) )  
+  
+    )),  --- casual_chat jo
+
+  "active_chat" |->  jo((
+    ("type" |->  js("state")),
+    ("initial_action" |->  js("send_message")),
+
+    ("dwell_steps" |->  jo((
+      ("random" |->  js("gaussian")),
+      ("mean" |->  jf(9.5554)),
+      ("std" |->  jf(9.1967)) 
+      )) ),
+
+    ("actions" |->  jo((
+      ("send_message" |->  jo((
+        ("type" |->  js("roommsg")),
+        ("message_length_bytes" |->  jo((
+          ("random" |->  js("beta")),
+          ("alpha" |->  jf(1.0627)),
+          ("beta" |->  jf(15.5944)),
+          ("scale" |->  jf(893.0) ) 
+        )) )
+      )) )
+    )) )  ---- end actions
+   ,
+
+    ("markov" |->  jo((
+      ("send_message" |-> jo(
+          ("send_message" |->  jf(1.0)) ) )
+    )) ),   --- end markov
+
+    ("burst_steps" |->  jo((
+       ("random" |->  js("gaussian")),
+       ("mean" |->  jf(1.6679)),
+       ("std" |->  jf(1.0418)) 
+       )) ) ,
+    ( "burst_prob" |-> jf( 0.2)),     
+    ("inter_burst_delay" |-> jo((
+       ("random" |->  js("gaussian")),
+       ("mean" |->  jf(101.9412)),
+       ("std" |->  jf(66.0211))
+       )) ),
+    ("intra_burst_delay" |->  jo((
+       ("random" |->  js("uniform")),
+       ("min" |->  jf(0.0)),
+       ("max" |->  jf(60.0)) )) )  
+
+  ))  ---- active_chat jo
+.
+  
+eq irc-params =  
+  ("model_steps" |->  jn(1000)),
+  ("initial_state" |->  js("idle")),
+  ("initial_room" |->  js("#general")),
+  ("rooms" |-> jo((
+    ("#general" |->  jf(0.6)),
+    ("#chat" |->  jf(0.3)),
+    ("#random" |->  jf(0.1))
+  )) )
+  .
+
+
+endfm  
+eof    
+    
+    
+red nextByWt("active_chat",irc-markov,5) .
+red nextByWt("casual_chat",irc-markov,5) .
+red nextByWt("idle",irc-markov,5) .
+
+red nextByWt("rooms",irc-params,5) .
+
+red realizeParams(irc-states["idle"] ,1) .    
+red realizeParams(irc-states["active_chat"] ,1) .    
+red realizeParams(irc-states["casual_chat"] ,1) .    
+

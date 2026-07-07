@@ -1,0 +1,42 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- FTP Message Model
+---
+
+sload ../../../common/maude/cp2-interfaces
+
+mod FTP-MESSAGES is
+  inc STRING .
+  inc CP2-COMMON .
+  
+  op getSize : Content -> Nat . ---- CLT: MOVE to ACTOR or ???
+  
+  vars n : Nat .
+  vars str1 str2 : String .
+  
+  sorts FtpReq FtpRes FtpData .
+  subsorts FtpReq FtpRes FtpData < Content .
+
+  --- ftpReq(id, cmd, args)
+  op ftpReq : Nat String String -> FtpReq .
+  
+  --- ftpRes(id, statusCode, text)
+  op ftpRes : Nat String String -> FtpRes .
+ 
+  
+  --- ftpData(id, dataPayload)
+  op ftpData : Nat String -> FtpData .
+  
+  --- FTP Command timeouts
+  op ftpTO : FtpReq -> Content .
+  op ftpDataTO : FtpReq -> Content .
+ 
+ **** getSize required by tcp transport model
+ ***** using constant  150 from skyhook  
+  eq getSize(ftpReq(n,str1,str2)) =
+       150 + length(str1) + length(str2) .
+  eq getSize(ftpRes(n,str1,str2)) =
+       150 + length(str1) + length(str2) .
+  eq getSize(ftpData(n,str1)) = 150 + length(str1) .
+      
+endm

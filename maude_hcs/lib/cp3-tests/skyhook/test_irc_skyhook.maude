@@ -40,14 +40,15 @@ sload skyhook-um-mamodel-1
 **** sload ../../../common/maude/http-overhead.maude
 
 ---- irc 
-sload ../../irc/common/irc_name
+sload ../../irc/irc_prob.maude
 sload ../../irc/common/irc-msg-model
 sload ../../irc/common/_aux
-sload ../../irc/irc_prob
+sload ../../common/maude/irc-action-actor-v2.maude
+sload ./irc-mamodel-v2.maude
 
 ---- this should go in a scenario dir
 sload ../../common/maude/cp2-interfaces.maude
-sload ../../irc/irc_monitor
+sload ../../irc/irc_monitor.maude
 
 ------ raceboat 4 skyhook
 sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
@@ -63,7 +64,9 @@ mod IRC-RB-SKYHOOK-SCENARIO is
   inc USER-ACTION-ACTOR .
   inc SKYHOOK-UM-MAMODEL-1 .
   inc IRC .
-  pr IRC-DISPATCHER-INTERFACE .
+  inc IRC-MAMODEL-V2 .
+  inc IRC-USER-ACTION-ACTOR-V2 .
+  inc IRC-DISPATCHER-INTERFACE .
   inc CONTENT-MANAGER-SIMPLE-BI .
   inc SKYHOOK .
   inc S3_PROTOCOL .
@@ -74,9 +77,16 @@ vars j : Nat .
 eq encOH(fsize:Nat,ksize:Nat)  = 0 .
 eq noiseMin(msg:Msg) = 0.001 .
 
+***** Global constants  
+**** the user model database
+eq MAModelMap = ("irc-test" |-> irc-ma-v2 ) .
+
+*** for the default case
+eq noiseMax(msg:Msg) = 0.00001 .
+   
 **** addresses
 *** alice
-ops aliceAddr ircaAddr : -> Address .
+ops ircaAddr ircaUserModelAddr : -> Address .
 **** alice channel endpoint interfaces
 ops ifaceACAddr ifaceASAddr : -> Address .
 
@@ -86,7 +96,7 @@ ops umacAddr  cmacAddr puaAddr sdkacAddr : -> Address .
 ops umasAddr  cmasAddr ahaAddr sdkasAddr : -> Address .
 
 *** bob
-ops bobAddr ircbAddr : -> Address .
+ops ircbAddr ircbUserModelAddr : -> Address .
 **** bobs channel endpoint interfaces
 ops ifaceBCAddr ifaceBSAddr : -> Address .
 
@@ -101,7 +111,7 @@ op ircMonitorAddr : -> Address .
 -----------------------
 **** actors
 *** alice
-op ircaAct : -> Actor .
+ops ircaAct ircaUserModel : -> Actor .
 ops ifaceACAct ifaceASAct : -> Actor .
 
 
@@ -111,7 +121,7 @@ ops umacAct  cmacAct puaAct sdkacAct : -> Actor .
 ops umasAct  cmasAct ahaAct sdkasAct : -> Actor .
 
 *** bob
-op ircbAct : -> Actor .
+ops ircbAct ircbUserModel : -> Actor .
 ops ifaceBCAct ifaceBSAct : -> Actor .
 
 *** client endpoint  ..bc.. 
@@ -123,20 +133,9 @@ ops ircSrvAct  s3SrvAct : -> Actor .
 op ircMonitorAct : -> Actor .
 
 ************** actor defns
-**** TODO: Change this to match testbed.
-op room1DML : -> IrcMsgDelayList .
-eq room1DML =
-  imd( 0.000,"#room1",279) ::
-  imd( 8.989,"#room1",258) ::
-  imd(38.913,"#room1",171) ::
-  imd(58.978,"#room1",127) ::
-  imd(68.549,"#room1",111) ::
-  imd(119.482,"#room1",381)
-.
-
 ***** aliceIrc
-eq ircaAct =
-  mkIrcClient(ircaAddr, ifaceACAddr, "alice", room1DML) .
+eq ircaAct = mkIrcClient(ircaAddr, ifaceACAddr, "alice") .
+eq ircaUserModel = mkIrcUMV2Actor(ircaUserModelAddr, "irc-test", ircaAddr) .
   
 **** TEST-PKG2 uses 2.0 3.5 5.4
 eq ifaceACAct =
@@ -201,7 +200,8 @@ eq sdkasAct =
 ********************************
 *** bob
 ***** bob Irc 
-eq ircbAct = makeIrcClient(ircbAddr, ifaceBCAddr) .
+eq ircbAct = mkIrcClient(ircbAddr, ifaceBCAddr, "bob") .
+eq ircbUserModel = mkIrcUMV2Actor(ircbUserModelAddr, "irc-test", ircbAddr) .
 
 eq ifaceBCAct =
    mkIrcByteSeqIface(ifaceBCAddr,ircbAddr,
@@ -266,14 +266,7 @@ eq s3SrvAct  = < s3SrvAddr : AwsS3HttpServer |
       thisAddr: s3SrvAddr, s3DataMap: emptyS3DataMap > .
 
 **** makeIrcServer takes an unused address arg
-eq ircSrvAct =
-    < ircSrvAddr : IrcServer |
-        thisAddr: ircSrvAddr,
-        channelMap: emptyNameClientsMap,
-        clientTimestampMap: emptyClientTimestampMap,
-        clientAddressMap: emptyClientAddressMap
-    >
-  .
+eq ircSrvAct = mkIrcServer(ircSrvAddr) .
 
 eq ircMonitorAct = 
     makeIrcMonitor(ircMonitorAddr,
@@ -309,10 +302,11 @@ eq LinkData =
 .
  
 op initState : Nat -> Config .
-eq initState(j ) =
-     rCtr(j + 8)
+eq initState(j) =
+   rCtr(j + 8)
 ******* alice 
    ircaAct 
+   ircaUserModel
 *** alice client endpoint
    ifaceACAct
    umacAct  cmacAct puaAct sdkacAct
@@ -321,7 +315,8 @@ eq initState(j ) =
    umasAct  cmasAct ahaAct sdkasAct
 
 ******* bob
-   ircbAct 
+   ircbAct
+   ircbUserModel
 **** bob client endpoint
    ifaceBCAct
    umbcAct  cmbcAct pubAct sdkbcAct
@@ -347,22 +342,16 @@ eq initState(j ) =
    (to umbsAddr from umbsAddr : actionR("ok")),0]
 
 **** start ahAlice
-    [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
+  [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
 **** start ahBob
-    [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
+  [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
 
 **** start alice
-  [0.25, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
+  [0.1, to ircaUserModelAddr from ircaUserModelAddr : burstDelayTO, 0]
 **** start bob
-  [0.33, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
+  [0.2, to ircbUserModelAddr from ircbUserModelAddr : burstDelayTO, 0]
 **** alice joins with cnx rb server send addr
 **** if sent by alice, it would come from rcv addr!!
-  [0.40, (to ircSrvAddr from ifaceASAddr : 
-        JoinChannel(makeIrcChannelName("#room1"), ircaAddr)),
-     0]
-  [0.5, (to ircSrvAddr from ifaceBSAddr :
-       JoinChannel(makeIrcChannelName("#room1"), ircbAddr)),
-     0]
 .
 
 op slimit : -> Float .
@@ -370,15 +359,12 @@ eq slimit = 1000.0 .
 
 op initConfig : -> Config .
 rl[init]: initConfig 
-   => run({0.0 | nil} initState(counter),slimit) .
+   => run({0.0 | nil} initState(counter), slimit) .
 
  endm
-**** eof
- red "Alice,Bob join ab, Alice,Bob send 3 texts ircMonitor" .
-**** red initState(0) .
 set print attribute on .
- rew initConfig .
- q
- eof
+rew initConfig .
+q
+eof
 
   

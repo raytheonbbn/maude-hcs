@@ -33,19 +33,22 @@ sload ./common/irc_name
 sload ./common/_aux
 sload ./irc_prob
 
+sload ../common/maude/irc-action-actor-v2.maude
 sload ../../deps/dns_formalization/Maude/common/apmaude.maude
 
 mod IRC_PROB_TESTS is
   pr IRC .
+  inc IRC-USER-ACTION-ACTOR-V2 .
   inc SCHEDULER .
   
-
-  ops aliceIrcClientAddr bobIrcClientAddr ircServerAddr aliceAddr bobAddr carolynAddr rbAddr : -> Address .
-  ops ircMonitorAddr : -> Address .
+  ops aliceIrcClientAddr bobIrcClientAddr ircServerAddr  : -> Address .
   ops aliceIrcClient bobIrcClient : -> Actor .
+  ops ircMonitorAddr : -> Address .
   ops ircServer  : -> Actor .
+  ops ircChannelName : -> IrcChannelName .
   ops aliceMsg bobMsg : -> Msg .
 
+  eq ircChannelName = makeIrcChannelName("bbn") .
   op aliceDML : -> IrcMsgDelayList .
   eq aliceDML =
      imd( 0.000,"#room1",279) :: imd(28.0,"#room1",388) .
@@ -67,12 +70,12 @@ mod IRC_PROB_TESTS is
   op aliceMsg : -> ScheduleMsg .
   eq aliceMsg = 
     [1.0, 
-    (to aliceIrcClientAddr from aliceIrcClientAddr : ircMsgSendTime),
+    (to aliceIrcClientAddr from aliceIrcClientAddr : burstDelayTO),
     0]  .
   op bobMsg : -> ScheduleMsg .
   eq bobMsg = 
     [8.0, 
-    (to bobIrcClientAddr from bobIrcClientAddr : ircMsgSendTime),
+    (to bobIrcClientAddr from bobIrcClientAddr : burstDelayTO),
     0]  .    
 
   op initState : -> Config .

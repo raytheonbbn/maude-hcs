@@ -1,0 +1,135 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set show advisories off .
+
+sload user-action-actor-v2-aux.maude
+
+-------------------------------------------
+---- assume global constant umv2Models : String -> UMv2
+---------------------------------------------
+
+
+mod USER-ACTION-ACTOR-V2 is
+  inc USER-ACTION-ACTOR-V2-SHARED .
+  
+vars mname str mstr mstr1 astr astr1 rstr : String .
+vars cmAddr  umAddr addr : Address .
+vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+vars nd nd1 nb  nb1 ns nj j j0 j1 j2 : Nat .
+vars T Ts d  bd  bp fl flc flf : Float .
+vars smsgs msgs : Config .
+vars msg : Msg .
+vars dmsg : ScheduleMsg .
+vars mj mj0 mj1 stateB pars acts aspec  aspec1 
+     : Map{String,JV} .
+vars b : Bool .
+
+****
+op mkTgenUMV2Actor : Address String Address -> Actor .
+eq mkTgenUMV2Actor(umAddr,mname,cmAddr) =
+  < umAddr : UM-V2 | 
+    v2mname:  mname,
+    cmAddr:  cmAddr, ---- (role of fnmap),
+    stopTime:  getModelTimeOut(getPars(mname)),
+    modelSteps: getModelSteps(getPars(mname)),
+    nextMode: getInitialState(mname), --- starting_state
+    newMode: false,
+    isIrc: false,
+    dwellSteps: 0,
+    burstSteps: 0,
+    nextAction: "noop",
+    curState: empty,  ---- sm[curMode]
+    w4: null
+  >
+  .        
+
+
+***(
+op exeActionTgen : AttributeSet Address Nat
+                   -> AttributeSetMsgsNat .
+)
+eq exeActionTgen(attrs,umAddr,j) = {attrs,null,j} [owise] .
+
+ceq exeActionTgen(attrs,umAddr,j) =
+  rcvActRv2(attrs2,umAddr,0.0,s j)  
+if attrs0, cmAddr: cmAddr, curState: stateB := attrs
+/\ attrs1, w4: null,  nextAction:  astr  := attrs
+/\ find(astr,"noop",0) :: Nat 
+/\ jo(mj) := stateB["markov"]
+/\ astr1 := nextByWt(astr, mj, j)
+/\ msg := (to cmAddr from umAddr : 
+           actionQ(("type" |-> js(astr) )) )
+/\ attrs2 :=  attrs1, w4: msg, nextAction: astr1
+.
+
+ceq exeActionTgen(attrs,umAddr,j) =
+    {attrs2, smsgs, j2}
+if attrs0, cmAddr: cmAddr, curState: stateB := attrs
+/\ attrs1, w4: null,  nextAction: astr  := attrs
+/\ find(astr,"noop",0) == notFound
+/\ jo(acts) := stateB["actions"]
+/\ jo(aspec) := acts[astr]
+/\ {aspec1,j1}  := realizeParams(aspec,j)
+/\ jo(mj) := stateB["markov"]
+/\ astr1 := nextByWt(astr, mj, j1)
+/\ msg := (to cmAddr from umAddr : actionQ(aspec1))
+/\ {smsgs, j2} := delayMsgsX(j1, msg, null)
+/\ attrs2 := attrs1, w4: msg, nextAction: astr1
+.
+
+
+        
+endm
+eof
+
+ftp,minio v2  special cases
+  has idle mode
+    "idle": {
+        "type": "wait",
+        "sleep": {"random": "gaussian","mean": 300.0,"std": 80.0}
+      no initial_x keys
+        
+>>
+
+"idle":
+   {
+      "type": "state",
+      "initial_action": "noop",
+      "dwell_steps": 0.0,
+      "actions": { "noop": "type": "noop" },
+      "markov": { "noop": { "noop": 1.0 } },
+      "burst_steps": 0.0,
+      "inter_burst_delay": 
+         {"random": "gaussian","mean": 300.0,"std": 80.0},
+      "intra_burst_delay": 0.0
+    }
+        
+
