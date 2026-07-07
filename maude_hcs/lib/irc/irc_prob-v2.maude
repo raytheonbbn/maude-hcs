@@ -72,18 +72,6 @@ mod IRC-V2 is
   vars aspec : Map{String,JV} .
 
 
-  ---- Make a V2 IrcClient  driven by UM
-  ----             ItsAddr  RBAddr UserId 
-  op mkIrcClient-v2 : Address Address String  -> Actor .
-  eq mkIrcClient-v2(ircAddr, rbAddr,userId) =
-    < ircAddr : IrcClient |
-        thisAddr: ircAddr,
-        raceboatAddr: rbAddr,
-        ircName: makeIrcUserName(ircAddr),
-        userId: userId,
-        msgCtr: 0
-    >  .
-
   ------------------------
   --- IRC Client Rules ---
   ------------------------
@@ -99,9 +87,13 @@ mod IRC-V2 is
   < ircAddr : IrcClient | attrs1 >
     smsgs
     if {attrs1, smsgs, j1} := 
-       ircExeAction(attrs, ircAddr, umAddr,
-                    jv2str(aspec["type"]),aspec,j)            
-[print "(" T ") IRC Client " ircAddr " received actionQ : " aspec " sending " smsgs ]
+       ircExeAction(attrs,
+                    ircAddr,
+                    umAddr,
+                    jv2str(aspec["type"]),
+                    aspec,
+                    j)
+  [print "(" T ") IRC Client " ircAddr " received actionQ : " aspec " sending <<<" smsgs ">>>."]
   .
   
  op ircExeAction : AttributeSet Address Address String
@@ -220,7 +212,7 @@ if {smsgs,j1} :=  delayMsgsX(j,(to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR :
                                        chatText)
     /\ attrsNext := refreshUser(attrs, makeIrcUserName(ircSourceAddr), T)
     /\ {smsgs,j1} := delayMsgsX(j,msgs:Config,null)
-    [ print "(" T ") IRC Server handling incoming chat " chatText " from " ircSourceAddr " to " ircName ", turning chat around w/ msgs "  msgs:Config ]
+    [ print "(" T ") IRC Server handling incoming chat |||" chatText "||| from " ircSourceAddr " to " ircName ", turning chat around w/ msgs "  msgs:Config ]
   .
 
   --- Handle a user joining a channel: tell all members of channel.
