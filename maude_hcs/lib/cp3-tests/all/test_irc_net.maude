@@ -1,0 +1,489 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+***(
+(Retranscribed by AI)
+
++--------------------+  +--------------------------------------------+  +--------------------+
+|     User0 IRC      |  |                  Server IRC                |  |      User1 IRC     |
++---------+----------+  +--------+-------------------------+---------+  +---------+----------+
+          |                      |                         |                      |
++---------v----------+  +--------v-----------+  +----------v---------+  +---------v----------+
+|     User0          |  |   Server User0     |  |    Server User1    |  |       User1        |
+|     SH PU          |  |    SH AH           |  |      SH AH         |  |      SH PU         |
+|     pu0Addr        |  |    ah0Addr         |  |      ah1Addr       |  |      pu1Addr       |
++---------+----------+  +--------+-----------+  +----------+---------+  +---------+----------+
+          |                      |                         |                      |
++---------v----------+  +--------v-----------+  +----------v---------+  +---------v----------+
+|     User0 S3 Cl    |  |   Server User0     |  |    Server User1    |  |     User1 S3 Cl    |
+|                    |  |    S3 Cl           |  |       S3 Cl        |  |                    |
+|     sdk0cAddr      |  |    sdk0sAddr       |  |      sdk1sAddr     |  |     sdk1cAddr      |
++---------+----------+  +--------+-----------+  +----------+---------+  +---------+----------+
+          |                      |                         |                      |
++---------v----------+  +--------v-----------+  +----------v---------+  +---------v----------+
+|     User0 Net Cl   |  |  ServerUser0NetCl  |  |  ServerUser1NetCl  |  |    User1 Net Cl    |
+|  user0NetClientAddr|  |serverUser0NetClient|  |serverUser1NetClient|  | user1NetClientAddr |
++---------+----------+  +--------+-----------+  +---------+----------+  +---------+----------+
+          |                      |                        |                       |
+      ....|....              ....|....                ....|....               ....|....
+          |                      |                        |                       |
++---------+----------+  +--------+-----------+  +---------+----------+  +---------+----------+
+|S3User0NetServerAddr|  | S3ServerUser0Net   |  |   S3ServerUser1Net |  |S3User1NetServerAddr|
+|                    |  |    ServerAddr      |  |      ServerAddr    |  |                    |
+| s3User0NetServer   |  | s3ServerUser0NetCl |  |  s3ServerUser1Net  |  |  s3User1NetServer  |
++---------+----------+  +--------+-----------+  +----------+---------+  +---------+----------+
+          |                      |                         |                      |
+          +----------------------+------------+------------+----------------------+
+                                              |
+                                  +-----------+---------+
+                                  |       s3SrvAddr     |
+                                  |                     |
+                                  |        S3Server     |
+                                  +---------------------+
+)
+
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+---- raceboat  user models
+sload ../../../deps/dns_formalization/Maude/common/apmaude
+sload ../../common/maude/user-action-actor
+sload skyhook-um-mamodel-1
+
+---- irc 
+sload ../../irc/common/irc_name
+sload ../../irc/common/irc-msg-model
+sload ../../irc/common/_aux
+sload ../../irc/irc_prob
+
+---- this should go in a scenario dir
+sload ../../common/maude/cp2-interfaces.maude
+sload ../../irc/irc_monitor
+
+------ raceboat 4 skyhook
+sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
+
+----- skyhook
+sload ../../skyhook/skyhook_prob
+sload ../../s3/s3_protocol
+
+---- Network
+sload ../../network/net_prob.maude
+
+mod IRC-ALL is
+  inc SCHEDULER .
+  inc USER-ACTION-ACTOR .
+  inc SKYHOOK-UM-MAMODEL-1 .
+  inc IRC .
+  pr IRC-DISPATCHER-INTERFACE .
+  inc CONTENT-MANAGER-SIMPLE-BI .
+  inc SKYHOOK .
+  inc S3_PROTOCOL .
+  inc IRC_MONITOR .
+  pr TCP_SOCKET .
+  pr NETWORK_NODE .
+  pr NETWORK_CONNECTION .
+ 
+  vars j : Nat .
+
+  eq encOH(fsize:Nat, ksize:Nat)  = 0 .
+  eq noiseMin(msg:Msg) = 0.001 .
+
+  **** addresses
+  *** user0
+  ops irc0Addr irc1Addr irc2Addr irc3Addr irc4Addr ircSrvAddr : -> Address .
+  op ircMonitorAddr : -> Address .
+
+  **** Channel endpoint interfaces
+  ops iface0cAddr iface0sAddr : -> Address .
+  ops iface1cAddr iface1sAddr : -> Address .
+
+  *** client endpoint 0c
+  ops um0cAddr cm0cAddr pu0Addr sdk0cAddr : -> Address .
+  *** server endpoint 0s
+  ops um0sAddr cm0sAddr ah0Addr sdk0sAddr : -> Address .
+
+  *** client endpoint ..1c.. 
+  ops um1cAddr cmbcAddr pu1Addr sdk1cAddr : -> Address .
+  *** server endpoint ..1s..
+  ops um1sAddr cm1sAddr ah1Addr sdk1sAddr : -> Address .
+
+  *** Net clients
+  ops user0NetClientAddr serverUser0NetClientAddr  : -> Address .
+  ops user1NetClientAddr serverUser1NetClientAddr  : -> Address .
+
+  ops s3SrvAddr : -> Address .
+
+  *** Net servers
+  *** Facing IRC clients
+  ops s3User0NetServerAddr s3User1NetServerAddr             : -> Address .
+  *** Facing IRC server
+  ops s3ServerUser0NetServerAddr s3ServerUser1NetServerAddr : -> Address .
+
+  -----------------------
+  **** actors
+  *** user0
+  op ircaAct : -> Actor .
+  ops ifaceACAct ifaceASAct : -> Actor .
+
+  *** client endpoint ac
+  ops umacAct  cmacAct puaAct sdkacAct : -> Actor .
+  *** server endpoint as
+  ops umasAct  cmasAct ahaAct sdkasAct : -> Actor .
+
+  *** Net clients
+  ops user0NetClient  serverUser0NetClient  : -> Actor .
+
+  *** user1
+  op ircbAct : -> Actor .
+  ops ifaceBCAct ifaceBSAct : -> Actor .
+
+  *** client endpoint  ..bc.. 
+  ops umbcAct  cmbcAct pubAct sdkbcAct : -> Actor .
+  *** server endpoint ..bs..
+  ops umbsAct  cmbsAct ahbAct sdkbsAct : -> Actor .
+
+  *** Net clients
+  ops user1NetClient  serverUser1NetClient  : -> Actor .
+
+  ops ircSrvAct  s3SrvAct : -> Actor .
+  op ircMonitorAct : -> Actor .
+  *** Net servers
+  *** Facing IRC clients
+  ops s3User0NetServer s3User1NetServer             : -> Actor .
+  *** Facing IRC server
+  ops s3ServerUser0NetServer s3ServerUser1NetServer : -> Actor .
+
+  ************** actor defns
+  **** TODO: Change this to match testbed.
+  op room1DML : -> IrcMsgDelayList .
+  eq room1DML =
+    imd( 0.000,"#room1",279) ::
+    imd( 8.989,"#room1",258) ::
+    imd(38.913,"#room1",171) ::
+    imd(58.978,"#room1",127) ::
+    imd(68.549,"#room1",111) ::
+    imd(119.482,"#room1",381)
+  .
+
+  ***** user0Irc
+  eq ircaAct =
+    mkIrcClient(irc0Addr, iface0cAddr, "user0", room1DML) .
+    
+  **** TEST-PKG2 uses 2.0 3.5 5.4
+  eq ifaceACAct =
+     mkIrcByteSeqIface(iface0cAddr,irc0Addr,
+                       cm0cAddr,cm0cAddr) .
+
+  **** user0 client rb endpoint
+  eq umacAct = 
+     mkUMactor(um0cAddr,skyhook-um-mamodel-1-ma,cm0cAddr) 
+     .
+  eq cmacAct = 
+      mkCMSimpleBi(cm0cAddr, iface0cAddr, pu0Addr) .
+
+
+  **** buckets: "bucket:a2s"  "bucket:s2a"  
+  **** uuidSeeds: "uuid:a2s"  "uuid:s2a"  
+  eq puaAct = makeSkyhookPU(
+            pu0Addr,
+            cm0cAddr,  --- rbc0Tos0Addr
+            sdk0cAddr,  ---  s3Client0Tos0Addr,
+            "s_to_c_bucket_a",
+            "c_to_s_bucket_a",
+            "s_to_c_uuid_a",  --- fetch
+            "c_to_s_uuid_a-hash" --- post
+                  ----"c_to_s_uuid_a"
+            )
+        .
+  eq sdkacAct = makeS3Client(sdk0cAddr, s3SrvAddr) .
+
+  ***  user0 server endpoint
+  eq ifaceASAct =
+     mkIrcByteSeqIface(iface0sAddr,ircSrvAddr,
+                       cm0sAddr,cm0sAddr) .
+
+  eq umasAct = 
+     mkUMactor(um0sAddr,skyhook-um-mamodel-1-ma,cm0sAddr) 
+     .
+  eq cmasAct = 
+      mkCMSimpleBi(cm0sAddr,iface0sAddr,ah0Addr) .
+
+  eq ahaAct = mkSkyhookAH(ah0Addr,
+                cm0sAddr,  ---- rbs0Toc0Addr,
+                sdk0sAddr, 
+                        ---- s3Client0Toc0Addr,
+                "c_to_s_bucket_a",
+                "s_to_c_bucket_a",
+                "c_to_s_uuid_a",
+                "s_to_c_uuid_a",
+                "s_to_c_uuid_a",   ---"post_uuid_a"
+                1
+                )
+  .
+
+  eq sdkasAct = makeS3Client(sdk0sAddr, s3SrvAddr) .
+
+  eq user0NetClient = makeNetClient(user0NetClientAddr,
+                                    s3SrvAddr,
+                                    s3User0NetServerAddr,
+                                    sdk0cAddr,
+                                    true)
+  .
+  eq serverUser0NetClient = makeNetClient(serverUser0NetClientAddr,
+                                          s3SrvAddr,
+                                          s3ServerUser0NetServerAddr,
+                                          sdk0sAddr,
+                                          true)
+  .
+
+  ********************************
+  *** user1
+  ***** user1 Irc 
+  eq ircbAct    = mkIrcClient(irc1Addr, iface1cAddr) .
+  eq ifaceBCAct = mkIrcByteSeqIface(iface1cAddr, irc1Addr, cmbcAddr, cmbcAddr) .
+
+  **** user1 client rb endpoint
+  eq umbcAct    = mkUMactor(um1cAddr, skyhook-um-mamodel-1-ma, cmbcAddr) .
+  eq cmbcAct    = mkCMSimpleBi(cmbcAddr, iface1cAddr, pu1Addr) .
+
+  **** buckets: "bucket:a2s"  "bucket:s2a"  
+  **** uuidSeeds: "uuid:a2s"  "uuid:s2a"  
+  eq pubAct = makeSkyhookPU(
+            pu1Addr,
+            cmbcAddr,  --- rbc0Tos0Addr
+            sdk1cAddr,  ---  s3Client0Tos0Addr,
+            "s_to_c_bucket_b",
+            "c_to_s_bucket_b",
+            "s_to_c_uuid_b",
+            "c_to_s_uuid_b-hash")
+        .
+
+  eq sdkbcAct = makeS3Client(sdk1cAddr, s3SrvAddr) .
+
+  eq user1NetClient = makeNetClient(user1NetClientAddr,
+                                  s3SrvAddr,
+                                  s3User1NetServerAddr,
+                                  sdk1cAddr,
+                                  true)
+  .
+  eq serverUser1NetClient = makeNetClient(serverUser1NetClientAddr,
+                                        s3SrvAddr,
+                                        s3ServerUser1NetServerAddr,
+                                        sdk1sAddr,
+                                        true)
+  .
+
+  ***  user0 server endpoint
+  eq ifaceBSAct =
+     mkIrcByteSeqIface(iface1sAddr,ircSrvAddr,
+                       cm1sAddr,cm1sAddr) .
+
+  eq umbsAct = 
+     mkUMactor(um1sAddr,skyhook-um-mamodel-1-ma,cm1sAddr) 
+     .
+  eq cmbsAct = 
+      mkCMSimpleBi(cm1sAddr, iface1sAddr, ah1Addr) .
+
+  eq ahbAct = mkSkyhookAH(ah1Addr,
+                    cm1sAddr,  ---- rbs0Toc0Addr,
+                    sdk1sAddr, ---- s3Client0Toc0Addr,
+                    "c_to_s_bucket_b",
+                    "s_to_c_bucket_b",
+                    "c_to_s_uuid_b",
+                    "s_to_c_uuid_b",
+                    "s_to_c_uuid_b", ---- "post_uuid_b"
+                1
+                )
+  .
+
+  eq sdkbsAct = makeS3Client(sdk1sAddr, s3SrvAddr) .
+
+
+  ******** global actors
+  eq s3SrvAct  = makeS3Server(s3SrvAddr) .
+
+  eq s3User0NetServer       = makeNetServer(s3User0NetServerAddr,
+                                            user0NetClientAddr,
+                                            s3SrvAddr)
+  .
+  eq s3User1NetServer         = makeNetServer(s3User1NetServerAddr,
+                                            user1NetClientAddr,
+                                            s3SrvAddr)
+  .
+  eq s3ServerUser0NetServer = makeNetServer(s3ServerUser0NetServerAddr,
+                                            serverUser0NetClientAddr,
+                                            s3SrvAddr)
+  .
+  eq s3ServerUser1NetServer   = makeNetServer(s3ServerUser1NetServerAddr,
+                                            serverUser1NetClientAddr,
+                                            s3SrvAddr)
+  .
+
+  **** makeIrcServer takes an unused address arg
+  eq ircSrvAct =
+      < ircSrvAddr : IrcServer |
+          thisAddr: ircSrvAddr,
+          channelMap: emptyNameClientsMap,
+          clientTimestampMap: emptyClientTimestampMap,
+          clientAddressMap: emptyClientAddressMap
+      >
+    .
+
+  eq ircMonitorAct = 
+      makeIrcMonitor(ircMonitorAddr,
+                    (ircSrvAddr ;; irc0Addr ;; irc1Addr)) .  
+                  
+  ------------ end actors               
+
+  eq transport(any:Address) = tcp(any:Address) .
+
+  op LinkType-2 : -> AttributeSet .
+  eq LinkType-2 = 
+    (delayStd: 0.),
+    (delayType: "Constant"),
+    (delayMean: 0.),
+    (delayConst: 0.005),
+    (noiseMin: 0.),
+    (noiseMax: 0.00001),
+    (dropP: 0.),
+    (canDrop: false)
+    .
+
+  **** ircc-if-rb...pu-skdc === s3srv sdk1cAddr s3SrvAddr
+  **** ircs ifs-rbs--ah-skds ==== s3srv sdk1sAddr
+
+  eq LinkData =
+    aaa(s3SrvAddr,sdk0cAddr,LinkType-2)
+    aaa(s3SrvAddr,sdk0sAddr,LinkType-2)
+    aaa(s3SrvAddr,sdk1cAddr,LinkType-2)
+    aaa(s3SrvAddr,sdk1sAddr,LinkType-2)
+   
+    aaa(sdk0cAddr,s3SrvAddr,LinkType-2)
+    aaa(sdk0sAddr,s3SrvAddr,LinkType-2)
+    aaa(sdk1cAddr,s3SrvAddr,LinkType-2)
+    aaa(sdk1sAddr,s3SrvAddr,LinkType-2)
+  .
+   
+  op initState : Nat -> Config .
+  eq initState(j ) =
+    rCtr(j + 8)
+  ******* user0 
+    ircaAct 
+  *** user0 client endpoint
+    ifaceACAct
+    umacAct  cmacAct
+    puaAct
+    sdkacAct
+  **** user0 server endpoint
+    ifaceASAct
+    umasAct cmasAct
+    ahaAct
+    sdkasAct
+  *** Net clients
+    user0NetClient
+    serverUser0NetClient 
+
+  ******* user1
+    ircbAct 
+  **** user1 client endpoint
+    ifaceBCAct
+    umbcAct cmbcAct
+    pubAct
+    sdkbcAct
+  ***** user1 server endpoint
+    ifaceBSAct
+    umbsAct cmbsAct
+    ahbAct
+    sdkbsAct
+  *** Net clients
+    user1NetClient
+    serverUser1NetClient
+     
+  **** global
+    ircSrvAct s3SrvAct
+    ircMonitorAct
+  *** Net servers
+    s3User0NetServer
+    s3User1NetServer
+    s3ServerUser0NetServer
+    s3ServerUser1NetServer
+     
+  **** start messages  
+  **** user0 channel  
+    [1.0 + genRandomX(j,0.0, 0.0001),
+     (to um0cAddr from um0cAddr : actionR("ok")),0]
+    [1.0  + genRandomX(s s j,0.0, 0.0001),
+      (to um0sAddr from um0sAddr : actionR("ok")),0]
+
+  **** user1 channel   
+    [1.0 + genRandomX(j + 4,0.0, 0.0001),
+     (to um1cAddr from um1cAddr : actionR("ok")),0]
+    [1.0  + genRandomX(j + 6,0.0, 0.0001),
+     (to um1sAddr from um1sAddr : actionR("ok")),0]
+
+  **** start ahUser0
+      [0.001, (to ah0Addr from  ah0Addr : SkyhookStartCmd), 0]
+  **** start ahUser1
+      [0.002, (to ah1Addr from ah1Addr : SkyhookStartCmd), 0]
+
+  **** start user0
+    [0.25, (to irc0Addr from irc0Addr : ircMsgSendTime), 0]
+  **** start user1
+    [0.33, (to irc1Addr from irc1Addr : ircMsgSendTime), 0]
+  **** user0 joins with cnx rb server send addr
+  **** if sent by user0, it would come from rcv addr!!
+    [0.40, (to ircSrvAddr from iface0sAddr : 
+          JoinChannel(makeIrcChannelName("#room1"), irc0Addr)),
+       0]
+    [0.5, (to ircSrvAddr from iface1sAddr :
+         JoinChannel(makeIrcChannelName("#room1"), irc1Addr)),
+       0]
+  .
+
+  op slimit : -> Float .
+  eq slimit = 1000.0 .
+
+  op initConfig : -> Config .
+  rl[init]: initConfig 
+     => run({0.0 | nil} initState(counter),slimit) .
+
+ endm
+**** eof
+red "User0,User1 join ab, User0,User1 send 3 texts ircMonitor" .
+**** red initState(0) .
+set print attribute on .
+rew initConfig .
+q
+eof
+
+  
