@@ -34,7 +34,7 @@ sload cp2-interfaces
 sload delay-drop-x
 sload ./_aux  ---- CP2_SORTS  attrsmsgs ....
 sload ../../../deps/dns_formalization/Maude/common/actor.maude
-sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
+*** sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
 
 -------------------------------------------
 ---- assume global constant umv2Models : String -> UMv2
@@ -61,6 +61,8 @@ vars dmsg : ScheduleMsg .
 vars mj mj0 mj1 stateB pars acts aspec  aspec1 
      : Map{String,JV} .
 vars b b1 : Bool .
+vars jv : JV .
+
 
 
 ---- A UM-V2 actor executes a 2 level MA
@@ -95,12 +97,15 @@ op w4:_ : Config  -> Attribute [ctor] .
 op newMode:_ : Bool -> Attribute [ctor] .
 
 op nextRoom:_ : String -> Attribute [ctor] .
+op roomMap:_ : Map{Nat,String} -> Attribute [ctor] .
 op isIrc:_ : Bool -> Attribute [ctor] .
 
 op burstDelayTO : -> Content .
    
 
 ------------------------------------------
+**** set params and execute first action followed 
+**** by iterburst delay 
 ------------------------------------------
 op initMode : AttributeSet Address Nat 
               -> AttributeSetMsgsNat .  
@@ -118,9 +123,9 @@ if attrs0, newMode: b, curState: mj,
 /\ jo(stateB) := getStateMap(mname)[mstr]
 /\ jo((("random" |-> js(rstr)), mj0 ))
               := stateB["dwell_steps"]
-/\ {"dwell_steps" |-> jf(fl),j1}
+/\ {"dwell_steps" |-> jv,j1}
          := realizeRand("dwell_steps",rstr,mj0, s j)
-/\ nd1 := round(fl)
+/\ nd1 := jv2nat(jv) 
 /\ astr1 := getInitialAction(stateB)
 /\ attrs2 := attrs0, nextMode: mstr1, newMode: true,
              dwellSteps: nd1, burstSteps: 0, 
@@ -193,20 +198,46 @@ op exeActionTgen : AttributeSet Address Nat
 --------------------- wait action
 -----  deal with special case of 0 delay
 ----- str is "intra/inter_burst_delay"
-  op exeWait : AttributeSet Address String Nat 
-       -> AttributeSetMsgsNat .
-  ceq exeWait(attrs,umAddr,str,j) = 
+----- assume dwell,modelsteps,burst steps 
+----  have been decremented if appropriate
+***(
+   ceq exeWait(attrs,umAddr,str,j) = 
    if bd < .000001
    then rcvTimeOutV2(attrs1,umAddr,j1) 
-   else {attrs1, dmsg, j1}
+   else {attrs, dmsg, j1}
    fi
   if attrs0, curState: stateB := attrs
   /\ { (str |-> jf(bd)), j1} 
            := realizeParam(str, stateB[str], j)
   /\ dmsg := 
        [bd,(to umAddr from umAddr : burstDelayTO),0]
-  /\ attrs1 := decrModelSteps(attrs)      
  .
+ )
+ ***** get wait time from attrs
+  op exeWait : AttributeSet Address String Nat 
+       -> AttributeSetMsgsNat .
+ eq[exewait-fails]: 
+   exeWait(attrs,umAddr,str,j) = {attrs,null,j} 
+   [owise  print "exeWait failed to compute wait time"] .
+ 
+ ceq exeWait(attrs,umAddr,str,j) = 
+       exeWait(attrs,umAddr,bd,j1) 
+   if attrs0, curState: stateB := attrs
+  /\ { (str |-> jf(bd)), j1} 
+           := realizeParam(str, stateB[str], j)
+  .
+
+***** wait time provided
+  op exeWait : AttributeSet Address Float Nat 
+       -> AttributeSetMsgsNat .
+ eq exeWait(attrs,umAddr,bd,j) = 
+   (if bd < .000001
+    then rcvTimeOutV2(attrs,umAddr,j) 
+    else {attrs, 
+         [bd,(to umAddr from umAddr : burstDelayTO),0], j}
+   fi)
+ .
+ 
  
 ---------------   
   op isDoneV2 : AttributeSet Float -> Bool .
@@ -287,18 +318,22 @@ ceq rcvTimeOutV2(attrs,umAddr,j) =  {attrs1,smsgs,j0}
   else rcvActRv2$(decrDwellSteps(decrModelSteps(attrs)), 
                   umAddr,j)
   fi) .
-  
+ 
+ eq[rcvActRv2-fails]: rcvActRv2$(attrs,umAddr,j) = 
+              {attrs,null,j}
+ [owise print " rcvActRv2$  fails!"] .
+ 
 **** case newMode  
  ceq rcvActRv2$(attrs,umAddr,j) = 
     exeWait(attrs2, umAddr,"inter_burst_delay",j)
- if attrs0, newMode: true, w4: msg  := attrs 
+ if attrs0, newMode: true, w4: msgs  := attrs 
  /\ attrs2 := attrs0, newMode: false, w4: null
  .
 
 **** case oldMode, burst 0
  ceq rcvActRv2$(attrs,umAddr,j)  =  
       exeWait(attrs2,umAddr,"inter_burst_delay",j)
- if attrs0, w4: msg := attrs 
+ if attrs0, w4: msgs := attrs 
  /\ attrs1, burstSteps: 0 := attrs
  /\ attrs2 := attrs0, w4: null
   .
@@ -306,7 +341,7 @@ ceq rcvTimeOutV2(attrs,umAddr,j) =  {attrs1,smsgs,j0}
 **** case oldMode, burst > 0
  ceq rcvActRv2$(attrs,umAddr,j)  = 
       exeWait(attrs2, umAddr,"intra_burst_delay",j)
- if attrs0, w4: msg, burstSteps: s nb  := attrs 
+ if attrs0, w4: msgs, burstSteps: s nb  := attrs 
  /\ attrs1,  newMode: false := attrs
  /\ attrs2 := attrs0, w4: null, burstSteps: nb
   .
