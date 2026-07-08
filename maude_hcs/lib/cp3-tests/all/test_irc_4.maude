@@ -1,0 +1,271 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+sload ../skyhook/irc-mamodel-v2.maude
+sload ../../webtunnel/webtunnel_prob.maude
+sload ../../irc/irc_prob.maude
+sload ../../irc/irc_monitor.maude
+sload ../../common/maude/cp2-interfaces.maude
+sload ../../common/maude/irc-action-actor-v2.maude
+sload ../../irc/common/irc_name
+sload ../../irc/common/_aux
+sload ../../irc/common/app_chat
+sload ../../irc/_irc_aux
+sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
+sload ../../obfs4/_obfs4_aux.maude
+sload ../../obfs4/obfs4_prob.maude
+sload ../../common/maude/user-action-actor
+sload skyhook-um-mamodel-1
+sload ../../irc/common/irc-msg-model
+sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
+sload ../../skyhook/skyhook_prob
+sload ../../s3/s3_protocol
+sload ../../dns/maude/probabilistic/iodine_dns.maude
+sload ../../dns/maude/common/_aux.maude
+
+mod COMBINED_IRC_EXPERIMENTS is
+  pr SCHEDULER .
+  pr USER-ACTION-ACTOR .
+  pr SKYHOOK-UM-MAMODEL-1 .
+  pr IRC .
+  pr IRC-MAMODEL-V2 .
+  pr IRC-USER-ACTION-ACTOR-V2 .
+  pr IRC-DISPATCHER-INTERFACE .
+  pr CONTENT-MANAGER-SIMPLE-BI .
+  pr SKYHOOK .
+  pr S3_PROTOCOL .
+  pr IRC_MONITOR .
+  pr OBFS4 .
+  pr APP_CHATS .
+  pr IRC_NODE .
+  pr WEBTUNNEL .
+  pr IRC_NAMES .
+  pr IODINE_NODE .
+  pr IODINE_DNS .
+
+  vars j : Nat .
+
+  eq encOH(fsize:Nat,ksize:Nat) = 0 .
+  eq noiseMin(msg:Msg)          = 0.001 .
+  ***** Global constants  
+  **** the user model database
+  eq MAModelMap                 = ("irc-test" |-> irc-ma-v2) .
+  *** for the default case
+  eq noiseMax(msg:Msg)          = 0.00001 .
+     
+  eq packetSize                 = 1000 .
+  eq maxPacketSize              = 967 .
+
+  ---------------------------------------------------
+  --- Iodine Zone Configurations
+  ---------------------------------------------------
+  op zonePwnd2Com4 : -> List{Record} .
+  eq zonePwnd2Com4 =
+    < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+    < 'ns . 'pwnd2 . 'com . root, a, 3600.0, serverIodineServer4Addr >
+    < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+    < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+    < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
+
+  ---------------------------------------------------
+  --- Addresses
+  ---------------------------------------------------
+  ops ircClient1Addr ircClient2Addr ircClient3Addr ircClient4Addr : -> Address .
+  ops ircClient1UserModelAddr ircClient2UserModelAddr 
+      ircClient3UserModelAddr ircClient4UserModelAddr             : -> Address .
+  ops ircServerAddr s3SrvAddr ircMonitorAddr iodineMonitorAddr    : -> Address .
+
+  --- Client 1 (Webtunnel)
+  ops client1IfaceAddr server1IfaceAddr wtClient1Addr wtProxy1Addr : -> Address .
+
+  --- Client 2 (OBFS4)
+  ops client2IfaceAddr server2IfaceAddr : -> Address .
+  ops obfs4Client2Addr obfs4Server2Addr : -> Address .
+
+  --- Client 3 (Skyhook)
+  ops client3IfaceAddr server3IfaceAddr                       : -> Address .
+  ops umac3Addr cmac3Addr pua3Addr sdkac3Addr                 : -> Address .
+  ops umas3Addr cmas3Addr aha3Addr sdkas3Addr                 : -> Address .
+
+  --- Client 4 (Iodine)
+  ops client4IfaceAddr serverIface4Addr                                  : -> Address .
+  ops sendApp4Addr iodineClient4Addr rcvApp4Addr serverIodineServer4Addr : -> Address .
+
+  ---------------------------------------------------
+  --- Link model parameters
+  ---------------------------------------------------
+  op LinkParams : -> AttributeSet .
+  eq LinkParams =
+    (delayStd:    0.),
+    (delayType:   "Constant"),
+    (delayMean:   0.),
+    (delayConst:  0.050),
+    (noiseMin:    0.),
+    (noiseMax:    0.00001),
+    (dropP:       0.),
+    (canDrop:     false) .
+
+  op LinkType-2 : -> AttributeSet .
+  eq LinkType-2 = 
+    (delayStd:    0.),
+    (delayType:   "Constant"),
+    (delayMean:   0.),
+    (delayConst:  0.005),
+    (noiseMin:    0.),
+    (noiseMax:    0.00001),
+    (dropP:       0.),
+    (canDrop:     false) .
+
+  eq LinkData =
+    --- Client 1 (Webtunnel) Links
+    aaa(wtClient1Addr, wtProxy1Addr,  LinkParams)
+    aaa(wtProxy1Addr,  wtClient1Addr, LinkParams)
+    
+    --- Client 2 (OBFS4) Links
+    aaa(obfs4Client2Addr, obfs4Server2Addr, LinkParams)
+    aaa(obfs4Server2Addr, obfs4Client2Addr, LinkParams)
+
+    --- Client 3 (Skyhook) Links
+    aaa(s3SrvAddr, sdkac3Addr, LinkType-2)
+    aaa(s3SrvAddr, sdkas3Addr, LinkType-2)
+    aaa(sdkac3Addr, s3SrvAddr, LinkType-2)
+    aaa(sdkas3Addr, s3SrvAddr, LinkType-2) .
+
+  ---------------------------------------------------
+  --- Actors Setup
+  ---------------------------------------------------
+  ops ircClient1 ircClient2 ircClient3 ircClient4 ircServer s3SrvAct iodineMonitor : -> Actor .
+  ops ircClient1UserModel ircClient2UserModel ircClient3UserModel ircClient4UserModel : -> Actor .
+  
+  ops client1Iface server1Iface wtClient1 wtProxy1 : -> Actor .
+  ops client2Iface server2Iface obfs4Client2 obfs4Server2 : -> Actor .
+  ops client3Iface server3Iface umac3Act cmac3Act pua3Act sdkac3Act umas3Act cmas3Act aha3Act sdkas3Act : -> Actor .
+  ops client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4 : -> Actor .
+
+  --- Client 1 (Webtunnel) Setup
+  eq ircClient1          = mkIrcClient(ircClient1Addr, client1IfaceAddr, "alice") .
+  eq ircClient1UserModel = mkIrcUMV2Actor(ircClient1UserModelAddr, "irc-test", ircClient1Addr) .
+  eq client1Iface        = mkIrcByteSeqIface(client1IfaceAddr, ircClient1Addr, wtClient1Addr, wtClient1Addr) .
+  eq server1Iface        = mkIrcByteSeqIface(server1IfaceAddr, ircServerAddr, wtProxy1Addr, wtProxy1Addr) .
+  eq wtClient1           = makeWtClient(wtClient1Addr, wtProxy1Addr, ircServerAddr, "irc.example.com", "secret/path/v1") .
+  eq wtProxy1            = makeWtServerProxy(wtProxy1Addr, server1IfaceAddr) .
+
+  --- Client 2 (OBFS4) Setup
+  eq ircClient2          = mkIrcClient(ircClient2Addr, client2IfaceAddr, "Alice") .
+  eq ircClient2UserModel = mkIrcUMV2Actor(ircClient2UserModelAddr, "irc-test", ircClient2Addr) .
+  eq client2Iface        = mkIrcByteSeqIface(client2IfaceAddr, ircClient2Addr, obfs4Client2Addr, obfs4Client2Addr) .
+  eq obfs4Client2        = makeObfs4Node(obfs4Client2Addr, client2IfaceAddr, obfs4Server2Addr) .
+  eq server2Iface        = mkIrcByteSeqIface(server2IfaceAddr, ircServerAddr, obfs4Server2Addr, obfs4Server2Addr) .
+  eq obfs4Server2        = makeObfs4Node(obfs4Server2Addr, server2IfaceAddr, obfs4Client2Addr) .
+
+  --- Client 3 (Skyhook) Setup
+  eq ircClient3          = mkIrcClient(ircClient3Addr, client3IfaceAddr, "alice") .
+  eq ircClient3UserModel = mkIrcUMV2Actor(ircClient3UserModelAddr, "irc-test", ircClient3Addr) .
+  eq client3Iface        = mkIrcByteSeqIface(client3IfaceAddr, ircClient3Addr, cmac3Addr, cmac3Addr) .
+  eq umac3Act            = mkUMactor(umac3Addr, skyhook-um-mamodel-1-ma, cmac3Addr) .
+  eq cmac3Act            = mkCMSimpleBi(cmac3Addr, client3IfaceAddr, pua3Addr) .
+  eq pua3Act             = makeSkyhookPU(pua3Addr, cmac3Addr, sdkac3Addr, "s_to_c_bucket_a", "c_to_s_bucket_a", "s_to_c_uuid_a", "c_to_s_uuid_a-hash") .
+  eq sdkac3Act           = < sdkac3Addr : S3SdkClient | thisAddr: sdkac3Addr, realAwsAddr: s3SrvAddr, nextId: 1, pendingReqs: emptyS3ReqMap > .
+  eq server3Iface        = mkIrcByteSeqIface(server3IfaceAddr, ircServerAddr, cmas3Addr, cmas3Addr) .
+  eq umas3Act            = mkUMactor(umas3Addr, skyhook-um-mamodel-1-ma, cmas3Addr) .
+  eq cmas3Act            = mkCMSimpleBi(cmas3Addr, server3IfaceAddr, aha3Addr) .
+  eq aha3Act             = mkSkyhookAH(aha3Addr, cmas3Addr, sdkas3Addr, "c_to_s_bucket_a", "s_to_c_bucket_a", "c_to_s_uuid_a", "s_to_c_uuid_a", "s_to_c_uuid_a", 6) .
+  eq sdkas3Act           = < sdkas3Addr : S3SdkClient | thisAddr: sdkas3Addr, realAwsAddr: s3SrvAddr, nextId: 1, pendingReqs: emptyS3ReqMap > .
+
+  --- Client 4 (Iodine) Setup
+  eq ircClient4          = mkIrcClient(ircClient4Addr, client4IfaceAddr, "alice") .
+  eq ircClient4UserModel = mkIrcUMV2Actor(ircClient4UserModelAddr, "irc-test", ircClient4Addr) .
+  eq client4Iface        = mkIrcByteSeqIface(client4IfaceAddr, ircClient4Addr, sendApp4Addr, sendApp4Addr) .
+  eq serverIface4        = mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr, rcvApp4Addr) .
+  eq sendApp4            = mkSendApp(sendApp4Addr, rcvApp4Addr, client4IfaceAddr, iodineClient4Addr) .
+  eq rcvApp4             = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .
+  eq iodineClient4       = makeWClient(iodineClient4Addr, serverIodineServer4Addr, 'pwnd2 . 'com . root, a, 0.0) .
+  eq serverIodineServer4 = makeWNameServer(serverIodineServer4Addr, 0.0, zonePwnd2Com4) .
+
+  --- Base Infrastructure Setup
+  eq s3SrvAct            = < s3SrvAddr : AwsS3HttpServer | thisAddr: s3SrvAddr, s3DataMap: emptyS3DataMap > .
+  eq ircServer           = mkIrcServer(ircServerAddr) .
+  eq iodineMonitor       = mkWMonitor(iodineMonitorAddr) .
+
+  ---------------------------------------------------
+  --- Initial State Configuration
+  ---------------------------------------------------
+  op initState : Nat -> Config .
+  eq initState(j) =
+    rCtr(j + 8)
+
+    --- Core Shared Infrastructure
+    ircServer s3SrvAct iodineMonitor
+    mkIrcMonitor(ircMonitorAddr,
+                 (ircServerAddr ;; ircClient1Addr ;; ircClient2Addr ;; ircClient3Addr ;; ircClient4Addr),
+                 (ircClient1Addr ;; ircClient2Addr ;; ircClient3Addr ;; ircClient4Addr),
+                 (rm("#maude-test", ircClient1Addr ;; ircClient2Addr ;; ircClient3Addr ;; ircClient4Addr)))
+
+    --- Client 1 Entities (Webtunnel)
+    ircClient1 ircClient1UserModel client1Iface server1Iface wtClient1 wtProxy1
+    
+    --- Client 2 Entities (OBFS4)
+    ircClient2 ircClient2UserModel client2Iface server2Iface obfs4Client2 obfs4Server2
+    
+    --- Client 3 Entities (Skyhook)
+    ircClient3 ircClient3UserModel client3Iface umac3Act cmac3Act pua3Act sdkac3Act server3Iface umas3Act cmas3Act aha3Act sdkas3Act
+    
+    --- Client 4 Entities (Iodine)
+    ircClient4 ircClient4UserModel client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4
+
+    --- Timers & Execution Triggers
+    [0.20, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]
+    [0.1, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
+    [0.1, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
+    [0.001, (to aha3Addr from aha3Addr : SkyhookStartCmd), 0]
+    [0.1, (to ircClient3UserModelAddr from ircClient3UserModelAddr : burstDelayTO), 0]
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to umac3Addr from umac3Addr : actionR("ok")), 0]
+    [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas3Addr from umas3Addr : actionR("ok")), 0]
+    [0.1, (to ircClient4UserModelAddr from ircClient4UserModelAddr : burstDelayTO), 0]
+  .
+
+  ---------------------------------------------------
+  --- Run Limits and Initial Configurations
+  ---------------------------------------------------
+  op slimit : -> Float .
+  eq slimit = 1000.0 .
+
+  op initConfig : -> Config .
+  rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .
+endm
+
+set print attribute on .
+rew initConfig .
+q
