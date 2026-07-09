@@ -33,6 +33,7 @@ sload ../irc/irc_monitor.maude
 sload ./skyhook_prob
 sload ../s3/s3_protocol
 sload ../common/maude/cp2-interfaces.maude
+sload ../common/maude/user-action-actor-v2-aux.maude
 
 set print attribute on .
 
@@ -41,6 +42,8 @@ mod TEST_PACKAGE_2 is
   pr S3_PROTOCOL .
   pr SKYHOOK .
   pr IRC_MONITOR .
+  pr IRC-DISPATCHER-INTERFACE .
+  pr USER-ACTION-ACTOR-V2-SHARED .
 
   **** .-------.       .--------------.      .--------.
   **** |IRC Cl0|  ---> |(rbC0toS0) pu0| ---> |S3C0toS0| -
@@ -60,7 +63,7 @@ mod TEST_PACKAGE_2 is
   ops ircClient0 ircClient1 ircServer s3Server : -> Actor .
   ops skyhookPU0 skyhookPU1 skyhookAH0 skyhookAH1 awsServer awsSdkActor : -> Actor .
   ops s3Client0Tos0 s3Client1Tos1 s3Client0Toc0 s3Client1Toc1 s3Server : -> Actor .
-  ops client0Iface serverClientIface client1Iface serverClient1Iface : -> Actor .
+  ops client0Iface serverClient0Iface client1Iface serverClient1Iface : -> Actor .
   ops ircMonitor : -> Actor .
   ops ircClient0Addr ircClient1Addr ircServerAddr : -> Address .
   ops client0IfaceAddr serverClient0IfaceAddr client1IfaceAddr serverClient1IfaceAddr : -> Address .
@@ -80,7 +83,7 @@ mod TEST_PACKAGE_2 is
   eq client0Iface     = mkIrcByteSeqIface(client0IfaceAddr, ircServerAddr, pu0Addr, pu0Addr) .
   eq serverClient0Iface = mkIrcByteSeqIface(serverClient0IfaceAddr, ircClient0Addr, ah0Addr, ah0Addr) .
   eq client1Iface     = mkIrcByteSeqIface(client1IfaceAddr, ircServerAddr, pu1Addr, pu1Addr) .
-  eq clientClient1Iface = mkIrcByteSeqIface(serverClient1IfaceAddr, ircClient1Addr, ah1Affr, ah1Addr) .
+  eq serverClient1Iface = mkIrcByteSeqIface(serverClient1IfaceAddr, ircClient1Addr, ah1Addr, ah1Addr) .
 
   eq skyhookPU0 = makeSkyhookPU(pu0Addr,
                                 rbc0Tos0Addr,
@@ -153,7 +156,7 @@ mod TEST_PACKAGE_2 is
     s3Client1Toc1
     s3Server
     [0.001, (to ah0Addr from rbs0Toc0Addr : SkyhookStartCmd), 0]
-    [0.25, (to ircClient0Addr from ircClient0Addr : ircMsgSendTime), 0]
+    [0.25, (to ircClient0Addr from ircClient0Addr : burstDelayTO), 0]
     --- Bypass RB for these joins.
     [0.40, (to ircServerAddr from ircClient0Addr
               : JoinChannel(makeIrcChannelName("bbn"), ircClient0Addr)), 0]
