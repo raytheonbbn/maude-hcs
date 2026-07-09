@@ -85,7 +85,8 @@ eq mkIrcUMV2Actor(umAddr,mname,cmAddr) =
 ------------------------------------------
 eq exeActionIrc(attrs,umAddr,j) = {attrs,null,j} [owise] .
 
-ceq exeActionIrc(attrs,umAddr,j) =
+ceq [exeActionIrc]:
+exeActionIrc(attrs,umAddr,j) =
     exeActionIrcType(attrs2,umAddr,type,aspec1, s j1)
 if attrs0, cmAddr: cmAddr, curState: stateB := attrs
 /\ attrs1, w4: null,  nextAction: astr  := attrs
@@ -96,6 +97,7 @@ if attrs0, cmAddr: cmAddr, curState: stateB := attrs
 /\ jo(mj) := stateB["markov"]
 /\ astr1 := nextByWt(astr, mj, j1)
 /\ attrs2 := attrs1, w4: null, nextAction: astr1
+[print "exeActionIrc action type: " type ]
 .
 
 op exeActionIrcType : AttributeSet Address 
@@ -140,20 +142,18 @@ if jf(fl) := aspec["sleep"]
 /\ attrs1 := decrDwellSteps(decrModelSteps(attrs))
 .
 
-endm
-eof
-
 ***(
 jo((("type" |-> js("roommsg")), ("message_length_bytes" |-> jf(fl))
+))
 add curr room to realized action and send to ircClient
 )
 ceq exeActionIrcType(attrs,umAddr,"roommsg",aspec, j)
-   =   {attrs2,smsgs,j2}
+   =   {attrs2,smsgs,j1}
 if attrs0, w4: null := attrs
 /\ attrs1, cmAddr: cmAddr, nextRoom: room := attrs
 /\ aspec1 := (aspec, ("room" |-> js(room)))
 /\ msg := (to cmAddr from umAddr : actionQ(aspec1))
-/\ attrs2 : attrs0, w4: msg
+/\ attrs2 := attrs0, w4: msg
 /\ {smsgs,j1} := delayMsgsX(j,msg,null)
 .
 
