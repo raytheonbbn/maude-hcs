@@ -282,39 +282,49 @@ ceq rcvTimeOutV2(attrs,umAddr,j) =  {attrs1,smsgs,j0}
                    ->   AttributeSetMsgsNat .
 
 **** case isDone
- eq rcvActRv2(attrs,umAddr,T,j)  =
-  (if isDoneV2(attrs,T)
+ ceq[rcvActRv2]:
+ rcvActRv2(attrs,umAddr,T,j)  =
+  (if b
   then {attrs,null,j}
   else rcvActRv2$(decrDwellSteps(decrModelSteps(attrs)), 
                   umAddr,j)
-  fi) .
+  fi) 
+  if b := isDoneV2(attrs,T)
+  [print  "( " T " ) rcvActRv2 isDone " b]
+  .
  
  eq[rcvActRv2-fails]: rcvActRv2$(attrs,umAddr,j) = 
               {attrs,null,j}
  [owise print " rcvActRv2$  fails!"] .
  
 **** case newMode  
- ceq rcvActRv2$(attrs,umAddr,j) = 
+ ceq[rcvActRv2$]: 
+   rcvActRv2$(attrs,umAddr,j) = 
     exeWait(attrs2, umAddr,"inter_burst_delay",j)
  if attrs0, newMode: true, w4: msgs  := attrs 
  /\ attrs2 := attrs0, newMode: false, w4: null
+ [print " rcvActRv2$ newMode true exeWait "]
  .
 
 **** case oldMode, burst 0
- ceq rcvActRv2$(attrs,umAddr,j)  =  
+ ceq[rcvActRv2$]: 
+  rcvActRv2$(attrs,umAddr,j)  =  
       exeWait(attrs2,umAddr,"inter_burst_delay",j)
  if attrs0, w4: msgs := attrs 
- /\ attrs1, burstSteps: 0 := attrs
+ /\ attrs1, newMode: false, burstSteps: 0 := attrs
  /\ attrs2 := attrs0, w4: null
+ [print " rcvActRv2$ newMode false, burstSteps : 0"]
   .
     
 **** case oldMode, burst > 0
- ceq rcvActRv2$(attrs,umAddr,j)  = 
+ ceq[rcvActRv2$]: 
+  rcvActRv2$(attrs,umAddr,j)  = 
       exeWait(attrs2, umAddr,"intra_burst_delay",j)
  if attrs0, w4: msgs, burstSteps: s nb  := attrs 
  /\ attrs1,  newMode: false := attrs
  /\ attrs2 := attrs0, w4: null, burstSteps: nb
-  .
+ [print " rcvActRv2$ newMode false, burstSteps : " nb]
+   .
 
 --------------------------------------------
 crl [umv2-rcv-actionR] :
