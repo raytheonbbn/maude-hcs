@@ -14,6 +14,7 @@ from maude_hcs import PROJECT_TOPLEVEL_DIR
 from maude_hcs.parsers.graph import Topology
 from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
 from maude_hcs.parsers.protocolconfig import XFile
+from maude_hcs.parsers import load_yaml_to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -328,11 +329,10 @@ class YmlConf:
         self.yml_path = yml_path
 
         # 1. Load the raw YAML
-        with open(yml_path, 'r') as f:
-            self.data = yaml.safe_load(f)
+        self.data = load_yaml_to_dict(yml_path)
 
         # 2. Network Topology (Topology.from_yml)
-        self.network = Topology.from_yml(yml_path)
+        self.network = Topology.from_yml(self.data)
 
         # 3. Background Traffic (TGEN)
         self.background_traffic: List[Tuple[str, str, int]] = self._parse_tgen(self.data)

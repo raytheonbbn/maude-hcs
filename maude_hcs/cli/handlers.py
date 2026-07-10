@@ -42,7 +42,7 @@ import importlib.util
 import maude
 
 from ..parsers.hcsconfig import HCSConfig
-from ..parsers.ymlconf import parse_destini
+from ..parsers.ymlconf import parse_destini, YmlConf
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,8 @@ def buildHCSConfig(args):
         return HCSConfig.from_shadow(Path(args.shadow_filename))
     # build from yml
     elif args.yml_filename:
-        return HCSConfig.from_yml(Path(args.yml_filename))
+        ymlconf = YmlConf(args.yml_filename)
+        return HCSConfig.from_yml_conf(ymlconf)
     else:
         raise ValueError("Unsupported input. Specify run_args or yml_filename or shadow_filename.")
 

@@ -75,16 +75,14 @@ class HCSConfig:
                        protocols=protocols)
 
     @staticmethod
-    def from_yml(file_path: Path) -> 'HCSConfig':
-        # First parse the yml config
-        ymlconf = YmlConf(file_path)
+    def from_yml_conf(ymlconf: YmlConf) -> 'HCSConfig':
         protocols = {}
         if ymlconf.application.iodine:
             # parse the iodine protocol config
-            dnsconf = DNSHCSProtocolConfig.from_yml(file_path)
+            dnsconf = DNSHCSProtocolConfig.from_yml_conf(ymlconf)
             protocols[dnsconf.name] = dnsconf
         if ymlconf.application.destini:
-            masconf = MASHCSProtocolConfig.from_yml(file_path)
+            masconf = MASHCSProtocolConfig.from_yml_conf(ymlconf)
             protocols[masconf.name] = masconf
 
         return HCSConfig(name='_'.join(sorted(protocols.keys())),

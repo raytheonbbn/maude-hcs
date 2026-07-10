@@ -100,9 +100,7 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
         return MASHCSProtocolConfig.from_dict(data)
 
     @staticmethod
-    def from_yml(file_path: Path) -> 'MASHCSProtocolConfig':
-        # First parse the yml config
-        ymlconf = YmlConf(file_path)
+    def from_yml_conf(ymlconf: YmlConf) -> 'MASHCSProtocolConfig':
         alice = ymlconf.network.getNodebyLabel('user_alice')
         if alice is None:
             alice = ymlconf.application.alice.mastodon_user
