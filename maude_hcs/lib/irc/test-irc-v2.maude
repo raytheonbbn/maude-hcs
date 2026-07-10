@@ -42,16 +42,24 @@ mod IRC-V2-TEST is
   eq ircUM2 = 
       mkIrcUMV2Actor(ircUAddr2,"irc-test",ircCAddr2) .
 
+vars dt : Float .
+vars icAddr : Address .
+vars room : String .
+op mkJoin : Float String Address -> ScheduleMsg .
+eq mkJoin(dt,room,icAddr) =
+       [dt,
+       (to ircSAddr from icAddr :
+        JoinChannel(makeIrcChannelName(room), icAddr )),
+        0]
+.        
 **** config with 1 client  
   op iS1 : Nat -> Config .
   eq iS1(j:Nat) = 
        rCtr(j:Nat)
        ircUM1 ircClient1 
        ircServer  
-       [.001,
-       (to ircSAddr from ircCAddr1 :
-        JoinChannel(makeIrcChannelName("#chat"), ircCAddr1 )),
-        0]
+       mkJoin(0.001,"#chat",ircCAddr1)
+*** [.001, (to ircSAddr from ircCAddr1 : JoinChannel(makeIrcChannelName("#chat"), ircCAddr1 )), 0]
        [.15, to ircUAddr1 from ircUAddr1 : 
                burstDelayTO,0]  .
 
@@ -67,6 +75,13 @@ mod IRC-V2-TEST is
        ircUM1 ircClient1 
        ircUM2 ircClient2
        ircServer  
+       mkJoin(0.001,"#chat",ircCAddr1)
+       mkJoin(0.0015,"#chat",ircCAddr2)
+       mkJoin(0.002,"#general",ircCAddr1)
+       mkJoin(0.0025,"#general",ircCAddr2)
+       mkJoin(0.003,"#ramdom",ircCAddr1)
+       mkJoin(0.0035,"#ramdom",ircCAddr1)
+
        [.1, to ircUAddr1 from ircUAddr1 : 
                burstDelayTO,0]  
        [.2, to ircUAddr2 from ircUAddr2 : 
