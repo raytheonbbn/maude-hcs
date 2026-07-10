@@ -41,7 +41,7 @@ from maude_hcs.parsers.graph import Topology
 from maude_hcs.parsers.masdnshcsconfig import MASHCSProtocolConfig
 from maude_hcs.parsers.shadowconf import parse_shadow_config
 from maude_hcs.parsers.ymlconf import YmlConf, Adversary
-from ..protocolconfig import HCSProtocolConfig, Output
+from .protocolconfig import HCSProtocolConfig, Output
 
 @dataclass_json
 @dataclass
