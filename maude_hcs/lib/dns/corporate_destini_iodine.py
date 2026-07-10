@@ -50,7 +50,7 @@ from ..mastodon.mastodonActors import MastodonServer, MastodonClient, MASTGenCli
 from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp, RbRcvApp
 from ...deps.dns_formalization.Maude.attack_exploration.src.zone import Record
 from ...parsers.dnshcsconfig import DNSUnderlyingNetwork, DNSWeirdNetwork, DNSBackgroundTrafficTgenClient
-from ...parsers.cp2.hcsconfig import HCSConfig
+from ...parsers.hcsconfig import HCSConfig
 from ...parsers.markovJsonToMaudeParser import find_and_load_json
 from ...parsers.quatexGenerator import QuatexGenerator
 from ...parsers.ymlconf import Destini

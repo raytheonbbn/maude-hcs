@@ -28,7 +28,7 @@
 #
 # MAUDE_HCS: end
 
-from maude_hcs.parsers.cp2.hcsconfig import HCSConfig
+from maude_hcs.parsers.hcsconfig import HCSConfig
 from .corporate import corporate
 from .corporate_iodine import iodine_dns
 from .corporate_destini_iodine import destini_mastodon_iodine_dns
