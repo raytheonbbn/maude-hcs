@@ -44,7 +44,7 @@ from maude_hcs.parsers.shadowconf import *
 import ast
 import logging
 
-from ...parsers.cp2.hcsconfig import HCSConfig
+from ...parsers.hcsconfig import HCSConfig
 
 logger = logging.getLogger(__name__)
 

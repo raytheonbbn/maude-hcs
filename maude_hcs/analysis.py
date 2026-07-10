@@ -31,7 +31,7 @@
 import json
 import logging
 from maude_hcs.lib.dns.known_networks import KnownUNetworks
-from maude_hcs.parsers.cp2.hcsconfig import HCSConfig
+from maude_hcs.parsers.hcsconfig import HCSConfig
 
 logger = logging.getLogger(__name__)
 
