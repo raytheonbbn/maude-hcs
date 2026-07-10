@@ -36,6 +36,8 @@ from dataclasses_json import dataclass_json
 import networkx as nx
 import logging
 
+from typing import Any, Dict
+
 logger = logging.getLogger(__name__)
 
 @dataclass_json
@@ -149,11 +151,11 @@ class Topology:
       return Topology(isDirected=False, nodes=nodes, links=links)
 
     @staticmethod
-    def from_yml(yml_path: str):
+    def from_yml(data: Dict[Any, Any]):
         """
         Creates a Topology object from a YAML setup file.
         """
-        nodes, links = parse_setup_yml(yml_path)
+        nodes, links = parse_setup_yml(data)
         # Assuming the YAML represents a directed graph based on src/dst structure
         return Topology(isDirected=True, nodes=nodes, links=links)
 
@@ -259,9 +261,9 @@ def parse_shadow_gml(gml_path: str) -> nx.DiGraph:
         raise # Re-raise any other exceptions
 
 
-def parse_setup_yml(yml_path: str):
+def parse_setup_yml(data: Dict[Any, Any]) -> tuple[list[Node], list[Link]]:
     """
-    Parses a YAML setup file to extract topology information.
+    Parses a YAML dict (itself parsed from a YAML config file) to extract topology information.
 
     Reads 'network_section' and 'weird_network_section' to create Node and Link objects.
     Since the YAML does not explicitly define nodes with IDs/IPs, nodes are inferred
@@ -269,20 +271,11 @@ def parse_setup_yml(yml_path: str):
     attributes (IP, bandwidth) are set to defaults.
 
     Args:
-        yml_path: Path to the .yml configuration file.
+        data: Dictionary parsed from a YAML config file
 
     Returns:
         tuple: (list[Node], list[Link])
     """
-    logging.info(f"Attempting to parse YAML file: {yml_path}")
-
-    with open(yml_path, 'r') as f:
-        try:
-            data = yaml.safe_load(f)
-        except yaml.YAMLError as exc:
-            logging.error(f"Error parsing YAML: {exc}")
-            raise
-
     nodes_map = {}  # Map label -> Node object
     links = []
 
