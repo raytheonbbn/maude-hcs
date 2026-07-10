@@ -33,6 +33,7 @@ from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
 from maude_hcs.lib import GLOBALS
 from maude_hcs.parsers.markovJsonToMaudeParser import process_directories
+from maude_hcs.parsers.ymlconf import YmlConf
 
 import logging
 from pathlib import Path
@@ -41,7 +42,8 @@ from umaudemc.command.scheck import scheck
 import importlib.util
 import maude
 
-from ..parsers.hcsconfig import HCSConfig
+from ..parsers.cp2.hcsconfig import HCSConfig as CP2HCSConfig
+from ..parsers.cp3.hcsconfig import HCSConfig as CP3HCSConfig
 from ..parsers.ymlconf import parse_destini
 
 logger = logging.getLogger(__name__)
@@ -51,15 +53,24 @@ GENERATE_NAME = 'generate'
 SCHECK_NAME = 'scheck'
 IMAGES_NAME = 'images'
 
-def buildHCSConfig(args):
+def buildHCSConfig(args) -> CP2HCSConfig | CP3HCSConfig:
+    match args.parse_type:
+        case "cp2":
+            resolved_config_type = CP2HCSConfig
+        case "cp3":
+            resolved_config_type = CP3HCSConfig
+        case _:
+            raise ValueError(f"Unsupported parse type {args.parse_type}")
+
     protocol = args.protocol
     if args.run_args_filename:
-        return HCSConfig.from_file(Path(args.run_args_filename))
+        return resolved_config_type.from_file(Path(args.run_args_filename))
     elif args.shadow_filename:
-        return HCSConfig.from_shadow(Path(args.shadow_filename))
+        return resolved_config_type.from_shadow(Path(args.shadow_filename))
+    
     # build from yml
     elif args.yml_filename:
-        return HCSConfig.from_yml(Path(args.yml_filename))
+        return resolved_config_type.from_yml(Path(args.yml_filename))
     else:
         raise ValueError("Unsupported input. Specify run_args or yml_filename or shadow_filename.")
 
@@ -83,6 +94,7 @@ def handle_generate(args, parser):
         raise Exception('Either specify a json HCS config with --run-args OR a shadow config, but not both.')
     if args.run_args_filename and args.yml_filename:
         raise Exception('Either specify a json HCS config with --run-args OR a yml config, but not both.')
+    
     # get the configuration object    
     hcsconfig = buildHCSConfig(args)
     # instantiate the analysis and generate
@@ -91,7 +103,13 @@ def handle_generate(args, parser):
     filename = args.filename
     if filename == None:
         filename = f'generated_{hcsconfig.name}_{args.model}'
-    save_output(parser, hcsconfig, result, filename)    
+    save_output(parser, hcsconfig, result, filename)
+
+    # print(args.yml_filename)
+    # cp3_yml_config = YmlConf(args.yml_filename)
+    # # cp3_config = buildHCSConfig(args)
+    # print(cp3_yml_config.network)
+    # # print(cp3_config)
 
 def handle_scheck(args, parser):
     logger.debug("Handle umaudemc scheck")
