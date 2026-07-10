@@ -154,6 +154,11 @@ def build_cli_parser():
             default=GLOBALS.MODEL_TYPES[0],
             help=f'Choose one of the following options: {", ".join(GLOBALS.MODEL_TYPES)}. Default is {GLOBALS.MODEL_TYPES[0]}.'
     )
+    generate_parser.add_argument('--parse-type', dest='parse_type', required=False,
+            choices=GLOBALS.PARSE_TYPES,
+            default=GLOBALS.PARSE_TYPES[0],
+            help=f'Choose one of the following options: {", ".join(GLOBALS.PARSE_TYPES)}. Default is {GLOBALS.PARSE_TYPES[0]}.'
+    )
     generate_parser.add_argument('--output-dir', dest='output_dir',
                                required=False, default=None, help=f'Directory containing the output files')
 
