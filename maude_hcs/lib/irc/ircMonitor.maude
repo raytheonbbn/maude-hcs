@@ -1,0 +1,172 @@
+set show advisories off .
+
+sload ../../deps/dns_formalization/Maude/common/actor
+sload _irc_aux
+
+mod IRC_MONITOR is
+  inc ACTOR-MODEL .
+  inc IRC_AUX .
+  inc LIST{String} .
+
+   
+
+  vars ircAddr epAddr srvAddr addr  addr0 addr1 : Address .
+  vars msgs : Config .
+  vars mattrs  mattrs0 mattrs1 attrs attrs1 : AttributeSet .
+  vars T GT t1 : Float .
+  vars ircMsg : IrcMsg .
+  vars currentHash size : Nat .
+  vars currentStr  TEXT : String .
+  vars IRC_NAME : IrcName .
+  vars IRC_USER_NAME : IrcUserName .
+  vars tmsg : MessageTimestamp .
+  vars tml tml1 tmsgs : MessageTimestampList .
+  
+  vars rooms :  List{String} .
+  vars addrs : AddrSet .
+
+ sorts MessageTimestamp MessageTimestampList .
+ subsorts MessageTimestamp < MessageTimestampList .
+ op messageTimestamp : Float Address Address Nat IrcName Nat 
+                       -> MessageTimestamp .
+  op nilMessageTimestampList : -> MessageTimestampList [ctor] .
+  op _;_ : MessageTimestampList MessageTimestampList -> MessageTimestampList [ctor assoc id: nilMessageTimestampList] .
+
+  --- Public interface: stringHash("myString")
+  op stringHash : String -> Nat .
+  --- Internal worker: $hash(Remainder, CurrentHash)
+  op $hash : String Nat -> Nat .
+
+  --- Initialize with the DJB2 magic constant 5381
+  eq stringHash(currentStr) = $hash(currentStr, 5381) .
+
+  --- Base case: empty string returns the accumulated hash
+  eq $hash("", currentHash) = currentHash .
+
+  --- Recursive step:
+  **** (Hash * 33) + current character's ASCII value
+  eq $hash(currentStr, currentHash) = 
+    if length(currentStr) == 0 then 
+      currentHash 
+    else 
+      $hash(
+        substr(currentStr, 1, length(currentStr)), 
+        (currentHash * 33) + ascii(substr(currentStr, 0, 1))
+      )
+    fi
+  .
+
+
+op IrcMonitor : -> ActorType .
+op msgSent:_ : MessageTimestampList -> Attribute [ctor] .
+op msgRcvd:_ : MessageTimestampList -> Attribute [ctor] .
+op ircClients:_ : AddrSet -> Attribute [ctor] .
+op ircServer:_ : Address -> Attribute [ctor] .
+op rooms:_ : List{String} -> Attribute [ctor] .
+
+
+op mkIrcMonitor : Address AddrSet Address List{String} 
+                 -> Actor .
+eq mkIrcMonitor(addr,addrs,srvAddr,rooms) =
+    < addr : IrcMonitor |
+        msgSent: nilMessageTimestampList,
+        msgRcvd: nilMessageTimestampList,
+        ircClients: addrs,
+        ircServer: srvAddr,
+        rooms: rooms
+         >  .
+
+************* logging mechanism
+***(
+{T,(to TO_ADDR from FROM_ADDR : ircMsg)}
+>>
+messageTimestamp(T, FROM_ADDR, TO_ADDR, getSize(ircMsg),
+                 getIrcDest(ircMsg), stringHash(getText(ircMsg)))
+
+IrcIface calls
+ircLogSent(mattrs, T, epAddr,ircAddr,ircMsg)
+ircLogRcvd(mattrs, T,ircAddr, epAddr,ircMsg)
+)
+
+*********                          toAddr  fromAddr
+op ircLogSent : AttributeSet Float Address Address IrcMsg 
+   -> AttributeSet .
+op ircLogRcvd : AttributeSet Float Address Address IrcMsg 
+   -> AttributeSet .
+   
+ceq ircLogSent (mattrs, T, epAddr,ircAddr,ircMsg) =
+     mattrs0, msgSent: (tml ; tmsgs)
+if mattrs0, msgSent: tml := mattrs
+/\ tmsgs := genMTS(T,epAddr,ircAddr,ircMsg)
+.
+
+ceq ircLogRcvd (mattrs, T, epAddr,ircAddr,ircMsg) =
+     mattrs0, msgRcvd: (tml ; tmsgs)
+if mattrs0, msgRcvd: tml := mattrs
+/\ tmsgs := genMTS(T,epAddr,ircAddr,ircMsg)
+.
+
+op genMTS : Float Address Address Content 
+            -> MessageTimestampList .
+eq genMTS(GT,addr0,addr1,c:Content)
+         = nilMessageTimestampList [owise] .
+ceq genMTS(GT,addr0,addr1, c:Content)
+     = 
+   messageTimestamp(GT, addr1, addr0, getSize(c:Content),
+                    IRC_NAME, stringHash(TEXT))
+ if PrivMsgReq(IRC_NAME,IRC_USER_NAME,TEXT) := c:Content
+   .
+ceq genMTS(GT,addr0,addr1,c:Content)
+   =
+ messageTimestamp(GT, addr1, addr0, getSize(c:Content),
+                  IRC_NAME, stringHash(TEXT))
+  if PrivMsgRes(IRC_NAME,IRC_USER_NAME,TEXT) := c:Content
+  .
+
+endm
+
+
+mod TEST-IRC_MONITOR is
+inc IRC_MONITOR .
+
+ops imAd ircCAd  ircSAd : -> Address .
+
+op imAtts : -> AttributeSet  .
+eq imAtts = msgSent: nilMessageTimestampList,
+            msgRcvd: nilMessageTimestampList,
+            ircClients: ircCAd ,
+            ircServer:  ircSAd,
+            rooms: ("#r1" "#r2" )
+         .
+
+ops ircM0 ircM1 ircM2 ircM3 : -> IrcMsg .
+eq ircM0 = PrivMsgReq(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircCAd),"msg 0") .
+eq ircM1 = PrivMsgRes(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircCAd),"msg 0") .
+eq ircM2 = PrivMsgReq(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircCAd),"msg 1") .
+eq ircM3 = PrivMsgRes(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircCAd),"msg 1") .
+
+ops M0 M1 M2 M3 : -> Msg .
+eq M0 = (to ircSAd from ircCAd : ircM0) .
+eq M1 = (to ircCAd from ircSAd : ircM1) .
+eq M2 = (to ircSAd from ircCAd : ircM2) .
+eq M3 = (to ircCAd from ircSAd : ircM3) .
+
+ops imAtts0 imAtts1 imAtts2 imAtts3 : -> AttributeSet .
+eq imAtts0 = ircLogSent(imAtts, 1.1, ircSAd,ircCAd,ircM0) .
+eq imAtts1 = ircLogRcvd(imAtts0, 1.2, ircSAd,ircCAd,ircM0) .
+eq imAtts2 = ircLogSent(imAtts1, 1.3, ircCAd,ircSAd,ircM1) .
+eq imAtts3 = ircLogRcvd(imAtts2, 1.4, ircCAd,ircSAd,ircM1) .
+
+endm
+eof
+
+red imAtts0 .
+red imAtts1 .
+red imAtts2 .
+red imAtts3 .
+
+red ircLogSent(imAtts, 1.5, ircSAd,ircCAd,ircM2) .
