@@ -73,12 +73,13 @@ mod IRC-V2-TEST is
 
 
 vars dt : Float .
-vars icAddr  isAddr : Address .
+vars icAddr  isAddr ifsAddr : Address .
 vars room : String .
-op mkJoin : Float String Address Address -> ScheduleMsg .
-eq mkJoin(dt,room,icAddr, isAddr) =
+op mkJoin : Float String Address Address Address
+             -> ScheduleMsg .
+eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =
        [dt,
-       (to isAddr from icAddr :
+       (to isAddr from ifsAddr :
         JoinChannel(makeIrcChannelName(room), icAddr )),
         0]
 .        
@@ -95,12 +96,12 @@ eq mkJoin(dt,room,icAddr, isAddr) =
        ircServer 
        ircMonitor 
        
-       mkJoin(0.001,"#chat",ircCAd1,ircSAd)
-       mkJoin(0.0015,"#chat",ircCAd2,ircSAd)
-       mkJoin(0.002,"#general",ircCAd1,ircSAd)
-       mkJoin(0.0025,"#general",ircCAd2,ircSAd)
-       mkJoin(0.003,"#ramdom",ircCAd1,ircSAd)
-       mkJoin(0.0035,"#ramdom",ircCAd1,ircSAd)
+       mkJoin(0.001,"#chat",ircCAd1,ircSAd,ifsAd1)
+       mkJoin(0.0015,"#chat",ircCAd2,ircSAd,ifsAd2)
+       mkJoin(0.002,"#general",ircCAd1,ircSAd,ifsAd1)
+       mkJoin(0.0025,"#general",ircCAd2,ircSAd,ifsAd2)
+       mkJoin(0.003,"#ramdom",ircCAd1,ircSAd,ifsAd1)
+       mkJoin(0.0035,"#ramdom",ircCAd2,ircSAd,ifsAd2)
 
        [.1, to ircUAd1 from ircUAd1 : burstDelayTO,0]  
        [.2, to ircUAd2 from ircUAd2 : burstDelayTO,0]  
@@ -113,10 +114,10 @@ eq mkJoin(dt,room,icAddr, isAddr) =
   
     
 endm
-eof
+
 
 set print attribute on .
-***(
+***(O)
 set print attr select on .
 print attr select umv2-rcv-timeout .
 print attr select uumv2-rcv-actionR .
@@ -131,7 +132,7 @@ print attr select exeActionIrc .
 print attr select eceActionIrcType .
 print attr select fromIrc2ep .
 print attr select fromEp2Irc .
-)
+
 rew iC2 .
 q
 eof
