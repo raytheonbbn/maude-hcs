@@ -15,33 +15,6 @@ mod IRC-V2-TEST is
   inc IRC-BYTESEQ-INTERFACE .
   inc IRC_MONITOR .
 
-***(
-**** passThru tunnel actor
-op ptTunnel : -> ActorType .
-op mkTun : Address -> Actor .
-op cAddress:_ : Address -> Attribute [ctor] .
-op sAddress:_ : Address -> Attribute [ctor] .
-eq mkTun(ta:Address,ca:Address,sa:Address) 
-   = < a:Address : ptTunnel | 
-       cAddress: ca:Address,
-       sAddress: sa:Address > .
-
-crl[tunnelPass]:
-  rCtr(j)
-   < a:Address : ptTunnel : 
-     cAddress: ca:Address,
-     sAddress: sa:Address >
-  {T, to a:Address from ca:Address : c:Content}
-  =>
-   rCtr(j1)
-   < a:Address : ptTunnel : 
-     cAddress: ca:Address,
-     sAddress: sa:Address >
-  smsgs
-  if msg := (to sa:Address from a:Address : c:Content)
-  /\ {smsgs,j1} = delayMsgsX(j,msg,null)
-.  
-)
   
 ***** Global constants  
 **** the user model database
@@ -68,10 +41,21 @@ crl[tunnelPass]:
   op ircMonitor : -> Actor .
 
   eq ircServer = mkIrcServer(ircSAd) .
-  eq ircMonitor = mkIrcMonitor(ircMonAd, 
-                     (ircCAd1 ;; ircCAd2), ircSAd, 
-                     ("#chat" "#general" "#random") ) .  
-  
+  eq ircMonitor = mkIrcMonitor(ircMonAd) .
+  ***( redundant attrs
+         (ircCAd1 ;; ircCAd2), ircSAd, 
+         ("#chat" "#general" "#random") 
+       )   
+
+**** the client and server endpoint interfaces talk to each other,  no tunnel
+**** to insert a tunnel with content manager tcmAd1 (a bidir content manager)
+**** use equations
+**** ircIfc1 =  mkIrcByteSeqIface(ifcAd1,ircCAd1, tcmAd1) .
+**** ircIfs1 =  mkIrcByteSeqIface(ifsAd1,ircSAd, tcmAd1) .
+**** i.e. the second address is the irc entity that the interface
+**** talks to (a client or the server) and the third address
+**** is the tunnel actor it talks to.
+
   eq ircClient1 = 
      mkIrcClient-v2(ircCAd1, ifcAd1,"irc1") .
   eq ircUM1 = 
@@ -85,6 +69,7 @@ crl[tunnelPass]:
       mkIrcUMV2Actor(ircUAd2,"irc-test",ircCAd2) .
   eq ircIfc2 =  mkIrcByteSeqIface(ifcAd2,ircCAd2, ifsAd2) .
   eq ircIfs2 =  mkIrcByteSeqIface(ifsAd2,ircSAd, ifcAd2) .
+
 
 
 vars dt : Float .
