@@ -1,0 +1,167 @@
+set show advisories off .
+
+sload irc-mamodel-v2
+sload ../common/maude/irc-action-actor-v2.maude
+sload irc_prob-v2
+sload ircMonitor
+sload irc-byteseq-interface
+
+
+
+mod IRC-V2-TEST is
+  inc IRC-USER-ACTION-ACTOR-V2 .
+  inc IRC-MAMODEL-V2 .
+  inc IRC-V2 .
+  inc IRC-BYTESEQ-INTERFACE .
+  inc IRC_MONITOR .
+
+***(
+**** passThru tunnel actor
+op ptTunnel : -> ActorType .
+op mkTun : Address -> Actor .
+op cAddress:_ : Address -> Attribute [ctor] .
+op sAddress:_ : Address -> Attribute [ctor] .
+eq mkTun(ta:Address,ca:Address,sa:Address) 
+   = < a:Address : ptTunnel | 
+       cAddress: ca:Address,
+       sAddress: sa:Address > .
+
+crl[tunnelPass]:
+  rCtr(j)
+   < a:Address : ptTunnel : 
+     cAddress: ca:Address,
+     sAddress: sa:Address >
+  {T, to a:Address from ca:Address : c:Content}
+  =>
+   rCtr(j1)
+   < a:Address : ptTunnel : 
+     cAddress: ca:Address,
+     sAddress: sa:Address >
+  smsgs
+  if msg := (to sa:Address from a:Address : c:Content)
+  /\ {smsgs,j1} = delayMsgsX(j,msg,null)
+.  
+)
+  
+***** Global constants  
+**** the user model database
+  eq MAModelMap = ("irc-test" |-> irc-mamodel-v2  ) .
+
+*** for the default case
+  eq noiseMax(msg:Msg) = 0.00001 .
+   
+****  op IRC-STALE-DURATION-S : -> Float .
+  eq IRC-STALE-DURATION-S = 340.  .
+****  op IRC-PING-INTV-S : -> Float .
+  eq IRC-PING-INTV-S = 300.   .
+
+
+  ops ircCAd1 ircUAd1 ifcAd1 ifsAd1 tunAd1 : -> Address .
+  ops ircCAd2 ircUAd2 ifcAd2 ifsAd2 tunAd2 : -> Address .
+  op  ircSAd : -> Address .
+  op  ircMonAd : -> Address .
+  
+  
+  ops ircClient1 ircUM1 ircIfc1 ircIfs1 tunAct1 : -> Actor .
+  ops ircClient2 ircUM2 ircIfc2 ircIfs2 tunAct2 : -> Actor .
+  op ircServer : -> Actor .
+  op ircMonitor : -> Actor .
+
+  eq ircServer = mkIrcServer(ircSAd) .
+  eq ircMonitor = mkIrcMonitor(ircMonAd, 
+                     (ircCAd1 ;; ircCAd2), ircSAd, 
+                     ("#chat" "#general" "#random") ) .  
+  
+  eq ircClient1 = 
+     mkIrcClient-v2(ircCAd1, ifcAd1,"irc1") .
+  eq ircUM1 = 
+      mkIrcUMV2Actor(ircUAd1,"irc-test",ircCAd1) .
+  eq ircIfc1 =  mkIrcByteSeqIface(ifcAd1,ircCAd1, ifsAd1) .
+  eq ircIfs1 =  mkIrcByteSeqIface(ifsAd1,ircSAd, ifcAd1) .
+***  eq tunAct1 =  mkTun(tunAd1,ifcAd1,ifsAd1) 
+
+  eq ircClient2 = mkIrcClient-v2(ircCAd2, ifcAd2,"irc2") .
+  eq ircUM2 = 
+      mkIrcUMV2Actor(ircUAd2,"irc-test",ircCAd2) .
+  eq ircIfc2 =  mkIrcByteSeqIface(ifcAd2,ircCAd2, ifsAd2) .
+  eq ircIfs2 =  mkIrcByteSeqIface(ifsAd2,ircSAd, ifcAd2) .
+
+
+vars dt : Float .
+vars icAddr  isAddr : Address .
+vars room : String .
+op mkJoin : Float String Address Address -> ScheduleMsg .
+eq mkJoin(dt,room,icAddr, isAddr) =
+       [dt,
+       (to isAddr from icAddr :
+        JoinChannel(makeIrcChannelName(room), icAddr )),
+        0]
+.        
+
+
+**** config with 2 clients
+  op iS2 : Nat -> Config .
+  eq iS2(j:Nat) = 
+       rCtr(j:Nat)
+       ircClient1 ircUM1 
+       ircIfc1 ircIfs1 
+       ircClient2 ircUM2 
+       ircIfc2 ircIfs2
+       ircServer 
+       ircMonitor 
+       
+       mkJoin(0.001,"#chat",ircCAd1,ircSAd)
+       mkJoin(0.0015,"#chat",ircCAd2,ircSAd)
+       mkJoin(0.002,"#general",ircCAd1,ircSAd)
+       mkJoin(0.0025,"#general",ircCAd2,ircSAd)
+       mkJoin(0.003,"#ramdom",ircCAd1,ircSAd)
+       mkJoin(0.0035,"#ramdom",ircCAd1,ircSAd)
+
+       [.1, to ircUAd1 from ircUAd1 : burstDelayTO,0]  
+       [.2, to ircUAd2 from ircUAd2 : burstDelayTO,0]  
+      .
+
+  op iC2 : -> Config .
+  rl[init]: 
+    iC2 => run({0.0 | nil} iS2(counter), 10000.0)
+   .
+  
+    
+endm
+eof
+
+set print attribute on .
+***(
+set print attr select on .
+print attr select umv2-rcv-timeout .
+print attr select uumv2-rcv-actionR .
+print attr select initMode .
+*** print attr select chooseBurst . 
+*** print attr select chooseBurstSteps .
+*** print attr select rcvActRv2 .
+print attr select rcvActRv2$ .
+print attr select server-handle-incoming-chat .
+print attr select server-handle-join-channel .
+print attr select exeActionIrc .
+print attr select eceActionIrcType .
+print attr select fromIrc2ep .
+print attr select fromEp2Irc .
+)
+rew iC2 .
+q
+eof
+
+
+
+rew [200] run({0.0 | nil} iS2(10),5000.0) .
+
+rew iC2 .
+
+set print attr select off .
+print attr select <ids> .
+print attr deselect <ids> .
+
+
+
+  eq ircIfc1 =  mkIrcByteSeqIface(ifcAd1,ircCAd1, ifsAd1) .
+  eq ircIfs1 =  mkIrcByteSeqIface(ifsAd1,ircSAd, ifcAd1) .
