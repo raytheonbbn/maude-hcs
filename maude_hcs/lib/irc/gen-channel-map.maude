@@ -1,0 +1,69 @@
+set show advisories off .
+
+
+sload common/irc_name
+
+mod GEN-CHANNEL-MAP is
+  inc IRC_NAMES .  --- incs ACTOR-MODEL
+****  inc ACTOR-MODEL .  ---- AddrList
+  inc LIST{String} .
+  
+vars addrs : AddrList .
+vars rooms : List{String} .
+vars addr : Address .
+vars room : String .
+vars ncMap : NameClientsMap .
+vars ircUNames : IrcUserNameList .
+
+op genChannelMap : AddrList List{String} -> NameClientsMap .
+op genChannelMapX : AddrList List{String}  NameClientsMap 
+                    -> NameClientsMap .
+op addrList2userNames : AddrList -> IrcUserNameList .
+op addrList2userNamesX : AddrList IrcUserNameList 
+                          -> IrcUserNameList .
+eq genChannelMap(addrs,rooms) =
+      genChannelMapX(addrs,rooms,emptyNameClientsMap) .
+eq addrList2userNames(addrs) 
+   =  addrList2userNamesX(addrs,emptyIrcUserNameList) .
+
+eq addrList2userNamesX(nil, ircUNames) = ircUNames .
+eq addrList2userNamesX((addr ; addrs),ircUNames)
+    = addrList2userNamesX(addrs,
+                     (ircUNames : makeIrcUserName(addr)) ) .
+
+eq genChannelMapX(addrs,nil,ncMap) = ncMap .
+eq genChannelMapX(addrs,(room rooms),ncMap) 
+    = genChannelMapX(addrs, rooms,
+          (ncMap : (makeIrcChannelName(room) ~>    
+                   addrList2userNames(addrs) )) ) . 
+                
+endm
+    
+
+mod TEST-GEN-CHANNEL-MAP is
+ inc GEN-CHANNEL-MAP .
+ 
+ ops ad0 ad1 ad2 : -> Address .
+
+endm
+eof
+red addrList2userNames(ad0 ; ad1 ; ad2)  .
+rew genChannelMapX((ad0 ; ad1 ; ad2),("rm0" "rm1"))  .
+
+**** (makeIrcChannelName("rm0") ~> makeIrcUserName(ad0) : makeIrcUserName(ad1) : makeIrcUserName( ad2)) : makeIrcChannelName("rm1") ~> makeIrcUserName(ad0) : makeIrcUserName(ad1) : makeIrcUserName(ad2)
+
+eof
+---- sorts and constructions from IRC_NAMES
+
+channelMap: (
+(makeIrcChannelName("#chat") ~> makeIrcUserName(ircCAd1) : makeIrcUserName(ircCAd2)) : 
+(makeIrcChannelName("#general") ~> makeIrcUserName(ircCAd1) :
+    makeIrcUserName(ircCAd2)) :  
+  ...
+)    
+
+sorts IrcUserName IrcUserNameList
+emptyIrcUserNameList
+sorts NameClients NameClientsMap 
+emptyNameClientsMap,
+
