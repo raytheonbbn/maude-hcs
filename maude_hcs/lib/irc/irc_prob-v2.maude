@@ -1,0 +1,338 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+--- Per T&E: Clients join their channels during set up.
+--- They send messages.
+--- After sending the last message, a client just
+---- receives irc  messages (and responds to pings)
+
+set show advisories off .
+
+sload ./common/irc_name
+sload ./common/_aux
+sload ./common/irc-msg-model
+sload ../common/maude/cp2-interfaces
+sload ../common/maude/delay-drop-x
+sload ../common/maude/cp2-interfaces
+
+mod IRC-V2 is
+  pr IRC_NODE .
+  pr IRC_AUX .
+  pr CP2-COMMON .
+  inc TGEN-INTERFACE .
+  inc IRC-MSG-MODEL .
+  inc DELAY-X .
+
+  vars IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr
+       ircDestinationAddr : Address .
+  vars rbAddr addr ircAddr umAddr : Address .
+  vars channelClientAddrs : AddrList .
+  vars attrs attrsTrans attrsTrans1 attrsNext : AttributeSet .
+  vars ircName  : IrcName .
+  vars ircDestinationName  IRC_CLIENT_NAME ircUserName : IrcUserName .
+  vars clientsMap CLIENTS_MAP : NameClientsMap .
+  vars chatText ircDestination ircSource : String .
+  vars T : Float . ---timestamp
+  vars dmsg : ScheduleMsg .
+  vars msgs smsgs : Config .
+  vars msg msg0 msg1 : Msg .
+  vars  attrs0 attrs1 attrs2 : AttributeSet .
+  vars ctr j j1  size : Nat .
+  vars userId room  astr : String .
+  vars dt fl : Float .
+  vars dml : IrcMsgDelayList .
+  vars ircMsg : IrcMsg .
+  vars aspec : Map{String,JV} .
+
+
+  ---- Make a V2 IrcClient  driven by UM
+  ----             ItsAddr  RBAddr UserId 
+  op mkIrcClient-v2 : Address Address String  -> Actor .
+  eq mkIrcClient-v2(ircAddr, rbAddr,userId) =
+    < ircAddr : IrcClient |
+        thisAddr: ircAddr,
+        raceboatAddr: rbAddr,
+        ircName: makeIrcUserName(ircAddr),
+        userId: userId,
+        msgCtr: 0
+    >  .
+
+  ------------------------
+  --- IRC Client Rules ---
+  ------------------------
+  
+ **** irc messages driven by um
+ --- Send ircMsg and schedule next if any
+  crl [irc-client-rcv-actionQ]:
+  rCtr(j)
+  < ircAddr : IrcClient | attrs >
+    {T, (to ircAddr from umAddr : actionQ(aspec) )}
+  =>
+  rCtr(j1)
+  < ircAddr : IrcClient | attrs1 >
+    smsgs
+    if {attrs1, smsgs, j1} := 
+       ircExeAction(attrs, ircAddr, umAddr,
+                    jv2str(aspec["type"]),aspec,j)            
+[print "(" T ") IRC Client " ircAddr " received actionQ : " aspec " sending " smsgs ]
+  .
+  
+ op ircExeAction : AttributeSet Address Address String
+                   Map{String,JV} Nat 
+                   -> AttributeSetMsgsNat .  
+
+ceq [irc-action-not-understood] :
+  ircExeAction(attrs,ircAddr,umAddr,astr,aspec,j) 
+    = {attrs,smsgs,j1}
+ if msg := (to umAddr from ircAddr : actionR("notUnderstood"))
+ /\ {smsgs,j1}  := delayMsgsX(j,msg,null)
+ [owise print "IRC client " ircAddr " action " astr " not understood "]
+  .
+
+ceq ircExeAction(attrs,ircAddr,umAddr,"roommsg",aspec,j) 
+    =  {attrs2,smsgs,j1}
+if jf(fl) := aspec["message_length_bytes"]
+/\ js(room) := aspec["room"]
+/\ attrs0, msgCtr: ctr := attrs
+/\ attrs1, userId: userId, raceboatAddr: rbAddr := attrs
+/\ ircMsg := 
+     genPrivMsgReq(ircAddr,ctr,userId,room,round(fl)) 
+/\ msg0 := to rbAddr from ircAddr : ircMsg
+/\ msg1 := to umAddr from ircAddr : actionR("ok")     
+/\ {smsgs,j1} := delayMsgsX(j,msg0 msg1,null)
+/\ attrs2 := attrs0, msgCtr: s ctr
+.
+
+
+ceq  ircExeAction(attrs,ircAddr,umAddr,"joinmsg",aspec,j) 
+     = {attrs,smsgs,j1}
+if js(room) := aspec["room"]
+/\ attrs1, raceboatAddr: rbAddr := attrs
+/\ ircMsg :=  genJoinMsgReq(ircAddr,room) 
+/\ msg0 := to rbAddr from ircAddr : ircMsg
+/\ msg1 := to umAddr from ircAddr : actionR("ok")     
+/\ {smsgs,j1} := delayMsgsX(j,msg0 msg1,null)
+.
+
+                   
+  ----             ircAddr   ctr   myid   room  size
+  op genPrivMsgReq : Address  Nat String String Nat -> IrcMsg .
+  eq genPrivMsgReq(IRC_CLIENT_ADDR ,ctr,userId,room,size) =
+     PrivMsgReq(makeIrcChannelName(room),  
+                makeIrcUserName(IRC_CLIENT_ADDR),
+                genIrcText(userId,ctr,size))
+  .
+
+                   
+  ----               ircAddr      room  
+  op genJoinMsgReq : Address  String  -> IrcMsg .
+  eq genJoinMsgReq(ircAddr,room) =
+       JoinChannel(makeIrcChannelName(room),ircAddr) 
+  .       
+
+
+
+  **** ircDestinationName >> ircName
+  --- Handle IRC messages from the server.
+  rl [irc-client-handle-incoming-chat]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from rbAddr : PrivMsgRes(ircName, makeIrcUserName(ircSourceAddr), chatText))}
+  =>
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+[ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received chat >>>" chatText "<<< from " ircSourceAddr ]
+  .
+
+  --- Handle server ping, respond with a pong if alive.
+ crl [irc-client-handle-ping]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from rbAddr : Ping(ircDestinationName, IRC_SERVER_ADDR))}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+ smsgs
+if {smsgs,j1} :=  delayMsgsX(j,(to getRaceboatAddr(attrs) from IRC_CLIENT_ADDR : Pong(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), null)
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling incoming ping from Server." ]
+  .
+
+  --- Handle (ignore) server messages of other clients joining or leaving.
+  crl [irc-client-handle-channel-go]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from rbAddr : goMsg:Content)}
+  =>
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+  if isChannelGoMessage(goMsg:Content)
+--- TODO: Figure how to do this.  
+---    JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, ircSourceAddr) := goMsg:Content
+---    or (PartChannel(IRC_CHANNEL_NAME:IrcChannelName, ircSourceAddr) := goMsg:Content)
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received go channel message. (Ignore)." ]
+  .
+
+  ------------------------
+  --- IRC Server Rules ---
+  ------------------------
+  --- Handle incoming chat: forward to all users in the channel.
+  crl [server-handle-incoming-chat]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr : 
+         PrivMsgReq(ircName,
+                    makeIrcUserName(ircSourceAddr),
+                    chatText))}
+  =>
+  rCtr(j1)
+  < IRC_SERVER_ADDR : IrcServer | attrsNext >
+  smsgs
+  [IRC-STALE-DURATION-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(ircSourceAddr)), 0]
+  if CLIENTS_MAP := getChannelMap(attrs)
+    /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, ircName)
+    /\ msgs:Config := createPrivMsgRes(attrs,
+                                       ircName,   **** CLT fix
+                                       makeIrcUserName(ircSourceAddr),
+                                       clientList:IrcUserNameList,
+                                       chatText)
+    /\ attrsNext := refreshUser(attrs, makeIrcUserName(ircSourceAddr), T)
+    /\ {smsgs,j1} := delayMsgsX(j,msgs:Config,null)
+    [ print "(" T ") IRC Server handling incoming chat " chatText " from " ircSourceAddr " to " ircName ", turning chat around w/ msgs "  msgs:Config ]
+  .
+
+  --- Handle a user joining a channel: tell all members of channel.
+  --- TODO: Forward topic, authors, list of users.
+  **** CLT  the joiner doesn't get confirmation?
+  **** TODO: Currently the plan is to have joins as part of initial setup
+  **** (unmeasured) and to ensure joins are successful (T&E via Slack).
+  crl [server-handle-join-channel]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr : incomingContent:Content)}
+  =>
+  rCtr(j1)
+  < IRC_SERVER_ADDR : IrcServer | attrsNext >
+    smsgs    
+    [IRC-PING-INTV-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR)), 0]
+  if JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) := incomingContent:Content
+    /\ attrsTrans := registerIrcUser(attrs, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) 
+**** recording user connection address    
+    /\ attrsTrans1 := registerIrcUserAddress(attrsTrans,
+                        makeIrcUserName(IRC_CLIENT_ADDR),rbAddr)
+    /\ attrsNext := refreshUser(attrsTrans1, IRC_CLIENT_ADDR, T)
+    /\ CLIENTS_MAP := getChannelMap(attrsNext)
+    /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
+    --- This config should include other messages too; the server sends 
+    --- channel info back to joiner.
+    --- Not modeled here because we think Joins are all taking place before
+    --- adversary captures.
+    /\ msgs:Config := createIrcMsg(attrsNext,
+                                   makeIrcUserName(IRC_CLIENT_ADDR),
+                                   clientList:IrcUserNameList,
+                                   incomingContent:Content)
+   /\ {smsgs,j1} := delayMsgsX(j,msgs:Config, null)
+    [ print "(" T ") IRC Server handling request for " IRC_CLIENT_ADDR " to join " IRC_CHANNEL_NAME:IrcChannelName " channel." ]
+  .
+
+  --- Handle a user parting (leaving) a channel.
+  crl [server-handle-part-channel]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr : incomingContent:Content)}
+  =>
+  rCtr(j1)
+  < IRC_SERVER_ADDR : IrcServer | attrsNext >
+   smsgs
+  if PartChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) := incomingContent:Content
+    /\ attrsNext := clearUser(attrs, IRC_CLIENT_ADDR)
+    /\ CLIENTS_MAP := getChannelMap(attrsNext)
+    /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
+    /\ msgs:Config := createIrcMsg(attrsNext,
+                                   makeIrcUserName(IRC_CLIENT_ADDR),
+                                   clientList:IrcUserNameList,
+                                   incomingContent:Content)
+  /\ {smsgs,j1}  :=  delayMsgsX(j,msgs:Config, null)
+  [ print "(" T ") IRC Server handling part channel for " IRC_CLIENT_ADDR ", sending " msgs:Config ]
+  .
+
+**** CLT lookup rbAddr associated to client
+  crl [server-handle-ping-timeout]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR))}
+  =>
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+  rCtr(j1)
+  (if (addr == nullAddr)
+    then null
+    else smsgs
+     delayMsgs(
+        (to addr from IRC_SERVER_ADDR : --- getRaceboatAddr(attrs) 
+          Ping(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), 
+        null)
+    fi)      
+  [(IRC-STALE-DURATION-S - IRC-PING-INTV-S), 
+    (to IRC_SERVER_ADDR from IRC_SERVER_ADDR
+      : PongTimeout(IRC_CLIENT_ADDR)),
+    0]
+  if IRC_CLIENT_NAME := makeIrcUserName(IRC_CLIENT_ADDR)
+  /\ addr := getClientAddr(getClientAddressMap(attrs), 
+                           IRC_CLIENT_NAME)
+   /\ {smsgs,j1}  :=   --- getRaceboatAddr(attrs) 
+        delayMsgsX(j, (to addr from IRC_SERVER_ADDR : 
+          Ping(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), 
+        null)
+  [ print "(" T ") IRC Server handling ping timeout for " IRC_CLIENT_ADDR ", sending ping." ]
+  .
+
+  rl [server-handle-pong]:
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr : Pong(ircDestinationName, IRC_CLIENT_ADDR))}
+  =>
+  < IRC_SERVER_ADDR : IrcServer | refreshUser(attrs, ircDestinationName, T) >
+    [ print "(" T ") IRC Server handling incoming Pong from Client " ircDestinationName ", refreshing." ]
+  .
+
+  crl [server-pong-timeout]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PongTimeout(ircSourceAddr))}
+  =>
+  ---                             clear user checks for staleness.
+  < IRC_SERVER_ADDR : IrcServer | clearUser(attrs, ircSourceAddr, T) >
+  rCtr(j)
+    (if isStale:Bool
+      then smsgs
+      else null
+    fi)
+  if isStale:Bool := isUserStale(getClientTimestampMap(attrs),
+                                 makeIrcUserName(ircSourceAddr),
+                                 T)
+  /\ {smsgs,j1} := delayMsgsX(j,createUserQuitMsgs(attrs, ircSourceAddr), null) 
+  [ print "(" T ") IRC Server handling pong timeout for " ircSourceAddr ". If stale true consider clearing, otherwise ignore: " isStale:Bool "." ]
+  .
+
+endm
