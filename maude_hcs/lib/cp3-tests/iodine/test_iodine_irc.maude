@@ -31,15 +31,15 @@
 sload ../../dns/maude/probabilistic/iodine_dns.maude
 sload ../../dns/maude/common/_aux.maude
 
-sload ../../common/maude/cp2-interfaces.maude
-sload ../../irc/irc_prob.maude
-sload ../../irc/irc_monitor.maude
-sload ../../cp3-tests/skyhook/irc-mamodel-v2.maude
+sload ../../irc/irc_prob-v2
+sload ../../irc/ircMonitor
+sload ../../irc/irc-byteseq-interface
+sload ../../irc/irc-mamodel-v2
 sload ../../common/maude/irc-action-actor-v2.maude
 
 mod TEST_IODINE_IRC is
-  pr IRC .
-  pr IRC-DISPATCHER-INTERFACE .
+  pr IRC-V2 .
+  pr IRC-BYTESEQ-INTERFACE .
   pr IRC-USER-ACTION-ACTOR-V2 .
   pr IRC-MAMODEL-V2 .
   pr IODINE_NODE .
@@ -50,7 +50,7 @@ mod TEST_IODINE_IRC is
   ---------------------------------------------------
   ***** Global constants  
   **** the user model database
-  eq MAModelMap = ("irc-test" |-> irc-ma-v2 ) .
+  eq MAModelMap = ("irc-test" |-> irc-mamodel-v2 ) .
 
   *** for the default case
   eq noiseMax(msg:Msg) = 0.00001 .
@@ -103,19 +103,16 @@ mod TEST_IODINE_IRC is
   ops aliceIodineClient bobIodineClient serverAliceIodineServer serverBobIodineServer : -> Actor .  
 
   --- IRC Actors ---
-  eq aliceIrcClient = mkIrcClient(aliceIrcClientAddr,
-                                  aliceIfaceAddr,
-                                  "alice")
+  eq aliceIrcClient = mkIrcClient-v2(aliceIrcClientAddr,
+                                     aliceIfaceAddr,
+                                     "alice")
   .
-  eq bobIrcClient   = mkIrcClient(bobIrcClientAddr,
-                                  bobIfaceAddr,
-                                  "bob")
+  eq bobIrcClient   = mkIrcClient-v2(bobIrcClientAddr,
+                                     bobIfaceAddr,
+                                     "bob")
   .
   eq ircServer      = mkIrcServer(ircServerAddr) .
-  eq ircMonitor     = mkIrcMonitor(ircMonitorAddr,
-                                   (aliceIrcClientAddr ;; bobIrcClientAddr ;; ircServerAddr),
-                                   (aliceIrcClientAddr ;; bobIrcClientAddr),
-                                   (rm("#room1", aliceIrcClientAddr ;; bobIrcClientAddr)))
+  eq ircMonitor     = mkIrcMonitor(ircMonitorAddr)
   .
 
   eq aliceIrcUserModel  = mkIrcUMV2Actor(aliceIrcUserModelAddr,
@@ -128,24 +125,20 @@ mod TEST_IODINE_IRC is
   .
   --- Interface Actors ---
   eq aliceIface       = mkIrcByteSeqIface(aliceIfaceAddr,
-                                          aliceIrcClientAddr,
-                                          aliceSendAppAddr,
-                                          aliceSendAppAddr)
+                                           aliceIrcClientAddr,
+                                           aliceSendAppAddr)
   .
   eq bobIface         = mkIrcByteSeqIface(bobIfaceAddr,
-                                          bobIrcClientAddr,
-                                          bobSendAppAddr,
-                                          bobSendAppAddr)
+                                           bobIrcClientAddr,
+                                           bobSendAppAddr)
   .
   eq serverAliceIface = mkIrcByteSeqIface(serverAliceIfaceAddr,
-                                          ircServerAddr,
-                                          serverAliceRcvAppAddr,
-                                          serverAliceRcvAppAddr)
+                                           ircServerAddr,
+                                           serverAliceRcvAppAddr)
   .
   eq serverBobIface   = mkIrcByteSeqIface(serverBobIfaceAddr,
-                                          ircServerAddr,
-                                          serverBobRcvAppAddr,
-                                          serverBobRcvAppAddr)
+                                           ircServerAddr,
+                                           serverBobRcvAppAddr)
   .
 
   --- Iodine Actors ---

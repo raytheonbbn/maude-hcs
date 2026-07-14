@@ -43,14 +43,13 @@ sload ../skyhook/skyhook-um-mamodel-1
 sload ../../irc/common/irc_name
 sload ../../irc/common/irc-msg-model
 sload ../../irc/common/_aux
-sload ../../irc/irc_prob
+sload ../../irc/irc_prob-v2
+sload ../../irc/irc-mamodel-v2
+sload ../../common/maude/irc-action-actor-v2.maude
 
 ---- this should go in a scenario dir
-sload ../../raceboatSkyhook/maude/irc-rbbyteseq-interface  
----- for debugging logs actual messages
-sload ../../irc/irc_monitor
----- for smc logs from to size id but not the msg text
-*** sload ../../raceboatMastodon/maude/ircMonitor-cm
+sload ../../irc/irc-byteseq-interface
+sload ../../irc/ircMonitor
 
 ------ raceboat 4 skyhook
 sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
@@ -65,8 +64,10 @@ mod IRC-RB-SKYHOOK-SCENARIO is
   inc SCHEDULER .
   inc USER-ACTION-ACTOR .
   inc SKYHOOK-UM-MAMODEL-1 .
-  inc IRC .
-  inc IRC-RBBYTESEQ-INTERFACE .
+  inc IRC-V2 .
+  inc IRC-MAMODEL-V2 .
+  inc IRC-USER-ACTION-ACTOR-V2 .
+  inc IRC-BYTESEQ-INTERFACE .
   inc CONTENT-MANAGER-SIMPLE-BI .
   inc SKYHOOK .
   inc S3_PROTOCOL .
@@ -77,10 +78,18 @@ vars j : Nat .
 eq encOH(fsize:Nat,ksize:Nat)  = 0 .
 eq noiseMin(msg:Msg) = 0.001 .
 
+***** Global constants  
+**** the user model database
+eq MAModelMap = ("irc-test" |-> irc-ma-v2 ) .
+
+*** for the default case
+eq noiseMax(msg:Msg) = 0.00001 .
+
 
 **** addresses
 *** alice
 ops aliceAddr ircaAddr : -> Address .
+ops ircaUserModelAddr : -> Address .
 **** alice channel endpoint interfaces
 ops ifaceACAddr ifaceASAddr : -> Address .
 
@@ -91,6 +100,7 @@ ops umasAddr  cmasAddr ahaAddr sdkasAddr : -> Address .
 
 *** bob
 ops bobAddr ircbAddr : -> Address .
+ops ircbUserModelAddr : -> Address .
 **** bobs channel endpoint interfaces
 ops ifaceBCAddr ifaceBSAddr : -> Address .
 
@@ -101,6 +111,7 @@ ops umbsAddr  cmbsAddr ahbAddr sdkbsAddr : -> Address .
 
 *** eve
 ops eveAddr irceAddr : -> Address .
+ops irceUserModelAddr : -> Address .
 **** eves channel endpoint interfaces
 ops ifaceECAddr ifaceESAddr : -> Address .
 
@@ -117,6 +128,7 @@ op ircMonitorAddr : -> Address .
 **** actors
 *** alice
 op ircaAct : -> Actor .
+op ircaUserModel : -> Actor .
 ops ifaceACAct ifaceASAct : -> Actor .
 
 
@@ -127,6 +139,7 @@ ops umasAct  cmasAct ahaAct sdkasAct : -> Actor .
 
 *** bob
 op ircbAct : -> Actor .
+op ircbUserModel : -> Actor .
 ops ifaceBCAct ifaceBSAct : -> Actor .
 
 *** client endpoint  ..bc.. 
@@ -134,8 +147,9 @@ ops umbcAct  cmbcAct pubAct sdkbcAct : -> Actor .
 *** server endpoint ..bs..
 ops umbsAct  cmbsAct ahbAct sdkbsAct : -> Actor .
 
-*** bob
+*** eve
 op irceAct : -> Actor .
+op irceUserModel : -> Actor .
 ops ifaceECAct ifaceESAct : -> Actor .
 
 *** client endpoint  ..bc.. 
@@ -149,12 +163,13 @@ op ircMonitorAct : -> Actor .
 ************** actor defns
 ***** aliceIrc
 eq ircaAct =
-   mkIrcClient(ircaAddr, ifaceACAddr,"alice", sampleDMLa)  .            
+   mkIrcClient-v2(ircaAddr, ifaceACAddr,"alice")  .
+eq ircaUserModel = mkIrcUMV2Actor(ircaUserModelAddr, "irc-test", ircaAddr) .
   
 **** TEST-PKG2 uses 2.0 3.5 5.4
 eq ifaceACAct =
    mkIrcByteSeqIface(ifaceACAddr,ircaAddr,
-                     cmacAddr,cmacAddr) .
+                     cmacAddr) .
 
 **** alice client rb endpoint
 eq umacAct = 
@@ -184,7 +199,7 @@ eq sdkacAct =
 ***  alice server endpoint
 eq ifaceASAct =
    mkIrcByteSeqIface(ifaceASAddr,ircSrvAddr,
-                     cmasAddr,cmasAddr) .
+                     cmasAddr) .
 
 eq umasAct = 
    mkUMactor(umasAddr,skyhook-um-mamodel-1-ma,cmasAddr) 
@@ -214,11 +229,12 @@ eq sdkasAct =
 *** bob
 ***** bob Irc 
 eq ircbAct =
-   mkIrcClient(ircbAddr, ifaceBCAddr,"bob", sampleDMLb)  .
+   mkIrcClient-v2(ircbAddr, ifaceBCAddr,"bob")  .
+eq ircbUserModel = mkIrcUMV2Actor(ircbUserModelAddr, "irc-test", ircbAddr) .
 
 eq ifaceBCAct =
    mkIrcByteSeqIface(ifaceBCAddr,ircbAddr,
-                     cmbcAddr,cmbcAddr) .
+                     cmbcAddr) .
 
 **** bob client rb endpoint
 eq umbcAct = 
@@ -248,7 +264,7 @@ eq sdkbcAct =
 ***  bob server endpoint
 eq ifaceBSAct =
    mkIrcByteSeqIface(ifaceBSAddr,ircSrvAddr,
-                     cmbsAddr,cmbsAddr) .
+                     cmbsAddr) .
 
 eq umbsAct = 
    mkUMactor(umbsAddr,skyhook-um-mamodel-1-ma,cmbsAddr) 
@@ -277,11 +293,12 @@ eq sdkbsAct =
 *** eve
 ***** eve Irc 
 eq irceAct =
-   mkIrcClient(irceAddr, ifaceECAddr,"eve", sampleDMLe)  .
+   mkIrcClient-v2(irceAddr, ifaceECAddr,"eve")  .
+eq irceUserModel = mkIrcUMV2Actor(irceUserModelAddr, "irc-test", irceAddr) .
 
 eq ifaceECAct =
    mkIrcByteSeqIface(ifaceECAddr,irceAddr,
-                     cmecAddr,cmecAddr) .
+                     cmecAddr) .
 
 **** eve client rb endpoint
 eq umecAct = 
@@ -311,7 +328,7 @@ eq sdkecAct =
 ***  eve server endpoint
 eq ifaceESAct =
    mkIrcByteSeqIface(ifaceESAddr,ircSrvAddr,
-                     cmesAddr,cmesAddr) .
+                     cmesAddr) .
 
 eq umesAct = 
    mkUMactor(umesAddr,skyhook-um-mamodel-1-ma,cmesAddr) 
@@ -352,8 +369,7 @@ eq ircSrvAct =
   .
 
 eq ircMonitorAct = 
-    makeIrcMonitor(ircMonitorAddr,
-               (ircSrvAddr ;; ircaAddr ;; ircbAddr ;; irceAddr)) .  
+    mkIrcMonitor(ircMonitorAddr) .  
 
  
 ***(
@@ -397,7 +413,7 @@ op initState1 : Nat -> Config .
 eq initState1(j ) =
       rCtr(j + 16)
  ******* alice 
-    ircaAct 
+    ircaAct ircaUserModel
  *** alice client endpoint
     ifaceACAct
     umacAct  cmacAct puaAct sdkacAct
@@ -406,7 +422,7 @@ eq initState1(j ) =
     umasAct  cmasAct ahaAct sdkasAct
 
  ******* bob
-    ircbAct 
+    ircbAct ircbUserModel
  **** bob client endpoint
     ifaceBCAct
     umbcAct  cmbcAct pubAct sdkbcAct
@@ -417,47 +433,15 @@ eq initState1(j ) =
     ircSrvAct s3SrvAct
     ircMonitorAct
    
- **** start messages  
- **** alice channel  
-   [1.0 + genRandomX(j,0.0, 0.0001),
-    (to umacAddr from umacAddr : actionR("ok")),0]
-   [1.0  + genRandomX(s s j,0.0, 0.0001),
-     (to umasAddr from umasAddr : actionR("ok")),0]
-
- **** bob channel   
-   [1.0 + genRandomX(j + 4,0.0, 0.0001),
-    (to umbcAddr from umbcAddr : actionR("ok")),0]
-   [1.0  + genRandomX(j + 6,0.0, 0.0001),
-    (to umbsAddr from umbsAddr : actionR("ok")),0]
-
  **** start ahAlice  
     [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
  **** start ahBob 
      [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
 
- **** start alice  first msg at 0.0
-   [0.25, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
- **** start bob first msg at 8.989
-   [0.33, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
-
- **** alice joins #room1,#room2 w cnx rb server side iface
-   [0.10, (to ircSrvAddr from ifaceASAddr : 
-         JoinChannel(makeIrcChannelName("#room1"),  
-                     ircaAddr)),
-      0]
-   [0.20, (to ircSrvAddr from ifaceASAddr : 
-         JoinChannel(makeIrcChannelName("#room2"), 
-                     ircaAddr)),
-      0]
- **** bob joins #room2, #room1 w cnx rb server  side iface
-   [0.15, (to ircSrvAddr from  ifaceBSAddr :
-        JoinChannel(makeIrcChannelName("#room2"), 
-                    ircbAddr)),
-      0]
-   [0.25, (to ircSrvAddr from  ifaceBSAddr :
-        JoinChannel(makeIrcChannelName("#room1"), 
-                    ircbAddr)),
-      0]
+ **** start alice
+   [0.1, to ircaUserModelAddr from ircaUserModelAddr : burstDelayTO, 0]
+ **** start bob
+   [0.2, to ircbUserModelAddr from ircbUserModelAddr : burstDelayTO, 0]
  .
  
  
@@ -465,7 +449,7 @@ op initState : Nat -> Config .
 eq initState(j ) =
      rCtr(j + 16)
 ******* alice 
-   ircaAct 
+   ircaAct ircaUserModel
 *** alice client endpoint
    ifaceACAct
    umacAct  cmacAct puaAct sdkacAct
@@ -474,7 +458,7 @@ eq initState(j ) =
    umasAct  cmasAct ahaAct sdkasAct
 
 ******* bob
-   ircbAct 
+   ircbAct ircbUserModel
 **** bob client endpoint
    ifaceBCAct
    umbcAct  cmbcAct pubAct sdkbcAct
@@ -483,11 +467,11 @@ eq initState(j ) =
    umbsAct  cmbsAct ahbAct sdkbsAct
    
 ******* eve
-   irceAct 
-**** bob client endpoint
+   irceAct irceUserModel
+**** eve client endpoint
    ifaceECAct
    umecAct  cmecAct pueAct sdkecAct
-***** bob server endpoint
+***** eve server endpoint
    ifaceESAct
    umesAct  cmesAct aheAct sdkesAct
 
@@ -495,63 +479,19 @@ eq initState(j ) =
    ircSrvAct s3SrvAct
    ircMonitorAct
    
-**** start messages  
-**** alice channel  
-  [1.0 + genRandomX(j,0.0, 0.0001),
-   (to umacAddr from umacAddr : actionR("ok")),0]
-  [1.0  + genRandomX(s s j,0.0, 0.0001),
-    (to umasAddr from umasAddr : actionR("ok")),0]
-
-**** bob channel   
-  [1.0 + genRandomX(j + 4,0.0, 0.0001),
-   (to umbcAddr from umbcAddr : actionR("ok")),0]
-  [1.0  + genRandomX(j + 6,0.0, 0.0001),
-   (to umbsAddr from umbsAddr : actionR("ok")),0]
-
-**** eve channel   
-  [1.0 + genRandomX(j + 8,0.0, 0.0001),
-   (to umecAddr from umecAddr : actionR("ok")),0]
-  [1.0  + genRandomX(j + 10,0.0, 0.0001),
-   (to umesAddr from umesAddr : actionR("ok")),0]
-
 **** start ahAlice  
     [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
 **** start ahBob 
     [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
-**** start ahEve first message
+**** start ahEve
     [0.003, (to aheAddr from aheAddr : SkyhookStartCmd), 0]
 
-**** start alice  first msg at 0.0
-  [0.25, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
-**** start bob first msg at 8.989
-  [0.33, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
-**** start eve first msg at 20.5
-  [0.39, (to irceAddr from irceAddr : ircMsgSendTime), 0]
-
-**** alice joins #room1,#room2 w cnx rb server side iface
-  [0.10, (to ircSrvAddr from ifaceASAddr : 
-        JoinChannel(makeIrcChannelName("#room1"),  
-                    ircaAddr)),
-     0]
-  [0.20, (to ircSrvAddr from ifaceASAddr : 
-        JoinChannel(makeIrcChannelName("#room2"), 
-                    ircaAddr)),
-     0]
-**** bob joins #room2, #room1 w cnx rb server  side iface
-  [0.15, (to ircSrvAddr from  ifaceBSAddr :
-       JoinChannel(makeIrcChannelName("#room2"), 
-                   ircbAddr)),
-     0]
-  [0.25, (to ircSrvAddr from  ifaceBSAddr :
-       JoinChannel(makeIrcChannelName("#room1"), 
-                   ircbAddr)),
-     0]
-
-**** eve joins #room2 w cnx rb server  side iface
-  [0.175, (to ircSrvAddr from  ifaceESAddr :
-       JoinChannel(makeIrcChannelName("#room2"), 
-                   irceAddr)),
-     0]
+**** start alice
+  [0.1, to ircaUserModelAddr from ircaUserModelAddr : burstDelayTO, 0]
+**** start bob
+  [0.2, to ircbUserModelAddr from ircbUserModelAddr : burstDelayTO, 0]
+**** start eve
+  [0.3, to irceUserModelAddr from irceUserModelAddr : burstDelayTO, 0]
 .
 
 

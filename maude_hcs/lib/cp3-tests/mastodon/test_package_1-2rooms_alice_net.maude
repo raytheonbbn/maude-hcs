@@ -49,11 +49,13 @@ sload ../../common/maude/http-overhead.maude
 sload ../../irc/common/irc_name
 sload ../../irc/common/irc-msg-model
 sload ../../irc/common/_aux
-sload ../../irc/irc_prob
+sload ../../irc/irc_prob-v2
+sload ../../irc/irc-mamodel-v2
+sload ../../common/maude/irc-action-actor-v2.maude
 
 ---- this should go in a scenario dir
 sload ../../common/maude/cp2-interfaces.maude
-sload ../../irc/irc_monitor.maude
+sload ../../irc/ircMonitor
 
 sload ../../network/net_prob.maude
 sload ../../network/tcp.maude
@@ -69,18 +71,27 @@ mod HCS_TEST is
  ---- raceboat model includes
  inc MASTODON-CLIENT-CONFIG-MASTODON-BIDI-MAMODEL .
  inc MASTODON-SERVER-CONFIG-MASTODON-BIDI-MAMODEL .
- inc SCHEDULER .
+  inc SCHEDULER .
 **** inc IRC-INTERFACE .   
- inc IRC .
- pr IRC-DISPATCHER-INTERFACE .
- inc IRC_MONITOR .
- pr TCP_SOCKET .
+  inc IRC-V2 .
+  inc IRC-MAMODEL-V2 .
+  inc IRC-USER-ACTION-ACTOR-V2 .
+  pr IRC-DISPATCHER-INTERFACE .
+  inc IRC_MONITOR .
+  pr TCP_SOCKET .
  
  
 vars j : Nat .
 
 eq encOH(fsize:Nat,ksize:Nat)  = 0 .
 eq noiseMin(msg:Msg) = 0.001 .
+
+***** Global constants  
+**** the user model database
+eq MAModelMap = ("irc-test" |-> irc-ma-v2 ) .
+
+*** for the default case
+eq noiseMax(msg:Msg) = 0.00001 .
 
 op ed-images : -> ByteSeqL .
 eq ed-images =
@@ -101,6 +112,7 @@ ops irccAddr : -> Address .
 **** addresses
 *** alice
 ops ircaAddr : -> Address .
+ops ircaUserModelAddr : -> Address .
 **** alice channel interfaces
 ops ifaceACAddr ifaceASAddr : -> Address .
 
@@ -114,6 +126,7 @@ ops aliceNetClientAddr  serverAliceNetClientAddr  : -> Address .
 
 *** bob
 ops ircbAddr : -> Address .
+ops ircbUserModelAddr : -> Address .
 **** bobs channel endpoint interfaces
 ops ifaceBCAddr ifaceBSAddr : -> Address .
 
@@ -137,6 +150,7 @@ ops masServerAliceNetServerAddr masServerBobNetServerAddr : -> Address .
 **** actors
 *** alice
 ops ircaAct : -> Actor .
+op ircaUserModel : -> Actor .
 ops ifaceACAct ifaceASAct : -> Actor .
 
 *** client endpoint
@@ -149,6 +163,7 @@ ops aliceNetClient  serverAliceNetClient  : -> Actor .
 
 *** bob
 ops ircbAct : -> Actor .
+op ircbUserModel : -> Actor .
 ops ifaceBCAct ifaceBSAct : -> Actor .
 
 *** client endpoint
@@ -169,19 +184,8 @@ ops masServerAliceNetServer masServerBobNetServer : -> Actor .
 
 ************** actor defns
 ***** aliceIrc
-**** TODO: Change this to match testbed.
-op room1DML : -> IrcMsgDelayList .
-eq room1DML =
-     imd( 0.000, "#room1", 279)
-  :: imd( 8.278, "#room1", 258)
-  :: imd(19.992, "#room1", 171)
-  :: imd(29.485, "#room1", 127)
-  :: imd(49.595, "#room1", 111)
-  :: imd(71.305, "#room1", 381)
-  :: imd(89.784, "#room1", 344)
-  :: imd(117.833, "#room1", 200)
-.
-eq ircaAct    = mkIrcClient(ircaAddr, ifaceACAddr, "alice", room1DML) .
+eq ircaAct    = mkIrcClient-v2(ircaAddr, ifaceACAddr, "alice") .
+eq ircaUserModel = mkIrcUMV2Actor(ircaUserModelAddr, "irc-test", ircaAddr) .
 eq ifaceACAct = mkIrcByteSeqIface(ifaceACAddr,
                                   ircaAddr,
                                   cmacAddr,
@@ -235,7 +239,8 @@ eq serverAliceNetClient = makeNetClient(serverAliceNetClientAddr,
 .
 ********************************
 *** bob
-eq ircbAct  = mkIrcClient(ircbAddr, ifaceBCAddr) .
+eq ircbAct  = mkIrcClient-v2(ircbAddr, ifaceBCAddr, "bob") .
+eq ircbUserModel = mkIrcUMV2Actor(ircbUserModelAddr, "irc-test", ircbAddr) .
 
 eq ifaceBCAct = mkIrcByteSeqIface(ifaceBCAddr,
                                   ircbAddr,
@@ -310,8 +315,7 @@ eq masServerBobNetServer    = makeNetServer(masServerBobNetServerAddr,
                                             serverBobNetClientAddr,
                                             masSrvAddr)
 .
-eq ircMonitorAct = makeIrcMonitor(ircMonitorAddr,
-                                  (ircSrvAddr ;; ircaAddr ;; ircbAddr))
+eq ircMonitorAct = makeIrcMonitor(ircMonitorAddr)
 .
 
 eq transport(any:Address) = tcp(any:Address) .
@@ -344,7 +348,7 @@ op initState : Nat -> Config .
 eq initState(j) =
   rCtr(j + 8)
 ******* alice 
-  ircaAct 
+  ircaAct ircaUserModel
 *** alice client endpoint
   ifaceACAct
   umacAct cmacAct mcacAct edacAct
@@ -355,7 +359,7 @@ eq initState(j) =
   aliceNetClient
   serverAliceNetClient 
 ******* bob
-  ircbAct 
+  ircbAct ircbUserModel
 **** bob client endpoint
   ifaceBCAct
   umbcAct cmbcAct mcbcAct edbcAct
@@ -376,41 +380,10 @@ eq initState(j) =
   masServerBobNetServer
    
    
-**** start messages  
-**** alice channel  
-  [1.0 + genRandomX(j,0.0, 0.0001),
-   (to umacAddr from umacAddr : actionR("ok")), 0]
-  [1.0  + genRandomX(s s j,0.0, 0.0001),
-    (to umasAddr from umasAddr : actionR("ok")), 0]
-
-**** bob channel   
-  [1.0 + genRandomX(j + 4,0.0, 0.0001),
-   (to umbcAddr from umbcAddr : actionR("ok")), 0]
-  [1.0  + genRandomX(j + 6,0.0, 0.0001),
-   (to umbsAddr from umbsAddr : actionR("ok")), 0]
-
 **** start alice
-  [0.25, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
+  [0.1, to ircaUserModelAddr from ircaUserModelAddr : burstDelayTO, 0]
 **** start bob
-  [0.33, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
-**** alice joins with cnx rb server send addr
-**** if sent by alice, it would come from rcv addr!!
-  [0.40,
-    (to ircSrvAddr from ifaceASAddr
-      : JoinChannel(makeIrcChannelName("#room1"), ircaAddr)),
-    0]
-  [0.45,
-    (to ircSrvAddr from ifaceASAddr
-      : JoinChannel(makeIrcChannelName("#room2"), ircaAddr)),
-    0]
-  [0.5,
-    (to ircSrvAddr from ifaceBSAddr
-      : JoinChannel(makeIrcChannelName("#room1"), ircbAddr)),
-    0]
-  [0.55,
-    (to ircSrvAddr from ifaceBSAddr
-      : JoinChannel(makeIrcChannelName("#room2"), ircbAddr)),
-    0]
+  [0.2, to ircbUserModelAddr from ircbUserModelAddr : burstDelayTO, 0]
 .
 
 op slimit : -> Float .

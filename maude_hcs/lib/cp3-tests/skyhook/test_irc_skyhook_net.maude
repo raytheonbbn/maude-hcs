@@ -85,11 +85,13 @@ sload skyhook-um-mamodel-1
 sload ../../irc/common/irc_name
 sload ../../irc/common/irc-msg-model
 sload ../../irc/common/_aux
-sload ../../irc/irc_prob
+sload ../../irc/irc_prob-v2
+sload ../../irc/irc-mamodel-v2
+sload ../../common/maude/irc-action-actor-v2.maude
 
 ---- this should go in a scenario dir
-sload ../../common/maude/cp2-interfaces.maude
-sload ../../irc/irc_monitor
+sload ../../irc/irc-byteseq-interface
+sload ../../irc/ircMonitor
 
 ------ raceboat 4 skyhook
 sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
@@ -105,8 +107,10 @@ mod IRC-RB-SKYHOOK-SCENARIO is
   inc SCHEDULER .
   inc USER-ACTION-ACTOR .
   inc SKYHOOK-UM-MAMODEL-1 .
-  inc IRC .
-  pr IRC-DISPATCHER-INTERFACE .
+  inc IRC-V2 .
+  inc IRC-MAMODEL-V2 .
+  inc IRC-USER-ACTION-ACTOR-V2 .
+  pr IRC-BYTESEQ-INTERFACE .
   inc CONTENT-MANAGER-SIMPLE-BI .
   inc SKYHOOK .
   inc S3_PROTOCOL .
@@ -120,9 +124,17 @@ vars j : Nat .
 eq encOH(fsize:Nat,ksize:Nat)  = 0 .
 eq noiseMin(msg:Msg) = 0.001 .
 
+***** Global constants  
+**** the user model database
+eq MAModelMap = ("irc-test" |-> irc-ma-v2 ) .
+
+*** for the default case
+eq noiseMax(msg:Msg) = 0.00001 .
+
 **** addresses
 *** alice
 ops aliceAddr ircaAddr : -> Address .
+ops ircaUserModelAddr : -> Address .
 **** alice channel endpoint interfaces
 ops ifaceACAddr ifaceASAddr : -> Address .
 
@@ -136,6 +148,7 @@ ops aliceNetClientAddr  serverAliceNetClientAddr  : -> Address .
 
 *** bob
 ops bobAddr ircbAddr : -> Address .
+ops ircbUserModelAddr : -> Address .
 **** bobs channel endpoint interfaces
 ops ifaceBCAddr ifaceBSAddr : -> Address .
 
@@ -160,6 +173,7 @@ ops s3ServerAliceNetServerAddr s3ServerBobNetServerAddr : -> Address .
 **** actors
 *** alice
 op ircaAct : -> Actor .
+op ircaUserModel : -> Actor .
 ops ifaceACAct ifaceASAct : -> Actor .
 
 *** client endpoint ac
@@ -172,6 +186,7 @@ ops aliceNetClient  serverAliceNetClient  : -> Actor .
 
 *** bob
 op ircbAct : -> Actor .
+op ircbUserModel : -> Actor .
 ops ifaceBCAct ifaceBSAct : -> Actor .
 
 *** client endpoint  ..bc.. 
@@ -191,25 +206,15 @@ ops s3AliceNetServer s3BobNetServer             : -> Actor .
 ops s3ServerAliceNetServer s3ServerBobNetServer : -> Actor .
 
 ************** actor defns
-**** TODO: Change this to match testbed.
-op room1DML : -> IrcMsgDelayList .
-eq room1DML =
-  imd( 0.000,"#room1",279) ::
-  imd( 8.989,"#room1",258) ::
-  imd(38.913,"#room1",171) ::
-  imd(58.978,"#room1",127) ::
-  imd(68.549,"#room1",111) ::
-  imd(119.482,"#room1",381)
-.
-
 ***** aliceIrc
 eq ircaAct =
-  mkIrcClient(ircaAddr, ifaceACAddr, "alice", room1DML) .
+  mkIrcClient-v2(ircaAddr, ifaceACAddr, "alice") .
+eq ircaUserModel = mkIrcUMV2Actor(ircaUserModelAddr, "irc-test", ircaAddr) .
   
 **** TEST-PKG2 uses 2.0 3.5 5.4
 eq ifaceACAct =
    mkIrcByteSeqIface(ifaceACAddr,ircaAddr,
-                     cmacAddr,cmacAddr) .
+                     cmacAddr) .
 
 **** alice client rb endpoint
 eq umacAct = 
@@ -237,7 +242,7 @@ eq sdkacAct = makeS3Client(sdkacAddr, s3SrvAddr) .
 ***  alice server endpoint
 eq ifaceASAct =
    mkIrcByteSeqIface(ifaceASAddr,ircSrvAddr,
-                     cmasAddr,cmasAddr) .
+                     cmasAddr) .
 
 eq umasAct = 
    mkUMactor(umasAddr,skyhook-um-mamodel-1-ma,cmasAddr) 
@@ -276,11 +281,12 @@ eq serverAliceNetClient = makeNetClient(serverAliceNetClientAddr,
 ********************************
 *** bob
 ***** bob Irc 
-eq ircbAct = mkIrcClient(ircbAddr, ifaceBCAddr) .
+eq ircbAct = mkIrcClient-v2(ircbAddr, ifaceBCAddr, "bob") .
+eq ircbUserModel = mkIrcUMV2Actor(ircbUserModelAddr, "irc-test", ircbAddr) .
 
 eq ifaceBCAct =
    mkIrcByteSeqIface(ifaceBCAddr,ircbAddr,
-                     cmbcAddr,cmbcAddr) .
+                     cmbcAddr) .
 
 **** bob client rb endpoint
 eq umbcAct = 
@@ -319,7 +325,7 @@ eq serverBobNetClient = makeNetClient(serverBobNetClientAddr,
 ***  alice server endpoint
 eq ifaceBSAct =
    mkIrcByteSeqIface(ifaceBSAddr,ircSrvAddr,
-                     cmbsAddr,cmbsAddr) .
+                     cmbsAddr) .
 
 eq umbsAct = 
    mkUMactor(umbsAddr,skyhook-um-mamodel-1-ma,cmbsAddr) 
@@ -373,8 +379,7 @@ eq ircSrvAct =
   .
 
 eq ircMonitorAct = 
-    makeIrcMonitor(ircMonitorAddr,
-                  (ircSrvAddr ;; ircaAddr ;; ircbAddr)) .  
+    mkIrcMonitor(ircMonitorAddr) .  
                 
 ------------ end actors               
 
@@ -411,7 +416,7 @@ op initState : Nat -> Config .
 eq initState(j ) =
   rCtr(j + 8)
 ******* alice 
-  ircaAct 
+  ircaAct ircaUserModel
 *** alice client endpoint
   ifaceACAct
   umacAct cmacAct
@@ -427,7 +432,7 @@ eq initState(j ) =
   serverAliceNetClient 
 
 ******* bob
-  ircbAct 
+  ircbAct ircbUserModel
 **** bob client endpoint
   ifaceBCAct
   umbcAct cmbcAct
@@ -451,36 +456,15 @@ eq initState(j ) =
   s3ServerAliceNetServer
   s3ServerBobNetServer
    
-**** start messages  
-**** alice channel  
-  [1.0 + genRandomX(j,0.0, 0.0001),
-   (to umacAddr from umacAddr : actionR("ok")),0]
-  [1.0  + genRandomX(s s j,0.0, 0.0001),
-    (to umasAddr from umasAddr : actionR("ok")),0]
-
-**** bob channel   
-  [1.0 + genRandomX(j + 4,0.0, 0.0001),
-   (to umbcAddr from umbcAddr : actionR("ok")),0]
-  [1.0  + genRandomX(j + 6,0.0, 0.0001),
-   (to umbsAddr from umbsAddr : actionR("ok")),0]
-
 **** start ahAlice
     [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
 **** start ahBob
     [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
 
 **** start alice
-  [0.25, (to ircaAddr from ircaAddr : ircMsgSendTime), 0]
+  [0.1, to ircaUserModelAddr from ircaUserModelAddr : burstDelayTO, 0]
 **** start bob
-  [0.33, (to ircbAddr from ircbAddr : ircMsgSendTime), 0]
-**** alice joins with cnx rb server send addr
-**** if sent by alice, it would come from rcv addr!!
-  [0.40, (to ircSrvAddr from ifaceASAddr : 
-        JoinChannel(makeIrcChannelName("#room1"), ircaAddr)),
-     0]
-  [0.5, (to ircSrvAddr from ifaceBSAddr :
-       JoinChannel(makeIrcChannelName("#room1"), ircbAddr)),
-     0]
+  [0.2, to ircbUserModelAddr from ircbUserModelAddr : burstDelayTO, 0]
 .
 
 op slimit : -> Float .

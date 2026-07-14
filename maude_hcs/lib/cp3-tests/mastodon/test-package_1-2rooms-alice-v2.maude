@@ -50,8 +50,8 @@ sload ../../common/maude/http-overhead.maude
 sload ../../irc/common/irc_name
 sload ../../irc/common/irc-msg-model
 sload ../../irc/common/_aux
-sload ../../irc/irc_prob.maude
-sload ../../irc/irc_monitor.maude
+sload ../../irc/irc_prob-v2
+sload ../../irc/ircMonitor
 sload ../../common/maude/irc-action-actor-v2.maude
 sload ./irc-mamodel-v2.maude
 
@@ -70,7 +70,7 @@ mod RB-BIDIR-MAS-IRC-SCENARIO is
   inc MASTODON-SERVER-CONFIG-MASTODON-BIDI-MAMODEL .
   inc SCHEDULER .
 **** inc IRC-INTERFACE .   
-  inc IRC .
+  inc IRC-V2 .
   inc IRC-MAMODEL-V2 .
   inc IRC-USER-ACTION-ACTOR-V2 .
   inc IRC-DISPATCHER-INTERFACE .
@@ -157,7 +157,7 @@ ops ircMonitorAct : -> Actor .
 
 ************** actor defns
 ***** aliceIrc
-eq ircaAct = mkIrcClient(ircaAddr, ifaceACAddr, "alice") .
+eq ircaAct = mkIrcClient-v2(ircaAddr, ifaceACAddr, "alice") .
 eq ircaUserModel = mkIrcUMV2Actor(ircaUserModelAddr, "irc-test", ircaAddr) .
   
 eq ifaceACAct = mkIrcByteSeqIface(ifaceACAddr,
@@ -220,7 +220,7 @@ eq edasAct = makeDestiniActor(edasAddr, ed-images) .
 
 ********************************
 *** bob
-eq ircbAct = mkIrcClient(ircbAddr, ifaceBCAddr, "bob") .
+eq ircbAct = mkIrcClient-v2(ircbAddr, ifaceBCAddr, "bob") .
 eq ircbUserModel = mkIrcUMV2Actor(ircbUserModelAddr, "irc-test", ircbAddr) .
 
 eq ifaceBCAct = mkIrcByteSeqIface(ifaceBCAddr,
@@ -294,8 +294,7 @@ eq ircSrvAct =
   .
 
 eq ircMonitorAct = 
-    makeIrcMonitor(ircMonitorAddr,
-                   (ircSrvAddr ;; ircaAddr ;; ircbAddr)) .   
+    mkIrcMonitor(ircMonitorAddr) .   
 
 
 op LinkType-2 : -> AttributeSet .
@@ -363,31 +362,10 @@ eq initState(j) =
    ircSrvAct masSrvAct 
    ircMonitorAct
    
-**** start messages  
-**** alice channel  
-  [1.0 + genRandomX(j,0.0, 0.0001),
-   (to umacSndAddr from umacSndAddr : actionR("ok")),0]
-  [1.0 + genRandomX(s j,0.0, 0.0001),
-    (to umacRcvAddr from umacRcvAddr : actionR("ok")),0]
-  [1.0  + genRandomX(s s j,0.0, 0.0001),
-    (to umasSndAddr from umasSndAddr : actionR("ok")),0]
-  [1.0  + genRandomX(s s s j,0.0, 0.0001),
-   (to umasRcvAddr from umasRcvAddr : actionR("ok")),0]
-
-**** bob channel   
-  [1.0 + genRandomX(j + 4,0.0, 0.0001),
-   (to umbcSndAddr from umbcSndAddr : actionR("ok")),0]
-  [1.0 + genRandomX(j + 5,0.0, 0.0001),
-   (to umbcRcvAddr from umbcRcvAddr : actionR("ok")),0]
-  [1.0  + genRandomX(j + 6,0.0, 0.0001),
-   (to umbsSndAddr from umbsSndAddr : actionR("ok")),0]
-  [1.0  + genRandomX(j + 7,0.0, 0.0001),
-   (to umbsRcvAddr from umbsRcvAddr : actionR("ok")),0]
-
 **** start alice
-  [0.1, (to ircaUserModelAddr from ircaUserModelAddr : burstDelayTO), 0]
+  [0.1, to ircaUserModelAddr from ircaUserModelAddr : burstDelayTO, 0]
 **** start bob
-  [0.2, (to ircbUserModelAddr from ircbUserModelAddr : burstDelayTO), 0]
+  [0.2, to ircbUserModelAddr from ircbUserModelAddr : burstDelayTO, 0]
 **** alice joins with cnx rb server send addr
 **** if sent by alice, it would come from rcv addr!!
 .
