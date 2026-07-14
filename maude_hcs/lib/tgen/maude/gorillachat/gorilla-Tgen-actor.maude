@@ -1,0 +1,223 @@
+--- Gorilla Chat Tgen Actor
+---
+--- Translates UM-V2 actionQ commands into gorilla chat protocol
+--- messages. Modeled after the MinIO tgen actor pattern.
+---
+--- Actions handled:
+---   set_room_numbers : store room name -> number mappings (local)
+---   select_room      : pick a room number, update curRoom (local)
+---   wait             : schedule delayed actionR("ok") with sleep duration
+---   roommsg          : send chatSend to server, wait for chatSendAck
+---
+
+sload ../../../common/maude/sampler-x
+sload ../../../common/maude/cp2-interfaces
+sload ../../../common/maude/delay-drop-x
+sload ../../../common/maude/_aux
+sload ./gorilla-protocol.maude
+
+mod GORILLACHAT-TGEN is
+  inc CP2-COMMON .
+  inc CP2_SORTS .
+  inc SAMPLER-X .
+  inc DELAY-X .
+  inc GORILLACHAT-PROTOCOL .
+  inc TGEN-INTERFACE .
+
+  --- =========================================================
+  --- Task sorts for tracking what we're waiting for
+  --- =========================================================
+  sort GChatTask .
+  op noGChatTask : -> GChatTask [ctor] .
+  op waitChatSendAck : -> GChatTask [ctor] .
+
+  --- =========================================================
+  --- Actor type and attributes
+  --- Uses gcW4 instead of w4 to avoid attribute name collision
+  --- with the base UM-V2 machinery.
+  --- =========================================================
+  op GorillaChatTgen : -> ActorType .
+
+  op serverAddr:_ : Address -> Attribute [ctor] .
+  op curRoom:_    : String -> Attribute [ctor] .
+  op roomMap:_    : Map{String,JV} -> Attribute [ctor] .
+  op gcW4:_       : GChatTask -> Attribute [ctor] .
+  op replyTo:_    : Config -> Attribute [ctor] .
+  op reqId:_      : Nat -> Attribute [ctor] .
+
+  --- =========================================================
+  --- Variables
+  --- =========================================================
+  vars dAddr umAddr srvAddr : Address .
+  vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+  vars msg msg0 msg1 : Msg .
+  vars msgs msgs0 smsgs : Config .
+  vars rj rj1 j j1 reqId reqId0 : Nat .
+  vars T sleepTime fl : Float .
+  vars ract rooms oldRoomMap : Map{String,JV} .
+  vars room curRoomName : String .
+  vars task : GChatTask .
+  vars ac : Content .
+  vars roomChoice msgLen : Nat .
+  vars newRoom : String .
+
+  --- =========================================================
+  --- Constructor
+  --- =========================================================
+  op mkGorillaChatTgenA : Address Address -> Actor .
+  eq mkGorillaChatTgenA(dAddr, srvAddr) =
+    < dAddr : GorillaChatTgen |
+      serverAddr: srvAddr,
+      curRoom: "#tgen_random",
+      roomMap: empty,
+      gcW4: noGChatTask,
+      replyTo: null,
+      reqId: 0
+    > .
+
+  --- =========================================================
+  --- Receive actionQ from UM-V2 and dispatch
+  --- =========================================================
+  crl [rcvGCAction]:
+    rCtr(rj)
+    {T, (to dAddr from umAddr : actionQ(ract))}
+    < dAddr : GorillaChatTgen | attrs, gcW4: noGChatTask, replyTo: null,
+                                serverAddr: srvAddr, reqId: reqId >
+  =>
+    rCtr(rj1)
+    < dAddr : GorillaChatTgen | attrs1 >
+    smsgs
+  if {attrs1, smsgs, rj1} :=
+       dispatchGCAction((attrs, gcW4: noGChatTask,
+                         replyTo: (to dAddr from umAddr : actionQ(ract)),
+                         serverAddr: srvAddr, reqId: s reqId),
+                        ract, dAddr, srvAddr, rj)
+  [print "(" T ") GorillaChatTgen " dAddr " rcvGCAction " ract] .
+
+  --- =========================================================
+  --- Dispatch action based on type string
+  --- =========================================================
+  op dispatchGCAction : AttributeSet Map{String,JV} Address Address Nat
+                        -> AttributeSetMsgsNat .
+
+  --- set_room_numbers: store room mappings locally, immediate ok
+  ceq dispatchGCAction((attrs, replyTo: (to dAddr from umAddr : ac),
+                        roomMap: oldRoomMap, gcW4: task),
+                       ract, dAddr, srvAddr, rj) =
+    { (attrs, replyTo: null, roomMap: rooms, gcW4: noGChatTask),
+      smsgs, j1 }
+  if js("set_room_numbers") := ract["type"]
+  /\ jo(rooms) := ract["rooms"]
+  /\ msg := (to umAddr from dAddr : actionR("ok"))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [print "  GorillaChatTgen set_room_numbers: " rooms] .
+
+  --- select_room: pick room by number, update curRoom, immediate ok
+  --- Handle jf(Float) choice (from realized random params)
+  ceq dispatchGCAction((attrs, replyTo: (to dAddr from umAddr : ac),
+                        roomMap: rooms, curRoom: curRoomName, gcW4: task),
+                       ract, dAddr, srvAddr, rj) =
+    { (attrs, replyTo: null, roomMap: rooms,
+       curRoom: newRoom,
+       gcW4: noGChatTask),
+      smsgs, j1 }
+  if js("select_room") := ract["type"]
+  /\ jf(fl) := ract["choice"]
+  /\ roomChoice := round(fl)
+  /\ newRoom := roomNameByIndex(rooms, roomChoice)
+  /\ msg := (to umAddr from dAddr : actionR("ok"))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [print "  GorillaChatTgen select_room: picked room #" roomChoice " -> " newRoom] .
+
+  --- select_room: handle jn(Nat) choice (from positive_int domain)
+  ceq dispatchGCAction((attrs, replyTo: (to dAddr from umAddr : ac),
+                        roomMap: rooms, curRoom: curRoomName, gcW4: task),
+                       ract, dAddr, srvAddr, rj) =
+    { (attrs, replyTo: null, roomMap: rooms,
+       curRoom: newRoom,
+       gcW4: noGChatTask),
+      smsgs, j1 }
+  if js("select_room") := ract["type"]
+  /\ jn(roomChoice) := ract["choice"]
+  /\ newRoom := roomNameByIndex(rooms, roomChoice)
+  /\ msg := (to umAddr from dAddr : actionR("ok"))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [print "  GorillaChatTgen select_room: picked room #" roomChoice " -> " newRoom] .
+
+  --- wait: schedule delayed actionR("ok") using the sleep duration
+  ceq dispatchGCAction((attrs, replyTo: (to dAddr from umAddr : ac),
+                        gcW4: task),
+                       ract, dAddr, srvAddr, rj) =
+    { (attrs, replyTo: null, gcW4: noGChatTask),
+      [sleepTime, msg, 0], rj }
+  if js("wait") := ract["type"]
+  /\ jf(sleepTime) := ract["sleep"]
+  /\ msg := (to umAddr from dAddr : actionR("ok"))
+  [print "  GorillaChatTgen wait: sleeping for " sleepTime " seconds"] .
+
+  --- roommsg: send chatSend to server, wait for chatSendAck
+  ceq dispatchGCAction((attrs, replyTo: (to dAddr from umAddr : ac),
+                        curRoom: curRoomName, gcW4: task, reqId: reqId),
+                       ract, dAddr, srvAddr, rj) =
+    { (attrs, replyTo: (to dAddr from umAddr : ac),
+       curRoom: curRoomName,
+       gcW4: waitChatSendAck, reqId: reqId),
+      smsgs, j1 }
+  if js("roommsg") := ract["type"]
+  /\ jf(fl) := ract["message_length_bytes"]
+  /\ msgLen := round(fl)
+  /\ msg := (to srvAddr from dAddr : chatSend(curRoomName, msgLen))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [print "  GorillaChatTgen roommsg: sending " msgLen " bytes to room " curRoomName] .
+
+  --- Fallback: unknown action -> immediate actionR("ok")
+  ceq dispatchGCAction((attrs, replyTo: (to dAddr from umAddr : ac),
+                        gcW4: task),
+                       ract, dAddr, srvAddr, rj) =
+    { (attrs, replyTo: null, gcW4: noGChatTask),
+      smsgs, j1 }
+  if msg := (to umAddr from dAddr : actionR("ok"))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [owise print "  GorillaChatTgen fallback: unknown action, returning ok"] .
+
+  --- =========================================================
+  --- Handle server responses
+  --- =========================================================
+
+  --- chatSendAck: server acknowledged our send -> reply ok to UM
+  crl [rcvChatSendAck]:
+    rCtr(rj)
+    {T, (to dAddr from srvAddr : chatSendAck)}
+    < dAddr : GorillaChatTgen | gcW4: waitChatSendAck,
+                                replyTo: (to dAddr from umAddr : ac),
+                                serverAddr: srvAddr, attrs >
+  =>
+    rCtr(j1)
+    < dAddr : GorillaChatTgen | gcW4: noGChatTask,
+                                replyTo: null,
+                                serverAddr: srvAddr, attrs >
+    smsgs
+  if msg := (to umAddr from dAddr : actionR("ok"))
+  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  [print "(" T ") GorillaChatTgen " dAddr " rcvChatSendAck -> actionR(ok)"] .
+
+  --- chatBroadcast: absorb broadcast messages (no UM interaction needed)
+  rl [rcvBroadcast]:
+    {T, (to dAddr from srvAddr : chatBroadcast(room, umAddr, msgLen))}
+    < dAddr : GorillaChatTgen | attrs >
+  =>
+    < dAddr : GorillaChatTgen | attrs >
+  [print "(" T ") GorillaChatTgen " dAddr " rcvBroadcast from " umAddr " in " room " (len=" msgLen ")"] .
+
+  --- =========================================================
+  --- Helper: look up room name by index in the roomMap
+  --- The roomMap stores (roomName |-> jn(index)), so we find
+  --- the entry whose value matches the requested index.
+  --- =========================================================
+  op roomNameByIndex : Map{String,JV} Nat -> String .
+  eq roomNameByIndex((room |-> jn(roomChoice), rooms), roomChoice) =
+    room .
+  eq roomNameByIndex(rooms, roomChoice) =
+    "#unknown" [owise] .
+
+endm

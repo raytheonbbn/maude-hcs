@@ -1,0 +1,96 @@
+--- Gorilla Chat TGEN V2 TEST
+---
+--- Tests the UM-V2 user model driving the gorilla chat tgen actor
+--- with the v2 two-level Markov model.
+--- Uses a simple broadcast chat server.
+---
+--- 2 clients send messages through the gorilla chat server which
+--- broadcasts to all connected clients.
+---
+
+set show advisories off .
+
+sload ./gorilla-mamodel-v2.maude
+sload ../../../common/maude/tgen-action-actor-v2.maude
+sload ./gorilla-Tgen-actor.maude
+
+mod GORILLA-TGEN-V2-TEST is
+  inc GORILLA-CONFIG-MAMODEL-V2 .
+  inc USER-ACTION-ACTOR-V2 .
+  inc GORILLACHAT-TGEN .
+
+  --- =========================================================
+  --- Global constants
+  --- =========================================================
+
+  --- The user model database: map model name to MAModel-v2
+  eq MAModelMap = ("gorilla" |-> gorilla-config-ma-v2) .
+
+  --- Override default model timeout — the gorilla chat idle states
+  --- have 300-900s mean sleep, so the default 1000s is too low.
+  eq defaultModelTimeOut = 100000.0 .
+
+  --- Override model steps for testing (keep small to limit output)
+  eq defaultModelSteps = 20 .
+
+  --- Minimal delay and noise for testing
+  eq defaultDelay = 0.001 .
+  eq noiseMax(msg:Msg) = 0.00001 .
+
+  --- =========================================================
+  --- Actor addresses
+  --- =========================================================
+  ops um1Addr um2Addr : -> Address .       --- UM-V2 user models
+  ops tgen1Addr tgen2Addr : -> Address .   --- GorillaChatTgen actors
+  op  serverAddr : -> Address .            --- GorillaChatServer
+
+  --- =========================================================
+  --- UM-V2 Actors: drive the gorilla chat tgens with Markov model
+  --- =========================================================
+  op um1Act : -> Actor .
+  eq um1Act = mkTgenUMV2Actor(um1Addr, "gorilla", tgen1Addr) .
+
+  op um2Act : -> Actor .
+  eq um2Act = mkTgenUMV2Actor(um2Addr, "gorilla", tgen2Addr) .
+
+  --- =========================================================
+  --- Gorilla Chat Tgen Actors: translate actions to chat protocol
+  --- =========================================================
+  op tgen1A : -> Actor .
+  eq tgen1A = mkGorillaChatTgenA(tgen1Addr, serverAddr) .
+
+  op tgen2A : -> Actor .
+  eq tgen2A = mkGorillaChatTgenA(tgen2Addr, serverAddr) .
+
+  --- =========================================================
+  --- Gorilla Chat Server: broadcasts messages between clients
+  --- Pre-register both tgen addresses as connected clients
+  --- =========================================================
+  op serverA : -> Actor .
+  eq serverA = mkGorillaChatServer(serverAddr,
+                 (tgen1Addr addr tgen2Addr)) .
+
+  --- =========================================================
+  --- Initial configuration
+  --- =========================================================
+  op iS : Nat -> Config .
+  eq iS(j:Nat) =
+    rCtr(j:Nat)
+    um1Act
+    um2Act
+    tgen1A
+    tgen2A
+    serverA
+    --- Kickoff: trigger both UM-V2 actors to start executing
+    [0.1, to um1Addr from um1Addr : burstDelayTO, 0]
+    [0.2, to um2Addr from um2Addr : burstDelayTO, 0]
+    .
+
+endm
+
+set print attribute on .
+
+***eof
+
+--- Basic test: run 2 gorilla chat clients for up to 100000 time units
+rew [5000] run({0.0 | nil} iS(1), 100.0) .
