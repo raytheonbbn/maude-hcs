@@ -70,15 +70,16 @@ sload skyhook-um-mamodel-1
 **** sload ../../../common/maude/http-overhead.maude
 
 ---- irc 
-sload ../../irc/irc_prob.maude
+sload ../../irc/irc_prob-v2
+sload ../../irc/irc-mamodel-v2
 sload ../../irc/common/irc-msg-model
 sload ../../irc/common/_aux
 sload ../../common/maude/irc-action-actor-v2.maude
 sload ./irc-mamodel-v2.maude
 
 ---- this should go in a scenario dir
-sload ../../common/maude/cp2-interfaces.maude
-sload ../../irc/irc_monitor.maude
+sload ../../irc/irc-byteseq-interface
+sload ../../irc/ircMonitor
 
 ------ raceboat 4 skyhook
 sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
@@ -93,10 +94,10 @@ mod IRC-RB-SKYHOOK-SCENARIO is
   inc SCHEDULER .
   inc USER-ACTION-ACTOR .
   inc SKYHOOK-UM-MAMODEL-1 .
-  inc IRC .
+  inc IRC-V2 .
   inc IRC-MAMODEL-V2 .
   inc IRC-USER-ACTION-ACTOR-V2 .
-  inc IRC-DISPATCHER-INTERFACE .
+  inc IRC-BYTESEQ-INTERFACE .
   inc CONTENT-MANAGER-SIMPLE-BI .
   inc SKYHOOK .
   inc S3_PROTOCOL .
@@ -164,13 +165,13 @@ op ircMonitorAct : -> Actor .
 
 ************** actor defns
 ***** aliceIrc
-eq ircaAct = mkIrcClient(ircaAddr, ifaceACAddr, "alice") .
+eq ircaAct = mkIrcClient-v2(ircaAddr, ifaceACAddr, "alice") .
 eq ircaUserModel = mkIrcUMV2Actor(ircaUserModelAddr, "irc-test", ircaAddr) .
   
 **** TEST-PKG2 uses 2.0 3.5 5.4
 eq ifaceACAct =
    mkIrcByteSeqIface(ifaceACAddr,ircaAddr,
-                     cmacAddr,cmacAddr) .
+                     cmacAddr) .
 
 **** alice client rb endpoint
 eq umacAct = 
@@ -201,7 +202,7 @@ eq sdkacAct =
 ***  alice server endpoint
 eq ifaceASAct =
    mkIrcByteSeqIface(ifaceASAddr,ircSrvAddr,
-                     cmasAddr,cmasAddr) .
+                     cmasAddr) .
 
 eq umasAct = 
    mkUMactor(umasAddr,skyhook-um-mamodel-1-ma,cmasAddr) 
@@ -230,12 +231,12 @@ eq sdkasAct =
 ********************************
 *** bob
 ***** bob Irc 
-eq ircbAct = mkIrcClient(ircbAddr, ifaceBCAddr, "bob") .
+eq ircbAct = mkIrcClient-v2(ircbAddr, ifaceBCAddr, "bob") .
 eq ircbUserModel = mkIrcUMV2Actor(ircbUserModelAddr, "irc-test", ircbAddr) .
 
 eq ifaceBCAct =
    mkIrcByteSeqIface(ifaceBCAddr,ircbAddr,
-                     cmbcAddr,cmbcAddr) .
+                     cmbcAddr) .
 
 **** bob client rb endpoint
 eq umbcAct = 
@@ -265,7 +266,7 @@ eq sdkbcAct =
 ***  alice server endpoint
 eq ifaceBSAct =
    mkIrcByteSeqIface(ifaceBSAddr,ircSrvAddr,
-                     cmbsAddr,cmbsAddr) .
+                     cmbsAddr) .
 
 eq umbsAct = 
    mkUMactor(umbsAddr,skyhook-um-mamodel-1-ma,cmbsAddr) 
@@ -299,8 +300,7 @@ eq s3SrvAct  = < s3SrvAddr : AwsS3HttpServer |
 eq ircSrvAct = mkIrcServer(ircSrvAddr) .
 
 eq ircMonitorAct = 
-    makeIrcMonitor(ircMonitorAddr,
-                  (ircSrvAddr ;; ircaAddr ;; ircbAddr)) .  
+    mkIrcMonitor(ircMonitorAddr) .
                 
 ------------ end actors               
 
@@ -358,19 +358,6 @@ eq initState(j) =
    ircSrvAct s3SrvAct
    ircMonitorAct
    
-**** start messages  
-**** alice channel  
-  [1.0 + genRandomX(j,0.0, 0.0001),
-   (to umacAddr from umacAddr : actionR("ok")),0]
-  [1.0  + genRandomX(s s j,0.0, 0.0001),
-    (to umasAddr from umasAddr : actionR("ok")),0]
-
-**** bob channel   
-  [1.0 + genRandomX(j + 4,0.0, 0.0001),
-   (to umbcAddr from umbcAddr : actionR("ok")),0]
-  [1.0  + genRandomX(j + 6,0.0, 0.0001),
-   (to umbsAddr from umbsAddr : actionR("ok")),0]
-
 **** start ahAlice
   [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
 **** start ahBob

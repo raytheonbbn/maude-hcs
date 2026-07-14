@@ -31,12 +31,12 @@
 sload ../../irc/common/irc_name
 sload ../../irc/common/_aux
 sload ../../irc/common/app_chat
-sload ../../irc/irc_monitor
+sload ../../irc/ircMonitor
 sload ../../irc/_irc_aux
-sload ../../irc/irc_prob
-sload ../../cp3-tests/skyhook/irc-mamodel-v2.maude
+sload ../../irc/irc_prob-v2
+sload ../../irc/irc-mamodel-v2
 sload ../../common/maude/irc-action-actor-v2.maude
-sload ../../common/maude/cp2-interfaces
+sload ../../irc/irc-byteseq-interface
 sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
 sload ../../obfs4/_obfs4_aux.maude
 sload ../../obfs4/obfs4_prob.maude
@@ -46,16 +46,16 @@ mod OBFS4_TESTS is
   pr APP_CHATS .
   pr IRC_NODE .
   pr IRC_MONITOR .
-  pr IRC .
+  pr IRC-V2 .
   pr IRC-MAMODEL-V2 .
   pr IRC-USER-ACTION-ACTOR-V2 .
   pr OBFS4 .
   pr SCHEDULER .
-  pr IRC-DISPATCHER-INTERFACE .
+  pr IRC-BYTESEQ-INTERFACE .
 
   ***** Global constants  
   **** the user model database
-  eq MAModelMap = ("irc-test" |-> irc-ma-v2 ) .
+  eq MAModelMap = ("irc-test" |-> irc-mamodel-v2 ) .
 
   *** for the default case
   eq noiseMax(msg:Msg) = 0.00001 .
@@ -72,22 +72,22 @@ mod OBFS4_TESTS is
   ops obfs4AliceServer obfs4BobServer ircServer : -> Actor .
   ops aliceIface bobIface aliceServerIface bobServerIface : -> Actor .
 
-  eq aliceIrcClient = mkIrcClient(aliceIrcClientAddr,
-                                  aliceIfaceAddr,
-                                  "Alice")
+  eq aliceIrcClient = mkIrcClient-v2(aliceIrcClientAddr,
+                                     aliceIfaceAddr,
+                                     "Alice")
   .
   eq aliceIrcUserModel = mkIrcUMV2Actor(aliceIrcUserModelAddr,
                                         "irc-test",
                                         aliceIrcClientAddr)
   .
-  eq aliceIface = mkIrcByteSeqIface(aliceIfaceAddr, aliceIrcClientAddr, aliceObfs4ClientAddr, aliceObfs4ClientAddr) .
+  eq aliceIface = mkIrcByteSeqIface(aliceIfaceAddr, aliceIrcClientAddr, aliceObfs4ClientAddr) .
   eq aliceObfs4Client = makeObfs4Node(aliceObfs4ClientAddr, aliceIfaceAddr, obfs4AliceServerAddr) .
 
 
 
-  eq bobIrcClient = mkIrcClient(bobIrcClientAddr,
-                                bobIfaceAddr,
-                                "Bob")
+  eq bobIrcClient = mkIrcClient-v2(bobIrcClientAddr,
+                                   bobIfaceAddr,
+                                   "Bob")
   .
   eq bobIrcUserModel  = mkIrcUMV2Actor(bobIrcUserModelAddr,
                                        "irc-test",
@@ -95,18 +95,17 @@ mod OBFS4_TESTS is
   .
   eq bobIface = mkIrcByteSeqIface(bobIfaceAddr,
                                   bobIrcClientAddr,
-                                  bobObfs4ClientAddr,
                                   bobObfs4ClientAddr)
   .
   eq bobObfs4Client = makeObfs4Node(bobObfs4ClientAddr, bobIfaceAddr, obfs4BobServerAddr) .
 
   eq ircServer = mkIrcServer(ircServerAddr) .
   --- Server Iface facing Alice.
-  eq aliceServerIface = mkIrcByteSeqIface(aliceServerIfaceAddr, ircServerAddr, obfs4AliceServerAddr, obfs4AliceServerAddr) .
+  eq aliceServerIface = mkIrcByteSeqIface(aliceServerIfaceAddr, ircServerAddr, obfs4AliceServerAddr) .
   --- Obfs4 Server facing Alice.
   eq obfs4AliceServer = makeObfs4Node(obfs4AliceServerAddr, aliceServerIfaceAddr, aliceObfs4ClientAddr) .
   --- Server Iface facing Bob.
-  eq bobServerIface = mkIrcByteSeqIface(bobServerIfaceAddr, ircServerAddr, obfs4BobServerAddr, obfs4BobServerAddr) .
+  eq bobServerIface = mkIrcByteSeqIface(bobServerIfaceAddr, ircServerAddr, obfs4BobServerAddr) .
   --- Obfs4 Server facing Bob.
   eq obfs4BobServer = makeObfs4Node(obfs4BobServerAddr, bobServerIfaceAddr, bobObfs4ClientAddr) .
 
@@ -131,11 +130,7 @@ mod OBFS4_TESTS is
     obfs4AliceServer
     bobServerIface
     obfs4BobServer
-    mkIrcMonitor(ircMonitorAddr,
-                 (aliceIrcClientAddr ;; bobIrcClientAddr ;; ircServerAddr),
-                 (aliceIrcClientAddr ;; bobIrcClientAddr),
-                 **** TODO: The following room mapping needs to be fixed.
-                 (rm("#room1", aliceIrcClientAddr ;; bobIrcClientAddr)))
+    mkIrcMonitor(ircMonitorAddr)
     **** start alice
     [0.1, (to aliceIrcUserModelAddr from aliceIrcUserModelAddr : burstDelayTO), 0]
     **** start bob

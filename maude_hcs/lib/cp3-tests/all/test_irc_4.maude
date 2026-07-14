@@ -34,9 +34,9 @@ set show advisories off .
 
 sload ../skyhook/irc-mamodel-v2.maude
 sload ../../webtunnel/webtunnel_prob.maude
-sload ../../irc/irc_prob.maude
-sload ../../irc/irc_monitor.maude
-sload ../../common/maude/cp2-interfaces.maude
+sload ../../irc/irc_prob-v2
+sload ../../irc/ircMonitor
+sload ../../irc/irc-byteseq-interface
 sload ../../common/maude/irc-action-actor-v2.maude
 sload ../../irc/common/irc_name
 sload ../../irc/common/_aux
@@ -58,10 +58,10 @@ mod COMBINED_IRC_EXPERIMENTS is
   pr SCHEDULER .
   pr USER-ACTION-ACTOR .
   pr SKYHOOK-UM-MAMODEL-1 .
-  pr IRC .
+  pr IRC-V2 .
   pr IRC-MAMODEL-V2 .
   pr IRC-USER-ACTION-ACTOR-V2 .
-  pr IRC-DISPATCHER-INTERFACE .
+  pr IRC-BYTESEQ-INTERFACE .
   pr CONTENT-MANAGER-SIMPLE-BI .
   pr SKYHOOK .
   pr S3_PROTOCOL .
@@ -175,40 +175,40 @@ mod COMBINED_IRC_EXPERIMENTS is
   ops client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4 : -> Actor .
 
   --- Client 1 (Webtunnel) Setup
-  eq ircClient1          = mkIrcClient(ircClient1Addr, client1IfaceAddr, "Client1") .
+  eq ircClient1          = mkIrcClient-v2(ircClient1Addr, client1IfaceAddr, "Client1") .
   eq ircClient1UserModel = mkIrcUMV2Actor(ircClient1UserModelAddr, "irc-test", ircClient1Addr) .
-  eq client1Iface        = mkIrcByteSeqIface(client1IfaceAddr, ircClient1Addr, wtClient1Addr, wtClient1Addr) .
-  eq server1Iface        = mkIrcByteSeqIface(server1IfaceAddr, ircServerAddr, wtProxy1Addr, wtProxy1Addr) .
+  eq client1Iface        = mkIrcByteSeqIface(client1IfaceAddr, ircClient1Addr, wtClient1Addr) .
+  eq server1Iface        = mkIrcByteSeqIface(server1IfaceAddr, ircServerAddr, wtProxy1Addr) .
   eq wtClient1           = makeWtClient(wtClient1Addr, wtProxy1Addr, ircServerAddr, "irc.example.com", "secret/path/v1") .
   eq wtProxy1            = makeWtServerProxy(wtProxy1Addr, server1IfaceAddr) .
 
   --- Client 2 (OBFS4) Setup
-  eq ircClient2          = mkIrcClient(ircClient2Addr, client2IfaceAddr, "Client2") .
+  eq ircClient2          = mkIrcClient-v2(ircClient2Addr, client2IfaceAddr, "Client2") .
   eq ircClient2UserModel = mkIrcUMV2Actor(ircClient2UserModelAddr, "irc-test", ircClient2Addr) .
-  eq client2Iface        = mkIrcByteSeqIface(client2IfaceAddr, ircClient2Addr, obfs4Client2Addr, obfs4Client2Addr) .
+  eq client2Iface        = mkIrcByteSeqIface(client2IfaceAddr, ircClient2Addr, obfs4Client2Addr) .
   eq obfs4Client2        = makeObfs4Node(obfs4Client2Addr, client2IfaceAddr, obfs4Server2Addr) .
-  eq server2Iface        = mkIrcByteSeqIface(server2IfaceAddr, ircServerAddr, obfs4Server2Addr, obfs4Server2Addr) .
+  eq server2Iface        = mkIrcByteSeqIface(server2IfaceAddr, ircServerAddr, obfs4Server2Addr) .
   eq obfs4Server2        = makeObfs4Node(obfs4Server2Addr, server2IfaceAddr, obfs4Client2Addr) .
 
   --- Client 3 (Skyhook) Setup
-  eq ircClient3          = mkIrcClient(ircClient3Addr, client3IfaceAddr, "Client3") .
+  eq ircClient3          = mkIrcClient-v2(ircClient3Addr, client3IfaceAddr, "Client3") .
   eq ircClient3UserModel = mkIrcUMV2Actor(ircClient3UserModelAddr, "irc-test", ircClient3Addr) .
-  eq client3Iface        = mkIrcByteSeqIface(client3IfaceAddr, ircClient3Addr, cmac3Addr, cmac3Addr) .
+  eq client3Iface        = mkIrcByteSeqIface(client3IfaceAddr, ircClient3Addr, cmac3Addr) .
   eq umac3Act            = mkUMactor(umac3Addr, skyhook-um-mamodel-1-ma, cmac3Addr) .
   eq cmac3Act            = mkCMSimpleBi(cmac3Addr, client3IfaceAddr, pua3Addr) .
   eq pua3Act             = makeSkyhookPU(pua3Addr, cmac3Addr, sdkac3Addr, "s_to_c_bucket_a", "c_to_s_bucket_a", "s_to_c_uuid_a", "c_to_s_uuid_a-hash") .
   eq sdkac3Act           = makeS3Client(sdkac3Addr, s3SrvAddr) .
-  eq server3Iface        = mkIrcByteSeqIface(server3IfaceAddr, ircServerAddr, cmas3Addr, cmas3Addr) .
+  eq server3Iface        = mkIrcByteSeqIface(server3IfaceAddr, ircServerAddr, cmas3Addr) .
   eq umas3Act            = mkUMactor(umas3Addr, skyhook-um-mamodel-1-ma, cmas3Addr) .
   eq cmas3Act            = mkCMSimpleBi(cmas3Addr, server3IfaceAddr, aha3Addr) .
   eq aha3Act             = mkSkyhookAH(aha3Addr, cmas3Addr, sdkas3Addr, "c_to_s_bucket_a", "s_to_c_bucket_a", "c_to_s_uuid_a", "s_to_c_uuid_a", "s_to_c_uuid_a", 6) .
   eq sdkas3Act           = makeS3Client(sdkas3Addr, s3SrvAddr) .
 
   --- Client 4 (Iodine) Setup
-  eq ircClient4          = mkIrcClient(ircClient4Addr, client4IfaceAddr, "Client4") .
+  eq ircClient4          = mkIrcClient-v2(ircClient4Addr, client4IfaceAddr, "Client4") .
   eq ircClient4UserModel = mkIrcUMV2Actor(ircClient4UserModelAddr, "irc-test", ircClient4Addr) .
-  eq client4Iface        = mkIrcByteSeqIface(client4IfaceAddr, ircClient4Addr, sendApp4Addr, sendApp4Addr) .
-  eq serverIface4        = mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr, rcvApp4Addr) .
+  eq client4Iface        = mkIrcByteSeqIface(client4IfaceAddr, ircClient4Addr, sendApp4Addr) .
+  eq serverIface4        = mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr) .
   eq sendApp4            = mkSendApp(sendApp4Addr, rcvApp4Addr, client4IfaceAddr, iodineClient4Addr) .
   eq rcvApp4             = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .
   eq iodineClient4       = makeWClient(iodineClient4Addr, serverIodineServer4Addr, 'pwnd2 . 'com . root, a, 0.0) .
@@ -228,11 +228,7 @@ mod COMBINED_IRC_EXPERIMENTS is
 
     --- Core Shared Infrastructure
     ircServer s3SrvAct iodineMonitor
-    mkIrcMonitor(ircMonitorAddr,
-                 (ircServerAddr ;; ircClient1Addr ;; ircClient2Addr ;; ircClient3Addr ;; ircClient4Addr),
-                 (ircClient1Addr ;; ircClient2Addr ;; ircClient3Addr ;; ircClient4Addr),
-                 *** TODO: Update from user model for room population.
-                 (rm("#maude-test", ircClient1Addr ;; ircClient2Addr ;; ircClient3Addr ;; ircClient4Addr)))
+    mkIrcMonitor(ircMonitorAddr)
 
     --- Client 1 Entities (Webtunnel)
     ircClient1 ircClient1UserModel client1Iface server1Iface wtClient1 wtProxy1

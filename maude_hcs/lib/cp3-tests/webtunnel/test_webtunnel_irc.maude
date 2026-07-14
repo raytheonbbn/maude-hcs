@@ -61,26 +61,26 @@
 ---
 
 sload ../../webtunnel/webtunnel_prob.maude
-sload ../../irc/irc_prob.maude
-sload ../../irc/irc_monitor.maude
-sload ../../cp3-tests/skyhook/irc-mamodel-v2.maude
-sload ../../common/maude/cp2-interfaces.maude
+sload ../../irc/irc_prob-v2
+sload ../../irc/ircMonitor
+sload ../../irc/irc-byteseq-interface
+sload ../../irc/irc-mamodel-v2
 sload ../../common/maude/irc-action-actor-v2.maude
 sload ../../network/net_prob.maude
 
 mod TEST_WEBTUNNEL_IRC is
-  pr IRC .
+  pr IRC-V2 .
   pr IRC_MONITOR .
   pr IRC-MAMODEL-V2 .
   pr IRC-USER-ACTION-ACTOR-V2 .
   pr WEBTUNNEL .
   pr IRC_NAMES .
-  pr IRC-DISPATCHER-INTERFACE .
+  pr IRC-BYTESEQ-INTERFACE .
   pr NETWORK_CONNECTION .
 
   ***** Global constants  
   **** the user model database
-  eq MAModelMap = ("irc-test" |-> irc-ma-v2 ) .
+  eq MAModelMap = ("irc-test" |-> irc-mamodel-v2 ) .
 
   *** for the default case
   eq noiseMax(msg:Msg) = 0.00001 .
@@ -147,9 +147,9 @@ mod TEST_WEBTUNNEL_IRC is
   --- IRC clients.  Their raceboatAddr points to the WtClient actor,
   --- which acts as the transparent next-hop toward the IRC server.
   eq ircClient1 =
-    mkIrcClient(ircClient1Addr,
-                client1IfaceAddr,     --- raceboatAddr = WtClient (not server directly)
-                "alice")
+    mkIrcClient-v2(ircClient1Addr,
+                   client1IfaceAddr,
+                   "alice")
   .
   eq ircClient1UserModel = mkIrcUMV2Actor(ircClient1UserModelAddr,
                                           "irc-test",
@@ -157,9 +157,9 @@ mod TEST_WEBTUNNEL_IRC is
   .
 
   eq ircClient2 =
-    mkIrcClient(ircClient2Addr,
-                client2IfaceAddr,     --- raceboatAddr = WtClient
-                "bob")
+    mkIrcClient-v2(ircClient2Addr,
+                   client2IfaceAddr,
+                   "bob")
   .
   eq ircClient2UserModel = mkIrcUMV2Actor(ircClient2UserModelAddr,
                                           "irc-test",
@@ -169,22 +169,18 @@ mod TEST_WEBTUNNEL_IRC is
   --- Translation interfaces.
   eq client1Iface = mkIrcByteSeqIface(client1IfaceAddr,
                                       ircClient1Addr,
-                                      wtClient1Addr,
                                       wtClient1Addr)
   .
   eq client2Iface = mkIrcByteSeqIface(client2IfaceAddr,
                                       ircClient2Addr,
-                                      wtClient2Addr,
                                       wtClient2Addr)
   .
   eq server1Iface = mkIrcByteSeqIface(server1IfaceAddr,
                                       ircServerAddr,
-                                      wtProxy1Addr,
                                       wtProxy1Addr)
   .
   eq server2Iface = mkIrcByteSeqIface(server2IfaceAddr,
                                       ircServerAddr,
-                                      wtProxy2Addr,
                                       wtProxy2Addr)
   .
 
@@ -246,10 +242,7 @@ mod TEST_WEBTUNNEL_IRC is
     wtProxy1
     wtProxy2
     ircServer
-    mkIrcMonitor(ircMonitorAddr,
-                 (ircClient1Addr ;; ircClient2Addr ;; ircServerAddr),
-                 (ircClient1Addr ;; ircClient2Addr),
-                 (rm("#maude-test", ircClient1Addr ;; ircClient2Addr)))
+    mkIrcMonitor(ircMonitorAddr)
 
     --- Phase 1: Tunnel setup
     --- Alice's WtClient initiates its tunnel.

@@ -87,11 +87,11 @@ sload ../../common/maude/irc-action-actor-v2.maude
 sload ../../irc/common/irc_name
 sload ../../irc/common/irc-msg-model
 sload ../../irc/common/_aux
-sload ../../irc/irc_prob
+sload ../../irc/irc_prob-v2
 
 ---- this should go in a scenario dir
-sload ../../common/maude/cp2-interfaces.maude
-sload ../../irc/irc_monitor
+sload ../../irc/irc-byteseq-interface
+sload ../../irc/ircMonitor
 
 ------ raceboat 4 skyhook
 sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
@@ -109,8 +109,8 @@ mod IRC-ALL is
   inc SKYHOOK-UM-MAMODEL-1 .
   pr IRC-MAMODEL-V2 .
   pr IRC-USER-ACTION-ACTOR-V2 .
-  inc IRC .
-  pr IRC-DISPATCHER-INTERFACE .
+  inc IRC-V2 .
+  pr IRC-BYTESEQ-INTERFACE .
   inc CONTENT-MANAGER-SIMPLE-BI .
   inc SKYHOOK .
   inc S3_PROTOCOL .
@@ -198,7 +198,7 @@ mod IRC-ALL is
   ************** actor defns
   ***** user0Irc
   eq ircaAct =
-    mkIrcClient(irc0Addr, iface0cAddr, "user0") .
+    mkIrcClient-v2(irc0Addr, iface0cAddr, "user0") .
     
   eq ircaUserModel = mkIrcUMV2Actor(ircClient0UserModelAddr,
                                     "irc-test",
@@ -207,7 +207,7 @@ mod IRC-ALL is
   **** TEST-PKG2 uses 2.0 3.5 5.4
   eq ifaceACAct =
      mkIrcByteSeqIface(iface0cAddr,irc0Addr,
-                       cm0cAddr,cm0cAddr) .
+                       cm0cAddr) .
 
   **** user0 client rb endpoint
   eq umacAct = 
@@ -235,7 +235,7 @@ mod IRC-ALL is
   ***  user0 server endpoint
   eq ifaceASAct =
      mkIrcByteSeqIface(iface0sAddr,ircSrvAddr,
-                       cm0sAddr,cm0sAddr) .
+                       cm0sAddr) .
 
   eq umasAct = 
      mkUMactor(um0sAddr,skyhook-um-mamodel-1-ma,cm0sAddr) 
@@ -274,11 +274,11 @@ mod IRC-ALL is
   ********************************
   *** user1
   ***** user1 Irc 
-  eq ircbAct    = mkIrcClient(irc1Addr, iface1cAddr, "user1") .
+  eq ircbAct    = mkIrcClient-v2(irc1Addr, iface1cAddr, "user1") .
   eq ircbUserModel = mkIrcUMV2Actor(ircClient1UserModelAddr,
                                     "irc-test",
                                     irc1Addr) .
-  eq ifaceBCAct = mkIrcByteSeqIface(iface1cAddr, irc1Addr, cmbcAddr, cmbcAddr) .
+  eq ifaceBCAct = mkIrcByteSeqIface(iface1cAddr, irc1Addr, cmbcAddr) .
 
   **** user1 client rb endpoint
   eq umbcAct    = mkUMactor(um1cAddr, skyhook-um-mamodel-1-ma, cmbcAddr) .
@@ -314,7 +314,7 @@ mod IRC-ALL is
   ***  user0 server endpoint
   eq ifaceBSAct =
      mkIrcByteSeqIface(iface1sAddr,ircSrvAddr,
-                       cm1sAddr,cm1sAddr) .
+                       cm1sAddr) .
 
   eq umbsAct = 
      mkUMactor(um1sAddr,skyhook-um-mamodel-1-ma,cm1sAddr) 
@@ -368,8 +368,7 @@ mod IRC-ALL is
     .
 
   eq ircMonitorAct = 
-      makeIrcMonitor(ircMonitorAddr,
-                    (ircSrvAddr ;; irc0Addr ;; irc1Addr)) .  
+      mkIrcMonitor(ircMonitorAddr) .  
                   
   ------------ end actors               
 
@@ -448,36 +447,15 @@ mod IRC-ALL is
     s3ServerUser0NetServer
     s3ServerUser1NetServer
      
-  **** start messages  
-  **** user0 channel  
-    [1.0 + genRandomX(j,0.0, 0.0001),
-     (to um0cAddr from um0cAddr : actionR("ok")),0]
-    [1.0  + genRandomX(s s j,0.0, 0.0001),
-      (to um0sAddr from um0sAddr : actionR("ok")),0]
-
-  **** user1 channel   
-    [1.0 + genRandomX(j + 4,0.0, 0.0001),
-     (to um1cAddr from um1cAddr : actionR("ok")),0]
-    [1.0  + genRandomX(j + 6,0.0, 0.0001),
-     (to um1sAddr from um1sAddr : actionR("ok")),0]
-
   **** start ahUser0
       [0.001, (to ah0Addr from  ah0Addr : SkyhookStartCmd), 0]
   **** start ahUser1
       [0.002, (to ah1Addr from ah1Addr : SkyhookStartCmd), 0]
 
   **** start user0
-    [0.25, (to ircClient0UserModelAddr from ircClient0UserModelAddr : burstDelayTO), 0]
+    [0.1, (to ircClient0UserModelAddr from ircClient0UserModelAddr : burstDelayTO), 0]
   **** start user1
-    [0.33, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
-  **** user0 joins with cnx rb server send addr
-  **** if sent by user0, it would come from rcv addr!!
-    [0.40, (to ircSrvAddr from iface0sAddr : 
-          JoinChannel(makeIrcChannelName("#room1"), irc0Addr)),
-       0]
-    [0.5, (to ircSrvAddr from iface1sAddr :
-         JoinChannel(makeIrcChannelName("#room1"), irc1Addr)),
-       0]
+    [0.2, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
   .
 
   op slimit : -> Float .
