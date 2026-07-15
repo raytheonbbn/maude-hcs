@@ -1,0 +1,414 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+sload ../../irc/irc-mamodel-v2.maude
+sload ../../webtunnel/webtunnel_prob.maude
+sload ../../irc/irc_prob-v2
+sload ../../irc/ircMonitor
+sload ../../irc/irc-byteseq-interface
+sload ../../common/maude/irc-action-actor-v2.maude
+sload ../../irc/common/irc_name
+sload ../../irc/common/_aux
+sload ../../irc/common/app_chat
+sload ../../irc/_irc_aux
+sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
+sload ../../obfs4/_obfs4_aux.maude
+sload ../../obfs4/obfs4_prob.maude
+sload ../../common/maude/user-action-actor
+sload ../skyhook/skyhook-um-mamodel-1
+sload ../../irc/common/irc-msg-model
+sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
+sload ../../skyhook/skyhook_prob
+sload ../../s3/s3_protocol
+sload ../../dns/maude/probabilistic/iodine_dns.maude
+sload ../../dns/maude/common/_aux.maude
+sload ../../network/net_prob.maude
+
+---- TGENs
+sload ../../common/maude/tgen-action-actor-v2.maude
+sload ../../tgen/maude/ftp/ftp-mamodel-v2.maude
+sload ../../tgen/maude/ftp/ftpTgen-actor.maude
+sload ../../tgen/maude/ftp/ftpServer-actor.maude
+sload ../../tgen/maude/gorillachat/gorilla-mamodel-v2.maude
+sload ../../tgen/maude/gorillachat/gorilla-Tgen-actor.maude
+sload ../../tgen/maude/minio/minio-mamodel-v2.maude
+sload ../../tgen/maude/minio/minioTgen-actor.maude
+
+mod COMBINED_IRC_EXPERIMENTS is
+  pr SCHEDULER .
+  pr USER-ACTION-ACTOR .
+  pr SKYHOOK-UM-MAMODEL-1 .
+  pr IRC-V2 .
+  pr IRC-MAMODEL-V2 .
+  pr IRC-USER-ACTION-ACTOR-V2 .
+  pr IRC-BYTESEQ-INTERFACE .
+  pr CONTENT-MANAGER-SIMPLE-BI .
+  pr SKYHOOK .
+  pr S3_PROTOCOL .
+  pr IRC_MONITOR .
+  pr OBFS4 .
+  pr APP_CHATS .
+  pr IRC_NODE .
+  pr WEBTUNNEL .
+  pr IRC_NAMES .
+  pr IODINE_NODE .
+  pr IODINE_DNS .
+  pr TCP_SOCKET .
+  pr NETWORK_NODE .
+  pr NETWORK_CONNECTION .
+
+  inc FTP-CONFIG-MAMODEL-V2 .
+  inc FTP-TGEN .
+  inc FTP-SERVER .
+  inc GORILLA-CONFIG-MAMODEL-V2 .
+  inc GORILLACHAT-TGEN .
+  inc MINIO-CONFIG-MAMODEL-V2 .
+  inc MINIO-TGEN .
+  inc USER-ACTION-ACTOR-V2 .
+
+  vars j : Nat .
+
+  eq encOH(fsize:Nat,ksize:Nat) = 0 .
+  eq noiseMin(msg:Msg)          = 0.001 .
+  ***** Global constants  
+  **** the user model database
+  eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2 ,
+                                   "ftp" |-> ftp-config-ma-v2 ,
+                                   "gorilla" |-> gorilla-config-ma-v2 ,
+                                   "minio" |-> minio-config-ma-v2) .
+  *** for the default case
+  eq noiseMax(msg:Msg)          = 0.00001 .
+     
+  eq packetSize                 = 1000 .
+  eq maxPacketSize              = 967 .
+
+  ---------------------------------------------------
+  --- Iodine Zone Configurations
+  ---------------------------------------------------
+  op zonePwnd2Com4 : -> List{Record} .
+  eq zonePwnd2Com4 =
+    < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+    < 'ns . 'pwnd2 . 'com . root, a, 3600.0, serverIodineServer4Addr >
+    < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+    < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+    < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
+
+  ---------------------------------------------------
+  --- Addresses
+  ---------------------------------------------------
+  ops ircClient1Addr ircClient2Addr ircClient3Addr ircClient4Addr : -> Address .
+  ops ircClient1UserModelAddr ircClient2UserModelAddr 
+      ircClient3UserModelAddr ircClient4UserModelAddr             : -> Address .
+  ops ircServerAddr s3SrvAddr ircMonitorAddr iodineMonitorAddr    : -> Address .
+
+  ops ftpUMAddr ftpTGAddr ftpSrvAddr : -> Address .
+  ops gorillaUMAddr gorillaTGAddr gorillaSrvAddr : -> Address .
+  ops minioUMAddr minioTGAddr minioS3ClientAddr minioS3ServerAddr : -> Address .
+
+  --- Client 1 (Webtunnel)
+  ops client1IfaceAddr server1IfaceAddr wtClient1Addr wtProxy1Addr : -> Address .
+  ops wtClient1NetClientAddr wtProxy1NetServerAddr                   : -> Address .
+
+  --- Client 2 (OBFS4)
+  ops client2IfaceAddr server2IfaceAddr : -> Address .
+  ops obfs4Client2Addr obfs4Server2Addr : -> Address .
+  ops obfs4Client2NetClientAddr obfs4Server2NetServerAddr : -> Address .
+
+  --- Client 3 (Skyhook)
+  ops client3IfaceAddr server3IfaceAddr                       : -> Address .
+  ops umac3Addr cmac3Addr pua3Addr sdkac3Addr                 : -> Address .
+  ops umas3Addr cmas3Addr aha3Addr sdkas3Addr                 : -> Address .
+  ops skyhookClient3NetClientAddr skyhookClient3NetServerAddr : -> Address .
+  ops skyhookServer3NetClientAddr skyhookServer3NetServerAddr : -> Address .
+
+  --- Client 4 (Iodine)
+  ops client4IfaceAddr serverIface4Addr                                  : -> Address .
+  ops sendApp4Addr iodineClient4Addr rcvApp4Addr serverIodineServer4Addr : -> Address .
+  ops iodineClient4NetClientAddr iodineServer4NetServerAddr              : -> Address .
+
+  ---------------------------------------------------
+  --- Link model parameters
+  ---------------------------------------------------
+
+  eq transport(any:Address) = tcp(any:Address) .
+
+  vars dt : Float .
+  vars icAddr isAddr ifsAddr : Address .
+  vars room : String .
+  op mkJoin : Float String Address Address Address -> ScheduleMsg .
+  eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =
+       [dt,
+       (to isAddr from ifsAddr :
+        JoinChannel(makeIrcChannelName(room), icAddr )),
+        0]
+  .
+
+  op LinkType-TCP-4stateLoss : -> AttributeSet .
+  eq LinkType-TCP-4stateLoss = 
+  (4stateLoss: 
+     (p13: 0.0,
+      p31: 1.0,          
+      p32: 0.0,          
+      p23: 0.0,         
+      p14: 0.0,          
+      oneWayDelay: 0.01) 
+  ) .
+
+  eq LinkData =
+    --- Client 1 (Webtunnel) Links
+    aaa(wtClient1Addr, wtProxy1Addr,  LinkType-TCP-4stateLoss)
+    aaa(wtProxy1Addr,  wtClient1Addr, LinkType-TCP-4stateLoss)
+    
+    --- Client 2 (OBFS4) Links
+    aaa(obfs4Client2Addr, obfs4Server2Addr, LinkType-TCP-4stateLoss)
+    aaa(obfs4Server2Addr, obfs4Client2Addr, LinkType-TCP-4stateLoss)
+
+    --- Client 3 (Skyhook) Links
+    aaa(s3SrvAddr, sdkac3Addr, LinkType-TCP-4stateLoss)
+    aaa(s3SrvAddr, sdkas3Addr, LinkType-TCP-4stateLoss)
+    aaa(sdkac3Addr, s3SrvAddr, LinkType-TCP-4stateLoss)
+    aaa(sdkas3Addr, s3SrvAddr, LinkType-TCP-4stateLoss) 
+    
+    --- Client 4 (Iodine) Links
+    aaa(serverIodineServer4Addr, iodineClient4Addr, LinkType-TCP-4stateLoss)
+    aaa(iodineClient4Addr, serverIodineServer4Addr, LinkType-TCP-4stateLoss) .
+
+  ---------------------------------------------------
+  --- Actors Setup
+  ---------------------------------------------------
+  ops ircClient1 ircClient2 ircClient3 ircClient4 ircServer s3SrvAct iodineMonitor : -> Actor .
+  ops ircClient1UserModel ircClient2UserModel ircClient3UserModel ircClient4UserModel : -> Actor .
+  
+  ops client1Iface server1Iface wtClient1 wtProxy1 : -> Actor .
+  ops wtClient1NetClient wtProxy1NetServer : -> Actor .
+  ops client2Iface server2Iface obfs4Client2 obfs4Server2 : -> Actor .
+  ops obfs4Client2NetClient obfs4Server2NetServer : -> Actor .
+  ops client3Iface server3Iface umac3Act cmac3Act pua3Act sdkac3Act umas3Act cmas3Act aha3Act sdkas3Act : -> Actor .
+  ops skyhookClient3NetClient skyhookClient3NetServer skyhookServer3NetClient skyhookServer3NetServer : -> Actor .
+  ops client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4 : -> Actor .
+  ops iodineClient4NetClient iodineServer4NetServer : -> Actor .
+
+  --- FTP
+  op ftpTGenA : -> Actor .
+  op ftpSrvA : -> Actor .
+  op ftpUmAct : -> Actor .
+
+  --- GorillaChat
+  op gorillaTGenA : -> Actor .
+  op gorillaSrvA : -> Actor .
+  op gorillaUmAct : -> Actor .
+
+  --- Minio
+  op minioTGenA : -> Actor .
+  op minioS3ClientA : -> Actor .
+  op minioS3ServerA : -> Actor .
+  op minioUmAct : -> Actor .
+
+  --- Client 1 (Webtunnel) Setup
+  eq ircClient1          = mkIrcClient-v2(ircClient1Addr, client1IfaceAddr, "Client1") .
+  eq ircClient1UserModel = mkIrcUMV2Actor(ircClient1UserModelAddr, "irc-test", ircClient1Addr) .
+  eq client1Iface        = mkIrcByteSeqIface(client1IfaceAddr, ircClient1Addr, wtClient1Addr) .
+  eq server1Iface        = mkIrcByteSeqIface(server1IfaceAddr, ircServerAddr, wtProxy1Addr) .
+  eq wtClient1 =
+    < wtClient1Addr : WtClient |
+        thisAddr:        wtClient1Addr,
+        serverProxyAddr: wtProxy1Addr,
+        ircServerAddr:   ircServerAddr,
+        ircClientAddr:   client1IfaceAddr,
+        tlsServerName:   "irc.example.com",
+        upgradePath:     "secret/path/v1",
+        tunnelState:     Closed,
+        pendingMsgs:     emptyQueue >
+  .
+  eq wtProxy1            = makeWtServerProxy(wtProxy1Addr, server1IfaceAddr) .
+  eq wtClient1NetClient  = makeNetClient(wtClient1NetClientAddr, wtProxy1Addr, wtProxy1NetServerAddr, wtClient1Addr, true) .
+  eq wtProxy1NetServer   = makeNetServer(wtProxy1NetServerAddr, wtClient1NetClientAddr, wtProxy1Addr) .
+
+  --- Client 2 (OBFS4) Setup
+  eq ircClient2          = mkIrcClient-v2(ircClient2Addr, client2IfaceAddr, "Client2") .
+  eq ircClient2UserModel = mkIrcUMV2Actor(ircClient2UserModelAddr, "irc-test", ircClient2Addr) .
+  eq client2Iface        = mkIrcByteSeqIface(client2IfaceAddr, ircClient2Addr, obfs4Client2Addr) .
+  eq obfs4Client2        = makeObfs4Node(obfs4Client2Addr, client2IfaceAddr, obfs4Server2Addr) .
+  eq server2Iface        = mkIrcByteSeqIface(server2IfaceAddr, ircServerAddr, obfs4Server2Addr) .
+  eq obfs4Server2        = makeObfs4Node(obfs4Server2Addr, server2IfaceAddr, obfs4Client2Addr) .
+  eq obfs4Client2NetClient = makeNetClient(obfs4Client2NetClientAddr, obfs4Server2Addr, obfs4Server2NetServerAddr, obfs4Client2Addr, true) .
+  eq obfs4Server2NetServer = makeNetServer(obfs4Server2NetServerAddr, obfs4Client2NetClientAddr, obfs4Server2Addr) .
+
+  --- Client 3 (Skyhook) Setup
+  eq ircClient3          = mkIrcClient-v2(ircClient3Addr, client3IfaceAddr, "Client3") .
+  eq ircClient3UserModel = mkIrcUMV2Actor(ircClient3UserModelAddr, "irc-test", ircClient3Addr) .
+  eq client3Iface        = mkIrcByteSeqIface(client3IfaceAddr, ircClient3Addr, cmac3Addr) .
+  eq umac3Act            = mkUMactor(umac3Addr, skyhook-um-mamodel-1-ma, cmac3Addr) .
+  eq cmac3Act            = mkCMSimpleBi(cmac3Addr, client3IfaceAddr, pua3Addr) .
+  eq pua3Act             = makeSkyhookPU(pua3Addr, cmac3Addr, sdkac3Addr, "s_to_c_bucket_a", "c_to_s_bucket_a", "s_to_c_uuid_a", "c_to_s_uuid_a-hash") .
+  eq sdkac3Act           = makeS3Client(sdkac3Addr, s3SrvAddr) .
+  eq server3Iface        = mkIrcByteSeqIface(server3IfaceAddr, ircServerAddr, cmas3Addr) .
+  eq umas3Act            = mkUMactor(umas3Addr, skyhook-um-mamodel-1-ma, cmas3Addr) .
+  eq cmas3Act            = mkCMSimpleBi(cmas3Addr, server3IfaceAddr, aha3Addr) .
+  eq aha3Act             = mkSkyhookAH(aha3Addr, cmas3Addr, sdkas3Addr, "c_to_s_bucket_a", "s_to_c_bucket_a", "c_to_s_uuid_a", "s_to_c_uuid_a", "s_to_c_uuid_a", 6) .
+  eq sdkas3Act           = makeS3Client(sdkas3Addr, s3SrvAddr) .
+  eq skyhookClient3NetClient = makeNetClient(skyhookClient3NetClientAddr, s3SrvAddr, skyhookClient3NetServerAddr, sdkac3Addr, true) .
+  eq skyhookClient3NetServer = makeNetServer(skyhookClient3NetServerAddr, skyhookClient3NetClientAddr, s3SrvAddr) .
+  eq skyhookServer3NetClient = makeNetClient(skyhookServer3NetClientAddr, s3SrvAddr, skyhookServer3NetServerAddr, sdkas3Addr, true) .
+  eq skyhookServer3NetServer = makeNetServer(skyhookServer3NetServerAddr, skyhookServer3NetClientAddr, s3SrvAddr) .
+
+  --- Client 4 (Iodine) Setup
+  eq ircClient4          = mkIrcClient-v2(ircClient4Addr, client4IfaceAddr, "Client4") .
+  eq ircClient4UserModel = mkIrcUMV2Actor(ircClient4UserModelAddr, "irc-test", ircClient4Addr) .
+  eq client4Iface        = mkIrcByteSeqIface(client4IfaceAddr, ircClient4Addr, sendApp4Addr) .
+  eq serverIface4        = mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr) .
+  eq sendApp4            = mkSendApp(sendApp4Addr, rcvApp4Addr, client4IfaceAddr, iodineClient4Addr) .
+  eq rcvApp4             = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .
+  eq iodineClient4       = makeWClient(iodineClient4Addr, serverIodineServer4Addr, 'pwnd2 . 'com . root, a, 0.0) .
+  eq serverIodineServer4 = makeWNameServer(serverIodineServer4Addr, 0.0, zonePwnd2Com4) .
+  eq iodineClient4NetClient = makeNetClient(iodineClient4NetClientAddr,
+                                            serverIodineServer4Addr,
+                                            iodineServer4NetServerAddr,
+                                            iodineClient4Addr,
+                                            true) .
+  eq iodineServer4NetServer = makeNetServer(iodineServer4NetServerAddr,
+                                            iodineClient4NetClientAddr,
+                                            serverIodineServer4Addr) .
+
+  --- Base Infrastructure Setup
+  eq s3SrvAct            = makeS3Server(s3SrvAddr) .
+  eq ircServer           = mkIrcServer(ircServerAddr) .
+  eq iodineMonitor       = mkWMonitor(iodineMonitorAddr) .
+
+  --- FTP
+  eq ftpTGenA = mkFtpTgenA(ftpTGAddr, ftpSrvAddr, 5.0, 2) .
+  eq ftpSrvA = mkFtpServerA(ftpSrvAddr) .
+  eq ftpUmAct = mkTgenUMV2Actor(ftpUMAddr, "ftp", ftpTGAddr) .
+
+  --- GorillaChat
+  eq gorillaTGenA = mkGorillaChatTgenA(gorillaTGAddr, gorillaSrvAddr) .
+  eq gorillaSrvA = mkGorillaChatServer(gorillaSrvAddr, (gorillaTGAddr)) .
+  eq gorillaUmAct = mkTgenUMV2Actor(gorillaUMAddr, "gorilla", gorillaTGAddr) .
+
+  --- Minio
+  eq minioTGenA = mkMinioTgenA(minioTGAddr, minioS3ClientAddr, "tgen") .
+  eq minioS3ClientA = makeS3Client(minioS3ClientAddr, minioS3ServerAddr) .
+  eq minioS3ServerA =
+    < minioS3ServerAddr : AwsS3HttpServer |
+        s3DataMap: (
+          ("/tgen/list-1" -> restToByteSeq("obj1.zip;obj2.zip;data/")) ;
+          ("/tgen/stat-1" -> restToByteSeq("obj1.zip:1024:2025-01-01")) ;
+          ("/tgen/cd-1" -> restToByteSeq("subdir1/;subdir2/")) ;
+          ("/tgen/retr-1" -> restToByteSeq("mock_file_content_bytes"))
+        )
+    > .
+  eq minioUmAct = mkTgenUMV2Actor(minioUMAddr, "minio", minioTGAddr) .
+
+  ---------------------------------------------------
+  --- Initial State Configuration
+  ---------------------------------------------------
+  op initState : Nat -> Config .
+  eq initState(j) =
+    rCtr(j + 8)
+
+    --- Core Shared Infrastructure
+    ircServer s3SrvAct iodineMonitor
+    mkIrcMonitor(ircMonitorAddr)
+
+    --- Client 1 Entities (Webtunnel)
+    ircClient1 ircClient1UserModel client1Iface server1Iface wtClient1 wtProxy1
+    wtClient1NetClient wtProxy1NetServer
+    
+    --- Client 2 Entities (OBFS4)
+    ircClient2 ircClient2UserModel client2Iface server2Iface obfs4Client2 obfs4Server2
+    obfs4Client2NetClient obfs4Server2NetServer
+    
+    --- Client 3 Entities (Skyhook)
+    ircClient3 ircClient3UserModel client3Iface umac3Act cmac3Act pua3Act sdkac3Act server3Iface umas3Act cmas3Act aha3Act sdkas3Act
+    skyhookClient3NetClient skyhookClient3NetServer skyhookServer3NetClient skyhookServer3NetServer
+    
+    --- Client 4 (Iodine)
+    ircClient4 ircClient4UserModel client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4
+    iodineClient4NetClient iodineServer4NetServer
+
+    --- TGENs
+    ftpUmAct ftpTGenA ftpSrvA
+    gorillaUmAct gorillaTGenA gorillaSrvA
+    minioUmAct minioTGenA minioS3ClientA minioS3ServerA
+
+    --- Timers & Execution Triggers
+ 
+    [0.001, (to aha3Addr from aha3Addr : SkyhookStartCmd), 0]
+    [0.20, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]
+
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to umac3Addr from umac3Addr : actionR("ok")), 0]
+    [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas3Addr from umas3Addr : actionR("ok")), 0]
+
+    mkJoin(2.0, "#chat", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    mkJoin(2.1, "#general", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    mkJoin(2.2, "#random", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+
+    mkJoin(2.3, "#chat", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+    mkJoin(2.4, "#general", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+    mkJoin(2.5, "#random", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+
+    mkJoin(2.6, "#chat", ircClient3Addr, ircServerAddr, server3IfaceAddr)
+    mkJoin(2.7, "#general", ircClient3Addr, ircServerAddr, server3IfaceAddr)
+    mkJoin(2.8, "#random", ircClient3Addr, ircServerAddr, server3IfaceAddr)
+
+    mkJoin(2.9, "#chat", ircClient4Addr, ircServerAddr, serverIface4Addr)
+    mkJoin(3.0, "#general", ircClient4Addr, ircServerAddr, serverIface4Addr)
+    mkJoin(3.1, "#random", ircClient4Addr, ircServerAddr, serverIface4Addr)
+
+    [20.0, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
+    [21.0, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
+    [22.0, (to ircClient3UserModelAddr from ircClient3UserModelAddr : burstDelayTO), 0]
+    [23.0, (to ircClient4UserModelAddr from ircClient4UserModelAddr : burstDelayTO), 0]
+
+    --- TGEN Timers
+  
+    [5.0, to ftpUMAddr from ftpUMAddr : burstDelayTO, 0]
+    [5.0, to gorillaUMAddr from gorillaUMAddr : burstDelayTO, 0]
+    [5.0, to minioUMAddr from minioUMAddr : burstDelayTO, 0]
+  .
+
+  ---------------------------------------------------
+  --- Run Limits and Initial Configurations
+  ---------------------------------------------------
+  op slimit : -> Float .
+  eq slimit = 1000.0 .
+
+  op initConfig : -> Config .
+  rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .
+endm
+
+set print attribute on .
+rew initConfig .
+q
