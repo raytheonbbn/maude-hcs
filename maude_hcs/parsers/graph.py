@@ -40,6 +40,9 @@ from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
+def default_loss() -> dict[str, float]:
+   return {'p13': 0.0, 'p31': 0.0, 'p32': 0.0, 'p23': 0.0, 'p14': 0.0}
+
 @dataclass_json
 @dataclass
 class Link:
@@ -52,7 +55,7 @@ class Link:
     latency: float = 0.0
     jitter: float = 0.0
     # Loss probability:
-    loss: float = 0.0
+    loss: dict[str, float] = field(default_factory = default_loss)
 
     def __eq__(self, other):
         # Check if the 'other' object is an instance of the same class
@@ -81,7 +84,7 @@ class Node:
     host_bandwidth_down: str
 
     @staticmethod
-    def from_label(id, label):
+    def from_label(id: int, label: str):
         clean_address = label.replace('_', '-')
         return Node(
             id=id,
@@ -151,19 +154,80 @@ class Topology:
       return Topology(isDirected=False, nodes=nodes, links=links)
 
     @staticmethod
+    def from_tne_network_dict_and_yml(tne_network: Dict[Any, Any], yml: Dict[Any, Any], loss_specs: Dict[Any, Any]) -> "Topology":
+      """
+      The T&E code includes functionality to parse a yaml config file into a fully-disambiguated network graph.
+      This function takes that graph (along with the original yaml config) and converts it to a Topology object
+      that the rest of our code understands.
+      """
+
+      next_id = 0
+
+      ixp_net_nodes = tne_network["router_net"]["container_info"]
+      ixp_router = Node.from_label(next_id, "router_ixp")
+      ixp_router.ip_address = ixp_net_nodes[ixp_router.label]
+
+      next_id += 1
+
+      nodes = [ixp_router]
+      links = []
+
+      for (net_name, net_topo) in tne_network.items():
+        if net_name == "router_net": continue # Already handled ixp net above
+
+        net_params = yml["network"][net_name]["params"]
+
+        up_loss_name = net_params["upstream"]["loss_profile"]
+        up_latency = net_params["upstream"]["latency"]
+        up_loss = loss_specs[up_loss_name]
+
+        down_loss_name = net_params["downstream"]["loss_profile"]
+        down_latency = net_params["downstream"]["latency"]
+        down_loss = loss_specs[down_loss_name]
+
+        for (label, addr) in net_topo["container_info"].items():
+          if label.startswith("router"): continue # We ignore subnet routers, link clients to ixp directly
+
+          node = Node.from_label(next_id, label)
+          node.ip_address = addr
+          nodes.append(node)
+          next_id += 1
+
+          uplink = Link(
+            src_id=node.id, src_label=node.label,
+            dst_id=ixp_router.id, dst_label=ixp_router.label,
+            label=f"{node.label}>{ixp_router.label}",
+            latency=up_latency, loss=up_loss
+          )
+
+          downlink = Link(
+            src_id=ixp_router.id, src_label=ixp_router.label,
+            dst_id=node.id, dst_label=node.label,
+            label=f"{ixp_router.label}>{node.label}",
+            latency=down_latency, loss=down_loss
+          )
+
+          links.extend([uplink, downlink])
+
+      return Topology(isDirected=True, nodes=nodes, links=links)
+
+
+    @staticmethod
     def from_yml(data: Dict[Any, Any]):
-        """
-        Creates a Topology object from a YAML setup file.
-        """
-        nodes, links = parse_setup_yml(data)
-        # Assuming the YAML represents a directed graph based on src/dst structure
-        return Topology(isDirected=True, nodes=nodes, links=links)
+      """
+      Creates a Topology object from a YAML setup file.
+      """
+
+
+      nodes, links = parse_setup_yml(data)
+      # Assuming the YAML represents a directed graph based on src/dst structure
+      return Topology(isDirected=True, nodes=nodes, links=links)
 
     def save(self, full_path: str):
       formatted = json.dumps(self.to_dict(), indent=4)
       with open(full_path, 'w') as f:
         f.write(formatted)
-       
+
 
 def _simple_type_converter(value_str):
     """
