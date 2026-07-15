@@ -30,31 +30,33 @@
 
 sload ../../obfs4/_obfs4_aux
 sload ../../obfs4/obfs4_prob
-sload ../../irc/common/irc_name
-sload ../../irc/common/_aux
-sload ../../irc/common/app_chat
-sload ../../irc/irc_monitor
-sload ../../irc/_irc_aux
-sload ../../irc/irc_prob
-sload ../../common/maude/cp2-interfaces
+sload ../../irc/irc_prob-v2
+sload ../../irc/ircMonitor
+sload ../../irc/irc-byteseq-interface
+sload ../../irc/irc-mamodel-v2
+sload ../../common/maude/irc-action-actor-v2.maude
 sload ../../network/tcp.maude
 sload ../../network/net_prob.maude
 sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
 
 mod OBFS4_TESTS is
-  pr IRC_NAMES .
-  pr APP_CHATS .
-  pr IRC_NODE .
+  pr IRC-V2 .
   pr IRC_MONITOR .
-  pr IRC .
+  pr IRC-MAMODEL-V2 .
+  pr IRC-USER-ACTION-ACTOR-V2 .
   pr OBFS4 .
   pr SCHEDULER .
-  pr IRC-DISPATCHER-INTERFACE .
+  pr IRC_NAMES .
+  pr IRC-BYTESEQ-INTERFACE .
   pr TCP_SOCKET .
   pr NETWORK_CONNECTION .
 
+  **** the user model database
+  eq MAModelMap = ("irc-test" |-> irc-mamodel-v2 ) .
+
   ops aliceAddr bobAddr                                                   : -> Address .
   ops aliceIrcClientAddr bobIrcClientAddr                                 : -> Address .
+  ops aliceIrcUserModelAddr bobIrcUserModelAddr                           : -> Address .
   ops aliceIfaceAddr bobIfaceAddr aliceServerIfaceAddr bobServerIfaceAddr : -> Address .
   ops aliceObfs4ClientAddr bobObfs4ClientAddr                             : -> Address .
   ops obfs4AliceServerAddr obfs4BobServerAddr ircServerAddr               : -> Address .
@@ -62,17 +64,20 @@ mod OBFS4_TESTS is
   ops serverAliceNetServerAddr serverBobNetServerAddr                     : -> Address .
 
   ops aliceIrcClient bobIrcClient                         : -> Actor .
+  ops aliceIrcUserModel bobIrcUserModel                   : -> Actor .
   ops aliceObfs4Client bobObfs4Client                     : -> Actor .
   ops obfs4AliceServer obfs4BobServer ircServer           : -> Actor .
   ops aliceIface bobIface aliceServerIface bobServerIface : -> Actor .
   ops aliceNetClient bobNetClient                         : -> Actor .
   ops serverAliceNetServer serverBobNetServer             : -> Actor .
 
-  eq aliceIrcClient = mkIrcClient(aliceIrcClientAddr,
+  eq aliceIrcClient = mkIrcClient-v2(aliceIrcClientAddr,
                                   aliceIfaceAddr,
-                                  "Alice",
-                                  imd(0.000, "#room1", 279) :: imd(28.0, "#room1", 388)) .
-  eq aliceIface = mkIrcByteSeqIface(aliceIfaceAddr, aliceIrcClientAddr, aliceObfs4ClientAddr, aliceObfs4ClientAddr) .
+                                  "alice") .
+  eq aliceIrcUserModel = mkIrcUMV2Actor(aliceIrcUserModelAddr,
+                                        "irc-test",
+                                        aliceIrcClientAddr) .
+  eq aliceIface = mkIrcByteSeqIface(aliceIfaceAddr, aliceIrcClientAddr, aliceObfs4ClientAddr) .
   eq aliceObfs4Client = makeObfs4Node(aliceObfs4ClientAddr, aliceIfaceAddr, obfs4AliceServerAddr) .
 
   eq aliceNetClient = makeNetClient(aliceNetClientAddr,
@@ -88,25 +93,26 @@ mod OBFS4_TESTS is
                                     true)
   .
 
-  eq bobIrcClient = mkIrcClient(bobIrcClientAddr,
+  eq bobIrcClient = mkIrcClient-v2(bobIrcClientAddr,
                                 bobIfaceAddr,
-                                "Bob",
-                                imd(4.000, "#room1", 1400))
+                                "bob")
   .
+  eq bobIrcUserModel = mkIrcUMV2Actor(bobIrcUserModelAddr,
+                                      "irc-test",
+                                      bobIrcClientAddr) .
   eq bobIface = mkIrcByteSeqIface(bobIfaceAddr,
                                   bobIrcClientAddr,
-                                  bobObfs4ClientAddr,
                                   bobObfs4ClientAddr)
   .
   eq bobObfs4Client = makeObfs4Node(bobObfs4ClientAddr, bobIfaceAddr, obfs4BobServerAddr) .
 
   eq ircServer = mkIrcServer(ircServerAddr) .
   --- Server Iface facing Alice.
-  eq aliceServerIface = mkIrcByteSeqIface(aliceServerIfaceAddr, ircServerAddr, obfs4AliceServerAddr, obfs4AliceServerAddr) .
+  eq aliceServerIface = mkIrcByteSeqIface(aliceServerIfaceAddr, ircServerAddr, obfs4AliceServerAddr) .
   --- Obfs4 Server facing Alice.
   eq obfs4AliceServer = makeObfs4Node(obfs4AliceServerAddr, aliceServerIfaceAddr, aliceObfs4ClientAddr) .
   --- Server Iface facing Bob.
-  eq bobServerIface = mkIrcByteSeqIface(bobServerIfaceAddr, ircServerAddr, obfs4BobServerAddr, obfs4BobServerAddr) .
+  eq bobServerIface = mkIrcByteSeqIface(bobServerIfaceAddr, ircServerAddr, obfs4BobServerAddr) .
   --- Obfs4 Server facing Bob.
   eq obfs4BobServer = makeObfs4Node(obfs4BobServerAddr, bobServerIfaceAddr, bobObfs4ClientAddr) .
 
@@ -126,14 +132,44 @@ mod OBFS4_TESTS is
   vars caddrs : AddrSet .
   vars rooms : StringAddrsSet .
 
+  vars dt : Float .
+  vars icAddr isAddr ifsAddr : Address .
+  vars room : String .
+  op mkJoin : Float String Address Address Address -> ScheduleMsg .
+  eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =
+       [dt,
+       (to isAddr from ifsAddr :
+        JoinChannel(makeIrcChannelName(room), icAddr )),
+        0]
+  .
+
+  op LinkParams : -> AttributeSet .
+  eq LinkParams =
+    (4stateLoss: (p13: 0.0,
+                  p31: 1.0,
+                  p32: 0.0,
+                  p23: 0.0,
+                  p14: 0.0,
+                  oneWayDelay: 0.01))
+  .
+
+  eq LinkData =
+    aaa(aliceNetClientAddr, serverAliceNetServerAddr, LinkParams)
+    aaa(serverAliceNetServerAddr, aliceNetClientAddr, LinkParams)
+    aaa(bobNetClientAddr, serverBobNetServerAddr, LinkParams)
+    aaa(serverBobNetServerAddr, bobNetClientAddr, LinkParams)
+  .
+
   op initState : -> Config .
   eq initState = 
     rCtr(0)
     aliceIrcClient
+    aliceIrcUserModel
     aliceIface
     aliceObfs4Client
     aliceNetClient
     bobIrcClient
+    bobIrcUserModel
     bobIface
     bobObfs4Client
     bobNetClient
@@ -144,20 +180,15 @@ mod OBFS4_TESTS is
     bobServerIface
     obfs4BobServer
     serverBobNetServer
-    mkIrcMonitor(ircMonitorAddr,
-                 (aliceIrcClientAddr ;; bobIrcClientAddr ;; ircServerAddr),
-                 (aliceIrcClientAddr ;; bobIrcClientAddr),
-                 (rm("#room1", aliceIrcClientAddr ;; bobIrcClientAddr)))
-    [0.20, (to aliceIfaceAddr from aliceIrcClientAddr
-            : JoinChannel(makeIrcChannelName("#room1"), aliceIrcClientAddr)), 0]
-    [0.60, (to bobIfaceAddr from bobIrcClientAddr
-            : JoinChannel(makeIrcChannelName("#room1"), bobIrcClientAddr)), 0]
-    [1.0,
-      (to aliceIrcClientAddr from aliceIrcClientAddr : ircMsgSendTime),
-      0]
-    [1.5,
-      (to bobIrcClientAddr from bobIrcClientAddr : ircMsgSendTime),
-      0]
+    mkIrcMonitor(ircMonitorAddr)
+    mkJoin(1.0, "#chat", aliceIrcClientAddr, ircServerAddr, aliceServerIfaceAddr)
+    mkJoin(1.1, "#general", aliceIrcClientAddr, ircServerAddr, aliceServerIfaceAddr)
+    mkJoin(1.2, "#random", aliceIrcClientAddr, ircServerAddr, aliceServerIfaceAddr)
+    mkJoin(1.3, "#chat", bobIrcClientAddr, ircServerAddr, bobServerIfaceAddr)
+    mkJoin(1.4, "#general", bobIrcClientAddr, ircServerAddr, bobServerIfaceAddr)
+    mkJoin(1.5, "#random", bobIrcClientAddr, ircServerAddr, bobServerIfaceAddr)
+    [2.0, to aliceIrcUserModelAddr from aliceIrcUserModelAddr : burstDelayTO, 0]
+    [2.1, to bobIrcUserModelAddr from bobIrcUserModelAddr : burstDelayTO, 0]
   .
 
   op initConfig : -> Config .

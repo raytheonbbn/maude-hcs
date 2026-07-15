@@ -218,6 +218,11 @@ mod IODINE_SORTS is
   op isEmptyFile : Fragment -> Bool .
   eq isEmptyFile(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG)) = (getSize(FILE) == 0) .
 
+  op getSize : Query -> Nat .
+  eq getSize(Q:Query) = 100 .
+
+  op getSize : Response -> Nat .
+  eq getSize(R:Response) = 300 .
 
 endm  
 --- these views allow us to create lists LIST{X} where X is sort Packet or Fragment
@@ -273,6 +278,11 @@ mod IODINE_AUX is
   eq updateMap(wdb !! (ID <~ ADDR), ID, ADDR1) 
           = wdb !! (ID <~ ADDR1) .
   eq updateMap(wdb,ID,ADDR) = wdb !! (ID <~ ADDR) [owise] .
+
+  --- The transport to be used for Iodine.
+  --- It can be nothing (transport(any:Address) = any:Address) or tcp.
+  op transport : Address -> Address .
+  eq transport(any:Address) = any:Address [owise] .
 
 endm
 
@@ -660,7 +670,7 @@ mod IODINE_NODE is
   ---                   Attributes from
   op sendFragment : AttributeSet Address -> AttributeSetMsgs .
   ceq sendFragment((wattrs,  appAddrMap: MIdAddr, numAttempts: NUM_ATTEMPTS, weirdQType: QTYPE), ADDR) = 
-    {(wattrsNext, appAddrMap: MIdAddr1, numAttempts: s NUM_ATTEMPTS, weirdQType: QTYPE), (to RESOLVER from ADDR : QUERY)}
+    {(wattrsNext, appAddrMap: MIdAddr1, numAttempts: s NUM_ATTEMPTS, weirdQType: QTYPE), (to transport(RESOLVER) from ADDR : QUERY)}
     if RESOLVER := getResolver(wattrs)
       /\ wattrsNext := incrQueryCtr(wattrs)
       /\ ID := getQueryCtr(wattrsNext)
@@ -678,7 +688,7 @@ mod IODINE_NODE is
   ---           Attributes   WClient TxApp   RxApp
   op sendPing : AttributeSet Address Address Address -> AttributeSetMsgs .
   ceq sendPing((wattrs, weirdQType: QTYPE), ADDR, AliceAddr, BobAddr) =
-    {(wattrsNext, weirdQType: QTYPE), (to RESOLVER from ADDR : QUERY)}
+    {(wattrsNext, weirdQType: QTYPE), (to transport(RESOLVER) from ADDR : QUERY)}
     if RESOLVER := getResolver(wattrs)
       /\ wattrsNext := incrQueryCtr(wattrs)
       /\ ID := getQueryCtr(wattrsNext)
@@ -821,7 +831,7 @@ mod IODINE_NODE is
     /\ downstreamdata := nm(if F' == nilFragment then fragment(getToAddr(F), getFromAddr(F), file(0,0), getOutSeqNo(wattrsTrans'), getOutFragNo(wattrsTrans'), getInSeqNo(wattrsTrans'), getInFragNo(wattrsTrans'), 0, false, false) else F' fi)
     --- iodined.c:588: Only increment attempt counter if this is not a dataless fragment
     /\ wattrsNext := (if F' == nilFragment then wattrsTrans' else incrNumAttempts(wattrsTrans') fi)
-    /\ msg := (to ADDR1 from ADDR : response(ID, NAME, < NAME, QTYPE, sTTL, downstreamdata >, nil, nil, 0))
+    /\ msg := (to transport(ADDR1) from ADDR : response(ID, NAME, < NAME, QTYPE, sTTL, downstreamdata >, nil, nil, 0))
     .
 
   *** Clear the previous fragments, keep only this newly received one, and start
