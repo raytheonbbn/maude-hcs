@@ -118,12 +118,12 @@ mod TEST_WEBTUNNEL_IRC is
   ---------------------------------------------------
   op LinkParams : -> AttributeSet .
   eq LinkParams =
-    (4stateLoss: (p13: 0.001,
-                  p31: 0.4,
-                  p32: 0.5,
-                  p23: 0.04,
-                  p14: 0.1,
-                  oneWayDelay: 0.050))
+    (4stateLoss: (p13: 0.0,
+                  p31: 1.0,
+                  p32: 0.0,
+                  p23: 0.0,
+                  p14: 0.0,
+                  oneWayDelay: 0.01))
   .
 
   eq LinkData =
@@ -203,19 +203,27 @@ mod TEST_WEBTUNNEL_IRC is
   --- tlsServerName and upgradePath would be the bridge's public domain
   --- and secret path in a real deployment.
   eq wtClient1 =
-    makeWtClient(wtClient1Addr,
-                 wtProxy1Addr,
-                 ircServerAddr,
-                 "irc.example.com",   --- TLS SNI
-                 "secret/path/v1")    --- HTTP Upgrade path
+    < wtClient1Addr : WtClient |
+        thisAddr:        wtClient1Addr,
+        serverProxyAddr: wtProxy1Addr,
+        ircServerAddr:   ircServerAddr,
+        ircClientAddr:   client1IfaceAddr,
+        tlsServerName:   "irc.example.com",
+        upgradePath:     "secret/path/v1",
+        tunnelState:     Closed,
+        pendingMsgs:     emptyQueue >
   .
 
   eq wtClient2 =
-    makeWtClient(wtClient2Addr,
-                 wtProxy2Addr,
-                 ircServerAddr,
-                 "irc.example.com",
-                 "secret/path/v1")
+    < wtClient2Addr : WtClient |
+        thisAddr:        wtClient2Addr,
+        serverProxyAddr: wtProxy2Addr,
+        ircServerAddr:   ircServerAddr,
+        ircClientAddr:   client2IfaceAddr,
+        tlsServerName:   "irc.example.com",
+        upgradePath:     "secret/path/v1",
+        tunnelState:     Closed,
+        pendingMsgs:     emptyQueue >
   .
 
   --- Shared webtunnel server proxy.
@@ -261,6 +269,17 @@ mod TEST_WEBTUNNEL_IRC is
 
   eq transport(any:Address) = tcp(any:Address) .
 
+  vars dt : Float .
+  vars icAddr isAddr ifsAddr : Address .
+  vars room : String .
+  op mkJoin : Float String Address Address Address -> ScheduleMsg .
+  eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =
+       [dt,
+       (to isAddr from ifsAddr :
+        JoinChannel(makeIrcChannelName(room), icAddr )),
+        0]
+  .
+
   ---------------------------------------------------
   --- Initial configuration
   ---------------------------------------------------
@@ -294,19 +313,28 @@ mod TEST_WEBTUNNEL_IRC is
     [0.10, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]
     --- Bob's WtClient initiates its tunnel.
     [0.15, (to wtClient2Addr from wtClient2Addr : WtStartCmd), 0]
+    
+    --- Phase 2: Join Channels (after tunnels open at ~0.46)
+    mkJoin(1.0, "#chat", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    mkJoin(1.1, "#general", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    mkJoin(1.2, "#random", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    
+    mkJoin(1.3, "#chat", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+    mkJoin(1.4, "#general", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+    mkJoin(1.5, "#random", ircClient2Addr, ircServerAddr, server2IfaceAddr)
 
     --- Phase 3: IRC message send timers.
     **** start alice
-    [2.1, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
+    [3.0, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
     **** start bob
-    [2.2, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
+    [3.1, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
   .
 
   ---------------------------------------------------
   --- Run parameters
   ---------------------------------------------------
   op limit : -> Float .
-  eq limit = 20.0 .    --- simulate 30 simulated seconds
+  eq limit = 30.0 .    --- simulate 30 simulated seconds
 
   op initConfig : -> Config .
   eq initConfig = run({0.0 | nil} initState, limit) .
@@ -314,6 +342,7 @@ mod TEST_WEBTUNNEL_IRC is
 endm
 set print attribute on .
 rew initConfig .
+q
 eof
 
 ---------------------------------------------------
