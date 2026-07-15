@@ -55,6 +55,16 @@ sload ../../dns/maude/probabilistic/iodine_dns.maude
 sload ../../dns/maude/common/_aux.maude
 sload ../../network/net_prob.maude
 
+---- TGENs
+sload ../../common/maude/tgen-action-actor-v2.maude
+sload ../../tgen/maude/ftp/ftp-mamodel-v2.maude
+sload ../../tgen/maude/ftp/ftpTgen-actor.maude
+sload ../../tgen/maude/ftp/ftpServer-actor.maude
+sload ../../tgen/maude/gorillachat/gorilla-mamodel-v2.maude
+sload ../../tgen/maude/gorillachat/gorilla-Tgen-actor.maude
+sload ../../tgen/maude/minio/minio-mamodel-v2.maude
+sload ../../tgen/maude/minio/minioTgen-actor.maude
+
 mod COMBINED_IRC_EXPERIMENTS is
   pr SCHEDULER .
   pr USER-ACTION-ACTOR .
@@ -78,13 +88,25 @@ mod COMBINED_IRC_EXPERIMENTS is
   pr NETWORK_NODE .
   pr NETWORK_CONNECTION .
 
+  inc FTP-CONFIG-MAMODEL-V2 .
+  inc FTP-TGEN .
+  inc FTP-SERVER .
+  inc GORILLA-CONFIG-MAMODEL-V2 .
+  inc GORILLACHAT-TGEN .
+  inc MINIO-CONFIG-MAMODEL-V2 .
+  inc MINIO-TGEN .
+  inc USER-ACTION-ACTOR-V2 .
+
   vars j : Nat .
 
   eq encOH(fsize:Nat,ksize:Nat) = 0 .
   eq noiseMin(msg:Msg)          = 0.001 .
   ***** Global constants  
   **** the user model database
-  eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2 ) .
+  eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2 ,
+                                   "ftp" |-> ftp-config-ma-v2 ,
+                                   "gorilla" |-> gorilla-config-ma-v2 ,
+                                   "minio" |-> minio-config-ma-v2) .
   *** for the default case
   eq noiseMax(msg:Msg)          = 0.00001 .
      
@@ -110,6 +132,10 @@ mod COMBINED_IRC_EXPERIMENTS is
   ops ircClient1UserModelAddr ircClient2UserModelAddr 
       ircClient3UserModelAddr ircClient4UserModelAddr             : -> Address .
   ops ircServerAddr s3SrvAddr ircMonitorAddr iodineMonitorAddr    : -> Address .
+
+  ops ftpUMAddr ftpTGAddr ftpSrvAddr : -> Address .
+  ops gorillaUMAddr gorillaTGAddr gorillaSrvAddr : -> Address .
+  ops minioUMAddr minioTGAddr minioS3ClientAddr minioS3ServerAddr : -> Address .
 
   --- Client 1 (Webtunnel)
   ops client1IfaceAddr server1IfaceAddr wtClient1Addr wtProxy1Addr : -> Address .
@@ -194,6 +220,22 @@ mod COMBINED_IRC_EXPERIMENTS is
   ops client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4 : -> Actor .
   ops iodineClient4NetClient iodineServer4NetServer : -> Actor .
 
+  --- FTP
+  op ftpTGenA : -> Actor .
+  op ftpSrvA : -> Actor .
+  op ftpUmAct : -> Actor .
+
+  --- GorillaChat
+  op gorillaTGenA : -> Actor .
+  op gorillaSrvA : -> Actor .
+  op gorillaUmAct : -> Actor .
+
+  --- Minio
+  op minioTGenA : -> Actor .
+  op minioS3ClientA : -> Actor .
+  op minioS3ServerA : -> Actor .
+  op minioUmAct : -> Actor .
+
   --- Client 1 (Webtunnel) Setup
   eq ircClient1          = mkIrcClient-v2(ircClient1Addr, client1IfaceAddr, "Client1") .
   eq ircClient1UserModel = mkIrcUMV2Actor(ircClient1UserModelAddr, "irc-test", ircClient1Addr) .
@@ -265,6 +307,30 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq ircServer           = mkIrcServer(ircServerAddr) .
   eq iodineMonitor       = mkWMonitor(iodineMonitorAddr) .
 
+  --- FTP
+  eq ftpTGenA = mkFtpTgenA(ftpTGAddr, ftpSrvAddr, 5.0, 2) .
+  eq ftpSrvA = mkFtpServerA(ftpSrvAddr) .
+  eq ftpUmAct = mkTgenUMV2Actor(ftpUMAddr, "ftp", ftpTGAddr) .
+
+  --- GorillaChat
+  eq gorillaTGenA = mkGorillaChatTgenA(gorillaTGAddr, gorillaSrvAddr) .
+  eq gorillaSrvA = mkGorillaChatServer(gorillaSrvAddr, (gorillaTGAddr)) .
+  eq gorillaUmAct = mkTgenUMV2Actor(gorillaUMAddr, "gorilla", gorillaTGAddr) .
+
+  --- Minio
+  eq minioTGenA = mkMinioTgenA(minioTGAddr, minioS3ClientAddr, "tgen") .
+  eq minioS3ClientA = makeS3Client(minioS3ClientAddr, minioS3ServerAddr) .
+  eq minioS3ServerA =
+    < minioS3ServerAddr : AwsS3HttpServer |
+        s3DataMap: (
+          ("/tgen/list-1" -> restToByteSeq("obj1.zip;obj2.zip;data/")) ;
+          ("/tgen/stat-1" -> restToByteSeq("obj1.zip:1024:2025-01-01")) ;
+          ("/tgen/cd-1" -> restToByteSeq("subdir1/;subdir2/")) ;
+          ("/tgen/retr-1" -> restToByteSeq("mock_file_content_bytes"))
+        )
+    > .
+  eq minioUmAct = mkTgenUMV2Actor(minioUMAddr, "minio", minioTGAddr) .
+
   ---------------------------------------------------
   --- Initial State Configuration
   ---------------------------------------------------
@@ -292,8 +358,13 @@ mod COMBINED_IRC_EXPERIMENTS is
     ircClient4 ircClient4UserModel client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4
     iodineClient4NetClient iodineServer4NetServer
 
-    --- Timers & Execution Triggers
+    --- TGENs
+    ftpUmAct ftpTGenA ftpSrvA
+    gorillaUmAct gorillaTGenA gorillaSrvA
+    minioUmAct minioTGenA minioS3ClientA minioS3ServerA
 
+    --- Timers & Execution Triggers
+ 
     [0.001, (to aha3Addr from aha3Addr : SkyhookStartCmd), 0]
     [0.20, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]
 
@@ -320,6 +391,12 @@ mod COMBINED_IRC_EXPERIMENTS is
     [21.0, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
     [22.0, (to ircClient3UserModelAddr from ircClient3UserModelAddr : burstDelayTO), 0]
     [23.0, (to ircClient4UserModelAddr from ircClient4UserModelAddr : burstDelayTO), 0]
+
+    --- TGEN Timers
+  
+    [5.0, to ftpUMAddr from ftpUMAddr : burstDelayTO, 0]
+    [5.0, to gorillaUMAddr from gorillaUMAddr : burstDelayTO, 0]
+    [5.0, to minioUMAddr from minioUMAddr : burstDelayTO, 0]
   .
 
   ---------------------------------------------------
