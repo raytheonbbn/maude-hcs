@@ -138,6 +138,17 @@ mod COMBINED_IRC_EXPERIMENTS is
 
   eq transport(any:Address) = tcp(any:Address) .
 
+  vars dt : Float .
+  vars icAddr isAddr ifsAddr : Address .
+  vars room : String .
+  op mkJoin : Float String Address Address Address -> ScheduleMsg .
+  eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =
+       [dt,
+       (to isAddr from ifsAddr :
+        JoinChannel(makeIrcChannelName(room), icAddr )),
+        0]
+  .
+
   op LinkType-TCP-4stateLoss : -> AttributeSet .
   eq LinkType-TCP-4stateLoss = 
   (4stateLoss: 
@@ -188,7 +199,17 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq ircClient1UserModel = mkIrcUMV2Actor(ircClient1UserModelAddr, "irc-test", ircClient1Addr) .
   eq client1Iface        = mkIrcByteSeqIface(client1IfaceAddr, ircClient1Addr, wtClient1Addr) .
   eq server1Iface        = mkIrcByteSeqIface(server1IfaceAddr, ircServerAddr, wtProxy1Addr) .
-  eq wtClient1           = makeWtClient(wtClient1Addr, wtProxy1Addr, ircServerAddr, "irc.example.com", "secret/path/v1") .
+  eq wtClient1 =
+    < wtClient1Addr : WtClient |
+        thisAddr:        wtClient1Addr,
+        serverProxyAddr: wtProxy1Addr,
+        ircServerAddr:   ircServerAddr,
+        ircClientAddr:   client1IfaceAddr,
+        tlsServerName:   "irc.example.com",
+        upgradePath:     "secret/path/v1",
+        tunnelState:     Closed,
+        pendingMsgs:     emptyQueue >
+  .
   eq wtProxy1            = makeWtServerProxy(wtProxy1Addr, server1IfaceAddr) .
   eq wtClient1NetClient  = makeNetClient(wtClient1NetClientAddr, wtProxy1Addr, wtProxy1NetServerAddr, wtClient1Addr, true) .
   eq wtProxy1NetServer   = makeNetServer(wtProxy1NetServerAddr, wtClient1NetClientAddr, wtProxy1Addr) .
@@ -273,6 +294,23 @@ mod COMBINED_IRC_EXPERIMENTS is
 
     --- Timers & Execution Triggers
     [0.20, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]
+    
+    mkJoin(1.0, "#chat", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    mkJoin(1.1, "#general", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    mkJoin(1.2, "#random", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+
+    mkJoin(1.3, "#chat", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+    mkJoin(1.4, "#general", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+    mkJoin(1.5, "#random", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+
+    mkJoin(1.6, "#chat", ircClient3Addr, ircServerAddr, server3IfaceAddr)
+    mkJoin(1.7, "#general", ircClient3Addr, ircServerAddr, server3IfaceAddr)
+    mkJoin(1.8, "#random", ircClient3Addr, ircServerAddr, server3IfaceAddr)
+
+    mkJoin(1.9, "#chat", ircClient4Addr, ircServerAddr, serverIface4Addr)
+    mkJoin(2.0, "#general", ircClient4Addr, ircServerAddr, serverIface4Addr)
+    mkJoin(2.1, "#random", ircClient4Addr, ircServerAddr, serverIface4Addr)
+
     [5.0, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
     [5.0, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
     [0.001, (to aha3Addr from aha3Addr : SkyhookStartCmd), 0]
