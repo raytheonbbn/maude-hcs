@@ -147,17 +147,18 @@ def build_cli_parser():
                                  default=None,
                                  help="Name of the global yml config file, which includes the topology, and actor information and params",
                                  required=False)
+    generate_parser.add_argument("--loss-specs-dir",
+                                dest="loss_specs_dir",
+                                metavar='DIR',
+                                default=None,
+                                help="Directory containing loss specifications for each human-readable loss name (bad, poor, fair, good, excellent, none).",
+                                required=False)
 
     generate_parser.add_argument('--filename', dest='filename', type=str, required=False, default=None, help=f'Name of output file')
     generate_parser.add_argument('--model', dest='model', required=False,
             choices=GLOBALS.MODEL_TYPES,
             default=GLOBALS.MODEL_TYPES[0],
             help=f'Choose one of the following options: {", ".join(GLOBALS.MODEL_TYPES)}. Default is {GLOBALS.MODEL_TYPES[0]}.'
-    )
-    generate_parser.add_argument('--parse-type', dest='parse_type', required=False,
-            choices=GLOBALS.PARSE_TYPES,
-            default=GLOBALS.PARSE_TYPES[0],
-            help=f'Choose one of the following options: {", ".join(GLOBALS.PARSE_TYPES)}. Default is {GLOBALS.PARSE_TYPES[0]}.'
     )
     generate_parser.add_argument('--output-dir', dest='output_dir',
                                required=False, default=None, help=f'Directory containing the output files')

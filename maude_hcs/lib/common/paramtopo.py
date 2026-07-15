@@ -29,9 +29,11 @@
 # MAUDE_HCS: end
 
 import logging
+import pprint
+
 logger = logging.getLogger(__name__)
 
-from maude_hcs.parsers.graph import Topology, Node, Link
+from maude_hcs.parsers.graph import Topology, Node, Link, default_loss
 
 class ParameterizedLink:
   '''
@@ -41,29 +43,13 @@ class ParameterizedLink:
   def __init__(self, link:Link) -> None:
     if not link:
       # Default link, when nothing is specified.
-      self.delayType  = "Constant"
-      self.delayMean  = 0.
-      self.delayStd   = 0.
-      self.delayConst = 0.002
-      self.noiseMin   = 0.
-      self.noiseMax   = 0.00001
-
-      self.canDrop    = False
-      self.dropP      = 0.
+      self.latency    = 0.0
+      self.loss       = default_loss()
       return
     
     self.link = link
-    self.delayStd   = link.jitter * 0.667
-    self.delayType  = "Constant" if self.delayStd == 0. else "Normal"
-    # T&E V1 used RTT times, this is compatible with V2.
-    self.delayMean  = 0. if self.delayStd == 0. else link.latency
-    self.delayConst = link.latency if self.delayStd == 0. else 0.
-    self.noiseMin   = 0.
-    self.noiseMax   = 0.00001 if self.delayStd == 0. else 0.
-
-    # Drop Probability (value must be between 0 and 1.)
-    self.dropP      = link.loss / 100.
-    self.canDrop    = self.dropP > 0.
+    self.latency    = link.latency
+    self.loss       = link.loss
 
 
   def to_string(self) -> str:
@@ -72,15 +58,9 @@ class ParameterizedLink:
 
     Return the printable string of the object.
     """
-    s  = f"Chars: Type {self.delayType}, "
-    s += f"Delay: {self.delayConst}, "
-    s += f"NoiseMin: {self.noiseMin}, "
-    s += f"NoiseMax: {self.noiseMax}, "
-    s += f"Mean: {self.delayMean}, "
-    s += f"Std: {self.delayStd}, "
-    s += f"canDrop: {self.canDrop}, "
-    s += f"prob: {self.dropP}"
-    return s
+    return \
+      f"loss: {pprint.pformat(self.loss, compact=True)}, " \
+      f"latency: {self.latency}"
 
 
   def _to_maude(self) -> str:
@@ -88,19 +68,14 @@ class ParameterizedLink:
     Turn object to maude code.
     Return the string of the maude code for this object.
     '''
-    maude_str = ""
-    terminator= ''
-    for parameter, value in self.__dict__.items():
-      if parameter == 'link': continue
-      if isinstance(value, str):
-        maude_str += f'{terminator}  ({parameter}: "{str(value)}")'
-      elif isinstance(value, bool):
-        maude_str += f"{terminator}  ({parameter}: {str(value).lower()})"
-      else:
-        formatted_value = f"{value:f}"
-        maude_str += f"{terminator}  ({parameter}: {formatted_value.rstrip('0')})"
-      terminator = ',\n'
-    return maude_str
+    return "  (4stateLoss:\n" \
+      f"    (p13: {self.loss["p13"]},\n" \
+      f"    p31: {self.loss["p31"]},\n" \
+      f"    p32: {self.loss["p32"]},\n" \
+      f"    p23: {self.loss["p23"]},\n" \
+      f"    p14: {self.loss["p14"]},\n" \
+      f"    oneWayDelay: {self.latency})\n" \
+      "  )"
 
 
 class ParameterizedTopo:

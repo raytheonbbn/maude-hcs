@@ -33,7 +33,7 @@ from .common import save_output
 from maude_hcs.analysis import HCSAnalysis
 from maude_hcs.lib import GLOBALS
 from maude_hcs.parsers.markovJsonToMaudeParser import process_directories
-
+from maude_hcs.lib.dns.cp3_config import mk_cp3_config
 import logging
 from pathlib import Path
 
@@ -59,7 +59,8 @@ def buildHCSConfig(args):
         return HCSConfig.from_shadow(Path(args.shadow_filename))
     # build from yml
     elif args.yml_filename:
-        ymlconf = YmlConf(args.yml_filename)
+        assert(args.loss_specs_dir is not None)
+        ymlconf = YmlConf(args.yml_filename, args.loss_specs_dir)
         return HCSConfig.from_yml_conf(ymlconf)
     else:
         raise ValueError("Unsupported input. Specify run_args or yml_filename or shadow_filename.")
@@ -86,8 +87,13 @@ def handle_generate(args, parser):
         raise Exception('Either specify a json HCS config with --run-args OR a yml config, but not both.')
     # get the configuration object    
     hcsconfig = buildHCSConfig(args)
-    # instantiate the analysis and generate
-    result = HCSAnalysis(args, hcsconfig).generate()
+
+    if args.output_dir:
+        hcsconfig.output.directory = args.output_dir
+
+    # Just directly create DNSConfig descendant:
+    result = mk_cp3_config(hcsconfig)
+
     # save the output
     filename = args.filename
     if filename == None:

@@ -32,6 +32,7 @@ from maude_hcs.parsers.hcsconfig import HCSConfig
 from .corporate import corporate
 from .corporate_iodine import iodine_dns
 from .corporate_destini_iodine import destini_mastodon_iodine_dns
+from .cp3_config import mk_cp3_config
 from .. import Protocol
 
 
@@ -39,6 +40,7 @@ class KnownUNetworks:
     def __init__(self):        
         self.constructors = {
             'corporate_base': self._fixed_network(corporate),
+            'cp3': self._fixed_network(mk_cp3_config),
             Protocol.IODINE_DNS.value: self._fixed_network(iodine_dns),
             # Protocol.DESTINI_MASTODON: self._fixed_network(destini_mastodon),
             Protocol.DESTINI_MASTODON_IODINE_DNS.value: self._fixed_network(destini_mastodon_iodine_dns)
