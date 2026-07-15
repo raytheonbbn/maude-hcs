@@ -53,6 +53,7 @@ sload ../../skyhook/skyhook_prob
 sload ../../s3/s3_protocol
 sload ../../dns/maude/probabilistic/iodine_dns.maude
 sload ../../dns/maude/common/_aux.maude
+sload ../../network/net_prob.maude
 
 mod COMBINED_IRC_EXPERIMENTS is
   pr SCHEDULER .
@@ -73,6 +74,9 @@ mod COMBINED_IRC_EXPERIMENTS is
   pr IRC_NAMES .
   pr IODINE_NODE .
   pr IODINE_DNS .
+  pr TCP_SOCKET .
+  pr NETWORK_NODE .
+  pr NETWORK_CONNECTION .
 
   vars j : Nat .
 
@@ -109,59 +113,60 @@ mod COMBINED_IRC_EXPERIMENTS is
 
   --- Client 1 (Webtunnel)
   ops client1IfaceAddr server1IfaceAddr wtClient1Addr wtProxy1Addr : -> Address .
+  ops wtClient1NetClientAddr wtProxy1NetServerAddr                   : -> Address .
 
   --- Client 2 (OBFS4)
   ops client2IfaceAddr server2IfaceAddr : -> Address .
   ops obfs4Client2Addr obfs4Server2Addr : -> Address .
+  ops obfs4Client2NetClientAddr obfs4Server2NetServerAddr : -> Address .
 
   --- Client 3 (Skyhook)
   ops client3IfaceAddr server3IfaceAddr                       : -> Address .
   ops umac3Addr cmac3Addr pua3Addr sdkac3Addr                 : -> Address .
   ops umas3Addr cmas3Addr aha3Addr sdkas3Addr                 : -> Address .
+  ops skyhookClient3NetClientAddr skyhookClient3NetServerAddr : -> Address .
+  ops skyhookServer3NetClientAddr skyhookServer3NetServerAddr : -> Address .
 
   --- Client 4 (Iodine)
   ops client4IfaceAddr serverIface4Addr                                  : -> Address .
   ops sendApp4Addr iodineClient4Addr rcvApp4Addr serverIodineServer4Addr : -> Address .
+  ops iodineClient4NetClientAddr iodineServer4NetServerAddr              : -> Address .
 
   ---------------------------------------------------
   --- Link model parameters
   ---------------------------------------------------
-  op LinkParams : -> AttributeSet .
-  eq LinkParams =
-    (delayStd:    0.),
-    (delayType:   "Constant"),
-    (delayMean:   0.),
-    (delayConst:  0.050),
-    (noiseMin:    0.),
-    (noiseMax:    0.00001),
-    (dropP:       0.),
-    (canDrop:     false) .
 
-  op LinkType-2 : -> AttributeSet .
-  eq LinkType-2 = 
-    (delayStd:    0.),
-    (delayType:   "Constant"),
-    (delayMean:   0.),
-    (delayConst:  0.005),
-    (noiseMin:    0.),
-    (noiseMax:    0.00001),
-    (dropP:       0.),
-    (canDrop:     false) .
+  eq transport(any:Address) = tcp(any:Address) .
+
+  op LinkType-TCP-4stateLoss : -> AttributeSet .
+  eq LinkType-TCP-4stateLoss = 
+  (4stateLoss: 
+     (p13: 0.0,
+      p31: 1.0,          
+      p32: 0.0,          
+      p23: 0.0,         
+      p14: 0.0,          
+      oneWayDelay: 0.01) 
+  ) .
 
   eq LinkData =
     --- Client 1 (Webtunnel) Links
-    aaa(wtClient1Addr, wtProxy1Addr,  LinkParams)
-    aaa(wtProxy1Addr,  wtClient1Addr, LinkParams)
+    aaa(wtClient1Addr, wtProxy1Addr,  LinkType-TCP-4stateLoss)
+    aaa(wtProxy1Addr,  wtClient1Addr, LinkType-TCP-4stateLoss)
     
     --- Client 2 (OBFS4) Links
-    aaa(obfs4Client2Addr, obfs4Server2Addr, LinkParams)
-    aaa(obfs4Server2Addr, obfs4Client2Addr, LinkParams)
+    aaa(obfs4Client2Addr, obfs4Server2Addr, LinkType-TCP-4stateLoss)
+    aaa(obfs4Server2Addr, obfs4Client2Addr, LinkType-TCP-4stateLoss)
 
     --- Client 3 (Skyhook) Links
-    aaa(s3SrvAddr, sdkac3Addr, LinkType-2)
-    aaa(s3SrvAddr, sdkas3Addr, LinkType-2)
-    aaa(sdkac3Addr, s3SrvAddr, LinkType-2)
-    aaa(sdkas3Addr, s3SrvAddr, LinkType-2) .
+    aaa(s3SrvAddr, sdkac3Addr, LinkType-TCP-4stateLoss)
+    aaa(s3SrvAddr, sdkas3Addr, LinkType-TCP-4stateLoss)
+    aaa(sdkac3Addr, s3SrvAddr, LinkType-TCP-4stateLoss)
+    aaa(sdkas3Addr, s3SrvAddr, LinkType-TCP-4stateLoss) 
+    
+    --- Client 4 (Iodine) Links
+    aaa(serverIodineServer4Addr, iodineClient4Addr, LinkType-TCP-4stateLoss)
+    aaa(iodineClient4Addr, serverIodineServer4Addr, LinkType-TCP-4stateLoss) .
 
   ---------------------------------------------------
   --- Actors Setup
@@ -170,9 +175,13 @@ mod COMBINED_IRC_EXPERIMENTS is
   ops ircClient1UserModel ircClient2UserModel ircClient3UserModel ircClient4UserModel : -> Actor .
   
   ops client1Iface server1Iface wtClient1 wtProxy1 : -> Actor .
+  ops wtClient1NetClient wtProxy1NetServer : -> Actor .
   ops client2Iface server2Iface obfs4Client2 obfs4Server2 : -> Actor .
+  ops obfs4Client2NetClient obfs4Server2NetServer : -> Actor .
   ops client3Iface server3Iface umac3Act cmac3Act pua3Act sdkac3Act umas3Act cmas3Act aha3Act sdkas3Act : -> Actor .
+  ops skyhookClient3NetClient skyhookClient3NetServer skyhookServer3NetClient skyhookServer3NetServer : -> Actor .
   ops client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4 : -> Actor .
+  ops iodineClient4NetClient iodineServer4NetServer : -> Actor .
 
   --- Client 1 (Webtunnel) Setup
   eq ircClient1          = mkIrcClient-v2(ircClient1Addr, client1IfaceAddr, "Client1") .
@@ -181,6 +190,8 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq server1Iface        = mkIrcByteSeqIface(server1IfaceAddr, ircServerAddr, wtProxy1Addr) .
   eq wtClient1           = makeWtClient(wtClient1Addr, wtProxy1Addr, ircServerAddr, "irc.example.com", "secret/path/v1") .
   eq wtProxy1            = makeWtServerProxy(wtProxy1Addr, server1IfaceAddr) .
+  eq wtClient1NetClient  = makeNetClient(wtClient1NetClientAddr, wtProxy1Addr, wtProxy1NetServerAddr, wtClient1Addr, true) .
+  eq wtProxy1NetServer   = makeNetServer(wtProxy1NetServerAddr, wtClient1NetClientAddr, wtProxy1Addr) .
 
   --- Client 2 (OBFS4) Setup
   eq ircClient2          = mkIrcClient-v2(ircClient2Addr, client2IfaceAddr, "Client2") .
@@ -189,6 +200,8 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq obfs4Client2        = makeObfs4Node(obfs4Client2Addr, client2IfaceAddr, obfs4Server2Addr) .
   eq server2Iface        = mkIrcByteSeqIface(server2IfaceAddr, ircServerAddr, obfs4Server2Addr) .
   eq obfs4Server2        = makeObfs4Node(obfs4Server2Addr, server2IfaceAddr, obfs4Client2Addr) .
+  eq obfs4Client2NetClient = makeNetClient(obfs4Client2NetClientAddr, obfs4Server2Addr, obfs4Server2NetServerAddr, obfs4Client2Addr, true) .
+  eq obfs4Server2NetServer = makeNetServer(obfs4Server2NetServerAddr, obfs4Client2NetClientAddr, obfs4Server2Addr) .
 
   --- Client 3 (Skyhook) Setup
   eq ircClient3          = mkIrcClient-v2(ircClient3Addr, client3IfaceAddr, "Client3") .
@@ -203,6 +216,10 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq cmas3Act            = mkCMSimpleBi(cmas3Addr, server3IfaceAddr, aha3Addr) .
   eq aha3Act             = mkSkyhookAH(aha3Addr, cmas3Addr, sdkas3Addr, "c_to_s_bucket_a", "s_to_c_bucket_a", "c_to_s_uuid_a", "s_to_c_uuid_a", "s_to_c_uuid_a", 6) .
   eq sdkas3Act           = makeS3Client(sdkas3Addr, s3SrvAddr) .
+  eq skyhookClient3NetClient = makeNetClient(skyhookClient3NetClientAddr, s3SrvAddr, skyhookClient3NetServerAddr, sdkac3Addr, true) .
+  eq skyhookClient3NetServer = makeNetServer(skyhookClient3NetServerAddr, skyhookClient3NetClientAddr, s3SrvAddr) .
+  eq skyhookServer3NetClient = makeNetClient(skyhookServer3NetClientAddr, s3SrvAddr, skyhookServer3NetServerAddr, sdkas3Addr, true) .
+  eq skyhookServer3NetServer = makeNetServer(skyhookServer3NetServerAddr, skyhookServer3NetClientAddr, s3SrvAddr) .
 
   --- Client 4 (Iodine) Setup
   eq ircClient4          = mkIrcClient-v2(ircClient4Addr, client4IfaceAddr, "Client4") .
@@ -213,6 +230,14 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq rcvApp4             = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .
   eq iodineClient4       = makeWClient(iodineClient4Addr, serverIodineServer4Addr, 'pwnd2 . 'com . root, a, 0.0) .
   eq serverIodineServer4 = makeWNameServer(serverIodineServer4Addr, 0.0, zonePwnd2Com4) .
+  eq iodineClient4NetClient = makeNetClient(iodineClient4NetClientAddr,
+                                            serverIodineServer4Addr,
+                                            iodineServer4NetServerAddr,
+                                            iodineClient4Addr,
+                                            true) .
+  eq iodineServer4NetServer = makeNetServer(iodineServer4NetServerAddr,
+                                            iodineClient4NetClientAddr,
+                                            serverIodineServer4Addr) .
 
   --- Base Infrastructure Setup
   eq s3SrvAct            = makeS3Server(s3SrvAddr) .
@@ -232,25 +257,29 @@ mod COMBINED_IRC_EXPERIMENTS is
 
     --- Client 1 Entities (Webtunnel)
     ircClient1 ircClient1UserModel client1Iface server1Iface wtClient1 wtProxy1
+    wtClient1NetClient wtProxy1NetServer
     
     --- Client 2 Entities (OBFS4)
     ircClient2 ircClient2UserModel client2Iface server2Iface obfs4Client2 obfs4Server2
+    obfs4Client2NetClient obfs4Server2NetServer
     
     --- Client 3 Entities (Skyhook)
     ircClient3 ircClient3UserModel client3Iface umac3Act cmac3Act pua3Act sdkac3Act server3Iface umas3Act cmas3Act aha3Act sdkas3Act
+    skyhookClient3NetClient skyhookClient3NetServer skyhookServer3NetClient skyhookServer3NetServer
     
-    --- Client 4 Entities (Iodine)
+    --- Client 4 (Iodine)
     ircClient4 ircClient4UserModel client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4
+    iodineClient4NetClient iodineServer4NetServer
 
     --- Timers & Execution Triggers
     [0.20, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]
-    [0.1, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
-    [0.1, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
+    [5.0, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
+    [5.0, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
     [0.001, (to aha3Addr from aha3Addr : SkyhookStartCmd), 0]
-    [0.1, (to ircClient3UserModelAddr from ircClient3UserModelAddr : burstDelayTO), 0]
-    [1.0 + genRandomX(j, 0.0, 0.0001), (to umac3Addr from umac3Addr : actionR("ok")), 0]
-    [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas3Addr from umas3Addr : actionR("ok")), 0]
-    [0.1, (to ircClient4UserModelAddr from ircClient4UserModelAddr : burstDelayTO), 0]
+    [5.0, (to ircClient3UserModelAddr from ircClient3UserModelAddr : burstDelayTO), 0]
+    [5.0 + genRandomX(j, 0.0, 0.0001), (to umac3Addr from umac3Addr : actionR("ok")), 0]
+    [5.0 + genRandomX(s s j, 0.0, 0.0001), (to umas3Addr from umas3Addr : actionR("ok")), 0]
+    [5.0, (to ircClient4UserModelAddr from ircClient4UserModelAddr : burstDelayTO), 0]
   .
 
   ---------------------------------------------------
