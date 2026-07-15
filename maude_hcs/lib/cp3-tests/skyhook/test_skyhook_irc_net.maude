@@ -77,7 +77,7 @@ set show advisories off .
 ---- raceboat  user models
 sload ../../../deps/dns_formalization/Maude/common/apmaude
 sload ../../common/maude/user-action-actor
-sload ../skyhook/skyhook-um-mamodel-1
+sload ./skyhook-um-mamodel-1.maude
 
 ---- irc 
 sload ../../irc/common/irc_name
@@ -86,18 +86,7 @@ sload ../../irc/common/_aux
 sload ../../irc/irc_prob-v2
 sload ../../irc/ircMonitor
 sload ../../common/maude/irc-action-actor-v2.maude
-sload ../skyhook/irc-mamodel-v2.maude
 sload ../../irc/irc-mamodel-v2.maude
-
----- tgens
-sload ../../common/maude/tgen-action-actor-v2.maude
-sload ../../tgen/maude/ftp/ftp-mamodel-v2.maude
-sload ../../tgen/maude/ftp/ftpTgen-actor.maude
-sload ../../tgen/maude/ftp/ftpServer-actor.maude
-sload ../../tgen/maude/gorillachat/gorilla-mamodel-v2.maude
-sload ../../tgen/maude/gorillachat/gorilla-Tgen-actor.maude
-sload ../../tgen/maude/minio/minio-mamodel-v2.maude
-sload ../../tgen/maude/minio/minioTgen-actor.maude
 
 ---- this should go in a scenario dir
 sload ../../irc/irc-byteseq-interface
@@ -128,14 +117,7 @@ mod IRC-ALL is
   pr NETWORK_NODE .
   pr NETWORK_CONNECTION .
   
-  inc FTP-CONFIG-MAMODEL-V2 .
-  inc FTP-TGEN .
-  inc FTP-SERVER .
-  inc GORILLA-CONFIG-MAMODEL-V2 .
-  inc GORILLACHAT-TGEN .
-  inc MINIO-CONFIG-MAMODEL-V2 .
-  inc MINIO-TGEN .
-  inc USER-ACTION-ACTOR-V2 .
+
  
   vars j : Nat .
 
@@ -144,10 +126,7 @@ mod IRC-ALL is
 
   ***** Global constants  
   **** the user model database
-  eq MAModelMap = ("irc-test" |-> irc-mamodel-v2 ,
-                   "ftp" |-> ftp-config-ma-v2 ,
-                   "gorilla" |-> gorilla-config-ma-v2 ,
-                   "minio" |-> minio-config-ma-v2) .
+  eq MAModelMap = ("irc-test" |-> irc-mamodel-v2 ) .
 
   *** for the default case
   eq noiseMax(msg:Msg) = 0.00001 .
@@ -158,9 +137,7 @@ mod IRC-ALL is
   ops irc0UserModelAddr irc1UserModelAddr : -> Address .
   op ircMonitorAddr : -> Address .
 
-  ops ftpUMAddr ftpTGAddr ftpSrvAddr : -> Address .
-  ops gorillaUMAddr gorillaTGAddr gorillaSrvAddr : -> Address .
-  ops minioUMAddr minioTGAddr minioS3ClientAddr minioS3ServerAddr : -> Address .
+
 
   **** Channel endpoint interfaces
   ops iface0cAddr iface0sAddr : -> Address .
@@ -221,21 +198,7 @@ mod IRC-ALL is
   ops s3User0NetServer s3User1NetServer             : -> Actor .
   ops s3ServerUser0NetServer s3ServerUser1NetServer : -> Actor .
 
-  --- FTP
-  op ftpTGenA : -> Actor .
-  op ftpSrvA : -> Actor .
-  op ftpUmAct : -> Actor .
 
-  --- GorillaChat
-  op gorillaTGenA : -> Actor .
-  op gorillaSrvA : -> Actor .
-  op gorillaUmAct : -> Actor .
-
-  --- Minio
-  op minioTGenA : -> Actor .
-  op minioS3ClientA : -> Actor .
-  op minioS3ServerA : -> Actor .
-  op minioUmAct : -> Actor .
 
   ************** actor defns
 
@@ -408,29 +371,7 @@ mod IRC-ALL is
   eq ircMonitorAct = 
       mkIrcMonitor(ircMonitorAddr) .  
       
-  --- FTP
-  eq ftpTGenA = mkFtpTgenA(ftpTGAddr, ftpSrvAddr, 5.0, 2) .
-  eq ftpSrvA = mkFtpServerA(ftpSrvAddr) .
-  eq ftpUmAct = mkTgenUMV2Actor(ftpUMAddr, "ftp", ftpTGAddr) .
 
-  --- GorillaChat
-  eq gorillaTGenA = mkGorillaChatTgenA(gorillaTGAddr, gorillaSrvAddr) .
-  eq gorillaSrvA = mkGorillaChatServer(gorillaSrvAddr, (gorillaTGAddr)) .
-  eq gorillaUmAct = mkTgenUMV2Actor(gorillaUMAddr, "gorilla", gorillaTGAddr) .
-
-  --- Minio
-  eq minioTGenA = mkMinioTgenA(minioTGAddr, minioS3ClientAddr, "tgen") .
-  eq minioS3ClientA = makeS3Client(minioS3ClientAddr, minioS3ServerAddr) .
-  eq minioS3ServerA =
-    < minioS3ServerAddr : AwsS3HttpServer |
-        s3DataMap: (
-          ("/tgen/list-1" -> restToByteSeq("obj1.zip;obj2.zip;data/")) ;
-          ("/tgen/stat-1" -> restToByteSeq("obj1.zip:1024:2025-01-01")) ;
-          ("/tgen/cd-1" -> restToByteSeq("subdir1/;subdir2/")) ;
-          ("/tgen/retr-1" -> restToByteSeq("mock_file_content_bytes"))
-        )
-    > .
-  eq minioUmAct = mkTgenUMV2Actor(minioUMAddr, "minio", minioTGAddr) .
                   
   ------------ end actors               
 
@@ -505,10 +446,9 @@ mod IRC-ALL is
     s3User1NetServer
     s3ServerUser0NetServer
     s3ServerUser1NetServer
-    
-    ftpUmAct ftpTGenA ftpSrvA
-    gorillaUmAct gorillaTGenA gorillaSrvA
-    minioUmAct minioTGenA minioS3ClientA minioS3ServerA
+  
+  
+
      
   **** start ahUser0
       [0.001, (to ah0Addr from  ah0Addr : SkyhookStartCmd), 0]
@@ -523,17 +463,37 @@ mod IRC-ALL is
     [0.04, (to um1sAddr from um1sAddr : actionR("ok")), 0]
 
   **** start user0
-    [.3, to irc0UserModelAddr from irc0UserModelAddr : burstDelayTO, 0]
-  **** start user1
-    [.4, to irc1UserModelAddr from irc1UserModelAddr : burstDelayTO, 0]
+    mkJoin(1.0, "#general", irc0Addr, ircSrvAddr, iface0sAddr)
+    mkJoin(20.0, "#chat", irc0Addr, ircSrvAddr, iface0sAddr)
+    mkJoin(40.0, "#random", irc0Addr, ircSrvAddr, iface0sAddr)
     
-    [0.1, to ftpUMAddr from ftpUMAddr : burstDelayTO, 0]
-    [0.1, to gorillaUMAddr from gorillaUMAddr : burstDelayTO, 0]
-    [0.1, to minioUMAddr from minioUMAddr : burstDelayTO, 0]
+  **** start user1
+    mkJoin(60.0, "#general", irc1Addr, ircSrvAddr, iface1sAddr)
+    mkJoin(80.0, "#chat", irc1Addr, ircSrvAddr, iface1sAddr)
+    mkJoin(100.0, "#random", irc1Addr, ircSrvAddr, iface1sAddr)
+
+  **** start irc user model
+    [120.0, to irc0UserModelAddr from irc0UserModelAddr : burstDelayTO, 0]
+    [120.1, to irc1UserModelAddr from irc1UserModelAddr : burstDelayTO, 0]
+
   .
 
+
+ vars dt : Float .
+  vars icAddr isAddr ifsAddr : Address .
+  vars room : String .
+  op mkJoin : Float String Address Address Address -> ScheduleMsg .
+  eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =
+       [dt,
+       (to isAddr from ifsAddr :
+        JoinChannel(makeIrcChannelName(room), icAddr )),
+        0]
+  .
+
+
+
   op slimit : -> Float .
-  eq slimit = 1000.0 .
+  eq slimit = 1000000.0 .
 
   op initConfig : -> Config .
   rl[init]: initConfig 
@@ -547,5 +507,3 @@ set print attribute on .
 rew initConfig .
 q
 eof
-
-  
