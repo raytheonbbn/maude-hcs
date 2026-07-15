@@ -18,8 +18,6 @@ class GLOBALS:
     MODEL_TYPES = ['nondet', 'prob']
     MONITOR_ADDRESS = 'monAddr'
     TOPLEVELDIR = Path(os.path.dirname(__file__)).parent.parent
-    PARSE_TYPES = ["cp3", "cp2"]
-
 
 
 def flatten(d, parent_key='', sep='.'):

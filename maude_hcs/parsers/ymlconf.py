@@ -1,20 +1,21 @@
 import json
 from dataclasses import dataclass, field
-from fileinput import filename
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any
 import math
 import re
 
 from dataclasses_json import dataclass_json
-import yaml
 import logging
 from pathlib import Path
+from pprint import pp
 
 from maude_hcs import PROJECT_TOPLEVEL_DIR
 from maude_hcs.parsers.graph import Topology
 from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
 from maude_hcs.parsers.protocolconfig import XFile
 from maude_hcs.parsers import load_yaml_to_dict
+
+from .tne_parser.generate_network_topology import go_network_gen
 
 logger = logging.getLogger(__name__)
 
@@ -325,32 +326,48 @@ class YmlConf:
     Parses the system configuration YAML file into structured objects.
     """
 
-    def __init__(self, yml_path: str):
+    def __init__(self, yml_path: str, loss_specs_dir: str):
         self.yml_path = yml_path
 
         # 1. Load the raw YAML
-        self.data = load_yaml_to_dict(yml_path)
+        self.data = load_yaml_to_dict(Path(yml_path))
 
-        # 2. Network Topology (Topology.from_yml)
-        self.network = Topology.from_yml(self.data)
+        # 1.1 Instantiate all required nodes with labels and addresses
+        tne_network = go_network_gen(self.data)
+
+        # 1.2 Parse loss specs
+        # I |Ii
+        # II|I_
+        loss_names = ["bad", "poor", "fair", "good", "excellent", "none"]
+        loss_specs = {}
+        for ln in loss_names:
+            loss_spec_path = Path(loss_specs_dir) / (ln + ".yaml")
+            loss_specs[ln] = load_yaml_to_dict(loss_spec_path)
+
+        # 2. Network Topology
+        self.network = Topology.from_tne_network_dict_and_yml(tne_network, self.data, loss_specs)
 
         # 3. Background Traffic (TGEN)
         self.background_traffic: List[Tuple[str, str, int]] = self._parse_tgen(self.data)
 
         # 4. Underlying Network
-        self.underlying_network: UnderlyingNetwork = self._parse_underlying(self.data)
+        # self.underlying_network: UnderlyingNetwork = self._parse_underlying(self.data)
 
         # 5. Application
-        self.application: Application = self._parse_application(self.data)
+        # self.application: Application = self._parse_application(self.data)
 
         # 6. Adversary
-        self.adversary: Adversary = self._parse_adversary(self.data, self.yml_path)
+        # self.adversary: Adversary = self._parse_adversary(self.data, self.yml_path)
 
     def _parse_tgen(self, data: dict) -> List[Tuple[str, str, int]]:
         """
         Parses tgen_clients section.
         Returns a list of tuples: (type, profile_json, num_actors)
         """
+        # tgen_data = data["tgen"]
+
+
+
         tgen_configs = []
         clients_section = data.get('tgen_clients', {})
         configs = clients_section.get('configs', {})
