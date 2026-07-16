@@ -77,29 +77,23 @@ class HCSConfig:
     @staticmethod
     def from_yml_conf(ymlconf: YmlConf) -> 'HCSConfig':
 
-        # protocols = {}
-        # if ymlconf.application.iodine:
-        #     # parse the iodine protocol config
-        #     dnsconf = DNSHCSProtocolConfig.from_yml_conf(ymlconf)
-        #     protocols[dnsconf.name] = dnsconf
+        protocols = {}
+        if ymlconf.application.iodine:
+            # parse the iodine protocol config
+            dnsconf = DNSHCSProtocolConfig.from_yml_conf(ymlconf)
+            protocols[dnsconf.name] = dnsconf
 
-        # if ymlconf.application.destini:
-        #     masconf = MASHCSProtocolConfig.from_yml_conf(ymlconf)
-        #     protocols[masconf.name] = masconf
+        if ymlconf.application.destini:
+            masconf = MASHCSProtocolConfig.from_yml_conf(ymlconf)
+            protocols[masconf.name] = masconf
 
-        # return HCSConfig(name='_'.join(sorted(protocols.keys())),
-        #                  topology=ymlconf.network,
-        #                  output=Output.generic(),
-        #                  monitor_address=GLOBALS.MONITOR_ADDRESS,
-        #                  seed=1,
-        #                  adversary=ymlconf.adversary,
-        #                  protocols=protocols)
-
-        return HCSConfig('cp3',
-                    topology=ymlconf.network,
-                    output=Output.generic(),
-                    monitor_address=GLOBALS.MONITOR_ADDRESS,
-                    seed=1, adversary=None, protocols={})
+        return HCSConfig(name='_'.join(sorted(protocols.keys())),
+                         topology=ymlconf.network,
+                         output=Output.generic(),
+                         monitor_address=GLOBALS.MONITOR_ADDRESS,
+                         seed=1,
+                         adversary=ymlconf.adversary,
+                         protocols=protocols)
 
 
     @staticmethod

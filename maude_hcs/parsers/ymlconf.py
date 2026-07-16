@@ -344,156 +344,100 @@ class YmlConf:
             loss_spec_path = Path(loss_specs_dir) / (ln + ".yaml")
             loss_specs[ln] = load_yaml_to_dict(loss_spec_path)
 
-        # 2. Network Topology
         self.network = Topology.from_tne_network_dict_and_yml(tne_network, self.data, loss_specs)
 
-        # 3. Background Traffic (TGEN)
         self.background_traffic: List[Tuple[str, str, int]] = self._parse_tgen(self.data)
+        self.underlying_network: UnderlyingNetwork = self._parse_underlying(tne_network)
+        self.application: Application = self._parse_application(self.data)
 
-        # 4. Underlying Network
-        # self.underlying_network: UnderlyingNetwork = self._parse_underlying(self.data)
-
-        # 5. Application
-        # self.application: Application = self._parse_application(self.data)
-
-        # 6. Adversary
         # self.adversary: Adversary = self._parse_adversary(self.data, self.yml_path)
+        self.adversary = None
 
     def _parse_tgen(self, data: dict) -> List[Tuple[str, str, int]]:
         """
         Parses tgen_clients section.
         Returns a list of tuples: (type, profile_json, num_actors)
         """
-        # tgen_data = data["tgen"]
+        tgen_data = data["tgen"]
+        ret: list[Tuple[str, str, int]] = []
+        
+        for tgen_type, tgens_per_net in tgen_data.items():
+            tgens_per_net = tgens_per_net["tgen_per_network"] # It's always wrapped in this key for some reason
+            tgen_groups: list[dict[str, Any]] = tgens_per_net.values()
 
+            '''
+            tgen_groups is now a list of dicts, with each dict of the form:
 
+            quantity: 10
+            profiles:
+                influencer_1: .5
+                normal_4: .5
 
-        tgen_configs = []
-        clients_section = data.get('tgen_clients', {})
-        configs = clients_section.get('configs', {})
+            
+            We want to convert this to a dict of the form
+            
+            influencer_1: 5
+            normal_4: 5
 
-        for config_name, config_data in configs.items():
-            total_actors = config_data.get('total', 0)
-            tgen_type = config_data.get('type', 'unknown')
-            profiles = config_data.get('profiles', {})
+            Where the value for (e.g.) influencer_1 is the total number of influencer_1 tgens across all dicts in tgen_groups
+            '''
 
-            # Temporary storage to handle the rounding logic
-            calculated_profiles = []
+            tgens_per_profile: dict[str, int] = {}
+            
+            for dct in tgen_groups:
+                current_sum = 0
+                prof: str | None = None
 
-            # Iterate through profiles to calculate counts
-            for profile_key, profile_data in profiles.items():
-                json_file = profile_data.get('profile')
-                # read json and get the params dictionary
-                percent = profile_data.get('percent', 0)
+                for prof, percent in dct["profiles"].items():
+                    assert type(prof) == str
+                    if prof not in tgens_per_profile: tgens_per_profile[prof] = 0
 
-                # Formula: ceil(percent * total / 100)
-                # Note: 'percent' in yaml is typically 30 for 30%, not 0.3
-                count = math.ceil((percent * total_actors) / 100.0)
-                calculated_profiles.append({
-                    'type': tgen_type,
-                    'json': json_file,
-                    'count': count
-                })
-
-            # Adjustment Logic:
-            # "Reduce the last section as needed to match total"
-            current_sum = sum(p['count'] for p in calculated_profiles)
-
-            if current_sum != total_actors and calculated_profiles:
+                    # Formula: ceil(percent * total / 100)
+                    # Note: 'percent' in yaml is typically 30 for 30%, not 0.3
+                    count = math.ceil((percent * dct["quantity"]) / 100.0)
+                    tgens_per_profile[prof] += count
+                    current_sum += count
+                
                 # If we have overshot or undershot, adjust the LAST profile
                 # The requirement specifically says "reduce the last section as needed"
                 # implying we might have overshot due to ceil()
-                diff = current_sum - total_actors
-                last_profile = calculated_profiles[-1]
-
-                # Adjust count, ensuring we don't go negative
-                new_count = max(0, last_profile['count'] - diff)
-                last_profile['count'] = new_count
-
-            # Final check to ensure we match total exactly (if required strictly)
-            # or just append what we have calculated.
-            for p in calculated_profiles:
-                if p['count'] > 0:
-                    tgen_configs.append((p['type'], p['json'], p['count']))
-        return tgen_configs
+                if current_sum > dct["quantity"]:
+                    assert prof is not None
+                    tgens_per_profile[prof] = max(0, tgens_per_profile[prof] - (current_sum - dct["quantity"]))
+            
+            # Now convert that dict to a list of tuples (its items) to match expected return type for this function
+            ret.extend([(tgen_type, prof, count) for prof, count in tgens_per_profile.items()])
+        
+        return ret
 
     def _parse_underlying(self, data: dict) -> UnderlyingNetwork:
-        ADDR = 'mastodon_server'
-        mastodon_server = data.get(ADDR, {})
-        fqdn = mastodon_server.get('server_fqdn', '') + '.'
         return UnderlyingNetwork(
-            server_fqdn=fqdn,
-            server_address=ADDR
+            server_fqdn="mastodon.pwnd.com",
+            server_address=data["router_net"]["container_info"]["router_mastodon_net"]
         )
 
     def _parse_application(self, data: dict) -> Application:
-        app_section = data.get('application', {})
-        # Parse XFiles from testing section
-        xfiles = []
-        testing_section = data.get('testing', {})
-        exfil_dir = testing_section.get('exfil_dir')
+        node_data = data["nodes"]["node_type_mastodon"]["channel_config"][0]["vars"]
 
-        if exfil_dir:
-            # Resolve directory path relative to yml file
-            base_dir = Path(self.yml_path).parent
-            exfil_path = base_dir / 'files' / exfil_dir
-
-            if exfil_path.exists() and exfil_path.is_dir():
-                used_ids = set()
-                pending_files = []
-
-                # First pass: files with integer IDs in name
-                # Sort to ensure deterministic order for files processed
-                for file_path in sorted(exfil_path.iterdir()):
-                    if file_path.is_file():
-                        # Simple regex to find the first integer sequence
-                        match = re.search(r'(\d+)', file_path.name)
-                        if match:
-                            fid = int(match.group(1))
-                            size = file_path.stat().st_size
-                            xfiles.append(XFile(id=fid, size_bytes=size))
-                            used_ids.add(fid)
-                        else:
-                            pending_files.append(file_path)
-
-                # Second pass: files without IDs
-                next_id = 1
-                for file_path in pending_files:
-                    while next_id in used_ids:
-                        next_id += 1
-                    size = file_path.stat().st_size
-                    xfiles.append(XFile(id=next_id, size_bytes=size))
-                    used_ids.add(next_id)
-            else:
-                logger.warning(f"Exfil directory {exfil_path} does not exist or is not a directory.")
-
-        # Alice
-        alice_data = app_section.get('alice', {})
         alice = Alice(
-            mastodon_user=alice_data.get('mastodon_user', ''),
-            raceboat_prof_config=alice_data.get('raceboat_prof_config', ''),
-            raceboat_prof=alice_data.get('raceboat_prof', ''),
+            mastodon_user="alice",
+            raceboat_prof_config=node_data["client"]["user_model"],
+            raceboat_prof="client_default.json",
             hashtags=[],
-            xfiles=xfiles # TODO fix when in yml conf
+            xfiles=[]
         )
 
-        # Bob
-        bob_data = app_section.get('bob', {})
         bob = Bob(
-            mastodon_user=bob_data.get('mastodon_user', ''),
-            raceboat_prof_config=bob_data.get('raceboat_prof_config', ''),
-            raceboat_prof=bob_data.get('raceboat_prof', '')
+            mastodon_user="bob",
+            raceboat_prof_config=node_data["client"]["user_model"],
+            raceboat_prof="server_default.json",
         )
 
-        # Iodine
-        iodine_data = app_section.get('iodine', {})
         iodine = Iodine(
-            max_query_length=iodine_data.get('max_query_length', 0),
-            max_response_size=iodine_data.get('max_response_size', 0)
+            max_query_length=0,
+            max_response_size=0,
         )
 
-        # Destini
-        # These params are static/hardcoded
         destini = self.load_destini_from_json()
 
         return Application(alice=alice, bob=bob, iodine=iodine, destini=destini)
