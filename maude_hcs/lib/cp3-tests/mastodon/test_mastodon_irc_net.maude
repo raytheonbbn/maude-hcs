@@ -1,0 +1,429 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set clear rules off .
+set print attribute on .
+set show advisories off .
+
+sload ../../common/maude/user-action-actor
+sload ../../raceboatMastodon/maude/enc-dec-actor
+sload ../../raceboatMastodonBidir/maude/rb-cm-bidir-mas.maude
+sload ../../mastodon/maude/probabilistic/mastodon
+
+---- raceboat  user models
+**** sload ../../raceboat/maude/mastodonprofiles/client_config_cp2_scenario_1_new.maude
+**** sload ../../raceboat/maude/mastodonprofiles/server_config_cp2_scenario_1_new.maude
+
+sload ../../raceboatMastodon/maude/user_models/client_config_mastodon_bidi
+sload ../../raceboatMastodon/maude/user_models/server_config_mastodon_bidi
+
+sload ../../common/maude/http-overhead.maude
+
+sload ../../irc/common/irc_name
+sload ../../irc/common/irc-msg-model
+sload ../../irc/common/_aux
+sload ../../irc/irc_prob-v2
+sload ../../irc/irc-mamodel-v2
+sload ../../common/maude/irc-action-actor-v2.maude
+
+---- this should go in a scenario dir
+sload ../../common/maude/cp2-interfaces.maude
+sload ../../irc/ircMonitor
+
+sload ../../network/net_prob.maude
+sload ../../network/tcp.maude
+
+---mod RB-BIDIR-MAS-IRC-SCENARIO is
+mod HCS_TEST is
+  inc USER-ACTION-ACTOR .
+  inc ENC-DEC .
+  inc CONTENT-MANAGER-BIDIR .
+  pr NETWORK_NODE .
+  pr NETWORK_CONNECTION .
+  inc MASTODON .
+ ---- raceboat model includes
+ inc MASTODON-CLIENT-CONFIG-MASTODON-BIDI-MAMODEL .
+ inc MASTODON-SERVER-CONFIG-MASTODON-BIDI-MAMODEL .
+  inc SCHEDULER .
+**** inc IRC-INTERFACE .   
+  inc IRC-V2 .
+  inc IRC-MAMODEL-V2 .
+  inc IRC-USER-ACTION-ACTOR-V2 .
+  pr IRC-DISPATCHER-INTERFACE .
+  inc IRC_MONITOR .
+  pr TCP_SOCKET .
+ 
+ 
+vars j : Nat .
+
+eq encOH(fsize:Nat,ksize:Nat)  = 0 .
+eq noiseMin(msg:Msg) = 0.001 .
+
+***** Global constants  
+**** the user model database
+eq MAModelMap = ("irc-test" |-> irc-mamodel-v2 ) .
+
+*** for the default case
+eq noiseMax(msg:Msg) = 0.00001 .
+
+op ed-images : -> ByteSeqL .
+eq ed-images =
+     image(1, 3779, 500)
+  :: image(2, 2405, 1000)
+  :: image(3, 36861, 1000)
+  :: image(4, 25377, 500)
+  :: image(5, 2440, 300)
+  :: image(6, 1275, 300)
+  :: image(7, 7710, 1000)
+  :: image(8, 3577, 500)
+  :: image(9, 3415, 300)
+  :: image(10, 74123, 600)
+.
+
+ops irccAddr : -> Address .
+
+**** addresses
+*** alice
+ops ircaAddr : -> Address .
+ops ircaUserModelAddr : -> Address .
+**** alice channel interfaces
+ops ifaceACAddr ifaceASAddr : -> Address .
+
+*** client endpoint ac
+ops umacAddr  cmacAddr mcacAddr edacAddr : -> Address .
+*** server endpoint as
+ops umasAddr  cmasAddr mcasAddr edasAddr : -> Address .
+
+*** Net clients
+ops aliceNetClientAddr  serverAliceNetClientAddr  : -> Address .
+
+*** bob
+ops ircbAddr : -> Address .
+ops ircbUserModelAddr : -> Address .
+**** bobs channel endpoint interfaces
+ops ifaceBCAddr ifaceBSAddr : -> Address .
+
+*** client endpointl  ..bc.. ..bs..
+ops umbcAddr  cmbcAddr mcbcAddr edbcAddr : -> Address .
+*** server endpoint
+ops umbsAddr  cmbsAddr mcbsAddr edbsAddr : -> Address .
+
+*** Net clients
+ops bobNetClientAddr  serverBobNetClientAddr  : -> Address .
+
+ops ircSrvAddr masSrvAddr : -> Address .
+ops ircMonitorAddr : -> Address .
+*** Net servers
+*** Facing IRC clients
+ops masAliceNetServerAddr masBobNetServerAddr             : -> Address .
+*** Facing IRC server
+ops masServerAliceNetServerAddr masServerBobNetServerAddr : -> Address .
+
+-----------------------
+**** actors
+*** alice
+ops ircaAct : -> Actor .
+op ircaUserModel : -> Actor .
+ops ifaceACAct ifaceASAct : -> Actor .
+
+*** client endpoint
+ops umacAct cmacAct mcacAct edacAct : -> Actor .
+*** server endpoint
+ops umasAct cmasAct mcasAct edasAct : -> Actor .
+
+*** Net clients
+ops aliceNetClient  serverAliceNetClient  : -> Actor .
+
+*** bob
+ops ircbAct : -> Actor .
+op ircbUserModel : -> Actor .
+ops ifaceBCAct ifaceBSAct : -> Actor .
+
+*** client endpoint
+ops umbcAct cmbcAct mcbcAct edbcAct   : -> Actor .
+*** server endpoint
+ops umbsAct cmbsAct mcbsAct edbsAct   : -> Actor .
+
+*** Net clients
+ops bobNetClient  serverBobNetClient  : -> Actor .
+
+ops ircSrvAct masSrvAct : -> Actor .
+ops ircMonitorAct : -> Actor .
+*** Net servers
+*** Facing IRC clients
+ops masAliceNetServer masBobNetServer             : -> Actor .
+*** Facing IRC server
+ops masServerAliceNetServer masServerBobNetServer : -> Actor .
+
+************** actor defns
+***** aliceIrc
+eq ircaAct    = mkIrcClient-v2(ircaAddr, ifaceACAddr, "alice") .
+eq ircaUserModel = mkIrcUMV2Actor(ircaUserModelAddr, "irc-test", ircaAddr) .
+eq ifaceACAct = mkIrcByteSeqIface(ifaceACAddr,
+                                  ircaAddr,
+                                  cmacAddr,
+                                  cmacAddr) .
+
+**** alice client rb endpoint
+eq umacAct  = mkUMactor(umacAddr,
+                        mastodon-client-config-mastodon-bidi-ma,
+                        cmacAddr)
+.
+eq cmacAct  = mkCMSndRcvActor(cmacAddr,
+                              edacAddr,
+                              mcacAddr,
+                              ifaceACAddr, 
+                              "client0",
+                              "server0")
+.
+eq mcacAct  = makeMastodonClient(mcacAddr, masSrvAddr, cmacAddr) .
+eq edacAct  = makeDestiniActor(edacAddr, ed-images) .
+
+eq ifaceASAct = mkIrcByteSeqIface(ifaceASAddr,
+                                  ircSrvAddr, 
+                                  cmasAddr,
+                                  cmasAddr)
+.
+eq umasAct  = mkUMactor(umasAddr, 
+                        mastodon-client-config-mastodon-bidi-ma,
+                        cmasAddr)
+.
+eq cmasAct  = mkCMSndRcvActor(cmasAddr,
+                              edasAddr,
+                              mcasAddr,
+                              ifaceASAddr, ---- sndAddr
+                              "server0",
+                              "client0")
+.
+eq mcasAct  = makeMastodonClient(mcasAddr, masSrvAddr, cmasAddr) .
+eq edasAct  = makeDestiniActor(edasAddr, ed-images) .
+
+eq aliceNetClient = makeNetClient(aliceNetClientAddr,
+                                  masSrvAddr,
+                                  masAliceNetServerAddr,
+                                  mcacAddr,
+                                  true)
+.
+eq serverAliceNetClient = makeNetClient(serverAliceNetClientAddr,
+                                        masSrvAddr,
+                                        masServerAliceNetServerAddr,
+                                        mcasAddr,
+                                        true)
+.
+********************************
+*** bob
+eq ircbAct  = mkIrcClient-v2(ircbAddr, ifaceBCAddr, "bob") .
+eq ircbUserModel = mkIrcUMV2Actor(ircbUserModelAddr, "irc-test", ircbAddr) .
+
+eq ifaceBCAct = mkIrcByteSeqIface(ifaceBCAddr,
+                                  ircbAddr,
+                                  cmbcAddr,
+                                  cmbcAddr)
+.
+*** bob client  rbendpoint
+eq umbcAct  = mkUMactor(umbcAddr, 
+                        mastodon-client-config-mastodon-bidi-ma,
+                        cmbcAddr)
+.
+eq cmbcAct  = mkCMSndRcvActor(cmbcAddr,
+                              edbcAddr,
+                              mcbcAddr,
+                              ifaceBCAddr, ---- sndAddr
+                              "client1",
+                              "server1")
+.
+eq mcbcAct  = makeMastodonClient(mcbcAddr, masSrvAddr, cmbcAddr) .
+eq edbcAct  = makeDestiniActor(edbcAddr, ed-images) .
+
+*** bob server endpoint
+eq ifaceBSAct = mkIrcByteSeqIface(ifaceBSAddr,
+                                  ircSrvAddr, 
+                                  cmbsAddr,
+                                  cmbsAddr)
+.
+eq umbsAct  = mkUMactor(umbsAddr, 
+                        mastodon-client-config-mastodon-bidi-ma,
+                        cmbsAddr)
+.
+eq cmbsAct  = mkCMSndRcvActor(cmbsAddr,
+                              edbsAddr,
+                              mcbsAddr,
+                              ifaceBSAddr, ---- sndAddr
+                              "server1",
+                              "client1")
+.
+eq mcbsAct  = makeMastodonClient(mcbsAddr, masSrvAddr, cmbsAddr) .
+eq edbsAct  = makeDestiniActor(edbsAddr, ed-images) .
+
+eq bobNetClient = makeNetClient(bobNetClientAddr,
+                                masSrvAddr,
+                                masBobNetServerAddr,
+                                mcbcAddr,
+                                true)
+.
+eq serverBobNetClient = makeNetClient(serverBobNetClientAddr,
+                                      masSrvAddr,
+                                      masServerBobNetServerAddr,
+                                      mcbsAddr,
+                                      true)
+.
+
+******** global actors
+eq masSrvAct = makeMastodonServer(masSrvAddr) .
+eq ircSrvAct = mkIrcServer(ircSrvAddr) .
+
+eq masAliceNetServer        = makeNetServer(masAliceNetServerAddr,
+                                            aliceNetClientAddr,
+                                            masSrvAddr)
+.
+eq masBobNetServer          = makeNetServer(masBobNetServerAddr,
+                                            bobNetClientAddr,
+                                            masSrvAddr)
+.
+eq masServerAliceNetServer  = makeNetServer(masServerAliceNetServerAddr,
+                                            serverAliceNetClientAddr,
+                                            masSrvAddr)
+.
+eq masServerBobNetServer    = makeNetServer(masServerBobNetServerAddr,
+                                            serverBobNetClientAddr,
+                                            masSrvAddr)
+.
+eq ircMonitorAct = mkIrcMonitor(ircMonitorAddr)
+.
+
+eq transport(any:Address) = tcp(any:Address) .
+
+op LinkParams : -> AttributeSet .
+eq LinkParams =
+(4stateLoss: (p13: 0.0,
+                p31: 1.0,
+                p32: 0.0,
+                p23: 0.0,
+                p14: 0.0,
+                oneWayDelay: 0.01))
+.
+
+eq LinkData =
+  aaa(masSrvAddr, mcacAddr, LinkParams)
+  aaa(masSrvAddr, mcasAddr, LinkParams)
+  aaa(masSrvAddr, mcbcAddr, LinkParams)
+  aaa(masSrvAddr, mcbsAddr, LinkParams)
+ 
+  aaa(mcacAddr, masSrvAddr, LinkParams)
+  aaa(mcasAddr, masSrvAddr, LinkParams)
+  aaa(mcbcAddr, masSrvAddr, LinkParams)
+  aaa(mcbsAddr, masSrvAddr, LinkParams)
+.
+
+vars dt : Float .
+vars icAddr isAddr ifsAddr : Address .
+vars room : String .
+op mkJoin : Float String Address Address Address -> ScheduleMsg .
+eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =
+    [dt,
+    (to isAddr from ifsAddr :
+    JoinChannel(makeIrcChannelName(room), icAddr )),
+    0]
+.
+
+op initState : Nat -> Config .
+eq initState(j) =
+  rCtr(j + 8)
+******* alice 
+  ircaAct ircaUserModel
+*** alice client endpoint
+  ifaceACAct
+  umacAct cmacAct mcacAct edacAct
+**** alice server endpoint
+  ifaceASAct
+  umasAct cmasAct mcasAct edasAct 
+*** Net clients
+  aliceNetClient
+  serverAliceNetClient 
+******* bob
+  ircbAct ircbUserModel
+**** bob client endpoint
+  ifaceBCAct
+  umbcAct cmbcAct mcbcAct edbcAct
+***** bob server endpoint
+  ifaceBSAct
+  umbsAct cmbsAct mcbsAct edbsAct 
+*** Net clients
+  bobNetClient
+  serverBobNetClient
+**** global
+  ircSrvAct
+  masSrvAct 
+  ircMonitorAct
+*** Net servers
+  masAliceNetServer
+  masBobNetServer
+  masServerAliceNetServer
+  masServerBobNetServer
+
+mkJoin(1.0, "#chat", ircaAddr, ircSrvAddr, ifaceASAddr)
+mkJoin(1.1, "#general", ircaAddr, ircSrvAddr, ifaceASAddr)
+mkJoin(1.2, "#random", ircaAddr, ircSrvAddr, ifaceASAddr)
+
+mkJoin(1.3, "#chat", ircbAddr, ircSrvAddr, ifaceBSAddr)
+mkJoin(1.4, "#general", ircbAddr, ircSrvAddr, ifaceBSAddr)
+mkJoin(1.5, "#random", ircbAddr, ircSrvAddr, ifaceBSAddr)
+
+**** start mastodon underlying user models
+  [1.0 + genRandomX(j, 0.0, 0.0001), (to umacAddr from umacAddr : actionR("ok")), 0]
+  [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umasAddr from umasAddr : actionR("ok")), 0]
+  [1.0 + genRandomX(s s s j, 0.0, 0.0001), (to umbcAddr from umbcAddr : actionR("ok")), 0]
+  [1.0 + genRandomX(s s s s j, 0.0, 0.0001), (to umbsAddr from umbsAddr : actionR("ok")), 0]
+  
+**** start alice
+  [2.1, to ircaUserModelAddr from ircaUserModelAddr : burstDelayTO, 0]
+**** start bob
+  [2.2, to ircbUserModelAddr from ircbUserModelAddr : burstDelayTO, 0]
+  
+
+.
+
+op slimit : -> Float .
+eq slimit = 300.0 .
+
+op initConfig : -> Config .
+rl[init]: initConfig 
+   => run({0.0 | nil} initState(counter), slimit) .
+
+endm
+
+****red "Alice,Bob join room1, Alice,Bob send 3 texts ircMonitor" .
+****eof
+set print attribute on .
+rew initConfig .
+q
+eof
+
+  
