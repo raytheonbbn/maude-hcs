@@ -86,10 +86,6 @@ def mk_cp3_config(hcsconf: HCSConfig) -> CP3Config:
     # This network get transformed later (see below)
     parameterized_network = ParameterizedTopo(hcsconf.topology)
 
-
-    '''
-    Requires protocols defined
-
     # find the DNS underlying network conf
     assert Protocol.DESTINI_MASTODON.value in hcsconf.protocols, "Destini Mastodon underlying network undefined"
     assert Protocol.IODINE_DNS.value in hcsconf.protocols, "Iodine DNS underlying network undefined"
@@ -114,14 +110,16 @@ def mk_cp3_config(hcsconf: HCSConfig) -> CP3Config:
     pwnd_domain = underlying_network.pwnd2_domain
     num_records   = underlying_network.everythingelse_num_records
     populateCache = underlying_network.populate_resolver_cache
+
     # adversary constants
     baselineBinSize = 1.0  # sec
-    maxWindowSize = hcsconf.adversary.getMaxWindowSize('m')
+    maxWindowSize = 5 #ignoring adversary for now, using mock values hcsconf.adversary.getMaxWindowSize('m')
     tlimit = 20 * maxWindowSize
     record_ttl    = underlying_network.record_ttl
     if tlimit > record_ttl:
         record_ttl = int(tlimit)
     record_ttl_a    = underlying_network.record_ttl_a
+
     # router
     router = Router(mas_underlying_network.router)
 
@@ -198,7 +196,7 @@ def mk_cp3_config(hcsconf: HCSConfig) -> CP3Config:
 
     # adversary
     ## the smc measures
-    maxNBinWindowSize = hcsconf.adversary.getMaxWindowSize('n')
+    maxNBinWindowSize = 5 #ignoring adversary for now, using mock values hcsconf.adversary.getMaxWindowSize('n')
     # the adversary is going to start at maxWindowSize because we will put the baseline data in the first window
     # we are also adding an offset to C.8 to count the number of tcp connections created by mastodon TGEN actors
     #   NOTE: this would not have mattered (noise) if hte thresholds weren't too small and sensitive to noise
@@ -228,6 +226,10 @@ def mk_cp3_config(hcsconf: HCSConfig) -> CP3Config:
 
     def identity(M, size):
         return M
+    
+
+    '''
+    Requires adversary defined
 
     q = Query(0, f"www.{ee_domain}", 'A')
     msg = Msg(f'{resolver.address}', f'Z(0, {nameserverCORP.address})', q)
@@ -297,22 +299,17 @@ def mk_cp3_config(hcsconf: HCSConfig) -> CP3Config:
     '''
 
 
-    '''
-    Requires applications defined
-
     # applications
     app = hcsconf.protocols[Protocol.DESTINI_MASTODON.value].application
     mainSndApp = RbSendApp(app.alice_address, app.bob_address, sndApp.address, raceboatCl.userModelAddress, raceboatCl.contentManagerAddress, app.hashtags, app.xfiles, maxNBinWindowSize, maxWindowSize)
     mainRcvApp = RbRcvApp(app.bob_address, app.alice_address, rcvApp.address, raceboatSvr.userModelAddress,
                            raceboatSvr.contentManagerAddress, maxWindowSize)
-    '''
+    
 
     # monitor
     monitor = WMonitor(monitorAddr)
     clients = []
 
-    '''
-    Requires protocols defined
     def clean(s:str):
         return s.strip().replace('/', '').replace('\\','').replace('_', '-') # what else to clean here
     # tgen client
@@ -337,11 +334,8 @@ def mk_cp3_config(hcsconf: HCSConfig) -> CP3Config:
             destiniobj = Destini.from_dict(images)
         # output this once
         tgen_clients.append(MASTGenClient(f'tgen-mas-{index}', client.client_markov_model_profile, client.start_time, False, client.client_username, client.client_hashtags, destiniobj, images_id, mastodon_server_address, True))
-    '''
 
 
-    '''
-    Requires application defined, alice/bob
 
     # transformation of the topology: we want links to/from router to be direct links instead
     #  Instead of mastodon clients to router, we will have
@@ -382,10 +376,6 @@ def mk_cp3_config(hcsconf: HCSConfig) -> CP3Config:
     topo_transforms[Link(dst_label=app.bob_address, src_label=resolver_node.label)] = \
         [Link(dst_label=iodineSvr.address, src_label=resolver_node.label)]
     parameterized_network.transform(topo_transforms)
-    '''
-
-    '''
-    Requires protocols defined
 
     # add some paramters
     pp = hcsconf.protocols[Protocol.IODINE_DNS.value].probabilistic_parameters
@@ -407,18 +397,17 @@ def mk_cp3_config(hcsconf: HCSConfig) -> CP3Config:
     pp.other[f'add-to-sent(tm(tt:Float,to addr0:Address from {raceboatCl.masClientAddress} : c:Content))'] = f'{dnsquerytm} ; {dnsquerytm}'
     pp.other[
         f'add-to-sent(tm(tt:Float,to addr0:Address from Z(i:Nat, {raceboatCl.masClientAddress}) : c:Content))'] = f'tm(tt:Float,to {resolver.address} from Z(i:Nat, {raceboatCl.masClientAddress}) : {dnsquery.to_maude()})'
-    '''
 
     C = CP3Config(
-        [], #[Ctr(hcsconf.seed), router, adversary],
+        [Ctr(hcsconf.seed), router], #, adversary],
         monitor, 
-        [], #[sndApp, rcvApp, mainSndApp, mainRcvApp],
-        [], #[iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr],
+        [sndApp, rcvApp, mainSndApp, mainRcvApp],
+        [iodineCl, iodineSvr, masServer, raceboatCl, raceboatSvr],
         clients,
-        [], #tgen_clients,
-        [], #[resolver],
-        [], #[nameserverRoot, nameserverCom, nameserverEE, nameserverCORP],
-        [], #root_nameservers,
+        tgen_clients,
+        [resolver],
+        [nameserverRoot, nameserverCom, nameserverEE, nameserverCORP],
+        root_nameservers,
         parameterized_network,
         hcsconf.output.directory
     )
