@@ -46,6 +46,12 @@ sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
 sload ../../obfs4/_obfs4_aux.maude
 sload ../../obfs4/obfs4_prob.maude
 sload ../../common/maude/user-action-actor
+sload ../../raceboatMastodon/maude/enc-dec-actor
+sload ../../raceboatMastodonBidir/maude/rb-cm-bidir-mas.maude
+sload ../../mastodon/maude/probabilistic/mastodon
+sload ../../raceboatMastodon/maude/user_models/client_config_mastodon_bidi
+sload ../../raceboatMastodon/maude/user_models/server_config_mastodon_bidi
+sload ../../common/maude/http-overhead.maude
 sload ../skyhook/skyhook-um-mamodel-1
 sload ../../irc/common/irc-msg-model
 sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
@@ -54,6 +60,16 @@ sload ../../s3/s3_protocol
 sload ../../dns/maude/probabilistic/iodine_dns.maude
 sload ../../dns/maude/common/_aux.maude
 sload ../../network/net_prob.maude
+
+---- TGENs
+sload ../../common/maude/tgen-action-actor-v2.maude
+sload ../../tgen/maude/ftp/ftp-mamodel-v2.maude
+sload ../../tgen/maude/ftp/ftpTgen-actor.maude
+sload ../../tgen/maude/ftp/ftpServer-actor.maude
+sload ../../tgen/maude/gorillachat/gorilla-mamodel-v2.maude
+sload ../../tgen/maude/gorillachat/gorilla-Tgen-actor.maude
+sload ../../tgen/maude/minio/minio-mamodel-v2.maude
+sload ../../tgen/maude/minio/minioTgen-actor.maude
 
 mod COMBINED_IRC_EXPERIMENTS is
   pr SCHEDULER .
@@ -64,6 +80,11 @@ mod COMBINED_IRC_EXPERIMENTS is
   pr IRC-USER-ACTION-ACTOR-V2 .
   pr IRC-BYTESEQ-INTERFACE .
   pr CONTENT-MANAGER-SIMPLE-BI .
+  inc ENC-DEC .
+  inc CONTENT-MANAGER-BIDIR .
+  inc MASTODON .
+  inc MASTODON-CLIENT-CONFIG-MASTODON-BIDI-MAMODEL .
+  inc MASTODON-SERVER-CONFIG-MASTODON-BIDI-MAMODEL .
   pr SKYHOOK .
   pr S3_PROTOCOL .
   pr IRC_MONITOR .
@@ -78,18 +99,44 @@ mod COMBINED_IRC_EXPERIMENTS is
   pr NETWORK_NODE .
   pr NETWORK_CONNECTION .
 
+  inc FTP-CONFIG-MAMODEL-V2 .
+  inc FTP-TGEN .
+  inc FTP-SERVER .
+  inc GORILLA-CONFIG-MAMODEL-V2 .
+  inc GORILLACHAT-TGEN .
+  inc MINIO-CONFIG-MAMODEL-V2 .
+  inc MINIO-TGEN .
+  inc USER-ACTION-ACTOR-V2 .
+
   vars j : Nat .
 
   eq encOH(fsize:Nat,ksize:Nat) = 0 .
   eq noiseMin(msg:Msg)          = 0.001 .
   ***** Global constants  
   **** the user model database
-  eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2 ) .
+  eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2 ,
+                                   "ftp" |-> ftp-config-ma-v2 ,
+                                   "gorilla" |-> gorilla-config-ma-v2 ,
+                                   "minio" |-> minio-config-ma-v2) .
   *** for the default case
   eq noiseMax(msg:Msg)          = 0.00001 .
      
   eq packetSize                 = 1000 .
   eq maxPacketSize              = 967 .
+
+  op ed-images : -> ByteSeqL .
+  eq ed-images =
+       image(1, 3779, 500)
+    :: image(2, 2405, 1000)
+    :: image(3, 36861, 1000)
+    :: image(4, 25377, 500)
+    :: image(5, 2440, 300)
+    :: image(6, 1275, 300)
+    :: image(7, 7710, 1000)
+    :: image(8, 3577, 500)
+    :: image(9, 3415, 300)
+    :: image(10, 74123, 600)
+  .
 
   ---------------------------------------------------
   --- Iodine Zone Configurations
@@ -111,6 +158,10 @@ mod COMBINED_IRC_EXPERIMENTS is
       ircClient3UserModelAddr ircClient4UserModelAddr             : -> Address .
   ops ircServerAddr s3SrvAddr ircMonitorAddr iodineMonitorAddr    : -> Address .
 
+  ops ftpUMAddr ftpTGAddr ftpSrvAddr : -> Address .
+  ops gorillaUMAddr gorillaTGAddr gorillaSrvAddr : -> Address .
+  ops minioUMAddr minioTGAddr minioS3ClientAddr minioS3ServerAddr : -> Address .
+
   --- Client 1 (Webtunnel)
   ops client1IfaceAddr server1IfaceAddr wtClient1Addr wtProxy1Addr : -> Address .
   ops wtClient1NetClientAddr wtProxy1NetServerAddr                   : -> Address .
@@ -131,6 +182,14 @@ mod COMBINED_IRC_EXPERIMENTS is
   ops client4IfaceAddr serverIface4Addr                                  : -> Address .
   ops sendApp4Addr iodineClient4Addr rcvApp4Addr serverIodineServer4Addr : -> Address .
   ops iodineClient4NetClientAddr iodineServer4NetServerAddr              : -> Address .
+
+  --- Client 5 (Mastodon)
+  ops ircClient5Addr ircClient5UserModelAddr client5IfaceAddr server5IfaceAddr : -> Address .
+  ops umac5Addr cmac5Addr mcac5Addr edac5Addr : -> Address .
+  ops umas5Addr cmas5Addr mcas5Addr edas5Addr : -> Address .
+  ops mastodonClient5NetClientAddr mastodonServer5NetClientAddr : -> Address .
+  ops masClient5NetServerAddr masServer5NetServerAddr : -> Address .
+  ops masSrvAddr : -> Address .
 
   ---------------------------------------------------
   --- Link model parameters
@@ -177,7 +236,13 @@ mod COMBINED_IRC_EXPERIMENTS is
     
     --- Client 4 (Iodine) Links
     aaa(serverIodineServer4Addr, iodineClient4Addr, LinkType-TCP-4stateLoss)
-    aaa(iodineClient4Addr, serverIodineServer4Addr, LinkType-TCP-4stateLoss) .
+    aaa(iodineClient4Addr, serverIodineServer4Addr, LinkType-TCP-4stateLoss) 
+    
+    --- Client 5 (Mastodon) Links
+    aaa(masSrvAddr, mcac5Addr, LinkType-TCP-4stateLoss)
+    aaa(masSrvAddr, mcas5Addr, LinkType-TCP-4stateLoss)
+    aaa(mcac5Addr, masSrvAddr, LinkType-TCP-4stateLoss)
+    aaa(mcas5Addr, masSrvAddr, LinkType-TCP-4stateLoss) .
 
   ---------------------------------------------------
   --- Actors Setup
@@ -194,11 +259,37 @@ mod COMBINED_IRC_EXPERIMENTS is
   ops client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4 : -> Actor .
   ops iodineClient4NetClient iodineServer4NetServer : -> Actor .
 
+  ops ircClient5 ircClient5UserModel : -> Actor .
+  ops client5Iface server5Iface umac5Act cmac5Act mcac5Act edac5Act umas5Act cmas5Act mcas5Act edas5Act : -> Actor .
+  ops mastodonClient5NetClient mastodonServer5NetClient masClient5NetServer masServer5NetServer masSrvAct : -> Actor .
+
+  --- FTP
+  op ftpTGenA : -> Actor .
+  op ftpSrvA : -> Actor .
+  op ftpUmAct : -> Actor .
+
+  --- GorillaChat
+  op gorillaTGenA : -> Actor .
+  op gorillaSrvA : -> Actor .
+  op gorillaUmAct : -> Actor .
+
+  --- Minio
+  op minioTGenA : -> Actor .
+  op minioS3ClientA : -> Actor .
+  op minioS3ServerA : -> Actor .
+  op minioUmAct : -> Actor .
+
   --- Client 1 (Webtunnel) Setup
   eq ircClient1          = mkIrcClient-v2(ircClient1Addr, client1IfaceAddr, "Client1") .
   eq ircClient1UserModel = mkIrcUMV2Actor(ircClient1UserModelAddr, "irc-test", ircClient1Addr) .
   eq client1Iface        = mkIrcByteSeqIface(client1IfaceAddr, ircClient1Addr, wtClient1Addr) .
   eq server1Iface        = mkIrcByteSeqIface(server1IfaceAddr, ircServerAddr, wtProxy1Addr) .
+
+  --- WtClient normally relies on learning the address of its local IRC client dynamically when the local client sends its first outbound message.
+  --- Because the server's notification arrived before Alice sent her first outbound message, wtClient tried to forward the notification to nullAddr.
+  --- Maude doesn't have an actor for nullAddr, so the to nullAddr message got permanently stuck at the very front of the event queue. 
+  --- To circumvent this, we initialize wtClient with the address of its local IRC client client1IfaceAddr.
+
   eq wtClient1 =
     < wtClient1Addr : WtClient |
         thisAddr:        wtClient1Addr,
@@ -264,6 +355,51 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq s3SrvAct            = makeS3Server(s3SrvAddr) .
   eq ircServer           = mkIrcServer(ircServerAddr) .
   eq iodineMonitor       = mkWMonitor(iodineMonitorAddr) .
+  eq masSrvAct = makeMastodonServer(masSrvAddr) .
+
+  --- Client 5 (Mastodon) Setup
+  eq ircClient5          = mkIrcClient-v2(ircClient5Addr, client5IfaceAddr, "Client5") .
+  eq ircClient5UserModel = mkIrcUMV2Actor(ircClient5UserModelAddr, "irc-test", ircClient5Addr) .
+  eq client5Iface        = mkIrcByteSeqIface(client5IfaceAddr, ircClient5Addr, cmac5Addr) .
+  eq umac5Act            = mkUMactor(umac5Addr, mastodon-client-config-mastodon-bidi-ma, cmac5Addr) .
+  eq cmac5Act            = mkCMSndRcvActor(cmac5Addr, edac5Addr, mcac5Addr, client5IfaceAddr, "client5", "server5") .
+  eq mcac5Act            = makeMastodonClient(mcac5Addr, masSrvAddr, cmac5Addr) .
+  eq edac5Act            = makeDestiniActor(edac5Addr, ed-images) .
+  
+  eq server5Iface        = mkIrcByteSeqIface(server5IfaceAddr, ircServerAddr, cmas5Addr) .
+  eq umas5Act            = mkUMactor(umas5Addr, mastodon-client-config-mastodon-bidi-ma, cmas5Addr) .
+  eq cmas5Act            = mkCMSndRcvActor(cmas5Addr, edas5Addr, mcas5Addr, server5IfaceAddr, "server5", "client5") .
+  eq mcas5Act            = makeMastodonClient(mcas5Addr, masSrvAddr, cmas5Addr) .
+  eq edas5Act            = makeDestiniActor(edas5Addr, ed-images) .
+  
+  eq mastodonClient5NetClient = makeNetClient(mastodonClient5NetClientAddr, masSrvAddr, masClient5NetServerAddr, mcac5Addr, true) .
+  eq masClient5NetServer      = makeNetServer(masClient5NetServerAddr, mastodonClient5NetClientAddr, masSrvAddr) .
+  eq mastodonServer5NetClient = makeNetClient(mastodonServer5NetClientAddr, masSrvAddr, masServer5NetServerAddr, mcas5Addr, true) .
+  eq masServer5NetServer      = makeNetServer(masServer5NetServerAddr, mastodonServer5NetClientAddr, masSrvAddr) .
+
+  --- FTP
+  eq ftpTGenA = mkFtpTgenA(ftpTGAddr, ftpSrvAddr, 5.0, 2) .
+  eq ftpSrvA = mkFtpServerA(ftpSrvAddr) .
+  eq ftpUmAct = mkTgenUMV2Actor(ftpUMAddr, "ftp", ftpTGAddr) .
+
+  --- GorillaChat
+  eq gorillaTGenA = mkGorillaChatTgenA(gorillaTGAddr, gorillaSrvAddr) .
+  eq gorillaSrvA = mkGorillaChatServer(gorillaSrvAddr, (gorillaTGAddr)) .
+  eq gorillaUmAct = mkTgenUMV2Actor(gorillaUMAddr, "gorilla", gorillaTGAddr) .
+
+  --- Minio
+  eq minioTGenA = mkMinioTgenA(minioTGAddr, minioS3ClientAddr, "tgen") .
+  eq minioS3ClientA = makeS3Client(minioS3ClientAddr, minioS3ServerAddr) .
+  eq minioS3ServerA =
+    < minioS3ServerAddr : AwsS3HttpServer |
+        s3DataMap: (
+          ("/tgen/list-1" -> restToByteSeq("obj1.zip;obj2.zip;data/")) ;
+          ("/tgen/stat-1" -> restToByteSeq("obj1.zip:1024:2025-01-01")) ;
+          ("/tgen/cd-1" -> restToByteSeq("subdir1/;subdir2/")) ;
+          ("/tgen/retr-1" -> restToByteSeq("mock_file_content_bytes"))
+        )
+    > .
+  eq minioUmAct = mkTgenUMV2Actor(minioUMAddr, "minio", minioTGAddr) .
 
   ---------------------------------------------------
   --- Initial State Configuration
@@ -292,13 +428,27 @@ mod COMBINED_IRC_EXPERIMENTS is
     ircClient4 ircClient4UserModel client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4
     iodineClient4NetClient iodineServer4NetServer
 
-    --- Timers & Execution Triggers
+    --- Client 5 (Mastodon)
+    ircClient5 ircClient5UserModel client5Iface server5Iface umac5Act cmac5Act mcac5Act edac5Act umas5Act cmas5Act mcas5Act edas5Act
+    mastodonClient5NetClient mastodonServer5NetClient masClient5NetServer masServer5NetServer
+    
+    masSrvAct
 
+    --- TGENs
+    ftpUmAct ftpTGenA ftpSrvA
+    gorillaUmAct gorillaTGenA gorillaSrvA
+    minioUmAct minioTGenA minioS3ClientA minioS3ServerA
+
+    --- Timers & Execution Triggers
+ 
     [0.001, (to aha3Addr from aha3Addr : SkyhookStartCmd), 0]
     [0.20, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]
 
     [1.0 + genRandomX(j, 0.0, 0.0001), (to umac3Addr from umac3Addr : actionR("ok")), 0]
     [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas3Addr from umas3Addr : actionR("ok")), 0]
+    
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to umac5Addr from umac5Addr : actionR("ok")), 0]
+    [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas5Addr from umas5Addr : actionR("ok")), 0]
 
     mkJoin(2.0, "#chat", ircClient1Addr, ircServerAddr, server1IfaceAddr)
     mkJoin(2.1, "#general", ircClient1Addr, ircServerAddr, server1IfaceAddr)
@@ -316,10 +466,21 @@ mod COMBINED_IRC_EXPERIMENTS is
     mkJoin(3.0, "#general", ircClient4Addr, ircServerAddr, serverIface4Addr)
     mkJoin(3.1, "#random", ircClient4Addr, ircServerAddr, serverIface4Addr)
 
+    mkJoin(3.2, "#chat", ircClient5Addr, ircServerAddr, server5IfaceAddr)
+    mkJoin(3.3, "#general", ircClient5Addr, ircServerAddr, server5IfaceAddr)
+    mkJoin(3.4, "#random", ircClient5Addr, ircServerAddr, server5IfaceAddr)
+
     [20.0, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
     [21.0, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
     [22.0, (to ircClient3UserModelAddr from ircClient3UserModelAddr : burstDelayTO), 0]
     [23.0, (to ircClient4UserModelAddr from ircClient4UserModelAddr : burstDelayTO), 0]
+    [24.0, (to ircClient5UserModelAddr from ircClient5UserModelAddr : burstDelayTO), 0]
+
+    --- TGEN Timers
+  
+    [5.0, to ftpUMAddr from ftpUMAddr : burstDelayTO, 0]
+    [5.0, to gorillaUMAddr from gorillaUMAddr : burstDelayTO, 0]
+    [5.0, to minioUMAddr from minioUMAddr : burstDelayTO, 0]
   .
 
   ---------------------------------------------------
