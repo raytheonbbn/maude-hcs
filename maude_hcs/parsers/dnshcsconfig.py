@@ -248,12 +248,19 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
 
     @staticmethod
     def from_yml_conf(ymlconf: YmlConf) -> 'DNSHCSProtocolConfig':
+
         alice = ymlconf.network.getNodebyLabel('user_alice')
         if alice is None:
             alice = ymlconf.application.alice.mastodon_user
         else:
             alice = alice.label
-        bob = ymlconf.network.getNodebyLabel('user_bob').label
+
+        bob = ymlconf.network.getNodebyLabel('user_bob')
+        if bob is None:
+            bob = ymlconf.application.bob.mastodon_user
+        else:
+            bob = bob.label
+
         # application
         app = DuplexApplication()
         app.alice_address = alice
@@ -261,18 +268,22 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
         # Then create the HCS config one object at a time
         un = DNSUnderlyingNetwork()
         un.module = 'dns'
-        un.root_name = ymlconf.network.getNodebyLabel('root').label
-        un.tld_name = ymlconf.network.getNodebyLabel('tld').label
+        un.root_name = ymlconf.network.getNodebyLabel('root_dns').label
+        un.tld_name = ymlconf.network.getNodebyLabel('tld_dns').label
         un.tld_domain = 'com.'  # TODO parse zome files??
         un.resolver_name = ymlconf.network.getNodebyLabel('public_dns').label
-        # the router and the corp dns domain
-        un.router = un.corporate_name = ymlconf.network.getNodebyLabel('router').label
-        un.corporate_name = 'corporate_dns'
-        un.corporate_domain = 'corporate.com.'  # TODO parse zome files??
+
+        # We no longer have a specific corporate network/router/dns, not sure whether/how this needs to be changed.
+        # # the router and the corp dns domain
+        # un.router = un.corporate_name = ymlconf.network.getNodebyLabel('router').label
+        # un.corporate_name = 'corporate_dns'
+        # un.corporate_domain = 'corporate.com.'  # TODO parse zome files??
+
         # this is the auth server for pwnd.com also (and all other domains on internet)
         un.everythingelse_name = ymlconf.network.getNodebyLabel('auth_dns').label
         un.everythingelse_domain = 'internet.com.'  # TODO parse zome files??
         un.everythingelse_num_records = 1
+
         # un.pwnd2_name = ymlconf.network.getNodebyLabel('application-server').label
         # this sits inside Bob
         # this is really t1.pwnd.com but unimportant details for our purposes

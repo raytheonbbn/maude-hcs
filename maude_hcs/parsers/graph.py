@@ -186,8 +186,6 @@ class Topology:
         down_loss = loss_specs[down_loss_name]
 
         for (label, addr) in net_topo["container_info"].items():
-          if label.startswith("router"): continue # We ignore subnet routers, link clients to ixp directly
-
           node = Node.from_label(next_id, label)
           node.ip_address = addr
           nodes.append(node)
