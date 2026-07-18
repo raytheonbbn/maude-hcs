@@ -42,7 +42,7 @@ fmod MARKOV-ACTION-MODEL-V2 is
   vars actions pars  mj mj0 mj1 stateBlock : Map{String,JV} .
   vars n j j1 j2 min max : Nat .
   vars start str : String .
-  vars wt wsum  rnd fl scale A B : Float .
+  vars wt wsum  rnd fl fl0 scale A B : Float .
   vars jv : JV .
  
 
@@ -159,11 +159,20 @@ ceq realizeRand(str,"beta",
        ("scale" |-> jf(scale)  ), 
        mj), 
        j )
- = {(str |-> jf(fl)), j1}
-if fl := betaDistr(A, B, j)  * scale  
-**** /\  j1 :=  j + ((2 * round(A)) + round(B)) --- rubens count
-/\  j1 := s j +  round(A) --- clt count
+ = {(str |-> jv), j1}
+if fl0 := betaDistr(A, B, j)  * scale  
+/\ jv := ensureBounds(jf(fl0),mj)
+/\ j1 := s j +  round(A) --- clt count
+**** /\ j1 := j + ((2 * round(A)) + round(B)) --- rubens count
 .
+
+***(
+op ensureFloorNat : Float Map{String,JV} -> Float .
+eq ensureFloorNat(fl, (("floor" |-> jn(n) ),mj))  =
+if n <= rat(fl) then fl else float(n) fi
+.
+eq ensureFloorNat(fl, mj) = fl [owise] .
+)
 
 ***( 
 **** should go somewhere sharable
@@ -198,11 +207,43 @@ eq testmkv =
 op test-mav2 : -> MAModel-v2 .
 eq test-mav2 = mav2(testmkv,empty,empty) .
 
+op testBetaFloor : -> Map{String,JV} .
+eq testBetaFloor =
+      (("alpha" |-> jf(10.) ), 
+      ("beta" |-> jf(5.0)),
+       ("scale" |-> jf(2.0)  ), 
+       ("floor" |-> jn(5)  ) 
+       ) . 
+
+
+op MJB : -> Map{String,JV} .
+eq MJB = ("msgbytes" |-> jo((("random" |-> js("beta")), ("alpha" |-> jf(1.2118)), ("beta" |-> jf(10.3385)), ("scale" |-> jf(470.0)), ("domain" |-> js("positive_int")))))
+.
+
+vars jv0 jv1 : JV .
+op MJBFC : JV JV -> Map{String,JV} .
+eq MJBFC(jv0,jv1) = ("msgbytes" |-> jo((("random" |-> js("beta")), ("alpha" |-> jf(1.2118)), ("beta" |-> jf(10.3385)), ("scale" |-> jf(470.0)), ("domain" |-> js("positive_int")),
+"floor" |-> jv0, "celing" |-> jv1 
+)))
+.
+
+
+
 endfm  
-
-
-
 eof
+
+
+red betaDistr(10., 5.0, 9) .
+6.405872355191673e-1
+
+red realizeRand("size","beta", testBetaFloor,9 ) .
+ 
+red realizeParams(MJB,9) .
+red realizeParams(MJBFC(jn(200),jn(200)),9) .
+red realizeParams(MJBFC(jn(250),jn(300)),9) .
+     
+ 
+ 
 **** 10 11 12 13:a 14   b ow
 red nextByWt("a",testmkv,10) .
 **** 10 11 12 13 14:b  a ow
