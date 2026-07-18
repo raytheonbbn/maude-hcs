@@ -3,7 +3,6 @@ set show advisories off .
 sload ../../../deps/dns_formalization/Maude/common/actor 
 
 ---- Structureed addresses 
----- for actors sending visible messages.
 ---- Viewpoint captured by NetId
 
 mod STRUCTURED-ADDRESSES is
@@ -11,38 +10,59 @@ mod STRUCTURED-ADDRESSES is
   inc CONVERSION .
 
 
-vars netId : NetId .
-vars tclass : TClass .
-vars prot : Protocol .
+vars netId netId1 : NetId .
+vars tt prot role : TClass .
 vars ix : Nat .
 vars addr : Address .
 
-sorts NetId TClass Protocol .
+sorts NetId TClass .
 
 ---- defaults for non structured addresses
 op noNetId : -> NetId [ctor] .
 op noTClass : -> TClass [ctor] .
-op noProtocol : -> Protocol [ctor] .
 
-op a : NetId TClass Protocol Nat -> Address [ctor] .
+
+op a : NetId TClass TClass TClass  Nat -> Address [ctor] .
 ---- client network ids
-ops c1 c2 c3 c4 c5 c6 c7 c8 c9 : -> NetId  [ctor] .
+op cl`[_`] : Nat -> NetId  [ctor] .
+op svnN`[_`] : Nat -> NetId  [ctor] . --- tunnel ep of cl[-] 
 ---- other network ids
-ops isrv msrv s3srv dsrv  : -> NetId .  --- servers
-----  traffic classes
-ops hcs tgen othertc  : -> TClass .  --- traffic class
-ops dns mas s3 ftp   : -> Protocol  .
+ops srvN masN minN dnsN ixpN  : -> NetId .  --- servers
+----  traffic classifiers
+ops hcs tgen tcp udp   : -> TClass .  --- net class
+ops irc dns mas min ftp gor : -> TClass  .  --- protocols
+ops if um cm cl srv  pu ah : -> TClass  .  ---- roles
 
 op getNetId : Address ->  NetId .
-eq getNetId(a(netId,tclass,prot,ix)) = netId .
+eq getNetId(a(netId,tt,prot,role,ix)) = netId .
 eq getNetId(addr) = noNetId [owise] .
 
-op getTClass : Address ->  TClass .
-eq getTClass(a(netId,tclass,prot,ix)) = tclass .
-eq getTClass(addr) = noTClass [owise] .
+op getTType : Address ->  TClass .
+eq getTType(a(netId,tt,prot,role,ix)) = tt .
+eq getTType(addr) = noTClass [owise] .
 
-op getProtocol : Address ->  Protocol .
-eq getProtocol(a(netId,tclass,prot,ix)) = prot .
-eq getProtocol(addr) = noProtocol [owise] .
+op getProtocol : Address ->  TClass .
+eq getProtocol(a(netId,tt,prot,role,ix)) = prot .
+eq getProtocol(addr) = noTClass [owise] .
+
+op getRole : Address ->  TClass .
+eq getRole(a(netId,tt,prot,role,ix)) = prot .
+eq getRole(addr) = noTClass [owise] .
+
+op getIndex : Address ->  Nat .
+eq getIndex(a(netId,tt,prot,role,ix)) = ix .
+eq getIndex(addr) = 0 [owise] .
+
+***** Vantage point is the netId -- modeling T&E nets
+op seenVantageP : NetId Address -> Bool .
+eq seenVantageP(netId,a(netId,hcs,prot,cl,ix))
+     = prot =/= irc .   --- shouldn't be collected
+eq seenVantageP(netId,a(netId,tgen,prot,cl,ix)) = true .
+eq seenVantageP(netId,a(netId1,tt,prot,cl,ix)) = false [owise] .
 
 endm
+eof
+
+red seenVantageP(cl[1],a(cl[1],hcs,dns,cl,2)) .
+red seenVantageP(cl[1],a(cl[2],hcs,dns,cl,2)) .
+red seenVantageP(cl[1],a(cl[1],tcp,mas,cl,2)) .

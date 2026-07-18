@@ -49,9 +49,9 @@ fmod MARKOV-ACTION-MODEL is
   vars markov :  Map{String,Map{String,Float}} .
   vars weights : Map{String,Float} .
   vars actions params mj mj0 mj1 : Map{String,JV} .
-  vars n j j1 j2 min max : Nat .
+  vars n n0 n1 j j1 j2 min max : Nat .
   vars fl fl0 fl1 mean std minf maxf : Float .
-  vars jv : JV .
+  vars jv jv0 jv1 floor ceiling : JV .
 **** hashtag morphing  
   vars jvl : JVL .
 ****  vars str : String .
@@ -194,25 +194,31 @@ eq realizeHashTag(ma:MAModel, i:Nat) = "NOTAG" [owise] .
 ceq realizeRand(str,"gaussian",
       (("mean" |-> jf(mean) ), ("std" |-> jf(std) ), mj), 
        j )
- = {(str |-> jf(fl)), s j}
-if fl :=  ensureFloor(sampleNormalWithMeanSdX(mean, std, j),mj)
-      .
+ = {(str |-> jv), s j}
+if fl :=  sampleNormalWithMeanSdX(mean, std, j)
+/\ jv :=  ensureBounds(jf(fl), mj)
+    .
 
 ceq realizeRand(str,"uniform",
       (("min" |-> jn(min) ), ("max" |-> jn(max) ), mj),
       j )
- = {(str |-> jn(n)), s j}
+ = {(str |-> jv), s j}
 if n := (if  min == max 
         then min
   --- Get a random nat between in [0, n-1].
         else min + sampleUniWithIntX(j,max + (- min) + 1) 
-        fi) .
+        fi) 
+/\ jv :=  ensureBounds(jn(n), mj)
+
+        .
 
 ceq realizeRand(str,"uniform",
       (("min" |-> jf(minf) ), ("max" |-> jf(maxf) ), mj),
       j )
- = {(str |-> jf(fl)), s j}
-if fl :=  ensureFloor(genRandomX(j, minf, maxf),mj)   .
+ = {(str |-> jv), s j}
+if fl :=  ensureFloor(genRandomX(j, minf, maxf),mj) 
+/\ jv :=  ensureBounds(jf(fl), mj)
+  .
 
 eq realizeRand(str,str1,mj,j) 
        = {(str |-> nullJV),j} [owise] .
@@ -221,6 +227,47 @@ eq realizeRand(str,str1,mj,j)
 op ensureFloor : Float Map{String,JV} -> Float .
 eq ensureFloor(fl0, (mj, ("floor" |-> jf(fl1) )) ) = max(fl1,fl0) .
 eq ensureFloor(fl0, mj) = fl0 [owise] .
+
+op ensureBounds : JV Map{String,JV} -> JV .
+
+ceq ensureBounds(jv,mj) = jv1
+if floor := if $hasMapping(mj,"floor")
+            then mj["floor"]
+            else nullJV
+            fi
+/\ ceiling := if $hasMapping(mj,"celing")
+              then mj["celing"]
+              else nullJV
+              fi         
+/\ jv0 := (if floor == nullJV
+          then jv
+          else (if lteJV(floor,jv)
+                then jv
+                else coerceJV(floor,jv)
+                fi)
+         fi)                
+
+/\ jv1 := (if ceiling == nullJV
+          then jv0
+          else (if lteJV(jv0,ceiling)
+                then jv0
+                else coerceJV(ceiling,jv)
+                fi)
+          fi)                
+.                
+
+op lteJV :  JV JV -> [Bool] .
+eq lteJV(jn(n0),jn(n1)) = n0 <= n1 .
+eq lteJV(jn(n0),jf(fl1)) = float(n0) <= fl1 .
+eq lteJV(jf(fl0),jn(n1)) = fl0 <= float(n1) .
+eq lteJV(jf(fl0),jf(fl1)) = fl0 <= fl1 .
+
+****  coerce jv0 to jtype of jv1
+op coerceJV : JV JV -> JV .
+eq coerceJV(jn(n0),jn(n1)) = jn(n0) .
+eq coerceJV(jn(n0),jf(fl1)) = jf(float(n0)) .
+eq coerceJV(jf(fl0),jn(n1)) = jn(round(fl0)) .
+eq coerceJV(jf(fl0),jf(fl1)) = jf(fl0) .
 
 
 ****** 26mar19 clt moved from raceboate/cm-aux
@@ -250,10 +297,69 @@ eq jv2nat(jf(fl)) = round(fl) .
 
 endfm  
 
+mod TEST-ENSURE is
+  inc MARKOV-ACTION-MODEL .
+
+vars jv0 jv1 : JV .
+
+op MJ : -> Map{String,JV} .
+eq MJ  = 
+"sleep" |-> jo(("mean" |-> jf(1.7e+1),
+"random" |-> js("gaussian"), "std" |-> jf(9.0)
+))
+. 
+
+op MJF : JV  -> Map{String,JV} .
+eq MJF(jv0) = 
+"sleep" |-> jo(("mean" |-> jf(1.7e+1),
+"random" |-> js("gaussian"), "std" |-> jf(9.0),
+"floor" |-> jv0
+))
+. 
+
+
+op MJFC : JV JV -> Map{String,JV} .
+eq MJFC(jv0,jv1) = 
+"sleep" |-> jo(("mean" |-> jf(1.7e+1),
+"random" |-> js("gaussian"), "std" |-> jf(9.0),
+"floor" |-> jv0, "celing" |-> jv1 
+))
+. 
+
+
+**** uniform float and nat
+ops MJUf MJUn : -> Map{String,JV} .
+eq MJUf = ("fooF" |-> jo((("random" |-> js("uniform")), ("min" |-> jf(0.0)), ("max" |-> jf(60.0))))) .
+eq MJUn =  ("fooN" |-> jo((("random" |-> js("uniform")), ("min" |-> jn(10)), ("max" |-> jn(40))))) .
+
+ops MJUfFC MJUnFC : JV JV -> Map{String,JV} .
+eq MJUfFC(jv0,jv1) = ("fooF" |-> jo((("random" |-> js("uniform")), ("min" |-> jf(0.0)), ("max" |-> jf(60.0)),
+"floor" |-> jv0, "celing" |-> jv1 
+))) .
+
+eq MJUnFC(jv0,jv1) =
+ ("fooN" |-> jo((("random" |-> js("uniform")), ("min" |-> jn(10)), ("max" |-> jn(40)),
+"floor" |-> jv0, "celing" |-> jv1 
+))) .
+
+endm
 eof
+
+red realizeParams(MJ,9) .
+red realizeParams(MJF(jf(12.)),9) .
+red realizeParams(MJFC(jf(12.),jf(22.)),9) .
+
+red realizeParams(MJUf,9) .
+red realizeParams(MJUn,9) .
+
+red realizeParams(MJUfFC(jf(1.),jf(30.)),9) .
+red realizeParams(MJUnFC(jn(5),jn(30)),9) .
+
 red realizeHashTag(ma("mas",
                       ("download" |-> "wait_download" |-> 1.0, "media" |-> "wait_media" |-> 1.0, "wait_download" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1), "wait_media" |-> ("download" |-> 5.0e-1, "media" |-> 5.0e-1)),
-                      ("download" |-> jo("type" |-> js("download")), "media" |-> jo(("start" |-> jb(true), "type" |-> js("media"))), "wait_download" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait"))), "wait_media" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait")))),
+                      ("download" |-> jo("type" |-> js("download")), "media" |-> jo(("start" |-> jb(true), "type" |-> js("media"))), "wait_download" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1),
+"random" |-> js("gaussian"), "std" |-> jf(9.0))), 
+"type" |-> js("wait"))), "wait_media" |-> jo(("sleep" |-> jo(("mean" |-> jf(1.7e+1), "random" |-> js("gaussian"), "std" |-> jf(9.0))), "type" |-> js("wait")))),
                       ("hashtags" |-> jl(js("meow") ; js("cat") ; js("dog") ; js("orange") ; js("purple")), "model_steps" |-> jn(100), "password" |-> js("passwor\302\256d1234"), "username" |-> js("user5"))),
                    1) 
   == "cat"
@@ -261,30 +367,5 @@ red realizeHashTag(ma("mas",
 
 eof 
 
- 
---- eq mastodon-actions = (
----         "media" |->  jo(
----             "type" |->  js("media"),
----             "sleep" |-> jo(("random" |->  js("gaussian")),
----                            ("mean" |->  jf(17.0)),
----                            ("std" |->  jf(9.0) )
----                            )
----         ),
----         "download" |->  jo(
----             "type" |->  "download",
----             "sleep" |->  jo(("random" |->  js("gaussian")),
----                            ("mean" |->  jf(17.0)),
----                            ("std" |->  jf(9.0) )
----                            )
----         ),
----         "wait" |->  jo(
----             "type" |->  js("wait"),
----             "start" |->  js("true"),
----             "sleep" |->  jo(("random" |->  js("gaussian")),
----                            ("mean" |->  jf(17.0)),
----                            ("std" |->  jf(9.0) )
----                            )
----         )
----     )
----  .    
+
  
