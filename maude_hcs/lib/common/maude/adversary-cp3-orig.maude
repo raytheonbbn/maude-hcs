@@ -19,12 +19,11 @@ sort FloatInf .
 subsort Float < FloatInf .
 op infty : -> FloatInf [ctor] .
 
-sorts TimesMsg TimesPkt .
-sort TimesObsList .
-subsort TimesMsg TimesPkt < TimesObsList .
-op nilTO : -> TimesObsList [ctor] .
-op _;;_ : TimesObsList TimesObsList -> TimesObsList
-            [ctor assoc id: nilTO] .
+sorts TimesMsg TimesMsgList .
+subsort TimesMsg < TimesMsgList .
+op nilTimesMsg : -> TimesMsgList [ctor] .
+op _;;_ : TimesMsgList TimesMsgList -> TimesMsgList
+            [ctor assoc id: nilTimesMsg] .
 op tm : Float FloatInf FloatInf Msg -> TimesMsg [ctor] .
 
 op getSendTime : TimesMsg -> Float .
@@ -39,6 +38,11 @@ sort Pkt .
 -----                     new? cnx size
 op pkt : Address Address  Bool Nat Nat -> Pkt [ctor] .
 
+sorts TimesPkt TimesPktList .
+subsort TimesPkt < TimesPktList .
+op nilTimesPkt : -> TimesPktList [ctor] .
+op _;;_ : TimesPktList TimesPktList -> TimesPktList
+            [ctor assoc id: nilTimesPkt] .
 op tp : Float FloatInf FloatInf Pkt -> TimesPkt [ctor] .
 
 
@@ -66,7 +70,6 @@ eq getSize(pkt(tgt,src,new?,cnx,size)) = size .
 
 endm
 
-
 mod ADVERSARY-CP3 is
   inc ADVERSARY-CP3-DATA .
   
@@ -74,14 +77,14 @@ vars addr : Address .
   
 op Adversary : -> ActorType .
 
-op dns:_ : TimesObsList -> Attribute [ctor] .
-op tcp:_ : TimesObsList -> Attribute [ctor] .
+op dns:_ : TimesMsgList -> Attribute [ctor] .
+op tcp:_ : TimesPktList -> Attribute [ctor] .
 
 op mkAdversaryCp3 : Address -> Actor .
 eq mkAdversaryCp3(addr) =
   < addr : Adversary | 
-      dns: nilTO,
-      tcp: nilTO
+      dns: nilTimesMsg, 
+      tcp: nilTimesPkt
   >
 .   
      

@@ -27,22 +27,44 @@
 ---
 --- MAUDE_HCS: end
 
+set show advisories off .
+
 sload ../common/maude/sampler-x.maude
 sload ../common/maude/_aux.maude
 sload ../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../deps/dns_formalization/Maude/dns/common/prelim
+
+view AttributeSet from TRIV to ACTOR-MODEL is
+  sort Elt to AttributeSet .
+endv
 
 mod NETWORK_NODE is
   pr SAMPLER-X .
   pr CP2_SORTS .
   pr ACTOR-MODEL .
+  inc SORTS .
 
-  vars addr remoteAddr localAddr ADDR REMOTE_ADDR REMOTE_CHANNEL_ADDR LOCAL_ADDR : Address .
+
+
+  vars addr addr0 remoteAddr localAddr ADDR REMOTE_ADDR REMOTE_CHANNEL_ADDR LOCAL_ADDR  : Address .
   vars attrs attrsNext attrsTrans netAttrs netAttrsTrans netAttrsNext CONNECTION_ATTRS : AttributeSet .
   vars flowAttrs linkAttrs pktAttrs : AttributeSet .
   vars CONNECTION_REUSE : Bool .
   vars msg : Msg .
   vars count j : Nat .
+  
+  vars rsvAddr dnsRsv : Address .
+  vars b : Bool .
+  vars name : Name .
+  vars cnxMap aal :   AddrAttrsList .
 
+  sorts AddrAttrsElt AddrAttrsList .
+  subsort AddrAttrsElt < AddrAttrsList .
+  op nilAddrAttrs : -> AddrAttrsList [ctor] .
+  op `[_:->_`] : Address AttributeSet -> AddrAttrsElt [ctor] .
+  op _::_ : AddrAttrsList AddrAttrsList -> AddrAttrsList
+            [ctor assoc id: nilAddrAttrs] .
+          
   op NetClient : -> ActorType [ctor] .
   op NetServer : -> ActorType [ctor] .
 
@@ -57,39 +79,104 @@ mod NETWORK_NODE is
   op connectionReuse:_    : Bool    -> Attribute [ctor] .
   op connectionCount:_    : Nat     -> Attribute [ctor] .
   **** Attribute for server only.
-  op currentConnection:_  : AttributeSet  -> Attribute [ctor] .
+****  op currentConnection:_  : AttributeSet  -> Attribute [ctor] .
+  op currentConnections:_ : AddrAttrsList -> Attribute [ctor] .
+
+**** netClient attributes specific to generating dnsQ/pkts
+op newCnx:_ : Bool -> Attribute [ctor] . 
+    --- init true,  
+    --- if reuse true then rcv rule sets to false
+    --- ow stays true
+    
+op dnsName:_ : Name ->  Attribute [ctor] . 
+     --- nullName if NetClient is associated to 
+     ---  dnsClient/corp resolver
+op dnsRsv:_ : Address  ->  Attribute [ctor] . 
+     --- nullAddr or corpRsvAddr 
+op w4:_ : Config ->  Attribute [ctor] . --- init null
+op pending:_ : Config ->  Attribute [ctor] . --- init null
+
+********** net server attr for handling dns case
+**** op dnsCnx:_ : Bool -> Attribute [ctor] .
 
   **** Flow Info attributes.
-  op flowId:_             : Nat     -> Attribute [ctor] .
+  op flowId:_ : Nat -> Attribute [ctor] .
 
   --- Default IXP router address. There should be only one in CP3.
   op IXP-DEFAULT-ADDR : -> Address .
 
-  ----                This    RemoteChan  RemoteEndpt LocalChan ReuseConnection
-  op makeNetClient :  Address Address     Address     Address   Bool -> Actor .
-  eq makeNetClient(ADDR, REMOTE_CHANNEL_ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
+***** removed redundatn remoteEndpointAddr 
+***** netC for tcp transport
+*****   sends DNSQ for new connections
+*****   omits dns query if dnsRsv is nullAddr
+  op makeNetClient :  Address Address  Address Bool
+                       Address Name -> Actor .
+  eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, 
+                    CONNECTION_REUSE, rsvAddr,name)
     = < ADDR : NetClient |
           thisAddr:           ADDR,
-          remoteChannelAddr:  REMOTE_CHANNEL_ADDR,
-          remoteEndpointAddr: REMOTE_ADDR,
-          localIfaceAddr:     LOCAL_ADDR,
+          remoteChannelAddr:  REMOTE_ADDR, --- the server?
+****      remoteEndpointAddr: REMOTE_ADDR,   --- not used?
+          localIfaceAddr:     LOCAL_ADDR,   --- the client
           ixpAddr:            IXP-DEFAULT-ADDR,
           connectionReuse:    CONNECTION_REUSE,
-          connectionCount:    0
+          connectionCount:    0,
+          newCnx: true,
+          dnsName: name,
+          dnsRsv:  rsvAddr,
+          w4: null,
+          pending: null          
       >
   .
 
-  ---                 This    RemoteEndpt LocalChan
-  op makeNetServer :  Address Address     Address -> Actor .
-  eq makeNetServer(ADDR, REMOTE_ADDR, LOCAL_ADDR)
+**** backwards compat --  net client for tcp
+**** that doesnt send any dns queries
+op makeNetClient :  Address Address  Address  Bool
+                    -> Actor .
+eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
+    = < ADDR : NetClient |
+          thisAddr:           ADDR,
+          remoteChannelAddr:  REMOTE_ADDR,
+     **** remoteEndpointAddr: REMOTE_ADDR,
+          localIfaceAddr:     LOCAL_ADDR,
+          ixpAddr:            IXP-DEFAULT-ADDR,
+          connectionReuse:    CONNECTION_REUSE,
+          connectionCount:    0,
+ **** netC dns attrsfor DNS client/forwarder -- original beh
+          newCnx: true,
+          dnsName: nullName,
+          dnsRsv: nullAddr, 
+          w4: null,
+          pending: null
+      >
+  .
+
+**************************************************
+**** original server no dns logging
+  ---                 This    LocalChan
+  op makeNetServer :  Address  Address -> Actor .
+  eq makeNetServer(ADDR, LOCAL_ADDR)
+    = < ADDR : NetServer |
+          thisAddr: ADDR,
+     ****     remoteEndpointAddr: REMOTE_ADDR,   --- not used
+          localIfaceAddr:     LOCAL_ADDR,
+          ixpAddr:            IXP-DEFAULT-ADDR,
+          currentConnections:  nilAddrAttrs
+      >
+  .
+  
+***** Net server  -- with connection map 
+  ---                 This   RemoteEndpt LocalChan
+  op makeNetServer : Address Address  Address  Bool
+                     -> Actor .
+  eq makeNetServer(ADDR, REMOTE_ADDR, LOCAL_ADDR,b)
     = < ADDR : NetServer |
           thisAddr: ADDR,
           remoteEndpointAddr: REMOTE_ADDR,
           localIfaceAddr:     LOCAL_ADDR,
           ixpAddr:            IXP-DEFAULT-ADDR,
-          currentConnection:  noneAS ****(flowId: 0)
-      >
-  .
+          currentConnections:  nilAddrAttrs
+      >   .
 
   op getLocalIfaceAddr : AttributeSet -> Address .
   eq getLocalIfaceAddr(attrs, localIfaceAddr: ADDR) = ADDR .
@@ -109,21 +196,55 @@ mod NETWORK_NODE is
   eq getConnectionReuse(attrs, connectionReuse: CONNECTION_REUSE) = CONNECTION_REUSE .
   eq getConnectionReuse(attrs) = true [owise] .
 
-  op getCurrentConnection : AttributeSet -> AttributeSet .
+***( 
+ op getCurrentConnection : AttributeSet -> AttributeSet .
   eq getCurrentConnection(attrs, currentConnection: CONNECTION_ATTRS) 
     = CONNECTION_ATTRS
   .
   eq getCurrentConnection(attrs) = noneAS [owise] .
+)
 
+ op findCnx : AddrAttrsList Address -> AttributeSet .
+ eq findCnx([addr :-> attrs] :: aal, addr) = attrs .
+ eq findCnx([addr0 :-> attrs] :: aal, addr) = 
+      findCnx(aal, addr)  [owise] .
+ eq findCnx(nilAddrAttrs,addr) = noneAS .
+
+ op removeCnx : AddrAttrsList Address -> AddrAttrsList .
+ eq removeCnx([addr :-> attrs] :: aal, addr) = aal .
+ eq removeCnx([addr0 :-> attrs] :: aal, addr) = 
+     [addr0 :-> attrs] :: removeCnx(aal, addr)  [owise]  .
+ eq removeCnx(nilAddrAttrs,addr) = nilAddrAttrs .
+
+ op getCurrentConnection : AttributeSet Address 
+    -> AttributeSet .
+ eq getCurrentConnection((attrs, currentConnections: cnxMap),
+                          addr) 
+    = findCnx(cnxMap,addr)
+   .    
+  eq getCurrentConnection(attrs,addr) = noneAS [owise] .
+
+
+  op removeConnection : AttributeSet Address -> AttributeSet .
+  ceq removeConnection(netAttrs,addr) =
+       attrs, currentConnections: removeCnx(cnxMap,addr)  
+  if attrs,currentConnections: cnxMap := netAttrs .
+  
+  eq removeConnection(netAttrs,addr) = netAttrs [owise] .
+  
   op getFlowInfo : AttributeSet Msg -> AttributeSetPair .
-  ceq getFlowInfo((attrs, connectionCount: count), msg:Msg) =
-    {attrsNext , (remoteChannelAddr: getRemoteChannelAddr(attrs),
+  ceq getFlowInfo((attrs, connectionCount: count, newCnx: b),
+                   msg:Msg) =
+    {attrsNext , (remoteChannelAddr: 
+                      getRemoteChannelAddr(attrs),
 ****              flowId: genRandomX(count))
                   flowId: count)}
     if attrsNext :=
         (if getConnectionReuse(attrs)
-            then (attrs, connectionCount: count)
-            else (attrs, connectionCount: s count)
+            then (attrs, connectionCount: count, 
+                         newCnx: false)
+            else (attrs, connectionCount: s count,
+                         newCnx: b)
         fi)
   .
 endm
