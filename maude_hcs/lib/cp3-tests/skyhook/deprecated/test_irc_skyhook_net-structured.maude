@@ -88,7 +88,7 @@ sload ../../irc/common/irc_name
 sload ../../irc/common/irc-msg-model
 sload ../../irc/common/_aux
 sload ../../irc/irc_prob-v2
-sload ../../irc/irc-mamodel-v2
+sload ../../irc/irc-mamodel-v2.maude
 sload ../../common/maude/irc-action-actor-v2.maude
 
 ---- this should go in a scenario dir
@@ -120,6 +120,8 @@ mod IRC-RB-SKYHOOK-SCENARIO is
   pr TCP_SOCKET .
   pr NETWORK_NODE .
   pr NETWORK_CONNECTION .
+  inc STRUCTURED-ADDRESSES .
+  ops sky nets dl : -> TClass .
  
 vars j : Nat .
 
@@ -128,7 +130,7 @@ eq noiseMin(msg:Msg) = 0.001 .
 
 ***** Global constants  
 **** the user model database
-eq MAModelMap = ("irc-test" |-> irc-ma-v2 ) .
+eq MAModelMap = ("irc-test" |-> irc-mamodel-v2 ) .
 
 *** for the default case
 eq noiseMax(msg:Msg) = 0.00001 .
@@ -197,7 +199,8 @@ eq aliceNetClientAddr = a(cl[1],tcp,sky,cl,1) .
  eq pubAddr = a(cl[2],hcs,sky,pu,1) .
  eq sdkbcAddr = a(cl[2],hcs,sky,cl,1) .
  ---- tcp cnx
-eq aliceNetServerAddr = a(srvN[1],tcp,sky,cl,1) .
+ops aliceNetServerAddr bobNetServerAddr : -> Address .
+eq aliceNetServerAddr = a(svnN[1],tcp,sky,cl,1) .
 
 
 ******** serverNet
@@ -212,18 +215,18 @@ eq ahaAddr = a(srvN,hcs,sky,ah,1) .    ---- AH
 eq sdkasAddr = a(srvN,hcs,sky,dl,1) .
 eq bobNetClientAddr = a(cl[2],tcp,sky,cl,1) .
 
- **** severNet bob endpoint srvN[j] endpoints of cl[j]
-eq ifaceBSAddr = a(srvN[2],hcs,irc,if,1) .
-eq umbsAddr = a(srvN[2],hcs,sky,um,1) .
-eq cmbsAddr = a(srvN[2],hcs,sky,cm,1) .
-eq ahbAddr = a(srvN[2],hcs,sky,ah,1) .    ---- AH
-eq sdkbsAddr = a(srvN[2],hcs,sky,cl,1) .
-< tcp >
-eq bobNetServerAddr = a(srvN[2],tcp,sky,cl,1) .
+ **** severNet bob endpoint svnN[j] endpoints of cl[j]
+eq ifaceBSAddr = a(svnN[2],hcs,irc,if,1) .
+eq umbsAddr = a(svnN[2],hcs,sky,um,1) .
+eq cmbsAddr = a(svnN[2],hcs,sky,cm,1) .
+eq ahbAddr = a(svnN[2],hcs,sky,ah,1) .    ---- AH
+eq sdkbsAddr = a(svnN[2],hcs,sky,cl,1) .
+*** tcp
+eq bobNetServerAddr = a(svnN[2],tcp,sky,cl,1) .
 
 
 **** external network nets 
-eq s3SrvAddr = a(min,srv,min,srv,0) .   
+eq s3SrvAddr = a(minN,srv,min,srv,0) .   
 op s3NetServerAddr : -> Address .
 eq s3NetServerAddr = a(minN,nets,tcp,srv,0) .
 
@@ -480,7 +483,18 @@ eq LinkData =
   aaa(sdkbcAddr,s3SrvAddr,LinkType-2)
   aaa(sdkbsAddr,s3SrvAddr,LinkType-2)
 .
- 
+
+ vars dt : Float .
+  vars icAddr isAddr ifsAddr : Address .
+  vars room : String .
+  op mkJoin : Float String Address Address Address -> ScheduleMsg .
+  eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =
+       [dt,
+       (to isAddr from ifsAddr :
+        JoinChannel(makeIrcChannelName(room), icAddr )),
+        0]
+  .
+
 op initState : Nat -> Config .
 eq initState(j ) =
   rCtr(j + 8)
@@ -525,19 +539,36 @@ eq initState(j ) =
   s3ServerAliceNetServer
   s3ServerBobNetServer
    
-**** start ahAlice
-    [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
-**** start ahBob
-    [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
+  **** start ahUser0
+      [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
+  **** start ahUser1
+      [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
 
-**** start alice
-  [0.1, to ircaUserModelAddr from ircaUserModelAddr : burstDelayTO, 0]
-**** start bob
-  [0.2, to ircbUserModelAddr from ircbUserModelAddr : burstDelayTO, 0]
+  **** start skyhook client endpoints
+    [0.01, (to umacAddr from umacAddr : actionR("ok")), 0]
+    [0.02, (to umbcAddr from umbcAddr : actionR("ok")), 0]
+  **** start skyhook server endpoints
+    [0.03, (to umasAddr from umasAddr : actionR("ok")), 0]
+    [0.04, (to umbsAddr from umbsAddr : actionR("ok")), 0]
+
+  **** start user0
+    mkJoin(1.0, "#general", ircaAddr, ircSrvAddr, ifaceASAddr)
+    mkJoin(20.0, "#chat", ircaAddr, ircSrvAddr, ifaceASAddr)
+    mkJoin(40.0, "#random", ircaAddr, ircSrvAddr, ifaceASAddr)
+    
+  **** start user1
+    mkJoin(60.0, "#general", ircbAddr, ircSrvAddr, ifaceBSAddr)
+    mkJoin(80.0, "#chat", ircbAddr, ircSrvAddr, ifaceBSAddr)
+    mkJoin(100.0, "#random", ircbAddr, ircSrvAddr, ifaceBSAddr)
+
+  **** start irc user model
+    [120.0, to ircaUserModelAddr from ircaUserModelAddr : burstDelayTO, 0]
+    [120.1, to ircbUserModelAddr from ircbUserModelAddr : burstDelayTO, 0]
+  
 .
 
 op slimit : -> Float .
-eq slimit = 1000.0 .
+eq slimit = 1000000.0 .
 
 op initConfig : -> Config .
 rl[init]: initConfig 

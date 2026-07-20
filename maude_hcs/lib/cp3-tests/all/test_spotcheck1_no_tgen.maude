@@ -60,6 +60,7 @@ sload ../../s3/s3_protocol
 sload ../../dns/maude/probabilistic/iodine_dns.maude
 sload ../../dns/maude/common/_aux.maude
 sload ../../network/net_prob.maude
+sload ../../common/maude/structured-addresses.maude
 
 mod COMBINED_IRC_EXPERIMENTS is
   pr SCHEDULER .
@@ -88,6 +89,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   pr TCP_SOCKET .
   pr NETWORK_NODE .
   pr NETWORK_CONNECTION .
+  inc STRUCTURED-ADDRESSES .
 
   vars j : Nat .
 
@@ -132,38 +134,100 @@ mod COMBINED_IRC_EXPERIMENTS is
   --- Addresses
   ---------------------------------------------------
   ops ircClient1Addr ircClient2Addr ircClient3Addr ircClient4Addr : -> Address .
-  ops ircClient1UserModelAddr ircClient2UserModelAddr 
-      ircClient3UserModelAddr ircClient4UserModelAddr             : -> Address .
+  ops ircClient1UserModelAddr ircClient2UserModelAddr             : -> Address .
+  ops ircClient3UserModelAddr ircClient4UserModelAddr             : -> Address .
   ops ircServerAddr s3SrvAddr ircMonitorAddr iodineMonitorAddr    : -> Address .
-
-  --- Client 1 (Webtunnel)
   ops client1IfaceAddr server1IfaceAddr wtClient1Addr wtProxy1Addr : -> Address .
   ops wtClient1NetClientAddr wtProxy1NetServerAddr                   : -> Address .
-
-  --- Client 2 (OBFS4)
   ops client2IfaceAddr server2IfaceAddr : -> Address .
   ops obfs4Client2Addr obfs4Server2Addr : -> Address .
   ops obfs4Client2NetClientAddr obfs4Server2NetServerAddr : -> Address .
-
-  --- Client 3 (Skyhook)
   ops client3IfaceAddr server3IfaceAddr                       : -> Address .
   ops umac3Addr cmac3Addr pua3Addr sdkac3Addr                 : -> Address .
   ops umas3Addr cmas3Addr aha3Addr sdkas3Addr                 : -> Address .
   ops skyhookClient3NetClientAddr skyhookClient3NetServerAddr : -> Address .
   ops skyhookServer3NetClientAddr skyhookServer3NetServerAddr : -> Address .
-
-  --- Client 4 (Iodine)
   ops client4IfaceAddr serverIface4Addr                                  : -> Address .
   ops sendApp4Addr iodineClient4Addr rcvApp4Addr serverIodineServer4Addr : -> Address .
   ops iodineClient4NetClientAddr iodineServer4NetServerAddr              : -> Address .
-
-  --- Client 5 (Mastodon)
   ops ircClient5Addr ircClient5UserModelAddr client5IfaceAddr server5IfaceAddr : -> Address .
   ops umac5Addr cmac5Addr mcac5Addr edac5Addr : -> Address .
   ops umas5Addr cmas5Addr mcas5Addr edas5Addr : -> Address .
   ops mastodonClient5NetClientAddr mastodonServer5NetClientAddr : -> Address .
   ops masClient5NetServerAddr masServer5NetServerAddr : -> Address .
-  ops masSrvAddr : -> Address .  ---------------------------------------------------
+  ops masSrvAddr : -> Address .
+
+  eq ircServerAddr = a(srvN,srv,irc,srv,0) .
+
+  --- Webtunnel / Client 1
+  eq ircClient1Addr = a(cl[1],hcs,irc,cl,1) .
+  eq ircClient1UserModelAddr = a(cl[1],hcs,irc,um,1) .
+  eq client1IfaceAddr = a(cl[1],hcs,irc,if,1) .
+  eq server1IfaceAddr = a(svnN[1],hcs,irc,if,1) .
+  eq wtClient1Addr = a(cl[1],hcs,wt,cl,1) .
+  eq wtProxy1Addr = a(svnN[1],hcs,wt,srv,1) .
+  eq wtClient1NetClientAddr = a(cl[1],tcp,wt,cl,1) .
+  eq wtProxy1NetServerAddr = a(svnN[1],tcp,wt,srv,1) .
+
+  --- Obfs4 / Client 2
+  eq ircClient2Addr = a(cl[2],hcs,irc,cl,1) .
+  eq ircClient2UserModelAddr = a(cl[2],hcs,irc,um,1) .
+  eq client2IfaceAddr = a(cl[2],hcs,irc,if,1) .
+  eq server2IfaceAddr = a(svnN[2],hcs,irc,if,1) .
+  eq obfs4Client2Addr = a(cl[2],hcs,obfs,cl,1) .
+  eq obfs4Server2Addr = a(svnN[2],hcs,obfs,srv,1) .
+  eq obfs4Client2NetClientAddr = a(cl[2],tcp,obfs,cl,1) .
+  eq obfs4Server2NetServerAddr = a(svnN[2],tcp,obfs,srv,1) .
+
+  --- Skyhook / Client 3
+  eq ircClient3Addr = a(cl[3],hcs,irc,cl,1) .
+  eq ircClient3UserModelAddr = a(cl[3],hcs,irc,um,1) .
+  eq client3IfaceAddr = a(cl[3],hcs,irc,if,1) .
+  eq server3IfaceAddr = a(svnN[3],hcs,irc,if,1) .
+  eq umac3Addr = a(cl[3],hcs,sky,um,1) .
+  eq cmac3Addr = a(cl[3],hcs,sky,cm,1) .
+  eq pua3Addr = a(cl[3],hcs,sky,pu,1) .
+  eq sdkac3Addr = a(cl[3],hcs,sky,dl,1) .
+  eq umas3Addr = a(svnN[3],hcs,sky,um,1) .
+  eq cmas3Addr = a(svnN[3],hcs,sky,cm,1) .
+  eq aha3Addr = a(svnN[3],hcs,sky,ah,1) .
+  eq sdkas3Addr = a(svnN[3],hcs,sky,dl,1) .
+  eq skyhookClient3NetClientAddr = a(cl[3],tcp,sky,cl,1) .
+  eq skyhookServer3NetClientAddr = a(svnN[3],tcp,sky,cl,1) .
+  eq skyhookClient3NetServerAddr = a(svnN[3],tcp,sky,srv,1) .
+  eq skyhookServer3NetServerAddr = a(svnN[3],tcp,sky,srv,2) .
+  eq s3SrvAddr = a(minN,srv,min,srv,0) .
+
+  --- Iodine / Client 4
+  eq ircClient4Addr = a(cl[4],hcs,irc,cl,1) .
+  eq ircClient4UserModelAddr = a(cl[4],hcs,irc,um,1) .
+  eq client4IfaceAddr = a(cl[4],hcs,irc,if,1) .
+  eq serverIface4Addr = a(svnN[4],hcs,irc,if,1) .
+  eq sendApp4Addr = a(cl[4],hcs,iod,app,1) .
+  eq iodineClient4Addr = a(cl[4],hcs,iod,cl,1) .
+  eq rcvApp4Addr = a(svnN[4],hcs,iod,app,1) .
+  eq serverIodineServer4Addr = a(svnN[4],hcs,iod,iodSrv,1) .
+  eq iodineClient4NetClientAddr = a(cl[4],tcp,iod,cl,1) .
+  eq iodineServer4NetServerAddr = a(svnN[4],tcp,iod,srv,1) .
+
+  --- Mastodon / Client 5
+  eq ircClient5Addr = a(cl[5],hcs,irc,cl,1) .
+  eq ircClient5UserModelAddr = a(cl[5],hcs,irc,um,1) .
+  eq client5IfaceAddr = a(cl[5],hcs,irc,if,1) .
+  eq server5IfaceAddr = a(svnN[5],hcs,irc,if,1) .
+  eq umac5Addr = a(cl[5],hcs,mas,um,1) .
+  eq cmac5Addr = a(cl[5],hcs,mas,cm,1) .
+  eq mcac5Addr = a(cl[5],hcs,mas,mc,1) .
+  eq edac5Addr = a(cl[5],hcs,mas,ed,1) .
+  eq umas5Addr = a(svnN[5],hcs,mas,um,1) .
+  eq cmas5Addr = a(svnN[5],hcs,mas,cm,1) .
+  eq mcas5Addr = a(svnN[5],hcs,mas,mc,1) .
+  eq edas5Addr = a(svnN[5],hcs,mas,ed,1) .
+  eq mastodonClient5NetClientAddr = a(cl[5],tcp,mas,cl,1) .
+  eq mastodonServer5NetClientAddr = a(svnN[5],tcp,mas,cl,1) .
+  eq masClient5NetServerAddr = a(svnN[5],tcp,mas,srv,1) .
+  eq masServer5NetServerAddr = a(svnN[5],tcp,mas,srv,2) .
+  eq masSrvAddr = a(masN,srv,mas,srv,0) .  ---------------------------------------------------
   --- Link model parameters
   ---------------------------------------------------
 
