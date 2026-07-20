@@ -3,54 +3,98 @@ sload ./net_prob-clt.maude
 mod TEST_NET is
   pr NETWORK_CONNECTION .
 
-  ops channelClientAddr channelServerAddr : -> Address .
+  ops channelClientAddr channelServerAddr 
+      corpDnsAddr pubDnsAddr : -> Address .
 
   --- Network actors
-  ops netClientAddr netServerAddr : -> Address .
+  ops netClientAddr netServerAddr  netUdpAddr : -> Address .
 
-  ops netClient netServer         : -> Actor .
+  op netClient : Bool -> Actor .
+  ops netServer  netUdp  : -> Actor .
 
-  eq netClient  = makeNetClient(netClientAddr,
-                                channelServerAddr,
-                                netServerAddr,
-                                channelClientAddr,
+  eq netUdp  = makeNetClient(netUdpAddr,
+                                pubDnsAddr,
+                                corpDnsAddr,
                                 true)
+  .
+  eq netClient(b:Bool)  = makeNetClient(netClientAddr,
+                                channelServerAddr,
+                                channelClientAddr,
+                                b:Bool,
+                                corpDnsAddr,
+                                'mastodon . 'com . root
+                                )
   .
   
   eq netServer  = makeNetServer(netServerAddr,
-                                netClientAddr,
                                 channelServerAddr)
   .
 
-  op adverAddr : -> Address .
-  op adverActor : -> Actor .
-  eq adverActor = mkAdversaryCp3(adverAddr) .  
+  op advAddr : -> Address .
+  op advActor : -> Actor .
+  eq advActor = mkAdversaryCp3(advAddr) .  
   
   op toContent : String -> Content .
   eq getSize(toContent(str:String)) = length(str:String) .
 
+vars T : Float .
+
   rl [server-req]:
-  {T:Float, (to channelServerAddr from client:Address : content:Content)}
+  {T, (to channelServerAddr from client:Address : content:Content)}
   =>
     null
-    [ print "Server received message." ]
+    [ print "( " T " )" "Server received request." ]
   .
 
   rl [client-res]:
-  {T:Float, (to channelClientAddr from server:Address : content:Content)}
+  {T, (to channelClientAddr from server:Address : content:Content)}
   =>
     null
-    [ print "Client received message." ]
+    [ print "( " T " )" "Client received response." ]
   .
 
-  op initState : -> Config . 
-  eq initState =
+  op dnsR : -> Response .
+  rl [dnsQ]:
+  {T, (to corpDnsAddr from addr:Address : content:Content)}
+  =>
+  [.1, 
+   to udp(pubDnsAddr) from corpDnsAddr : content:Content,
+   0]
+ [ print "( " T " )" " corpDns forwards." ]
+  .
+
+rl [dnsFwd]:
+{T, to pubDnsAddr from corpDnsAddr : c:Content }
+=>    
+   [.2,
+    (to  netClientAddr from corpDnsAddr : dnsR),
+    0]   
+ [ print "( " T " )" " dnsFwd fake dns response." ]
+ .
+    
+    
+  op initState : Bool -> Config . 
+  eq initState(b:Bool) =
     rCtr(0)                  
-    netClient
+    netClient(b:Bool)
     netServer 
-    adverActor
+    netUdp
+    advActor
     [1.0, (to tcp(channelServerAddr) from channelClientAddr : toContent("CONTENT REQ")), 0]
     [2.0, (to tcp(channelClientAddr) from channelServerAddr : toContent("CONTENT RES")), 0]
+  .
+
+
+op LinkType-2 : -> AttributeSet .
+eq LinkType-2 = 
+  (delayStd: 0.),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.005),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false)
   .
 
 op LinkType-TCPsm : -> AttributeSet .
@@ -106,6 +150,13 @@ eq LinkType-TCPbigX =
    aaa(channelClientAddr,IXP-DEFAULT-ADDR,LinkType-TCPbigX)
    aaa(IXP-DEFAULT-ADDR,channelServerAddr,LinkType-TCPbigX)
    aaa(channelServerAddr,IXP-DEFAULT-ADDR,LinkType-TCPbigX)
+
+  aaa(corpDnsAddr,pubDnsAddr,LinkType-2)
+  aaa(pubDnsAddr,corpDnsAddr,LinkType-2)
+  aaa(corpDnsAddr,IXP-DEFAULT-ADDR,LinkType-2)
+  aaa(IXP-DEFAULT-ADDR,corpDnsAddr,LinkType-2)
+  aaa(corpDnsAddr,netClientAddr,LinkType-2)
+  aaa(netClientAddr,corpDnsAddr,LinkType-2)
    .
  
  op LinkDataSm : -> AdrAdrAttrsSet .
@@ -116,7 +167,16 @@ eq LinkType-TCPbigX =
    aaa(channelClientAddr,IXP-DEFAULT-ADDR,LinkType-TCPsmX)
    aaa(IXP-DEFAULT-ADDR,channelServerAddr,LinkType-TCPsmX)
    aaa(channelServerAddr,IXP-DEFAULT-ADDR,LinkType-TCPsmX)
-   .
+   
+  aaa(corpDnsAddr,pubDnsAddr,LinkType-2)
+  aaa(pubDnsAddr,corpDnsAddr,LinkType-2)
+  aaa(corpDnsAddr,IXP-DEFAULT-ADDR,LinkType-2)
+  aaa(IXP-DEFAULT-ADDR,corpDnsAddr,LinkType-2)
+  aaa(corpDnsAddr,netClientAddr,LinkType-2)
+  aaa(netClientAddr,corpDnsAddr,LinkType-2)
+ .  
+
+
   
 ****   eq LinkData = LinkDataSm .
   eq LinkData = LinkDataBig .
@@ -126,11 +186,11 @@ eq LinkType-TCPbigX =
   op limit : -> Float .
   eq limit = 20.0 .    --- simulate 30 simulated seconds
     
-  op initConfig : -> Config .
-  eq initConfig = run({0.0 | nil} initState, limit) .
+  op initConfig  : Bool -> Config .
+  eq initConfig(b:Bool) = run({0.0 | nil} initState(b:Bool), limit) .
 
 endm
-
+eof
 
 red getLinkData((to channelServerAddr from channelClientAddr : toContent("CONTENT REQ"))) .
 
@@ -140,3 +200,34 @@ red getSize(toContent("CONTENT REQ")) .
 set print attribute on .
 rew initConfig .
 q
+
+rew initConfig(true) .
+
+netClientSendDns netClientAddr sending dns request to corpDnsAddr from netClientAddr : query(clientId(netClientAddr, 0), 'mastodon . 'com . root, a)
+pending {1.0, to channelServerAddr from channelClientAddr :
+    toContent("CONTENT REQ")}
+
+( 1.005005488135023 ) corpDns forwards.
+( 1.1100126400286727 ) dnsFwd fake dns response.
+Time dispersion of segments from 11B message is
+    5.9999999999999998e-2.
+Time dispersion of segments from 11B message is
+    3.3000000000000002e-2.
+(1.0) netClientGenTcp netClientAddr sending to channelServerAddr from channelClientAddr : toContent("CONTENT REQ") :: remoteChannelAddr: channelServerAddr, flowId: 0 with delay 5.9999999999999998e-2
+(1.3100126400286727) net-client-dnsresp netClientAddr received dns   response
+(1.3700126400286727) Net server netServerAddr handling request from   channelClientAddr
+( 1.3700126400286727 )Server received request.
+Time dispersion of segments from 11B message is
+    5.9999999999999998e-2.
+Time dispersion of segments from 11B message is
+    3.3000000000000002e-2.
+(2.0) Net server netServerAddr handling response, sending to
+    channelClientAddr from channelServerAddr : toContent(
+    "CONTENT RES") :: remoteChannelAddr: channelServerAddr, flowId:  0.
+(2.0600000000000001) Net client netClientAddr handling response from  channelServerAddr, decapsulating transport.
+( 2.0600000000000001 )Client received response.
+( 1.0 )Server received request.
+rewrites: 16254 in 4ms cpu (9ms real) (3642761 rewrites/second)
+result Config: rCtr(3)
+{2.0600000000000001 |
+nil}

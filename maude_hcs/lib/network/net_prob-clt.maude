@@ -30,6 +30,7 @@
 sload ./_net_aux.maude
 sload ./tcp.maude
 sload ../common/maude/cp2-interfaces.maude
+sload ../common/maude/delay-drop-x
 sload gen-tpl .
 
 mod NETWORK_CONNECTION is
@@ -37,7 +38,9 @@ mod NETWORK_CONNECTION is
   pr NETWORK_NODE .
   pr TCP_NODE .
   pr TCP_SOCKET .
+  inc MSG .
   inc GEN-TPL .
+  inc DELAY-X .
   
   vars channelClientAddr channelServerAddr netAddr netClientAddr netServerAddr remoteAddr LOCAL_ADDR REMOTE_ADDR IXP_ADDR : Address .
   vars flowAttrs linkAttrs linkToIxpAttrs netAttrs netAttrsNext netAttrsTrans logAttrs logAttrsNext pktAttrs : AttributeSet .
@@ -47,113 +50,294 @@ mod NETWORK_CONNECTION is
   vars T : Float .
   vars TIME_LIST TIME_LIST_TO_IXP : FloatList .
   vars msg msg_to_ixp transportMsg : Msg .
-  vars j jTrans jNext n ctr : Nat .
+  vars j j1 jTrans jNext n ctr : Nat .
+  vars amsg : ActiveMsg .
+  vars dmsg : ScheduleMsg .
   
   vars k : Nat .
-  vars b : Bool .
-  vars advAddr : Address .
-  vars advAttrs advAttrs0 advAttrs1 netAttrs0 flowAttrs0 : AttributeSet .  
-  vars tpl : TimesPktList .
+  vars b b0 : Bool .
+  vars advAddr  rsvAddr : Address .
+  vars advAttrs advAttrs0 advAttrs1 attrs0 attrs1 attrs
+       netAttrs0  netAttrs1 netAttrs2 flowAttrs0 netAttrsNext0 
+       : AttributeSet .  
+  vars tpl tml : TimesObsList .
+  vars tmsg : TimesMsg .
+  vars smsgs : Config .
+  vars name : Name .
+  vars query : Query .
+  vars response : Response .
+  
+  vars dtgt dixp : Float .
+  vars cnxMap : AddrAttrsList .
+  
+  sorts UdpAddress .
+  subsorts UdpAddress < Address .
+  op udp : Address -> UdpAddress .
 
-  ****************************************************************************
-  **** Network Client Rules
-  ****************************************************************************
+  sort AttrsAttrsMsgsNat .
+  op `{_`,_`,_`,_`} : AttributeSet AttributeSet Config Nat 
+  -> AttrsAttrsMsgsNat [ctor] .
+
+*********************************************************
+**** Network Client Rules - udp
+***********************************************************
+
+ 
+  crl [net-client-req-udp]:
+  rCtr(j)
+  < netAddr : NetClient | netAttrs >
+  < advAddr : Adversary | advAttrs >
+    {T, (to udp(REMOTE_ADDR) from LOCAL_ADDR : content)}
+  =>
+  rCtr(j1)
+  < netAddr : NetClient | netAttrs1 >
+  < advAddr : Adversary | advAttrs1 >
+  smsgs
+  if netAttrs0, localIfaceAddr: LOCAL_ADDR,
+                remoteChannelAddr: REMOTE_ADDR 
+                := netAttrs
+  /\  amsg := {T,(to REMOTE_ADDR from LOCAL_ADDR : content)}
+  /\ {netAttrs1,advAttrs1,smsgs,j1}   
+       := netClientUdpReq(netAttrs,advAttrs,netAddr,amsg,j)  
+  .
+    
+  op netClientUdpReq : AttributeSet AttributeSet Address
+          ActiveMsg Nat -> AttrsAttrsMsgsNat .
+  eq netClientUdpReq(netAttrs,advAttrs,netAddr,amsg,j) =
+      {netAttrs,advAttrs,null,j}
+      [owise print "netClientUdpReq fails"] .
+      
+  ceq netClientUdpReq(netAttrs,advAttrs,netAddr,amsg,j) =
+    {netAttrs,advAttrs1,dmsg,s s j}  
+  if netAttrs0, localIfaceAddr: LOCAL_ADDR, 
+                ixpAddr: IXP_ADDR := netAttrs
+  /\ {T,msg} := amsg
+  /\ (to REMOTE_ADDR from LOCAL_ADDR : content) := msg
+  /\ msg_to_ixp := (to IXP_ADDR from LOCAL_ADDR : content)
+  /\ dixp := delayParamdX(j,msg_to_ixp)  
+  /\ dtgt := delayParamdX(s j,msg)  
+  /\ tmsg := tm(T,T + dixp, T + dtgt, msg)
+  /\ advAttrs1 := addTM2Dns(advAttrs,tmsg)
+  /\ dmsg := [dtgt,msg,0]
+ .  
+
+ 
+*********************************************************
+**** Network Client Rules -- tcp
+***********************************************************
+
   crl [net-client-req]:
   rCtr(j)
-  < netAddr : NetClient | (netAttrs,
-                           remoteChannelAddr: REMOTE_ADDR,
-                           localIfaceAddr: LOCAL_ADDR,
-                           ixpAddr: IXP_ADDR) >
+  < netAddr : NetClient | netAttrs >
   < advAddr : Adversary | advAttrs >
     {T, (to tcp(REMOTE_ADDR) from LOCAL_ADDR : content)}
   =>
   rCtr(jNext)
   < netAddr : NetClient | netAttrsNext >
   < advAddr : Adversary | advAttrs1 >
-  [delay:Float, transportMsg, 0]
-  if netAttrsTrans := (netAttrs, remoteChannelAddr: REMOTE_ADDR, localIfaceAddr: LOCAL_ADDR, ixpAddr: IXP_ADDR)
-    /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : content)
-    /\ {netAttrsNext , flowAttrs} := getFlowInfo(netAttrsTrans, msg)
+  smsgs
+  if netAttrs0, localIfaceAddr: LOCAL_ADDR,
+                remoteChannelAddr: REMOTE_ADDR 
+                := netAttrs
+  /\ {netAttrsNext, advAttrs1,smsgs,jNext} :=
+      netClientRcvTcpReq(netAttrs,advAttrs,netAddr,
+      {T, (to REMOTE_ADDR from LOCAL_ADDR : content)},
+      j)
+          
+**** [ print "(" T ") Net client " netAddr " handling request, sending " smsgs ]
+.
+
+
+op netClientRcvTcpReq : AttributeSet AttributeSet Address
+        ActiveMsg Nat -> AttrsAttrsMsgsNat .
+eq [netClientRcvTcpReq]:
+   netClientRcvTcpReq(netAttrs,advAttrs,netAddr,msg,j) =
+    {netAttrs,advAttrs,null,j} 
+  [owise print "netClientRcvReq fails"]    
+ .  
+ 
+ceq netClientRcvTcpReq(netAttrs,advAttrs,netAddr,amsg,j) =
+   (if (not b) or (name == nullName)
+   then netClientGenTcp(netAttrs2,advAttrs,netAddr,j)
+   else netClientSendDns(netAttrs2,advAttrs,netAddr,j)
+   fi)
+if netAttrs0, pending: null, w4: null  := netAttrs
+/\ netAttrs1, newCnx: b, dnsName: name := netAttrs
+/\ netAttrs2 := netAttrs0, pending: amsg, w4: null
+.
+
+  
+  op netClientSendDns : AttributeSet AttributeSet Address
+           Nat -> AttrsAttrsMsgsNat .
+  eq [netClientSendDns]:
+     netClientSendDns(netAttrs,advAttrs,netAddr,j)
+     = {netAttrs,advAttrs,null,j}
+  [owise print "netClientSendDns no match"]   
+  .
+
+ ceq [netClientSendDns]:
+ netClientSendDns(netAttrs,advAttrs,netAddr,j)
+    = {netAttrs2,advAttrs,smsgs,j1}
+  if netAttrs0, dnsName: name, connectionCount: ctr, 
+                dnsRsv: rsvAddr,
+                pending: amsg := netAttrs
+  /\ netAttrs1, w4: null := netAttrs
+  /\ query := query(clientId(netAddr,ctr), name,a)
+  /\ msg := (to rsvAddr from netAddr : query)              
+  /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+  /\ netAttrs2 := netAttrs1, w4: msg
+[print "netClientSendDns " netAddr " sending dns request " msg
+"\npending " amsg]
+  .
+    
+op netClientGenTcp : AttributeSet AttributeSet Address Nat
+     -> AttrsAttrsMsgsNat .
+eq [netClientGenTcp] :
+   netClientGenTcp(netAttrs,advAttrs,netAddr,j)
+   = {netAttrs,advAttrs,null,j} 
+[owise print "netClientGenTcp no match"]   
+.
+
+ceq [netClientGenTcp]:
+ netClientGenTcp(netAttrs,advAttrs,netAddr,j)
+  = { (netAttrsNext0, pending: null),advAttrs1,
+     [delay:Float, transportMsg, 0],jNext}
+  if netAttrs0, remoteChannelAddr: REMOTE_ADDR, 
+                localIfaceAddr: LOCAL_ADDR, 
+                ixpAddr: IXP_ADDR ,
+                pending: amsg := netAttrs
+    /\ {T,msg} := amsg
+    /\ (to REMOTE_ADDR from LOCAL_ADDR : content ) := msg
+    /\ {netAttrsNext , flowAttrs} :=
+                getFlowInfo(netAttrs, msg) ---sets new
     /\ linkAttrs := getLinkData(msg)
-    /\ (pktAttrs, nextJ: jTrans) := getSegmentDistribution(j, msg, get4stateLoss(linkAttrs))
-    /\ (timePacketList: TIME_LIST) := pktAttrs
+    /\ (pktAttrs, nextJ: jTrans) :=
+         getSegmentDistribution(j, msg,
+                                get4stateLoss(linkAttrs))
+    /\ (timePacketList: TIME_LIST,attrs) := pktAttrs
     /\ delay:Float := msgDelay(TIME_LIST)
-    /\ transportMsg := (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
+    /\ transportMsg := 
+     (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
     *** Now do to IXP router only.
     /\ msg_to_ixp := (to IXP_ADDR from LOCAL_ADDR : content)
     /\ linkToIxpAttrs := getLinkData(msg_to_ixp)
-    /\ (pktAttrsAtIxp, nextJ: jNext) := getSegmentDistribution(jTrans, msg_to_ixp, get4stateLoss(linkToIxpAttrs))
+    /\ (pktAttrsAtIxp, nextJ: jNext) := 
+        getSegmentDistribution(jTrans, msg_to_ixp, 
+        get4stateLoss(linkToIxpAttrs))
     /\ (timePacketList: TIME_LIST_TO_IXP) := pktAttrsAtIxp
 **** log the packets 
-    /\ netAttrs0, connectionCount: ctr, connectionReuse: b
-       := netAttrs
-   /\ tpl := genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, 
-                       ctr,not b) 
-    /\ advAttrs1 := addTPL2tcp(advAttrs,tpl)    
-    [ print "(" T ") Net client " netAddr " handling request, sending " transportMsg " whose last packet will arrive in " delay:Float "s." ]
+    /\ netAttrs1, connectionCount: ctr, newCnx: b := netAttrs
+    /\ tpl := genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, 
+                       ctr, b) 
+    /\ advAttrs1 := addTPL2tcp(advAttrs,tpl)  
+    /\ netAttrsNext0, pending: amsg := netAttrsNext
+    
+    [ print "(" T ") netClientGenTcp " netAddr " sending " transportMsg " with delay " delay:Float  ]
   .
 
-  rl [net-client-resp]:
-  < netAddr : NetClient | (netAttrs,
-                           remoteChannelAddr: REMOTE_ADDR,
-                           localIfaceAddr: LOCAL_ADDR) >
-    {T, (to LOCAL_ADDR from REMOTE_ADDR : content :: flowAttrs)}
+--------------------------------------
+
+crl [net-client-dnsresp]:
+   {T, (to netAddr from rsvAddr : response)}
+   rCtr(j)
+  < netAddr : NetClient | netAttrs >
+  < advAddr : Adversary | advAttrs >
   =>
-  < netAddr : NetClient | (netAttrs,
-                           remoteChannelAddr: REMOTE_ADDR,
-                           localIfaceAddr: LOCAL_ADDR) >
-    [0., (to LOCAL_ADDR from REMOTE_ADDR : content), 0]
+   rCtr(j1)
+  < netAddr : NetClient | netAttrs1 >
+  < advAddr : Adversary | advAttrs1 >
+  smsgs
+if {netAttrs1,advAttrs1,smsgs,j1} :=
+   netCRcvDnsR(netAttrs,advAttrs,netAddr,
+               (to netAddr from rsvAddr : response),
+               j) 
+ [ print "(" T ") net-client-dnsresp " netAddr " received dns response" ]
+ 
+  .   
+
+op netCRcvDnsR : AttributeSet AttributeSet Address Msg Nat
+  -> AttrsAttrsMsgsNat .
+eq netCRcvDnsR(netAttrs,advAttrs,netAddr,msg,j)  = 
+             {netAttrs,advAttrs,null,j} 
+[owise print "netCRcvDnsR unexpected msg " msg] .
+             
+ceq netCRcvDnsR(netAttrs,advAttrs,netAddr,msg,j)  = 
+   netClientGenTcp(netAttrs1,advAttrs,netAddr,j)
+if netAttrs0, w4: (to rsvAddr from netAddr : query)
+    := netAttrs
+/\ netAttrs1 := netAttrs0, w4: null    
+.   
+
+-----------------------------------
+  crl [net-client-resp]:
+  < netAddr : NetClient | netAttrs >
+    {T, (to LOCAL_ADDR from REMOTE_ADDR : 
+         content :: flowAttrs)}
+  =>
+  < netAddr : NetClient | netAttrs >
+  [0., (to LOCAL_ADDR from REMOTE_ADDR : content), 0]
+  if netAttrs0, remoteChannelAddr: REMOTE_ADDR,
+               localIfaceAddr: LOCAL_ADDR :=  netAttrs  
   [ print "(" T ") Net client " netAddr " handling response from " REMOTE_ADDR ", decapsulating transport." ]
   .
 
-  ****************************************************************************
+  **********************************************************
   **** Network Server Rules
-  ****************************************************************************
-  rl [net-server-req]:
-  < netAddr : NetServer | (netAttrs,
-                           localIfaceAddr: LOCAL_ADDR,
-                           currentConnection: CURRENT_CONNECTION) >
-****  < log : Log | lattrs >
+  **** NS will process cnx from any client of the server
+  **** stores the floInfo in the connection map
+  ***********************************************************
+ crl [net-server-req]:
+  < netAddr : NetServer | netAttrs  >
     {T, (to LOCAL_ADDR from remoteAddr : content :: flowAttrs)}
   =>
-  < netAddr : NetServer | (netAttrs,
-                           localIfaceAddr: LOCAL_ADDR,
-                           currentConnection: flowAttrs) >
-****  < log : Log | lattrs1 >
-  [0., (to LOCAL_ADDR from remoteAddr : content), 0]
-  [ print "(" T ") Net client " netAddr " handling request to destination " LOCAL_ADDR ", decapsulating transport." ]
+  < netAddr : NetServer | netAttrs1 >
+  dmsg
+  if attrs0, localIfaceAddr: LOCAL_ADDR := netAttrs        
+  /\ attrs1, currentConnections: cnxMap := netAttrs        
+  /\ dmsg := [0., (to LOCAL_ADDR from remoteAddr : content), 0]
+  /\ netAttrs1 := attrs1,
+    currentConnections: (cnxMap :: [remoteAddr :-> flowAttrs])
+  [ print "(" T ") Net server " netAddr " handling request from "  remoteAddr  ]
   .
-
+  
   crl [net-server-resp]:
   rCtr(j)
-  < netAddr : NetServer | (netAttrs, localIfaceAddr: LOCAL_ADDR, ixpAddr: IXP_ADDR) >
+  < netAddr : NetServer | netAttrs >
   < advAddr : Adversary | advAttrs >
     {T, (to tcp(REMOTE_ADDR) from LOCAL_ADDR : content)}
   =>
   rCtr(jNext)
-  < netAddr : NetServer | netAttrsTrans >
-  < advAddr : Adversary | advAttrs1 >
-    [delay:Float, transportMsg, 0]
-  if netAttrsTrans := (netAttrs, localIfaceAddr: LOCAL_ADDR, ixpAddr: IXP_ADDR)
+  < netAddr : NetServer | netAttrs1 >
+  < advAddr : Adversary | advAttrs0 >
+  [delay:Float, transportMsg, 0]
+ 
+   if attrs0, localIfaceAddr: LOCAL_ADDR, ixpAddr: IXP_ADDR
+      := netAttrs
     /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : content)
-    /\ flowAttrs := getCurrentConnection(netAttrsTrans)
+    /\ flowAttrs := getCurrentConnection(netAttrs,REMOTE_ADDR)
     /\ linkAttrs := getLinkData(msg)
-    /\ (pktAttrs, nextJ: jTrans) := getSegmentDistribution(j, msg, get4stateLoss(linkAttrs))
-    /\ (timePacketList: TIME_LIST) := pktAttrs
+    /\ (pktAttrs, nextJ: jTrans) 
+    := getSegmentDistribution(j, msg, get4stateLoss(linkAttrs))
+    /\ (timePacketList: TIME_LIST,attrs) := pktAttrs
     /\ delay:Float := msgDelay(TIME_LIST)
-    /\ transportMsg := (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
+    /\ transportMsg := 
+       (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
     *** Now do to IXP router only.
     /\ msg_to_ixp := (to IXP_ADDR from LOCAL_ADDR : content)
     /\ linkToIxpAttrs := getLinkData(msg_to_ixp)
-    /\ (pktAttrsAtIxp, nextJ: jNext) := getSegmentDistribution(jTrans, msg_to_ixp, get4stateLoss(linkToIxpAttrs))
-    /\ (timePacketList: TIME_LIST_TO_IXP) := pktAttrsAtIxp
+    /\ (pktAttrsAtIxp, nextJ: jNext) := 
+         getSegmentDistribution(jTrans, msg_to_ixp, 
+                           get4stateLoss(linkToIxpAttrs))
+    /\ (timePacketList: TIME_LIST_TO_IXP,attrs) 
+       := pktAttrsAtIxp
 ****      /\ something to log the packets
-    /\ flowAttrs0, flowId: ctr  := flowAttrs
+   /\ flowAttrs0, flowId: ctr  := flowAttrs
    /\ tpl := genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, 
                        ctr,false) 
-    /\ advAttrs1 := addTPL2tcp(advAttrs,tpl)    
-
+    /\ advAttrs0 := addTPL2tcp(advAttrs,tpl)   
+    /\ netAttrs1 := removeConnection(netAttrs,REMOTE_ADDR) 
     [ print "(" T ") Net server " netAddr " handling response, sending " transportMsg "." ]
   .
 
 endm
+eof
