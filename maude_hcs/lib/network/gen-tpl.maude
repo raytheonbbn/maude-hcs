@@ -1,5 +1,6 @@
 set show advisories off .
 
+**** sload ../common/maude/adversary-cp3-clt
 sload ../common/maude/adversary-cp3
 sload tcp
 
@@ -8,15 +9,15 @@ mod GEN-TPL is
   inc TCP_NODE .
 
 vars attrs : AttributeSet .
-vars tpl tpl0 tpl1 : TimesPktList .
+vars tpl tpl0 tpl1  tml tml1 : TimesObsList .
 vars tpkt : TimesPkt .
+vars tmsg : TimesMsg .
 vars T startT curT f0 f1 sndDelay : Float .
 vars msg : Msg .
 vars tgt src : Address .
 vars rcvFL ixpFL fl : FloatList . 
 vars ctr msize psize psize0 accumSize accumSize0  k : Nat .
 vars new? more? : Bool .
-
 
 ---- the time between pkt arrivals  
 op estSendDelay : FloatList -> Float .
@@ -42,14 +43,14 @@ generator state
 )
 *******        startT         rcvFL     ixpFL     ctr  reuse?
 op genTcpTPL : Float Msg FloatList FloatList Nat Bool 
-                 -> TimesPktList .
+                 -> TimesObsList .
 
 *****           startT tgt     src  sndDelay  fId msize psize
 op genTcpTPL$ : Float Address Address Float    Nat Nat Nat
 *****           curT  rcvl      ixpl      sent new?
                 Float FloatList FloatList Nat Bool 
-                TimesPktList
-                 -> TimesPktList .
+                TimesObsList
+                 -> TimesObsList .
   
 ceq genTcpTPL(startT,(to tgt from src : c:Content),
              rcvFL,ixpFL,ctr,new?)  =
@@ -60,7 +61,7 @@ ceq genTcpTPL(startT,(to tgt from src : c:Content),
               startT, rcvFL, ixpFL,
               0, --- accumsize
               new?,
-              nilTimesPkt)
+              nilTO)
   if sndDelay := estSendDelay(rcvFL)
   /\ msize :=  getSize(c:Content)    ---- add tcpOH?          
   /\ k := lenFL(rcvFL)
@@ -109,11 +110,16 @@ eq[ixp-missing-pkt]:
 .
 
 
-op addTPL2tcp : AttributeSet TimesPktList -> AttributeSet .
+op addTPL2tcp : AttributeSet TimesObsList -> AttributeSet .
 eq addTPL2tcp((attrs, tcp: tpl0), tpl) 
      = attrs, tcp: (tpl0 ;; tpl) .
 eq addTPL2tcp(attrs, tpl) = (attrs, (tcp: tpl)) [owise] .
 
+
+op addTM2Dns : AttributeSet TimesObsList -> AttributeSet .
+eq addTM2Dns((attrs,dns: tml),tml1) =
+                            attrs, dns: (tml ;; tml1) .
+eq addTM2Dns(attrs,tml1) = attrs, dns: tml1 .
 
 endm
   
@@ -187,25 +193,25 @@ eq ixpTimesBig =  tcpDeliveryTimes(14480, big4StateLossX) .
 
 
 
-op testTPLsm : -> TimesPktList .
+op testTPLsm : -> TimesObsList .
 eq testTPLsm = genTcpTPL(1.0,mkMsg(smC),
              rcvTimesSm,ixpTimesSm,1,true) .
 
-op testTPLmed : -> TimesPktList .
+op testTPLmed : -> TimesObsList .
 eq testTPLmed = genTcpTPL(2.0,mkMsg(medC),
              rcvTimesMed,ixpTimesMed,2,true) .
 
-op testTPLsmF : -> TimesPktList .
+op testTPLsmF : -> TimesObsList .
 eq testTPLsmF = genTcpTPL(1.0,mkMsg(smC),
              rcvTimesSm,ixpTimesSm,1,false) .
 
-op testTPLbig : -> TimesPktList .
+op testTPLbig : -> TimesObsList .
 eq testTPLbig = genTcpTPL(3.0,mkMsg(bigC),
              rcvTimesBig,ixpTimesBig,3,true) .
 
 
 op advAttrs : -> AttributeSet .
-eq advAttrs = tcp: nilTimesPkt .
+eq advAttrs = tcp: nilTO .
 
 ops advAttrsSm advAttrsMed advAttrsMB : -> AttributeSet .
 eq advAttrsSm = addTPL2tcp(advAttrs,testTPLsm) .
