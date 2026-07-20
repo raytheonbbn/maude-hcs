@@ -35,13 +35,17 @@ sload ../common/maude/user-action-actor.maude
 sload ../tgen/maude/dnsTgen-actor.maude
 sload ../tgen/maude/masTGen.maude
 sload ../common/maude/router
-sload ../common/maude/adversary
+sload ../common/maude/adversary-cp3
+---sload ./adversary-cp3-clt
+---sload ../network/gen-tpl
+---sload ../network/tcp 
 sload ../common/maude/adversary-observer
 sload ../app/maude/probabilistic
 sload ../../deps/dns_formalization/Maude/test/probabilistic-model/test_helpers
 sload ../irc/irc_monitor.maude 
 ---sload ../raceboatMastodon/maude/ircMonitor 
 sload ../irc/common/irc_name
+---sload ../network/net_prob-clt.maude
 
 mod HCS_TEST is
   inc DNS .
@@ -53,6 +57,9 @@ mod HCS_TEST is
   inc IODINE_DNS . --- + TEST-HELPERS .
   inc CP2_APP .
   inc ROUTER .
+  inc ADVERSARY-CP3-DATA .
+  inc ADVERSARY-CP3 .
+---  inc GEN-TPL .
   inc ADVERSARY-OBSERVER .
   inc IRC_MONITOR .
   inc IRC_NAMES .
@@ -63,6 +70,7 @@ mod HCS_TEST is
   var attrs : AttributeSet .
 
   ops adversary mastodon-proxy alice-raceboat-client-mas-client Alice Bob iodineAlice iodineBob bobapp application-client application-server dnsperf internet-dns corporate-dns mAddr monAddr public-dns root-dns tld-dns mcA : -> Address .
+  ops channelServerAddr channelClientAddr : -> Address .
 
   op ircServerAddr : -> Address .
   eq ircServerAddr = ircSrvAddr .
@@ -154,33 +162,161 @@ op myTML : -> TimeMsgList .
 eq myTML = 
 (
 tm(5.9284461638890209e-6, to X(mastodon-proxy) from mcA : makeHttpRequest(postRequest, makeMediaFile("image:I-1-500-60", 500, image(1, 500, 60)))) ; 
-tm(5.9384461638890209e-6, to mastodon-proxy from Z(0, mcA) : makeHttpRequest(postRequest, makeMediaFile("image:I-1-500-60", 500, image(1, 500, 60)))) ; 
+---tm(5.9384461638890209e-6, to mastodon-proxy from Z(0, mcA) : makeHttpRequest(postRequest, makeMediaFile("image:I-1-500-60", 500, image(1, 500, 60)))) ; 
 tm(5.9484461638890209e-6, to X(mastodon-proxy) from mcA : makeHttpRequest(postRequest, "hashtag is #purple", 1)) ; 
-tm(5.9584461638890209e-6, to mastodon-proxy from Z(1, mcA) : makeHttpRequest(postRequest, "hashtag is #purple", 1)) ; 
+---tm(5.9584461638890209e-6, to mastodon-proxy from Z(1, mcA) : makeHttpRequest(postRequest, "hashtag is #purple", 1)) ; 
 tm(1.7986706900410356e-5, to X(public-dns) from corporate-dns : query(0, 'www1 . 'internet . 'com . root, a)) ; 
-tm(1.7986706900410356e-5, to public-dns from Z(2, corporate-dns) : query(0, 'www1 . 'internet . 'com . root, a)) ; 
+---tm(1.7986706900410356e-5, to public-dns from Z(2, corporate-dns) : query(0, 'www1 . 'internet . 'com . root, a)) ; 
 tm(1.5000029753460526, to X(mastodon-proxy) from alice-raceboat-client-mas-client : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 50, image(0, 50, 50)))) ; 
-tm(1.5100029753460526, to mastodon-proxy from Z(3, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 50, image(0, 50, 50)))) ; 
+---tm(1.5100029753460526, to mastodon-proxy from Z(3, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 50, image(0, 50, 50)))) ; 
 tm(1.5200029753460526, to X(mastodon-proxy) from alice-raceboat-client-mas-client : makeHttpRequest( postRequest, "hashtag is #meow", 3)) ; 
-tm(1.5300029753460526, to mastodon-proxy from Z(4, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, "hashtag is #meow", 3)) ; 
+---tm(1.5300029753460526, to mastodon-proxy from Z(4, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, "hashtag is #meow", 3)) ; 
 tm(1.7000164816890215, to X(public-dns) from corporate-dns : query(7727, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 1, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
-tm(1.7000164816890215, to public-dns from Z(5, corporate-dns) : query(7727, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 1, 0, 0, 136, false, false)) . 'pwnd . 'com .  root, a)) ; 
+---tm(1.7000164816890215, to public-dns from Z(5, corporate-dns) : query(7727, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 1, 0, 0, 136, false, false)) . 'pwnd . 'com .  root, a)) ; 
 tm(1.7010127276660383, to X(public-dns) from corporate-dns : query(15454, nm(fragment(iodineBob, iodineAlice, file(1,0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com .  root, a)) ; 
-tm(1.7010127276660383, to public-dns from Z(6, corporate-dns) : query(15454, nm(fragment(iodineBob, iodineAlice, file(1,0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .  'com . root, a)) ; 
+---tm(1.7010127276660383, to public-dns from Z(6, corporate-dns) : query(15454, nm(fragment(iodineBob, iodineAlice, file(1,0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .  'com . root, a)) ; 
 tm(1.8080604077560198, to X(public-dns) from corporate-dns : query(23181, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 2, 0, 0, 136, false, false)) .  'pwnd . 'com . root, a)) ; 
-tm(1.8080604077560198, to public-dns from Z(7, corporate-dns) : query(23181, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 2, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
+---tm(1.8080604077560198, to public-dns from Z(7, corporate-dns) : query(23181, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 2, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
 tm(1.8090417531003524, to X(public-dns) from corporate-dns : query(30908, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 2, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
-tm(1.8090417531003524, to public-dns from Z(8, corporate-dns) : query(30908, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 2, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
+---tm(1.8090417531003524, to public-dns from Z(8, corporate-dns) : query(30908, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 2, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
 tm(1.9161053217128945, to X(public-dns) from corporate-dns : query(38635, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 3, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
-tm(1.9161053217128945, to public-dns from Z(9, corporate-dns) : query(38635, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 3, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
+---tm(1.9161053217128945, to public-dns from Z(9, corporate-dns) : query(38635, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 3, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
 tm(1.9170753982834798, to X(public-dns) from corporate-dns : query(46362, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 3, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
-tm(1.9170753982834798, to public-dns from Z(10, corporate-dns) : query(46362, nm(fragment( iodineAlice, iodineBob, file(1,10000), 0, 3, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
+---tm(1.9170753982834798, to public-dns from Z(10, corporate-dns) : query(46362, nm(fragment( iodineAlice, iodineBob, file(1,10000), 0, 3, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
 tm(2.0241440795613315, to X(public-dns) from corporate-dns : query(54089, nm( fragment(iodineAlice, iodineBob, file(1,10000), 0, 4, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
-tm(2.0241440795613315, to public-dns from Z(11, corporate-dns) : query(54089, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 4, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
+---tm(2.0241440795613315, to public-dns from Z(11, corporate-dns) : query(54089, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 4, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
 tm(2.0251164979861955, to X(public-dns) from corporate-dns : query(61816, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 4, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
-tm(2.0251164979861955, to public-dns from Z(12, corporate-dns) : query(61816, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 4, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
-tm(2.1322014922479986, to X(public-dns) from corporate-dns : query(69543, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 5, 0, 0, 127, false, true)) . 'pwnd . 'com . root, a)) ; 
-tm(2.1322014922479986, to public-dns from Z(13, corporate-dns) : query(69543, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 5, 0, 0, 127, false, true)) . 'pwnd . 'com . root, a))) .
+---tm(2.0251164979861955, to public-dns from Z(12, corporate-dns) : query(61816, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 4, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ; 
+tm(2.1322014922479986, to X(public-dns) from corporate-dns : query(69543, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 5, 0, 0, 127, false, true)) . 'pwnd . 'com . root, a)) ) . ---; 
+---tm(2.1322014922479986, to public-dns from Z(13, corporate-dns) : query(69543, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 5, 0, 0, 127, false, true)) . 'pwnd . 'com . root, a))) .
+
+op myAdv : -> Actor .
+eq myAdv = 
+< adversary : Adversary | 
+dns: (
+tm(5.9284461638890209e-6, 5.9284461638890209e-6, 5.9284461638890209e-6, to X(mastodon-proxy) from mcA : makeHttpRequest(postRequest, makeMediaFile("image:I-1-500-60", 500, image(1, 500, 60)))) ;;
+---tm(5.9384461638890209e-6, 5.9384461638890209e-6, 5.9384461638890209e-6, to mastodon-proxy from Z(0, mcA) : makeHttpRequest(postRequest, makeMediaFile("image:I-1-500-60", 500, image(1, 500, 60)))) ;;
+tm(5.9484461638890209e-6, 5.9484461638890209e-6, 5.9484461638890209e-6, to X(mastodon-proxy) from mcA : makeHttpRequest(postRequest, "hashtag is #purple", 1)) ;;
+---tm(5.9584461638890209e-6, 5.9584461638890209e-6, 5.9584461638890209e-6, to mastodon-proxy from Z(1, mcA) : makeHttpRequest(postRequest, "hashtag is #purple", 1)) ;;
+tm(1.7986706900410356e-5, 1.7986706900410356e-5, 1.7986706900410356e-5, to X(public-dns) from corporate-dns : query(0, 'www1 . 'internet . 'com . root, a)) ;;
+---tm(1.7986706900410356e-5, 1.7986706900410356e-5, 1.7986706900410356e-5, to public-dns from Z(2, corporate-dns) : query(0, 'www1 . 'internet . 'com . root, a)) ;;
+tm(1.5000029753460526, 1.5000029753460526, 1.5000029753460526, to X(mastodon-proxy) from alice-raceboat-client-mas-client : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 50, image(0, 50, 50)))) ;;
+---tm(1.5100029753460526, 1.5100029753460526, 1.5100029753460526, to mastodon-proxy from Z(3, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, makeMediaFile("image:I-0-50-50", 50, image(0, 50, 50)))) ;;
+tm(1.5200029753460526, 1.5200029753460526, 1.5200029753460526, to X(mastodon-proxy) from alice-raceboat-client-mas-client : makeHttpRequest( postRequest, "hashtag is #meow", 3)) ;;
+---tm(1.5300029753460526, 1.5300029753460526, 1.5300029753460526, to mastodon-proxy from Z(4, alice-raceboat-client-mas-client) : makeHttpRequest(postRequest, "hashtag is #meow", 3)) ;;
+tm(1.7000164816890215, 1.7000164816890215, 1.7000164816890215, to X(public-dns) from corporate-dns : query(7727, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 1, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+---tm(1.7000164816890215, 1.7000164816890215, 1.7000164816890215, to public-dns from Z(5, corporate-dns) : query(7727, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 1, 0, 0, 136, false, false)) . 'pwnd . 'com .  root, a)) ;;
+tm(1.7010127276660383, 1.7010127276660383, 1.7010127276660383, to X(public-dns) from corporate-dns : query(15454, nm(fragment(iodineBob, iodineAlice, file(1,0), 0, 0, 0, 0, 0, false, false)) . 'pwnd . 'com .  root, a)) ;;
+---tm(1.7010127276660383, 1.7010127276660383, 1.7010127276660383, to public-dns from Z(6, corporate-dns) : query(15454, nm(fragment(iodineBob, iodineAlice, file(1,0), 0, 0, 0, 0, 0, false, false)) . 'pwnd .  'com . root, a)) ;;
+tm(1.8080604077560198, 1.8080604077560198, 1.8080604077560198, to X(public-dns) from corporate-dns : query(23181, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 2, 0, 0, 136, false, false)) .  'pwnd . 'com . root, a)) ;;
+---tm(1.8080604077560198, 1.8080604077560198, 1.8080604077560198, to public-dns from Z(7, corporate-dns) : query(23181, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 2, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+tm(1.8090417531003524, 1.8090417531003524, 1.8090417531003524, to X(public-dns) from corporate-dns : query(30908, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 2, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+---tm(1.8090417531003524, 1.8090417531003524, 1.8090417531003524, to public-dns from Z(8, corporate-dns) : query(30908, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 2, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+tm(1.9161053217128945, 1.9161053217128945, 1.9161053217128945, to X(public-dns) from corporate-dns : query(38635, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 3, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+---tm(1.9161053217128945, 1.9161053217128945, 1.9161053217128945, to public-dns from Z(9, corporate-dns) : query(38635, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 3, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+tm(1.9170753982834798, 1.9170753982834798, 1.9170753982834798, to X(public-dns) from corporate-dns : query(46362, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 3, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+---tm(1.9170753982834798, 1.9170753982834798, 1.9170753982834798, to public-dns from Z(10, corporate-dns) : query(46362, nm(fragment( iodineAlice, iodineBob, file(1,10000), 0, 3, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+tm(2.0241440795613315, 2.0241440795613315, 2.0241440795613315, to X(public-dns) from corporate-dns : query(54089, nm( fragment(iodineAlice, iodineBob, file(1,10000), 0, 4, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+---tm(2.0241440795613315, 2.0241440795613315, 2.0241440795613315, to public-dns from Z(11, corporate-dns) : query(54089, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 4, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+tm(2.0251164979861955, 2.0251164979861955, 2.0251164979861955, to X(public-dns) from corporate-dns : query(61816, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 4, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+---tm(2.0251164979861955, 2.0251164979861955, 2.0251164979861955, to public-dns from Z(12, corporate-dns) : query(61816, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 4, 0, 0, 136, false, false)) . 'pwnd . 'com . root, a)) ;;
+tm(2.1322014922479986, 2.1322014922479986, 2.1322014922479986, to X(public-dns) from corporate-dns : query(69543, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 5, 0, 0, 127, false, true)) . 'pwnd . 'com . root, a)) ) , ---;;
+---tm(2.1322014922479986, 2.1322014922479986, 2.1322014922479986, to public-dns from Z(13, corporate-dns) : query(69543, nm(fragment(iodineAlice, iodineBob, file(1,10000), 0, 5, 0, 0, 127, false, true)) . 'pwnd . 'com . root, a))),    
+tcp: (
+tp(1.0, 1.0329999999999999, 1.0600000000000001, pkt(channelServerAddr, channelClientAddr, true, 0, 150)) ;; 
+tp(1.1000000000000001, 1.133, 1.1600000000000001, pkt(channelClientAddr, channelServerAddr, false, 0, 100)) ;; 
+tp(1.5, 1.5329999999999999, 1.5600000000000001, pkt(channelServerAddr, channelClientAddr, true, 1, 1466)) ;; 
+tp(1.5000121120000001, 1.533012112, 1.5600121119999999, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5000242240000001, 1.533024224, 1.560024224, pkt( channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5000363360000002, 1.5330363359999999, 1.560036336, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5000484480000003, 1.533048448, 1.5600484480000001, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5000605600000003, 1.53306056, 1.5600605599999999, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5000726720000004, 1.5330726720000001, 1.560072672, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5000847840000004, 1.5330847839999999, 1.5600847840000001, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5000968960000005, 1.533096896, 1.5600968959999999, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5001090080000006, 1.5331090080000001, 1.560109008, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5001211200000006, 1.5581187833342505, 1.6056705151531827, pkt( channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5001332320000007, 1.5581241516475588, 1.605675883466491, pkt( channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5001453440000008, 1.5581295199608669, 1.6056812517797994, pkt( channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5001574560000008, 1.5581348882741752, 1.6056866200931075, pkt( channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5001695680000009, 1.5581402565874836, 1.6056919884064158, pkt( channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.500181680000001, 1.5581456249007917, 1.6056973567197239, pkt( channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.500193792000001, 1.5581509932141, 1.6057027250330322, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5002059040000011, 1.5581563615274083, 1.6057080933463406, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5002180160000012, 1.5581617298407164, 1.6057134616596487, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5002301280000012, 1.5581670981540248, 1.605718829972957, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5002422400000013, 1.5581724664673329, 1.6057241982862651, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5002543520000013, 1.5581778347806412, 1.6057295665995734, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5002664640000014, 1.5581832030939495, 1.6057349349128818, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5002785760000015, 1.5581885714072576, 1.6057403032261899, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5002906880000015, 1.558193939720566, 1.6057456715394982, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5003028000000016, 1.5581993080338741, 1.6057510398528065, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5003149120000017, 1.5582046763471824, 1.6057564081661146, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5003270240000017, 1.5582100446604907, 1.605761776479423, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5003391360000018, 1.5582154129737988, 1.6057671447927311, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5003512480000019, 1.5582207812871072, 1.6057725131060394, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5003633600000019, 1.5582261496004155, 1.6057778814193477, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.500375472000002, 1.5582315179137236, 1.6057832497326558, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5003875840000021, 1.5582368862270319, 1.6057886180459642, pkt(channelServerAddr, channelClientAddr, false, 1, 1466)) ;; 
+tp(1.5003996960000021, 1.55824225454034, 1.6057939863592723, pkt(channelServerAddr, channelClientAddr, false, 1, 22)) ;; 
+tp(2.0, 2.0329999999999999, 2.0600000000000001, pkt(channelClientAddr, channelServerAddr, false, 1, 144)) ;; 
+tp(2.2000000000000002, 2.2330000000000001, 2.2600000000000002, pkt(channelServerAddr, channelClientAddr, true, 2, 480)) ;; 
+tp(2.2999999999999998, 2.3329999999999997, 2.3599999999999999, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3000121119999997, 2.333012112, 2.3600121119999997, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3000242239999995, 2.3330242239999999, 2.360024224, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3000363359999993, 2.3330363359999997, 2.3600363359999998, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3000484479999992, 2.333048448, 2.3600484479999997, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.300060559999999, 2.3330605599999998, 2.36006056, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3000726719999989, 2.3330726719999997, 2.3600726719999998, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3000847839999987, 2.333084784, 2.3600847839999997, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3000968959999986, 2.3330968959999998, 2.3600968959999999, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3001090079999984, 2.3331090079999997, 2.3601090079999998, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3001211199999982, 2.3581187833342505, 2.4056705151531825, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3001332319999981, 2.3581241516475586, 2.4056758834664906, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3001453439999979, 2.3581295199608667, 2.4056812517797992, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3001574559999978, 2.3581348882741753, 2.4056866200931073, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3001695679999976, 2.3581402565874834, 2.4056919884064154, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3001816799999975, 2.3581456249007915, 2.405697356719724, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3001937919999973, 2.3581509932140996, 2.4057027250330321, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3002059039999971, 2.3581563615274082, 2.4057080933463402, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.300218015999997, 2.3581617298407163, 2.4057134616596487, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3002301279999968, 2.3581670981540244, 2.4057188299729568, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3002422399999967, 2.3581724664673329, 2.4057241982862649, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3002543519999965, 2.358177834780641, 2.4057295665995735, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3002664639999963, 2.3581832030939491, 2.4057349349128816, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3002785759999962, 2.3581885714072577, 2.4057403032261897, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.300290687999996, 2.3581939397205658, 2.4057456715394978, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3003027999999959, 2.3581993080338739, 2.4057510398528064, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3003149119999957, 2.3582046763471824, 2.4057564081661145, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3003270239999956, 2.3582100446604906, 2.4057617764794226, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3003391359999954, 2.3582154129737987, 2.4057671447927311, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3003512479999952, 2.3582207812871068, 2.4057725131060392, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3003633599999951, 2.3582261496004153, 2.4057778814193473, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3003754719999949, 2.3582315179137234, 2.4057832497326559, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3003875839999948, 2.3582368862270315, 2.405788618045964, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3003996959999946, 2.3582422545403401, 2.4057939863592721, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3004118079999945, 2.3582476228536482, 2.4057993546725807, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3004239199999943, 2.3582529911669563, 2.4058047229858888, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3004360319999941, 2.3582583594802649, 2.4058100912991969, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.300448143999994, 2.358263727793573, 2.405815459612505, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3004602559999938, 2.3582690961068811, 2.4058208279258135, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3004723679999937, 2.3582744644201896, 2.4058261962391216, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3004844799999935, 2.3582798327334977, 2.4058315645524297, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3004965919999933, 2.3582852010468058, 2.4058369328657383, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3005087039999932, 2.3582905693601139, 2.4058423011790464, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.300520815999993, 2.3582959376734225, 2.4058476694923545, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3005329279999929, 2.3583013059867306, 2.4058530378056631, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3005450399999927, 2.3583066743000387, 2.4058584061189712, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3005571519999926, 2.3583120426133473, 2.4058637744322793, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3005692639999924, 2.3583174109266554, 2.4058691427455878, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3005813759999922, 2.3583227792399635, 2.4058745110588959, pkt(channelClientAddr, channelServerAddr, false, 2, 1477)) ;; 
+tp(2.3005934879999921, 2.358328147553272, 2.405879879372204, pkt(channelClientAddr, channelServerAddr, false, 2, 27)) ;; 
+tp(3.0, 3.0329999999999999, 3.0600000000000001, pkt(channelServerAddr, channelClientAddr, true, 3, 1500)) ;; 
+tp(3.0000121119999998, 3.0330121120000002, 3.0600121119999999, pkt(channelServerAddr, channelClientAddr, false, 3, 1500)) ;; 
+tp(3.0000242239999997, 3.033024224, 3.0600242240000002, pkt(channelServerAddr, channelClientAddr, false, 3, 0)) ;; 
+tp(3.2000000000000002, 3.2330000000000001, 3.2600000000000002, pkt( channelClientAddr, channelServerAddr, false, 3, 1600)) ;; 
+tp(3.200012112, 3.2330121120000004, 3.2600121120000001, pkt(channelClientAddr, channelServerAddr, false, 3, 0))) > .
+--- tcp: nilTimesPkt > .
 
 endm
 
@@ -339,14 +475,23 @@ red getMTBF (myMon, 20.0, 0.0, 150.0) == 0.0 .
 red KsStatisticZ (1.0 2.0 3.0, 1.0 2.5 3.5, 0.0) == 3.3333333333333337e-1 .
 red KsStatisticZ (1.0 2.0 3.0 4.0 5.0, 4.0 5.0 6.0 7.0 8.0, 0.0) == 6.0000000000000009e-1 .
 
+--- 01 dns_query_rate                   Number of DNS query messages per second (queries/s)
+
+***( --- to be deprecated
 red collectDNSQueryRate(myTML, 1.6, 0.8, 0.1) == 0.0 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 9.9999999999999911 0.0 0.0 .
 red getECDFDNSQueryRate(myTML, 1.6, 0.8, 0.1) == 9.9999999999999911 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 .
 red getBaselineCDFDNSQueryRate(myTML, 0.0, 2.4, 0.1) == 9.9999999999999911 1.0e+1 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 2.0000000000000028e+1 .
+)
+
+red collectObsFeatureFlow (IXP, dnsQueryRate, collectObsFlow (getTsML(myAdv)), getTsML(myAdv), 1.6, 0.8, 0.1) == 0.0 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 9.9999999999999911 0.0 0.0 .
+red getECDFObsFeature (IXP, dnsQueryRate, getTsML(myAdv), 1.6, 0.8, 0.1) == 9.9999999999999911 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 .
+red getBaselineCDFObsFeature (IXP, dnsQueryRate, getTsML(myAdv), 0.0, 2.4, 0.1) == 9.9999999999999911 1.0e+1 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 2.0000000000000028e+1 .
 
 red KsDistance(2.0e+1 3.9999999999999964e+1 3.9999999999999964e+1 4.0000000000000057e+1, 1.9999999999999964e+1 3.9999999999999964e+1) == 0.5 . 
 red KsDistance(2.0e+1 3.9999999999999964e+1 3.9999999999999964e+1 4.0000000000000057e+1, 1.9999999999999964e+1) == 1.0 .
 red KsDistance(2.0e+1 3.9999999999999964e+1 3.9999999999999964e+1 4.0000000000000057e+1, 3.9999999999999964e+1) == 0.25 .
 
+***( --- to be deprecated
 red expectedKDNSQueryRate(getBaselineCDFDNSQueryRate(myTML, 0.0, 2.0, 0.1), myTML, 0.0, 2.0, 0.1, 0.1, 0.0, 0) == 0.5 .
 red getKDNSQueryRate (myTML, 0.0, 2.0, 0.1, 0.1) == 0.5 .
 red getKDNSQueryRate (myTML, 0.0, 2.0, 0.2, 0.1) == 0.375 .
@@ -359,12 +504,16 @@ red getZDNSQueryRate(myTML, 2.0, 2.4, 0.4, 0.1) == 1.25e-1 .
 red getTimedZDNSQueryRate(myTML, 2.0, 2.4, 0.1, 0.1) == timedFloat(2.1000000000000001, -2.5e-1) timedFloat(2.2000000000000002, 5.0e-1) nilTimedFloatList .
 red getTimedZDNSQueryRate(myTML, 2.0, 2.4, 0.2, 0.1) == timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList .
 red getTimedZDNSQueryRate(myTML, 2.0, 2.4, 0.4, 0.1) == timedFloat(2.3999999999999999, 1.25e-1) nilTimedFloatList .
+)
+red getKObsFeature (IXP, dnsQueryRate, getTsML(myAdv), 0.0, 2.0, 0.2, 0.1) == 0.375 .
+red getZObsFeature (IXP, dnsQueryRate, getTsML(myAdv), 2.0, 2.4, 0.2, 0.1) == 1.25e-1 6.25e-1 .
+red getTimedZObsFeature (IXP, dnsQueryRate, getTsML(myAdv), 2.0, 2.4, 0.2, 0.1) == timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) .
 
 red getCUSUM (timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList, 0.0) == 7.5e-1 .
 
-red getTimedCUSUM (timedFloat(0.5, 1.1e-1) timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList, 0.0, 3.0, 0.0) == 8.6e-1 . 
-red getTimedCUSUM (timedFloat(0.5, 1.1e-1) timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList, 1.0, 3.0, 0.0) == 7.5e-1 .
-red getTimedCUSUM (timedFloat(0.5, 1.1e-1) timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList, 1.0, 2.25, 0.0) == 1.25e-1 .
+red getCUSUM (timedFloat(0.5, 1.1e-1) timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList, 0.0, 3.0, 0.0) == 8.6e-1 . 
+red getCUSUM (timedFloat(0.5, 1.1e-1) timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList, 1.0, 3.0, 0.0) == 7.5e-1 .
+red getCUSUM (timedFloat(0.5, 1.1e-1) timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList, 1.0, 2.25, 0.0) == 1.25e-1 .
 
 red alarmCUSUM ( getCUSUM(timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList, 0.0), 0.5) == true .
 red alarmCUSUM ( getCUSUM(timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList, 0.0), 0.9) == false .
@@ -373,6 +522,7 @@ red alarmTimeCUSUM (timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000
 red alarmTimeCUSUM (timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList, 0.5, 0.0) == 2.3000000000000003 .
 red alarmTimeCUSUM (timedFloat(2.2000000000000002, 1.25e-1) timedFloat(2.3000000000000003, 6.25e-1) nilTimedFloatList, 0.9, 0.0) == 0.0 .
 
+***( --- to be deprecated
 red getToDDNSQueryRate (myTML, 2.0, 2.4, 0.2, 0.1, 0.1) == 2.2000000000000002 .
 red getToDDNSQueryRate (myTML, 2.0, 2.4, 0.2, 0.1, 0.5) == 2.3000000000000003 .
 red getToDDNSQueryRate (myTML, 2.0, 2.4, 0.2, 0.1, 0.9) == 0.0 .
@@ -380,4 +530,185 @@ red getToDDNSQueryRate (myTML, 2.0, 2.4, 0.2, 0.1, 0.9) == 0.0 .
 red collectDNSFlowId (myTML) == flow(Z(2, corporate-dns), public-dns) :: flow(Z(5, corporate-dns), public-dns) :: flow(Z(6, corporate-dns), public-dns) :: flow(Z(7, corporate-dns), public-dns) :: flow(Z(8, corporate-dns), public-dns) :: flow(Z(9, corporate-dns), public-dns) :: flow(Z(10, corporate-dns), public-dns) :: flow(Z(11, corporate-dns), public-dns) :: flow(Z(12, corporate-dns), public-dns) :: flow(corporate-dns, X(public-dns)) :: flow(Z(13, corporate-dns), public-dns) :: nilFlow .
 red collectPreNATFlowId(collectDNSFlowId(myTML)) ==  flow(corporate-dns, public-dns) :: nilFlow .
 red collectDNSQueryRateFlow(flow(corporate-dns, public-dns) :: nilFlow, myTML, 1.6, 0.8, 0.1) == 0.0 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 1.9999999999999982e+1 9.9999999999999911 0.0 0.0 .
+)
 
+***( --- to be deprecated
+red getToDDnsFeature (IXP, dnsQueryRate, myTML, 2.0, 2.4, 0.2, 0.1, 0.1) == 2.2000000000000002 .
+red getToDDnsFeature (IXP, dnsQueryRate, myTML, 2.0, 2.4, 0.2, 0.1, 0.5) == 2.3000000000000003 .
+red getToDDnsFeature (IXP, dnsQueryRate, myTML, 2.0, 2.4, 0.2, 0.1, 0.9) == 0.0 .
+
+red getKObsFeature(IXP, dnsQueryRate, myTML, 0.0, 2.0, 0.1, 0.1) == 0.5 .
+red getToDObsFeature (IXP, dnsQueryRate, myTML, 2.0, 2.4, 0.2, 0.1, 0.1) == 2.2000000000000002 .
+red getToDObsFeature (IXP, dnsQueryRate, myTML, 2.0, 2.4, 0.2, 0.1, 0.5) == 2.3000000000000003 .
+red getToDObsFeature (IXP, dnsQueryRate, myTML, 2.0, 2.4, 0.2, 0.1, 0.9) == 0.0 .
+
+red getBaselineCDFObsFeature(IXP, dnsQuerySize, myTML, 0.0, 2.0, 0.1) == 4.8e+1 1.07e+2 1.75e+2 1.75e+2 .
+red getECDFObsFeature(IXP, dnsQuerySize, myTML, 0.0, 2.4, 0.1) == 4.8e+1 1.07e+2 1.66e+2 1.75e+2 1.75e+2 1.75e+2 .
+red getKObsFeature(IXP, dnsQuerySize, myTML, 0.0, 2.0, 0.1, 0.1) == 5.625e-1 .
+red getToDObsFeature (IXP, dnsQuerySize, myTML, 2.0, 2.4, 0.2, 0.1, 0.1) == 0.0 .
+)
+
+red getToD (myAdv, IXP, dnsQueryRate, 2.0, 2.4, 0.2, 0.1, 0.1) == 2.2000000000000002 .
+red getToD (myAdv, IXP, dnsQueryRate, 2.0, 2.4, 0.2, 0.1, 0.5) == 2.3000000000000003 .
+red getToD (myAdv, IXP, dnsQueryRate, 2.0, 2.4, 0.2, 0.1, 0.9) == 0.0 .
+
+--- 02 dns_query_size_mean              Mean DNS query message size (bytes)
+
+red getBaselineCDFObsFeature(IXP, dnsQuerySize, getTsML(myAdv), 0.0, 2.0, 0.1) == 4.8e+1 1.07e+2 1.75e+2 1.75e+2 .
+red getECDFObsFeature(IXP, dnsQuerySize, getTsML(myAdv), 0.0, 2.4, 0.1) == 4.8e+1 1.07e+2 1.66e+2 1.75e+2 1.75e+2 1.75e+2 .
+red getKObsFeature(IXP, dnsQuerySize, getTsML(myAdv), 0.0, 2.0, 0.1, 0.1) == 5.625e-1 .
+red getToDObsFeature (IXP, dnsQuerySize, getTsML(myAdv), 2.0, 2.4, 0.2, 0.1, 0.1) == 0.0 .
+
+--- 03 dns_response_size_mean           Mean DNS response message size (bytes)
+
+red getECDFObsFeature(IXP, dnsRespSize, getTsML(myAdv), 0.0, 2.4, 0.1) == (nil).List{Float} .
+
+--- 07 tcp_outgoing_packet_rate         Number of outgoing TCP packets per second (packets/s) [2]
+
+red collectObsFlow (getTsPL(myAdv)) == flow(channelServerAddr, channelClientAddr, 0) :: flow(channelClientAddr, channelServerAddr, 0) :: flow(channelServerAddr, channelClientAddr, 1) :: flow(channelClientAddr, channelServerAddr, 1) :: flow(channelServerAddr, channelClientAddr, 2) :: flow(channelClientAddr, channelServerAddr, 2) :: flow( channelServerAddr, channelClientAddr, 3) :: flow(channelClientAddr, channelServerAddr, 3) .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelServerAddr, channelClientAddr, 0), getTsPL(myAdv), 1.0, 3.5, 0.5) == 2.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelServerAddr, channelClientAddr, 1), getTsPL(myAdv), 1.0, 3.5, 0.5) == 0.0 6.8e+1 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelServerAddr, channelClientAddr, 2), getTsPL(myAdv), 1.0, 3.5, 0.5) == 0.0 0.0 2.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelServerAddr, channelClientAddr, 3), getTsPL(myAdv), 1.0, 3.5, 0.5) == 0.0 0.0 0.0 0.0 6.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelClientAddr, channelServerAddr, 0), getTsPL(myAdv), 1.0, 3.5, 0.5) == 2.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelClientAddr, channelServerAddr, 1), getTsPL(myAdv), 1.0, 3.5, 0.5) == 0.0 0.0 2.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelClientAddr, channelServerAddr, 2), getTsPL(myAdv), 1.0, 3.5, 0.5) == 0.0 0.0 1.0e+2 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelClientAddr, channelServerAddr, 3), getTsPL(myAdv), 1.0, 3.5, 0.5) == 0.0 0.0 0.0 0.0 4.0 0.0 0.0 .
+red collectObsFeatureFlow (IXP, tcpOutPktRate, collectObsFlow (getTsPL(myAdv)), getTsPL(myAdv), 1.0, 3.5, 0.5) == 2.0 0.0 0.0 0.0 0.0 0.0 0.0 2.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 6.8e+1 0.0 0.0 0.0 0.0 0.0 0.0 0.0 2.0 0.0 0.0 0.0 0.0 0.0 0.0 2.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0e+2 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 6.0 0.0 0.0 0.0 0.0 0.0 0.0 4.0 0.0 0.0 .
+red getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 1.0, 3.5, 0.5) == 2.0 2.0 2.0 2.0 4.0 6.0 6.8e+1 1.0e+2 .
+red getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 3.5, 0.5) == 2.0 2.0 2.0 2.0 4.0 6.0 6.8e+1 1.0e+2 .
+red getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.5, 0.5) == 2.0 2.0 2.0 2.0 6.8e+1 1.0e+2 .
+red getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 1.5, 0.5) == 2.0 2.0 .
+red getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.5, 1.5, 0.5) == 2.0 2.0 6.8e+1 . 
+red getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 1.0, 1.5, 0.5) == 2.0 2.0 2.0 2.0 6.8e+1 1.0e+2 .
+red KsDistance (2.0 2.0, 2.0 2.0 6.8e+1) == 3.3333333333333337e-1 .
+red KsDistance (2.0 2.0 6.8e+1, 2.0 2.0 2.0 2.0 6.8e+1 1.0e+2) == 1.6666666666666663e-1 .
+red getBaselineCDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.5, 0.5) == 2.0 2.0 2.0 2.0 6.8e+1 1.0e+2 . 
+red KsDistance (getBaselineCDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.5, 0.5), getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 1.5, 0.5)) == 3.3333333333333337e-1 .
+red KsDistance (getBaselineCDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.5, 0.5), getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.5, 1.5, 0.5)) == 1.6666666666666663e-1 .
+red KsDistance (getBaselineCDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.5, 0.5), getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 1.0, 1.5, 0.5)) == 0.0 .
+red getKObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.5, 1.5, 0.5) == 1.6666666666666666e-1 . 
+
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelServerAddr, channelClientAddr, 0), getTsPL(myAdv), 0.0, 3.4, 0.2) == 
+ 0.0 0.0 0.0 0.0 0.0 5.0000000000000009 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelServerAddr, channelClientAddr, 1), getTsPL(myAdv), 0.0, 3.4, 0.2) == 
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.7000000000000003e+2 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelServerAddr, channelClientAddr, 2), getTsPL(myAdv), 0.0, 3.4, 0.2) == 
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 4.9999999999999956 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelServerAddr, channelClientAddr, 3), getTsPL(myAdv), 0.0, 3.4, 0.2) == 
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.4999999999999988e+1 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelClientAddr, channelServerAddr, 0), getTsPL(myAdv), 0.0, 3.4, 0.2) == 
+ 0.0 0.0 0.0 0.0 0.0 5.0000000000000009 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelClientAddr, channelServerAddr, 1), getTsPL(myAdv), 0.0, 3.4, 0.2) == 
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 5.0000000000000009 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelClientAddr, channelServerAddr, 2), getTsPL(myAdv), 0.0, 3.4, 0.2) == 
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 2.4999999999999977e+2 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutPktRate, flow(channelClientAddr, channelServerAddr, 3), getTsPL(myAdv), 0.0, 3.4, 0.2) == 
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 9.9999999999999911 .
+--- 0.0 0.0 0.0 0.0 0.0   5.0 0.0 0.0   0.0 0.0   0.0 0.0   0.0 0.0 0.0   0.0   0.0 .
+--- 0.0 0.0 0.0 0.0 0.0   0.0 0.0 170.0 0.0 0.0   0.0 0.0   0.0 0.0 0.0   0.0   0.0 .
+--- 0.0 0.0 0.0 0.0 0.0   0.0 0.0 0.0   0.0 0.0   0.0 4.9   0.0 0.0 0.0   0.0   0.0 .
+--- 0.0 0.0 0.0 0.0 0.0   0.0 0.0 0.0   0.0 0.0   0.0 0.0   0.0 0.0 0.0   14.9  0.0 .
+--- 0.0 0.0 0.0 0.0 0.0   5.0 0.0 0.0   0.0 0.0   0.0 0.0   0.0 0.0 0.0   0.0   0.0 .
+--- 0.0 0.0 0.0 0.0 0.0   0.0 0.0 0.0   0.0 0.0   5.0 0.0   0.0 0.0 0.0   0.0   0.0 .
+--- 0.0 0.0 0.0 0.0 0.0   0.0 0.0 0.0   0.0 0.0   0.0 249.9 0.0 0.0 0.0   0.0   0.0 .
+--- 0.0 0.0 0.0 0.0 0.0   0.0 0.0 0.0   0.0 0.0   0.0 0.0   0.0 0.0 0.0   0.0   9.9 .
+red getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 3.4, 0.2) == 4.9999999999999956 5.0000000000000009 5.0000000000000009 5.0000000000000009 9.9999999999999911 1.4999999999999988e+1 1.7000000000000003e+2 2.4999999999999977e+2 .
+red getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.0, 0.2) == 5.0000000000000009 5.0000000000000009 1.7000000000000003e+2 .
+red getBaselineCDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.0, 0.2) == 5.0000000000000009 5.0000000000000009 1.7000000000000003e+2 .
+
+red KsDistance (5.0000000000000009 5.0000000000000009 1.7000000000000003e+2, 5.0000000000000009 5.0000000000000009) == 3.3333333333333337e-1 .
+
+red KsDistance (getBaselineCDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.0, 0.2), getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 1.0, 0.2)) == -1.0 .
+red KsDistance (getBaselineCDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.0, 0.2), getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.2, 1.0, 0.2)) == 3.3333333333333337e-1 .
+red KsDistance (getBaselineCDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.0, 0.2), getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.4, 1.0, 0.2)) == 3.3333333333333337e-1 .
+red KsDistance (getBaselineCDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.0, 0.2), getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.6, 1.0, 0.2)) == 0.0 . 
+red KsDistance (getBaselineCDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.0, 0.2), getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.8, 1.0, 0.2)) == 0.0 .
+red KsDistance (getBaselineCDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.0, 0.2), getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 1.0, 1.0, 0.2)) == 0.0 .
+red getKObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 0.0, 2.0, 1.0, 0.2) == 1.3333333333333336e-1 .
+
+red getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 2.0, 1.0, 0.2) == 4.9999999999999956 4.9999999999999956 2.4999999999999977e+2 .
+red KsDistance (5.0000000000000009 5.0000000000000009 1.7000000000000003e+2, 4.9999999999999956 4.9999999999999956 2.4999999999999977e+2) == 6.6666666666666663e-1 .
+red getToD (myAdv, IXP, tcpOutPktRate, 2.0, 3.4, 1.0, 0.2, 0.1) == 3.0 .
+red getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 2.2, 1.0, 0.2) == 4.9999999999999956 1.4999999999999988e+1 2.4999999999999977e+2 .
+red KsDistance (5.0000000000000009 5.0000000000000009 1.7000000000000003e+2 , 4.9999999999999956 1.4999999999999988e+1 2.4999999999999977e+2) == 3.3333333333333337e-1 .
+red getECDFObsFeature (IXP, tcpOutPktRate, getTsPL(myAdv), 2.4, 1.0, 0.2) == 9.9999999999999911 1.4999999999999988e+1 .
+red KsDistance (5.0000000000000009 5.0000000000000009 1.7000000000000003e+2 , 9.9999999999999911 1.4999999999999988e+1 ) == 6.6666666666666663e-1 .
+
+red getTimedZObsFeature(IXP, tcpOutPktRate, getTsPL(myAdv), 2.0, 3.6, 1.0, 0.2) == timedFloat(3.0, 5.3333333333333321e-1) timedFloat(3.2000000000000002, 2.0000000000000001e-1) timedFloat(3.4000000000000004, 5.3333333333333321e-1) timedFloat(3.6000000000000005, 5.3333333333333321e-1) .
+red alarmTimeCUSUM (getTimedZObsFeature(IXP, tcpOutPktRate, getTsPL(myAdv), 2.0, 3.6, 1.0, 0.2), 0.1, 0.0) == 3.0 .
+red alarmTimeCUSUM (getTimedZObsFeature(IXP, tcpOutPktRate, getTsPL(myAdv), 2.0, 3.6, 1.0, 0.2), 0.5, 0.0) == 3.0 .
+red alarmTimeCUSUM (getTimedZObsFeature(IXP, tcpOutPktRate, getTsPL(myAdv), 2.0, 3.6, 1.0, 0.2), 0.9, 0.0) == 3.4000000000000004 .
+red alarmTimeCUSUM (getTimedZObsFeature(IXP, tcpOutPktRate, getTsPL(myAdv), 2.0, 3.6, 1.0, 0.2), 1.3, 0.0) == 3.6000000000000005 .
+red alarmTimeCUSUM (getTimedZObsFeature(IXP, tcpOutPktRate, getTsPL(myAdv), 2.0, 3.6, 1.0, 0.2), 1.7, 0.0) == 3.6000000000000005 .
+red alarmTimeCUSUM (getTimedZObsFeature(IXP, tcpOutPktRate, getTsPL(myAdv), 2.0, 3.6, 1.0, 0.2), 2.1, 0.0) == 0.0 .
+red getToD (myAdv, IXP, tcpOutPktRate, 2.0, 3.6, 1.0, 0.2, 0.1) == 3.0 .
+red getToD (myAdv, IXP, tcpOutPktRate, 2.0, 3.6, 1.0, 0.2, 0.5) == 3.0 .
+red getToD (myAdv, IXP, tcpOutPktRate, 2.0, 3.6, 1.0, 0.2, 0.9) == 3.4000000000000004 .
+red getToD (myAdv, IXP, tcpOutPktRate, 2.0, 3.6, 1.0, 0.2, 1.3) == 3.6000000000000005 .
+red getToD (myAdv, IXP, tcpOutPktRate, 2.0, 3.6, 1.0, 0.2, 1.7) == 3.6000000000000005 .
+red getToD (myAdv, IXP, tcpOutPktRate, 2.0, 3.6, 1.0, 0.2, 2.1) == 0.0 .
+red getCUSUM (myAdv, IXP, tcpOutPktRate, 2.0, 3.6, 1.0, 0.2) == 1.2666666666666664 . 
+red getCUSUM (myAdv, IXP, tcpOutPktRate, 2.0, 3.61, 1.0, 0.2) == 1.7999999999999996 .
+
+--- 08 tcp_incoming_packet_rate         Number of incoming TCP packets per second (packets/s) [2]
+
+red getToD (myAdv, IXP, tcpInPktRate, 2.0, 3.6, 1.0, 0.2, 0.1) == 3.0 .
+red getToD (myAdv, IXP, tcpInPktRate, 2.0, 3.6, 1.0, 0.2, 0.5) == 3.0 .
+red getToD (myAdv, IXP, tcpInPktRate, 2.0, 3.6, 1.0, 0.2, 0.9) == 3.4000000000000004 .
+red getToD (myAdv, IXP, tcpInPktRate, 2.0, 3.6, 1.0, 0.2, 1.3) == 3.6000000000000005 .
+red getToD (myAdv, IXP, tcpInPktRate, 2.0, 3.6, 1.0, 0.2, 1.7) == 3.6000000000000005 .
+red getToD (myAdv, IXP, tcpInPktRate, 2.0, 3.6, 1.0, 0.2, 2.1) == 0.0 .
+
+--- 09 tcp_packet_upload_download_ratio Ratio of outgoing TCP packets to incoming TCP packets
+red collectObsFeature (IXP, tcpOutToInPktRate, flow(channelServerAddr, channelClientAddr, 0), getTsPL(myAdv), 0.0, 3.4, 0.2) == 
+ 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutToInPktRate, flow(channelServerAddr, channelClientAddr, 1), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutToInPktRate, flow(channelServerAddr, channelClientAddr, 2), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutToInPktRate, flow(channelServerAddr, channelClientAddr, 3), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 .
+red collectObsFeature (IXP, tcpOutToInPktRate, flow(channelClientAddr, channelServerAddr, 0), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutToInPktRate, flow(channelClientAddr, channelServerAddr, 1), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutToInPktRate, flow(channelClientAddr, channelServerAddr, 2), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpOutToInPktRate, flow(channelClientAddr, channelServerAddr, 3), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 .
+
+--- 11 packet_size_mean                 Mean packet size (bytes) [3]
+red collectObsFeature (IXP, tcpPktSize, flow(channelServerAddr, channelClientAddr, 0), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 150.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpPktSize, flow(channelServerAddr, channelClientAddr, 1), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.4235294117647059e+3 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpPktSize, flow(channelServerAddr, channelClientAddr, 2), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 480.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpPktSize, flow(channelServerAddr, channelClientAddr, 3), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1000.0 0.0 .
+red collectObsFeature (IXP, tcpPktSize, flow(channelClientAddr, channelServerAddr, 0), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 100.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpPktSize, flow(channelClientAddr, channelServerAddr, 1), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 144.0 0.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpPktSize, flow(channelClientAddr, channelServerAddr, 2), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1448.0 0.0 0.0 0.0 0.0 0.0 .
+red collectObsFeature (IXP, tcpPktSize, flow(channelClientAddr, channelServerAddr, 3), getTsPL(myAdv), 0.0, 3.4, 0.2) ==
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 800.0 .
+
+--- 04 tcp_upload_rate                  Number of outbound TCP bytes per second (bytes/s)
+red getToD (myAdv, IXP, tcpUpRate, 2.0, 3.6, 1.0, 0.2, 1.2) .
+--- 05 tcp_download_rate                Number of inbound TCP bytes per second (bytes/s)
+red getToD (myAdv, IXP, tcpDownRate, 2.0, 3.6, 1.0, 0.2, 1.2) .
+--- 06 tcp_upload_download_ratio        Ratio of outbound TCP bytes to inbound TCP bytes [1]
+red getToD (myAdv, IXP, tcpUpToDownRate, 2.0, 3.6, 1.0, 0.2, 1.2) .
+--- 10 packet_size_std_dev              Standard deviation of packet sizes (bytes) [3]
+red getToD (myAdv, IXP, tcpPktSizeStdDev, 2.0, 3.6, 1.0, 0.2, 1.2) .
+--- 12 packet_interarrival_mean         Mean time between successive packets 
+red getToD (myAdv, IXP, tcpPktInterarrival, 2.0, 3.6, 1.0, 0.2, 1.2) .
+--- 13 direction_change_count           Number of times packet direction switches between incoming and outgoing [3]
+red getToD (myAdv, IXP, tcpDirectionChange, 2.0, 3.6, 1.0, 0.2, 1.2) .
+--- 14 active_flow_count                Number of active TCP flows in the bin*
+red getToD (myAdv, IXP, tcpActiveFlow, 2.0, 3.6, 1.0, 0.2, 1.2) .
+--- 15 tcp_new_conn_count               Number of new TCP connections initiated in the bin*
+red getToD (myAdv, IXP, tcpNewCnx, 2.0, 3.6, 1.0, 0.2, 1.2) .
