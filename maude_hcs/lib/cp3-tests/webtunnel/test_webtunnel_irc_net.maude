@@ -67,7 +67,7 @@ sload ../../irc/ircMonitor
 sload ../../irc/irc-byteseq-interface
 sload ../../irc/irc-mamodel-v2
 sload ../../common/maude/irc-action-actor-v2.maude
-sload ../../network/net_prob.maude
+sload ../../network/net_prob-clt.maude
 sload ../../common/maude/structured-addresses.maude
 
 set print attribute on .
@@ -114,18 +114,18 @@ mod TEST_WEBTUNNEL_IRC is
 
   eq client1IfaceAddr = a(cl[1],hcs,irc,if,1) .
   eq client2IfaceAddr = a(cl[2],hcs,irc,if,1) .
-  eq server1IfaceAddr = a(svnN[1],hcs,irc,if,1) .
-  eq server2IfaceAddr = a(svnN[2],hcs,irc,if,1) .
+  eq server1IfaceAddr = a(srvN[1],hcs,irc,if,1) .
+  eq server2IfaceAddr = a(srvN[2],hcs,irc,if,1) .
 
   eq wtClient1Addr = a(cl[1],hcs,wt,cl,1) .
   eq wtClient2Addr = a(cl[2],hcs,wt,cl,1) .
-  eq wtProxy1Addr = a(svnN[1],hcs,wt,srv,1) .
-  eq wtProxy2Addr = a(svnN[2],hcs,wt,srv,1) .
+  eq wtProxy1Addr = a(srvN[1],hcs,wt,srv,1) .
+  eq wtProxy2Addr = a(srvN[2],hcs,wt,srv,1) .
 
   eq netClient1Addr = a(cl[1],tcp,wt,cl,1) .
   eq netClient2Addr = a(cl[2],tcp,wt,cl,1) .
-  eq netServer1Addr = a(svnN[1],tcp,wt,srv,1) .
-  eq netServer2Addr = a(svnN[2],tcp,wt,srv,1) .
+  eq netServer1Addr = a(srvN[1],tcp,wt,srv,1) .
+  eq netServer2Addr = a(srvN[2],tcp,wt,srv,1) .
 
   ---------------------------------------------------
   --- Link model parameters
@@ -144,14 +144,22 @@ mod TEST_WEBTUNNEL_IRC is
   .
 
   eq LinkData =
-    --- Webtunnel clients <-> proxy
+    --- Webtunnel clients <-> proxy (and reverse)
     aaa(wtClient1Addr, wtProxy1Addr,  LinkParams)
     aaa(wtProxy1Addr,  wtClient1Addr, LinkParams)
     aaa(wtClient2Addr, wtProxy2Addr,  LinkParams)
     aaa(wtProxy2Addr,  wtClient2Addr, LinkParams)
-    --- Proxy <-> IRC server (local / low latency)
-****    aaa(wtProxy1Addr,   ircServerAddr,  LinkParams)
-****    aaa(ircServerAddr, wtProxyAddr,    LinkParams)
+
+    --- All endpoints <-> IXP
+    aaa(wtClient1Addr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, wtClient1Addr, LinkParams)
+    aaa(wtClient2Addr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, wtClient2Addr, LinkParams)
+
+    aaa(wtProxy1Addr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, wtProxy1Addr, LinkParams)
+    aaa(wtProxy2Addr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, wtProxy2Addr, LinkParams)
   .
 
   ---------------------------------------------------
@@ -175,6 +183,10 @@ mod TEST_WEBTUNNEL_IRC is
   ops wtProxy1 wtProxy2               : -> Actor .
   ops netClient1 netClient2           : -> Actor .
   ops netServer1 netServer2           : -> Actor .
+
+  op advAddr : -> Address .
+  op advActor : -> Actor .
+  eq advActor = mkAdversaryCp3(advAddr) .
 
   --- IRC clients.  Their raceboatAddr points to the WtClient actor,
   --- which acts as the transparent next-hop toward the IRC server.
@@ -262,25 +274,25 @@ mod TEST_WEBTUNNEL_IRC is
 
   eq netClient1 = makeNetClient(netClient1Addr,
                                 wtProxy1Addr,
-                                netServer1Addr,
                                 wtClient1Addr,
-                                true)
+                                true,
+                                nullAddr,
+                                nullName)
   .
 
   eq netClient2 = makeNetClient(netClient2Addr,
                                 wtProxy2Addr,
-                                netServer2Addr,
                                 wtClient2Addr,
-                                true)
+                                true,
+                                nullAddr,
+                                nullName)
   .
 
   eq netServer1 = makeNetServer(netServer1Addr,
-                                netClient1Addr,
                                 wtProxy1Addr)
   .
 
   eq netServer2 = makeNetServer(netServer2Addr,
-                                netClient2Addr,
                                 wtProxy2Addr)
   .
 
@@ -303,7 +315,7 @@ mod TEST_WEBTUNNEL_IRC is
 
   op initState : -> Config .
   eq initState =
-    rCtr(0)
+    rCtr(8)
 
     --- Actors
     ircClient1
@@ -324,6 +336,7 @@ mod TEST_WEBTUNNEL_IRC is
     netServer2
     ircServer
     mkIrcMonitor(ircMonitorAddr)
+    advActor
 
     --- Phase 1: Tunnel setup
     --- Alice's WtClient initiates its tunnel.

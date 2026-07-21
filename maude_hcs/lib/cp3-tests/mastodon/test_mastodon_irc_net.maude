@@ -58,7 +58,7 @@ sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
 sload ../../common/maude/structured-addresses.maude
 sload ../../irc/ircMonitor
 
-sload ../../network/net_prob.maude
+sload ../../network/net_prob-clt.maude
 sload ../../network/tcp.maude
 
 ---mod RB-BIDIR-MAS-IRC-SCENARIO is
@@ -137,47 +137,42 @@ ops ircSrvAddr masSrvAddr : -> Address .
 ops ircMonitorAddr : -> Address .
 *** Net servers
 *** Facing IRC clients
-ops masAliceNetServerAddr masBobNetServerAddr             : -> Address .
-*** Facing IRC server
-ops masServerAliceNetServerAddr masServerBobNetServerAddr : -> Address .
+op masNetServerAddr : -> Address .
+eq masNetServerAddr = a(masN,tcp,mas,srv,0) .
 
 eq irccAddr = a(cl[3],hcs,irc,cl,1) .
 eq ircaAddr = a(cl[1],hcs,irc,cl,1) .
 eq ircaUserModelAddr = a(cl[1],hcs,irc,um,1) .
 eq ifaceACAddr = a(cl[1],hcs,irc,if,1) .
-eq ifaceASAddr = a(svnN[1],hcs,irc,if,1) .
+eq ifaceASAddr = a(srvN[1],hcs,irc,if,1) .
 eq umacAddr = a(cl[1],hcs,mas,um,1) .
 eq cmacAddr = a(cl[1],hcs,mas,cm,1) .
 eq mcacAddr = a(cl[1],hcs,mas,mc,1) .
 eq edacAddr = a(cl[1],hcs,mas,ed,1) .
-eq umasAddr = a(svnN[1],hcs,mas,um,1) .
-eq cmasAddr = a(svnN[1],hcs,mas,cm,1) .
-eq mcasAddr = a(svnN[1],hcs,mas,mc,1) .
-eq edasAddr = a(svnN[1],hcs,mas,ed,1) .
+eq umasAddr = a(srvN[1],hcs,mas,um,1) .
+eq cmasAddr = a(srvN[1],hcs,mas,cm,1) .
+eq mcasAddr = a(srvN[1],hcs,mas,mc,1) .
+eq edasAddr = a(srvN[1],hcs,mas,ed,1) .
 eq aliceNetClientAddr = a(cl[1],tcp,mas,cl,1) .
-eq serverAliceNetClientAddr = a(svnN[1],tcp,mas,cl,1) .
+eq serverAliceNetClientAddr = a(srvN[1],tcp,mas,cl,1) .
 
 eq ircbAddr = a(cl[2],hcs,irc,cl,1) .
 eq ircbUserModelAddr = a(cl[2],hcs,irc,um,1) .
 eq ifaceBCAddr = a(cl[2],hcs,irc,if,1) .
-eq ifaceBSAddr = a(svnN[2],hcs,irc,if,1) .
+eq ifaceBSAddr = a(srvN[2],hcs,irc,if,1) .
 eq umbcAddr = a(cl[2],hcs,mas,um,1) .
 eq cmbcAddr = a(cl[2],hcs,mas,cm,1) .
 eq mcbcAddr = a(cl[2],hcs,mas,mc,1) .
 eq edbcAddr = a(cl[2],hcs,mas,ed,1) .
-eq umbsAddr = a(svnN[2],hcs,mas,um,1) .
-eq cmbsAddr = a(svnN[2],hcs,mas,cm,1) .
-eq mcbsAddr = a(svnN[2],hcs,mas,mc,1) .
-eq edbsAddr = a(svnN[2],hcs,mas,ed,1) .
+eq umbsAddr = a(srvN[2],hcs,mas,um,1) .
+eq cmbsAddr = a(srvN[2],hcs,mas,cm,1) .
+eq mcbsAddr = a(srvN[2],hcs,mas,mc,1) .
+eq edbsAddr = a(srvN[2],hcs,mas,ed,1) .
 eq bobNetClientAddr = a(cl[2],tcp,mas,cl,1) .
-eq serverBobNetClientAddr = a(svnN[2],tcp,mas,cl,1) .
+eq serverBobNetClientAddr = a(srvN[2],tcp,mas,cl,1) .
 
 eq ircSrvAddr = a(srvN,srv,irc,srv,0) .
 eq masSrvAddr = a(masN,srv,mas,srv,0) .
-eq masAliceNetServerAddr = a(svnN[1],tcp,mas,srv,1) .
-eq masBobNetServerAddr = a(svnN[2],tcp,mas,srv,1) .
-eq masServerAliceNetServerAddr = a(svnN[1],tcp,mas,srv,2) .
-eq masServerBobNetServerAddr = a(svnN[2],tcp,mas,srv,2) .
 
 -----------------------
 **** actors
@@ -210,10 +205,11 @@ ops bobNetClient  serverBobNetClient  : -> Actor .
 ops ircSrvAct masSrvAct : -> Actor .
 ops ircMonitorAct : -> Actor .
 *** Net servers
-*** Facing IRC clients
-ops masAliceNetServer masBobNetServer             : -> Actor .
-*** Facing IRC server
-ops masServerAliceNetServer masServerBobNetServer : -> Actor .
+op masNetServer : -> Actor .
+
+op advAddr : -> Address .
+op advActor : -> Actor .
+eq advActor = mkAdversaryCp3(advAddr) .
 
 ************** actor defns
 ***** aliceIrc
@@ -260,15 +256,17 @@ eq edasAct  = makeDestiniActor(edasAddr, ed-images) .
 
 eq aliceNetClient = makeNetClient(aliceNetClientAddr,
                                   masSrvAddr,
-                                  masAliceNetServerAddr,
                                   mcacAddr,
-                                  true)
+                                  true,
+                                  nullAddr,
+                                  nullName)
 .
 eq serverAliceNetClient = makeNetClient(serverAliceNetClientAddr,
                                         masSrvAddr,
-                                        masServerAliceNetServerAddr,
                                         mcasAddr,
-                                        true)
+                                        true,
+                                        nullAddr,
+                                        nullName)
 .
 ********************************
 *** bob
@@ -317,37 +315,24 @@ eq edbsAct  = makeDestiniActor(edbsAddr, ed-images) .
 
 eq bobNetClient = makeNetClient(bobNetClientAddr,
                                 masSrvAddr,
-                                masBobNetServerAddr,
                                 mcbcAddr,
-                                true)
+                                true,
+                                nullAddr,
+                                nullName)
 .
 eq serverBobNetClient = makeNetClient(serverBobNetClientAddr,
                                       masSrvAddr,
-                                      masServerBobNetServerAddr,
                                       mcbsAddr,
-                                      true)
+                                      true,
+                                      nullAddr,
+                                      nullName)
 .
 
 ******** global actors
 eq masSrvAct = makeMastodonServer(masSrvAddr) .
 eq ircSrvAct = mkIrcServer(ircSrvAddr) .
 
-eq masAliceNetServer        = makeNetServer(masAliceNetServerAddr,
-                                            aliceNetClientAddr,
-                                            masSrvAddr)
-.
-eq masBobNetServer          = makeNetServer(masBobNetServerAddr,
-                                            bobNetClientAddr,
-                                            masSrvAddr)
-.
-eq masServerAliceNetServer  = makeNetServer(masServerAliceNetServerAddr,
-                                            serverAliceNetClientAddr,
-                                            masSrvAddr)
-.
-eq masServerBobNetServer    = makeNetServer(masServerBobNetServerAddr,
-                                            serverBobNetClientAddr,
-                                            masSrvAddr)
-.
+eq masNetServer = makeNetServer(masNetServerAddr, masSrvAddr) .
 eq ircMonitorAct = mkIrcMonitor(ircMonitorAddr)
 .
 
@@ -373,6 +358,19 @@ eq LinkData =
   aaa(mcasAddr, masSrvAddr, LinkParams)
   aaa(mcbcAddr, masSrvAddr, LinkParams)
   aaa(mcbsAddr, masSrvAddr, LinkParams)
+
+  aaa(masSrvAddr, IXP-DEFAULT-ADDR, LinkParams)
+  aaa(IXP-DEFAULT-ADDR, masSrvAddr, LinkParams)
+
+  aaa(IXP-DEFAULT-ADDR, mcacAddr, LinkParams)
+  aaa(IXP-DEFAULT-ADDR, mcasAddr, LinkParams)
+  aaa(IXP-DEFAULT-ADDR, mcbcAddr, LinkParams)
+  aaa(IXP-DEFAULT-ADDR, mcbsAddr, LinkParams)
+
+  aaa(mcacAddr, IXP-DEFAULT-ADDR, LinkParams)
+  aaa(mcasAddr, IXP-DEFAULT-ADDR, LinkParams)
+  aaa(mcbcAddr, IXP-DEFAULT-ADDR, LinkParams)
+  aaa(mcbsAddr, IXP-DEFAULT-ADDR, LinkParams)
 .
 
 vars dt : Float .
@@ -416,10 +414,8 @@ eq initState(j) =
   masSrvAct 
   ircMonitorAct
 *** Net servers
-  masAliceNetServer
-  masBobNetServer
-  masServerAliceNetServer
-  masServerBobNetServer
+  masNetServer
+  advActor
 
 mkJoin(1.0, "#chat", ircaAddr, ircSrvAddr, ifaceASAddr)
 mkJoin(1.1, "#general", ircaAddr, ircSrvAddr, ifaceASAddr)
