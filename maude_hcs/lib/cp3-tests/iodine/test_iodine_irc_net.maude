@@ -37,7 +37,7 @@ sload ../../irc/ircMonitor.maude
 sload ../../irc/irc-byteseq-interface.maude
 sload ../../irc/irc-mamodel-v2.maude
 sload ../../network/tcp.maude
-sload ../../network/net_prob.maude
+sload ../../network/net_prob-clt.maude
 sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
 sload ../../common/maude/structured-addresses.maude
 
@@ -104,22 +104,22 @@ mod TEST_IODINE_IRC is
 
   eq aliceIfaceAddr = a(cl[1],hcs,irc,if,1) .
   eq bobIfaceAddr = a(cl[2],hcs,irc,if,1) .
-  eq serverAliceIfaceAddr = a(svnN[1],hcs,irc,if,1) .
-  eq serverBobIfaceAddr = a(svnN[2],hcs,irc,if,1) .
+  eq serverAliceIfaceAddr = a(srvN[1],hcs,irc,if,1) .
+  eq serverBobIfaceAddr = a(srvN[2],hcs,irc,if,1) .
 
   eq aliceSendAppAddr = a(cl[1],hcs,iod,app,1) .
   eq aliceIodineClientAddr = a(cl[1],hcs,iod,cl,1) .
   eq bobSendAppAddr = a(cl[2],hcs,iod,app,1) .
   eq bobIodineClientAddr = a(cl[2],hcs,iod,cl,1) .
-  eq serverAliceRcvAppAddr = a(svnN[1],hcs,iod,app,1) .
-  eq serverBobRcvAppAddr = a(svnN[2],hcs,iod,app,1) .
-  eq serverAliceIodineServerAddr = a(svnN[1],hcs,iod,iodSrv,1) .
-  eq serverBobIodineServerAddr = a(svnN[2],hcs,iod,iodSrv,1) .
+  eq serverAliceRcvAppAddr = a(srvN[1],hcs,iod,app,1) .
+  eq serverBobRcvAppAddr = a(srvN[2],hcs,iod,app,1) .
+  eq serverAliceIodineServerAddr = a(srvN[1],hcs,iod,iodSrv,1) .
+  eq serverBobIodineServerAddr = a(srvN[2],hcs,iod,iodSrv,1) .
 
   eq aliceNetClientAddr = a(cl[1],tcp,iod,cl,1) .
   eq bobNetClientAddr = a(cl[2],tcp,iod,cl,1) .
-  eq serverAliceNetServerAddr = a(svnN[1],tcp,iod,srv,1) .
-  eq serverBobNetServerAddr = a(svnN[2],tcp,iod,srv,1) .
+  eq serverAliceNetServerAddr = a(srvN[1],tcp,iod,srv,1) .
+  eq serverBobNetServerAddr = a(srvN[2],tcp,iod,srv,1) .
 
   eq transport(any:Address) = tcp(any:Address) .
 
@@ -140,6 +140,10 @@ mod TEST_IODINE_IRC is
   ops aliceSendApp bobSendApp serverAliceRcvApp serverBobRcvApp                       : -> Actor .  
   ops aliceIodineClient bobIodineClient serverAliceIodineServer serverBobIodineServer : -> Actor .  
   ops aliceNetClient bobNetClient serverAliceNetServer serverBobNetServer             : -> Actor .
+
+  op advAddr : -> Address .
+  op advActor : -> Actor .
+  eq advActor = mkAdversaryCp3(advAddr) .
 
   --- IRC Actors ---
   eq aliceIrcClient = mkIrcClient-v2(aliceIrcClientAddr,
@@ -219,20 +223,20 @@ mod TEST_IODINE_IRC is
   
   eq aliceNetClient = makeNetClient(aliceNetClientAddr,
                                     serverAliceIodineServerAddr,
-                                    serverAliceNetServerAddr,
                                     aliceIodineClientAddr,
-                                    true) .
+                                    true,
+                                    nullAddr,
+                                    nullName) .
   eq bobNetClient   = makeNetClient(bobNetClientAddr,
                                     serverBobIodineServerAddr,
-                                    serverBobNetServerAddr,
                                     bobIodineClientAddr,
-                                    true) .
+                                    true,
+                                    nullAddr,
+                                    nullName) .
 
   eq serverAliceNetServer = makeNetServer(serverAliceNetServerAddr,
-                                          aliceNetClientAddr,
                                           serverAliceIodineServerAddr) .
   eq serverBobNetServer   = makeNetServer(serverBobNetServerAddr,
-                                          bobNetClientAddr,
                                           serverBobIodineServerAddr) .
 
   ---------------------------------------------------
@@ -259,6 +263,16 @@ mod TEST_IODINE_IRC is
     aaa(serverAliceIodineServerAddr, aliceIodineClientAddr, LinkParams)
     aaa(bobIodineClientAddr, serverBobIodineServerAddr, LinkParams)
     aaa(serverBobIodineServerAddr, bobIodineClientAddr, LinkParams)
+
+    aaa(serverAliceIodineServerAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, serverAliceIodineServerAddr, LinkParams)
+    aaa(aliceIodineClientAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, aliceIodineClientAddr, LinkParams)
+
+    aaa(serverBobIodineServerAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, serverBobIodineServerAddr, LinkParams)
+    aaa(bobIodineClientAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, bobIodineClientAddr, LinkParams)
     
   ****  --- NetClient links
   ****  aaa(aliceNetClientAddr, serverAliceNetServerAddr, LinkParams)
@@ -331,6 +345,7 @@ mod TEST_IODINE_IRC is
     bobNetClient
     serverAliceNetServer
     serverBobNetServer
+    advActor
     mkJoin(10.0, "#chat", aliceIrcClientAddr, ircServerAddr, serverAliceIfaceAddr)
     mkJoin(12.0, "#general", aliceIrcClientAddr, ircServerAddr, serverAliceIfaceAddr)
     mkJoin(14.0, "#random", aliceIrcClientAddr, ircServerAddr, serverAliceIfaceAddr)

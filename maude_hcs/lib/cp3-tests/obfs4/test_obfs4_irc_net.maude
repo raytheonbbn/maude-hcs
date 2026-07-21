@@ -36,7 +36,7 @@ sload ../../irc/irc-byteseq-interface
 sload ../../irc/irc-mamodel-v2
 sload ../../common/maude/irc-action-actor-v2.maude
 sload ../../network/tcp.maude
-sload ../../network/net_prob.maude
+sload ../../network/net_prob-clt.maude
 sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
 sload ../../common/maude/structured-addresses.maude
 
@@ -73,18 +73,18 @@ mod OBFS4_TESTS is
 
   eq aliceIfaceAddr = a(cl[1],hcs,irc,if,1) .
   eq bobIfaceAddr = a(cl[2],hcs,irc,if,1) .
-  eq aliceServerIfaceAddr = a(svnN[1],hcs,irc,if,1) .
-  eq bobServerIfaceAddr = a(svnN[2],hcs,irc,if,1) .
+  eq aliceServerIfaceAddr = a(srvN[1],hcs,irc,if,1) .
+  eq bobServerIfaceAddr = a(srvN[2],hcs,irc,if,1) .
 
   eq aliceObfs4ClientAddr = a(cl[1],hcs,obfs,cl,1) .
   eq bobObfs4ClientAddr = a(cl[2],hcs,obfs,cl,1) .
-  eq obfs4AliceServerAddr = a(svnN[1],hcs,obfs,srv,1) .
-  eq obfs4BobServerAddr = a(svnN[2],hcs,obfs,srv,1) .
+  eq obfs4AliceServerAddr = a(srvN[1],hcs,obfs,srv,1) .
+  eq obfs4BobServerAddr = a(srvN[2],hcs,obfs,srv,1) .
 
   eq aliceNetClientAddr = a(cl[1],tcp,obfs,cl,1) .
   eq bobNetClientAddr = a(cl[2],tcp,obfs,cl,1) .
-  eq serverAliceNetServerAddr = a(svnN[1],tcp,obfs,srv,1) .
-  eq serverBobNetServerAddr = a(svnN[2],tcp,obfs,srv,1) .
+  eq serverAliceNetServerAddr = a(srvN[1],tcp,obfs,srv,1) .
+  eq serverBobNetServerAddr = a(srvN[2],tcp,obfs,srv,1) .
 
   ops aliceIrcClient bobIrcClient                         : -> Actor .
   ops aliceIrcUserModel bobIrcUserModel                   : -> Actor .
@@ -93,6 +93,10 @@ mod OBFS4_TESTS is
   ops aliceIface bobIface aliceServerIface bobServerIface : -> Actor .
   ops aliceNetClient bobNetClient                         : -> Actor .
   ops serverAliceNetServer serverBobNetServer             : -> Actor .
+
+  op advAddr : -> Address .
+  op advActor : -> Actor .
+  eq advActor = mkAdversaryCp3(advAddr) .
 
   eq aliceIrcClient = mkIrcClient-v2(aliceIrcClientAddr,
                                   aliceIfaceAddr,
@@ -105,15 +109,17 @@ mod OBFS4_TESTS is
 
   eq aliceNetClient = makeNetClient(aliceNetClientAddr,
                                     obfs4AliceServerAddr,
-                                    serverAliceNetServerAddr,
                                     aliceObfs4ClientAddr,
-                                    true)
+                                    true,
+                                    nullAddr,
+                                    nullName)
   .
   eq bobNetClient   = makeNetClient(bobNetClientAddr,
                                     obfs4BobServerAddr,
-                                    serverBobNetServerAddr,
                                     bobObfs4ClientAddr,
-                                    true)
+                                    true,
+                                    nullAddr,
+                                    nullName)
   .
 
   eq bobIrcClient = mkIrcClient-v2(bobIrcClientAddr,
@@ -140,11 +146,9 @@ mod OBFS4_TESTS is
   eq obfs4BobServer = makeObfs4Node(obfs4BobServerAddr, bobServerIfaceAddr, bobObfs4ClientAddr) .
 
   eq serverAliceNetServer = makeNetServer(serverAliceNetServerAddr,
-                                          aliceNetClientAddr,
                                           obfs4AliceServerAddr)
   .
   eq serverBobNetServer   = makeNetServer(serverBobNetServerAddr,
-                                          bobNetClientAddr,
                                           obfs4BobServerAddr)
   .
 
@@ -177,10 +181,20 @@ mod OBFS4_TESTS is
   .
 
   eq LinkData =
-    aaa(aliceNetClientAddr, serverAliceNetServerAddr, LinkParams)
-    aaa(serverAliceNetServerAddr, aliceNetClientAddr, LinkParams)
-    aaa(bobNetClientAddr, serverBobNetServerAddr, LinkParams)
-    aaa(serverBobNetServerAddr, bobNetClientAddr, LinkParams)
+    aaa(aliceObfs4ClientAddr, obfs4AliceServerAddr, LinkParams)
+    aaa(obfs4AliceServerAddr, aliceObfs4ClientAddr, LinkParams)
+    aaa(bobObfs4ClientAddr, obfs4BobServerAddr, LinkParams)
+    aaa(obfs4BobServerAddr, bobObfs4ClientAddr, LinkParams)
+
+    aaa(obfs4AliceServerAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, obfs4AliceServerAddr, LinkParams)
+    aaa(aliceObfs4ClientAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, aliceObfs4ClientAddr, LinkParams)
+
+    aaa(obfs4BobServerAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, obfs4BobServerAddr, LinkParams)
+    aaa(bobObfs4ClientAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, bobObfs4ClientAddr, LinkParams)
   .
 
   op initState : -> Config .
@@ -204,6 +218,7 @@ mod OBFS4_TESTS is
     obfs4BobServer
     serverBobNetServer
     mkIrcMonitor(ircMonitorAddr)
+    advActor
     mkJoin(1.0, "#chat", aliceIrcClientAddr, ircServerAddr, aliceServerIfaceAddr)
     mkJoin(1.1, "#general", aliceIrcClientAddr, ircServerAddr, aliceServerIfaceAddr)
     mkJoin(1.2, "#random", aliceIrcClientAddr, ircServerAddr, aliceServerIfaceAddr)
@@ -223,4 +238,4 @@ set print attribute on .
 
 --- Experiment with 2 IRC clients and 1 IRC server, traffic encapsulated with obfs4
 rew initConfig .
-
+q
