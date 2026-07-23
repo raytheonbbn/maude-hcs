@@ -1,0 +1,693 @@
+
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+---- raceboat  user models
+sload ../../../deps/dns_formalization/Maude/common/apmaude
+sload ../../common/maude/user-action-actor
+sload ../../cp3-Tests/Skyhook/skyhook-um-mamodel-1
+**** sload ../../../common/maude/http-overhead.maude
+
+
+---- irc 
+sload ../../irc/common/irc_name
+sload ../../irc/common/irc-msg-model
+sload ../../irc/common/_aux
+sload ../../irc/irc_prob-v2
+sload ../../irc/irc-mamodel-v2
+sload ../../common/maude/irc-action-actor-v2.maude
+
+---- this should go in a scenario dir
+sload ../../irc/irc-byteseq-interface
+sload ../../irc/ircMonitor
+
+------ raceboat 4 skyhook
+sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
+
+----- skyhook
+
+sload ../../skyhook/skyhook_prob
+sload ../../s3/s3_protocol
+
+*** sload ../../network/net_prob.maude
+**** sload ../../networkWdns/net_prob-clt.maude
+sload ../../network/net_prob-clt.maude
+
+**** structure addresses
+sload ../../common/maude/structured-addresses
+sload fake-dns
+
+mod IRC-RB-SKYHOOK-SCENARIO is
+  inc SCHEDULER .
+  inc USER-ACTION-ACTOR .
+  inc SKYHOOK-UM-MAMODEL-1 .
+  inc IRC-V2 .
+  inc IRC-MAMODEL-V2 .
+  inc IRC-USER-ACTION-ACTOR-V2 .
+  pr IRC-BYTESEQ-INTERFACE .
+  inc CONTENT-MANAGER-SIMPLE-BI .
+  inc SKYHOOK .
+  inc S3_PROTOCOL .
+  inc IRC_MONITOR .
+  pr TCP_SOCKET .
+  pr NETWORK_NODE .
+  pr NETWORK_CONNECTION .
+  inc STRUCTURED-ADDRESSES .
+  inc FAKE-DNS .
+ 
+vars j : Nat .
+
+eq encOH(fsize:Nat,ksize:Nat)  = 0 .
+eq noiseMin(msg:Msg) = 0.00001 .
+
+***** Global constants  
+**** the user model database
+eq MAModelMap = ("irc-test" |->  irc-mamodel-v2 ) .
+
+*** for the default case
+eq noiseMax(msg:Msg) = 0.0001 .
+
+**** addresses
+*** alice
+ops aliceAddr ircaAddr : -> Address .
+ops ircaUserModelAddr : -> Address .
+
+
+**** alice channel endpoint interfaces
+ops ifaceACAddr ifaceASAddr : -> Address .
+
+*** client endpoint ac
+ops umacAddr  cmacAddr puaAddr sdkacAddr : -> Address .
+*** server endpoint as
+ops umasAddr  cmasAddr ahaAddr sdkasAddr : -> Address .
+
+*** Net clients
+ops aliceNetClientAddr  serverAliceNetClientAddr  : -> Address .
+
+*** bob
+ops bobAddr ircbAddr : -> Address .
+ops ircbUserModelAddr : -> Address .
+**** bobs channel endpoint interfaces
+ops ifaceBCAddr ifaceBSAddr : -> Address .
+
+*** client endpoint  ..bc.. 
+ops umbcAddr  cmbcAddr pubAddr sdkbcAddr : -> Address .
+*** server endpoint ..bs..
+ops umbsAddr  cmbsAddr ahbAddr sdkbsAddr : -> Address .
+
+*** Net clients
+ops bobNetClientAddr  serverBobNetClientAddr  : -> Address .
+
+ops ircSrvAddr  s3SrvAddr : -> Address .
+op ircMonitorAddr : -> Address .
+
+*** Net servers
+*** Facing IRC clients
+ops s3AliceNetServerAddr s3BobNetServerAddr             : -> Address .
+*** Facing IRC server
+ops s3ServerAliceNetServerAddr s3ServerBobNetServerAddr : -> Address .
+
+******************  structured addresses 
+
+**** clientNet1 alice
+eq ircaAddr = a(cl[1],hcs,irc,cl,1) .
+eq ircaUserModelAddr = a(cl[1],hcs,irc,um,1) .
+eq ifaceACAddr = a(cl[1],hcs,irc,if,1) .
+eq umacAddr = a(cl[1],hcs,sky,um,1) .
+eq cmacAddr = a(cl[1],hcs,sky,cm,1) .
+eq puaAddr = a(cl[1],hcs,sky,pu,1) .
+eq sdkacAddr = a(cl[1],hcs,sky,cl,1) .
+--- tcp net cnx
+eq aliceNetClientAddr = a(cl[1],tcp,min,cl,1) .
+
+  
+ **** clientNet2 bob
+ eq ircbAddr = a(cl[2],hcs,irc,cl,1) .
+ eq ircbUserModelAddr = a(cl[2],hcs,irc,um,1) .
+ eq ifaceBCAddr = a(cl[2],hcs,irc,if,1) .
+ eq umbcAddr = a(cl[2],hcs,sky,um,1) .
+ eq cmbcAddr = a(cl[2],hcs,sky,cm,1) .
+ eq pubAddr = a(cl[2],hcs,sky,pu,1) .
+ eq sdkbcAddr = a(cl[2],hcs,sky,cl,1) .
+ ---- tcp cnx
+eq bobNetClientAddr = a(cl[2],tcp,min,cl,1) .
+
+
+******** serverNet
+eq ircSrvAddr = a(srvN,srv,irc,srv,0) .
+---- ftp ... not used
+
+**** severNet alice endpoint
+eq ifaceASAddr = a(srvN[1],hcs,irc,if,1) .
+eq umasAddr = a(srvN[1],hcs,sky,um,1) .
+eq cmasAddr = a(srvN[1],hcs,sky,cm,1) .
+eq ahaAddr = a(srvN[1],hcs,sky,ah,1) .    ---- AH
+eq sdkasAddr = a(srvN[1],hcs,sky,cl,1) .
+--- < tcp >
+eq serverAliceNetClientAddr =  a(srvN[1],tcp,min,cl,1) .
+
+ 
+ **** severNet bob endpoint srvN[j] endpoints of cl[j]
+eq ifaceBSAddr = a(srvN[2],hcs,irc,if,1) .
+eq umbsAddr = a(srvN[2],hcs,sky,um,1) .
+eq cmbsAddr = a(srvN[2],hcs,sky,cm,1) .
+eq ahbAddr = a(srvN[2],hcs,sky,ah,1) .    ---- AH
+eq sdkbsAddr = a(srvN[2],hcs,sky,cl,1) .
+--- < tcp >
+eq serverBobNetClientAddr = a(srvN[2],tcp,min,cl,1) .
+
+
+
+**** external network nets 
+op s3NetServerAddr : -> Address . ---- added
+eq s3SrvAddr = a(minN,srv,min,srv,0) .   
+****  <tcp>
+eq s3NetServerAddr = a(minN,tcp,min,srv,0) .
+
+**** op ircMonitorAddr : -> Address .  --- not structured
+
+---- CLT claim only need one tcp server net actor for each server
+***(
+ Net tcp (muliplexing) for s3/minio server
+*** Facing IRC clients
+ops s3AliceNetServerAddr s3BobNetServerAddr : -> Address .
+*** Facing IRC server
+ops s3ServerAliceNetServerAddr s3ServerBobNetServerAddr : -> Address .
+**** Replaced By
+op s3NetServerAddr : -> Address . ---- added
+)
+
+
+-----------------------
+**** actors
+*** alice
+op ircaAct : -> Actor .
+op ircaUserModel : -> Actor .
+ops ifaceACAct ifaceASAct : -> Actor .
+
+*** client endpoint ac
+ops umacAct  cmacAct puaAct sdkacAct : -> Actor .
+*** server endpoint as
+ops umasAct  cmasAct ahaAct sdkasAct : -> Actor .
+
+*** Net clients
+ops aliceNetClient  serverAliceNetClient  : -> Actor .
+
+*** bob
+op ircbAct : -> Actor .
+op ircbUserModel : -> Actor .
+ops ifaceBCAct ifaceBSAct : -> Actor .
+
+*** client endpoint  ..bc.. 
+ops umbcAct  cmbcAct pubAct sdkbcAct : -> Actor .
+*** server endpoint ..bs..
+ops umbsAct  cmbsAct ahbAct sdkbsAct : -> Actor .
+
+*** Net clients
+ops bobNetClient  serverBobNetClient  : -> Actor .
+
+ops ircSrvAct  s3SrvAct : -> Actor .
+op ircMonitorAct : -> Actor .
+*** Net servers
+*** Facing IRC clients
+ops s3AliceNetServer s3BobNetServer             : -> Actor .
+*** Facing IRC server
+ops s3ServerAliceNetServer s3ServerBobNetServer : -> Actor .
+**** single serverSide net actor
+op s3NetServer : -> Actor .
+
+************** actor defns
+***** aliceIrc
+eq ircaAct =
+  mkIrcClient-v2(ircaAddr, ifaceACAddr, "alice") .
+eq ircaUserModel = mkIrcUMV2Actor(ircaUserModelAddr, "irc-test", ircaAddr) .
+  
+**** TEST-PKG2 uses 2.0 3.5 5.4
+eq ifaceACAct =
+   mkIrcByteSeqIface(ifaceACAddr,ircaAddr,
+                     cmacAddr) .
+
+**** alice client rb endpoint
+eq umacAct = 
+   mkUMactor(umacAddr,skyhook-um-mamodel-1-ma,cmacAddr) 
+   .
+eq cmacAct = 
+    mkCMSimpleBi(cmacAddr,ifaceACAddr,puaAddr) .
+
+
+**** buckets: "bucket:a2s"  "bucket:s2a"  
+**** uuidSeeds: "uuid:a2s"  "uuid:s2a"  
+eq puaAct = makeSkyhookPU(
+          puaAddr,
+          cmacAddr,  --- rbc0Tos0Addr
+          sdkacAddr,  ---  s3Client0Tos0Addr,
+          "s_to_c_bucket_a",
+          "c_to_s_bucket_a",
+          "s_to_c_uuid_a",  --- fetch
+          "c_to_s_uuid_a-hash" --- post
+                ----"c_to_s_uuid_a"
+          )
+      .
+eq sdkacAct = makeS3Client(sdkacAddr, s3SrvAddr) .
+
+***  alice server endpoint
+eq ifaceASAct =
+   mkIrcByteSeqIface(ifaceASAddr,ircSrvAddr,
+                     cmasAddr) .
+
+eq umasAct = 
+   mkUMactor(umasAddr,skyhook-um-mamodel-1-ma,cmasAddr) 
+   .
+eq cmasAct = 
+    mkCMSimpleBi(cmasAddr,ifaceASAddr,ahaAddr) .
+
+eq ahaAct = mkSkyhookAH(ahaAddr,
+              cmasAddr,  ---- rbs0Toc0Addr,
+              sdkasAddr, 
+                      ---- s3Client0Toc0Addr,
+              "c_to_s_bucket_a",
+              "s_to_c_bucket_a",
+              "c_to_s_uuid_a",
+              "s_to_c_uuid_a",
+              "s_to_c_uuid_a",   ---"post_uuid_a"
+              1
+              )
+.
+
+eq sdkasAct = makeS3Client(sdkasAddr, s3SrvAddr) .
+
+eq aliceNetClient = makeNetClient(aliceNetClientAddr,
+                                  s3SrvAddr,
+                                  sdkacAddr,
+                                  true,
+                                  *** nullAddr, 
+                                  a(cl[1],dns,dns,cl,0),
+                                  *** nullName
+                                  'mastodon . 'com . root
+                                  )  .
+
+eq serverAliceNetClient = 
+   makeNetClient(serverAliceNetClientAddr,
+                 s3SrvAddr,
+                 sdkasAddr,
+                 true,
+                 *** nullAddr
+                 a(srvN,dns,dns,cl,0),
+                 *** nullName
+                 'mastodon . 'com . root
+                 ) .
+
+********************************
+*** bob
+***** bob Irc 
+eq ircbAct = mkIrcClient-v2(ircbAddr, ifaceBCAddr, "bob") .
+eq ircbUserModel = mkIrcUMV2Actor(ircbUserModelAddr, "irc-test", ircbAddr) .
+
+eq ifaceBCAct =
+   mkIrcByteSeqIface(ifaceBCAddr,ircbAddr,
+                     cmbcAddr) .
+
+**** bob client rb endpoint
+eq umbcAct = 
+   mkUMactor(umbcAddr,skyhook-um-mamodel-1-ma,cmbcAddr) 
+   .
+eq cmbcAct = 
+    mkCMSimpleBi(cmbcAddr,ifaceBCAddr,pubAddr) .
+
+**** buckets: "bucket:a2s"  "bucket:s2a"  
+**** uuidSeeds: "uuid:a2s"  "uuid:s2a"  
+eq pubAct = makeSkyhookPU(
+          pubAddr,
+          cmbcAddr,  --- rbc0Tos0Addr
+          sdkbcAddr,  ---  s3Client0Tos0Addr,
+          "s_to_c_bucket_b",
+          "c_to_s_bucket_b",
+          "s_to_c_uuid_b",
+          "c_to_s_uuid_b-hash")
+      .
+
+eq sdkbcAct = makeS3Client(sdkbcAddr, s3SrvAddr) .
+
+eq bobNetClient = makeNetClient(bobNetClientAddr,
+                                s3SrvAddr,
+                                sdkbcAddr,
+                                true,
+                                **** nullAddr,
+                                a(cl[2],dns,dns,cl,0),
+                                *** nullName
+                                'mastodon . 'com . root
+                                )   .
+eq serverBobNetClient = 
+    makeNetClient(serverBobNetClientAddr,
+                  s3SrvAddr,
+                  sdkbsAddr,
+                  true,
+                  *** nullAddr,
+                  a(srvN,dns,dns,cl,0),
+                  *** nullName
+                  'mastodon . 'com . root
+                  )   .
+
+***  bob server endpoint
+eq ifaceBSAct =
+   mkIrcByteSeqIface(ifaceBSAddr,ircSrvAddr,
+                     cmbsAddr) .
+
+eq umbsAct = 
+   mkUMactor(umbsAddr,skyhook-um-mamodel-1-ma,cmbsAddr) 
+   .
+eq cmbsAct = 
+    mkCMSimpleBi(cmbsAddr,ifaceBSAddr,ahbAddr) .
+
+eq ahbAct = mkSkyhookAH(ahbAddr,
+                  cmbsAddr,  ---- rbs0Toc0Addr,
+                  sdkbsAddr, ---- s3Client0Toc0Addr,
+                  "c_to_s_bucket_b",
+                  "s_to_c_bucket_b",
+                  "c_to_s_uuid_b",
+                  "s_to_c_uuid_b",
+                  "s_to_c_uuid_b", ---- "post_uuid_b"
+              1
+              )
+.
+
+eq sdkbsAct = makeS3Client(sdkbsAddr, s3SrvAddr) .
+
+
+******** global actors
+eq s3SrvAct  = makeS3Server(s3SrvAddr) .
+
+eq s3NetServer = makeNetServer(s3NetServerAddr,
+                                s3SrvAddr)
+.
+
+**** makeIrcServer takes an unused address arg
+eq ircSrvAct =
+    < ircSrvAddr : IrcServer |
+        thisAddr: ircSrvAddr,
+        channelMap: emptyNameClientsMap,
+        clientTimestampMap: emptyClientTimestampMap,
+        clientAddressMap: emptyClientAddressMap
+    >
+  .
+
+eq ircMonitorAct = 
+    mkIrcMonitor(ircMonitorAddr) .  
+
+------ ADDED
+  op advAddr : -> Address .
+  op advActor : -> Actor .
+  eq advActor = mkAdversaryCp3(advAddr) .  
+  
+******* fake DNS actors
+
+**** dnsFakes
+ops corpAFwd corpBFwd corpSFwd pubRsv : -> Actor .
+op pubRsvAddr : -> Address .
+eq pubRsvAddr = a(dnsN,dns,dns,srv,0) .
+
+eq corpAFwd = mkFakeFwd(a(cl[1],dns,dns,cl,0), pubRsvAddr) .
+eq corpBFwd = mkFakeFwd(a(cl[2],dns,dns,cl,0), pubRsvAddr) .
+eq corpSFwd = mkFakeFwd(a(srvN,dns,dns,cl,0), pubRsvAddr) .
+  
+eq pubRsv = mkFakeRsv(pubRsvAddr) .
+  
+**** the associated network actors
+ops corpANetClient corpBNetClient corpSNetClient
+     pubRsvNetClient : -> Actor .
+
+eq corpANetClient =
+    makeNetClient(a(cl[1],udp,dns,cl,0), pubRsvAddr,
+                  a(cl[1],dns,dns,cl,0),true) .
+eq corpBNetClient =
+    makeNetClient(a(cl[2],udp,dns,cl,0), pubRsvAddr,
+                  a(cl[2],dns,dns,cl,0),true) .
+
+eq corpSNetClient =
+    makeNetClient(a(srvN,udp,dns,cl,0), pubRsvAddr,
+                  a(srvN,dns,dns,cl,0),true) .
+
+eq pubRsvNetClient =
+    makeNetClient(a(dnsN,udp,dns,cl,0), pubRsvAddr,
+                  pubRsvAddr,true) .
+  
+                
+------------ end actors               
+**** TO BE REFINED
+*** eq transport(any:Address) = tcp(any:Address) .
+**** tcp actors
+eq transport(a(minN,srv,min,srv,0)) 
+      = tcp(a(minN,srv,min,srv,0)) .
+eq transport(a(cl[1],hcs,sky,cl,1))
+      = tcp(a(cl[1],hcs,sky,cl,1)) .
+eq transport(a(srvN[1],hcs,sky,cl,1) )
+      = tcp(a(srvN[1],hcs,sky,cl,1) ) .
+eq transport(a(cl[2],hcs,sky,cl,1)) 
+      = tcp(a(cl[2],hcs,sky,cl,1)) .
+eq transport(a(srvN[2],hcs,sky,cl,1) ) 
+    = tcp(a(srvN[2],hcs,sky,cl,1) ) .
+
+**** udp actors
+eq transport(a(dnsN,dns,dns,srv,0))  = 
+            udp(a(dnsN,dns,dns,srv,0)) .
+eq transport(a(cl[1],dns,dns,cl,0))
+         = udp(a(cl[1],dns,dns,cl,0)) .
+eq transport(a(cl[2],dns,dns,cl,0))
+         = udp(a(cl[2],dns,dns,cl,0)) .
+eq transport(a(srvN,dns,dns,cl,0))
+         = udp(a(srvN,dns,dns,cl,0)) .
+
+
+
+  op LinkType-2 : -> AttributeSet .
+  eq LinkType-2 = 
+    (delayStd: 0.),
+    (delayType: "Constant"),
+    (delayMean: 0.),
+    (delayConst: 0.005),
+    (noiseMin: 0.),
+    (noiseMax: 0.00001),
+    (dropP: 0.),
+    (canDrop: false)
+    .
+
+  op LinkType-2x : -> AttributeSet .
+  eq LinkType-2x = 
+    (delayStd: 0.),
+    (delayType: "Constant"),
+    (delayMean: 0.),
+    (delayConst: 0.0025),
+    (noiseMin: 0.),
+    (noiseMax: 0.00001),
+    (dropP: 0.),
+    (canDrop: false)
+    .
+
+  op LinkType-TCP : -> AttributeSet .
+  eq LinkType-TCP = 
+  (4stateLoss: 
+     (p13: 0.0,
+      p31: 1.0,          
+      p32: 0.0,          
+      p23: 0.0,         
+      p14: 0.0,          
+      oneWayDelay: 0.01) 
+  ) .
+
+  op LinkType-TCPx : -> AttributeSet .
+  eq LinkType-TCPx = 
+  (4stateLoss: 
+     (p13: 0.0,
+      p31: 1.0,          
+      p32: 0.0,          
+      p23: 0.0,         
+      p14: 0.0,          
+      oneWayDelay: 0.005) 
+  ) .
+
+eq LinkData =
+  aaa(s3SrvAddr,sdkacAddr,LinkType-TCP)
+  aaa(s3SrvAddr,sdkasAddr,LinkType-TCP)
+  aaa(s3SrvAddr,sdkbcAddr,LinkType-TCP)
+  aaa(s3SrvAddr,sdkbsAddr,LinkType-TCP)
+ 
+  aaa(s3SrvAddr,IXP-DEFAULT-ADDR,LinkType-TCPx)
+  aaa(IXP-DEFAULT-ADDR,s3SrvAddr,LinkType-TCPx)
+
+  aaa(IXP-DEFAULT-ADDR,sdkacAddr,LinkType-TCPx)
+  aaa(IXP-DEFAULT-ADDR,sdkasAddr,LinkType-TCPx)
+  aaa(IXP-DEFAULT-ADDR,sdkbcAddr,LinkType-TCPx)
+  aaa(IXP-DEFAULT-ADDR,sdkbsAddr,LinkType-TCPx)
+ 
+  aaa(sdkacAddr,s3SrvAddr,LinkType-TCP)
+  aaa(sdkasAddr,s3SrvAddr,LinkType-TCP)
+  aaa(sdkbcAddr,s3SrvAddr,LinkType-TCP)
+  aaa(sdkbsAddr,s3SrvAddr,LinkType-TCP)
+
+  aaa(sdkacAddr,IXP-DEFAULT-ADDR,LinkType-TCPx)
+  aaa(sdkasAddr,IXP-DEFAULT-ADDR,LinkType-TCPx)
+  aaa(sdkbcAddr,IXP-DEFAULT-ADDR,LinkType-TCPx)
+  aaa(sdkbsAddr,IXP-DEFAULT-ADDR,LinkType-TCPx)
+
+  **** udp links
+  aaa(a(dnsN,dns,dns,srv,0),a(cl[1],dns,dns,cl,0),LinkType-2)
+  aaa(a(dnsN,dns,dns,srv,0) ,a(cl[2],dns,dns,cl,0),LinkType-2)
+  aaa(a(dnsN,dns,dns,srv,0) ,a(srvN,dns,dns,cl,0),LinkType-2)
+
+  aaa(IXP-DEFAULT-ADDR,a(cl[1],dns,dns,cl,0),LinkType-2)
+  aaa(IXP-DEFAULT-ADDR,a(cl[2],dns,dns,cl,0),LinkType-2)
+  aaa(IXP-DEFAULT-ADDR,a(srvN,dns,dns,cl,0),LinkType-2)
+
+  aaa(a(cl[1],dns,dns,cl,0),a(dnsN,dns,dns,srv,0) ,LinkType-2)
+  aaa(a(cl[2],dns,dns,cl,0),a(dnsN,dns,dns,srv,0) ,LinkType-2)
+  aaa(a(srvN,dns,dns,cl,0),a(dnsN,dns,dns,srv,0) ,LinkType-2)
+
+  aaa(a(cl[1],dns,dns,cl,0),IXP-DEFAULT-ADDR,LinkType-2)
+  aaa(a(cl[2],dns,dns,cl,0),IXP-DEFAULT-ADDR,LinkType-2)
+  aaa(a(srvN,dns,dns,cl,0),IXP-DEFAULT-ADDR,LinkType-2)
+
+  aaa(a(dnsN,dns,dns,srv,0) ,IXP-DEFAULT-ADDR,LinkType-2)
+  aaa(IXP-DEFAULT-ADDR,a(dnsN,dns,dns,srv,0) ,LinkType-2)
+.                               
+ 
+op initState : Nat -> Config .
+eq initState(j ) =
+  rCtr(j + 8)
+******* alice 
+  ircaAct ircaUserModel
+*** alice client endpoint
+  ifaceACAct
+  umacAct cmacAct
+  puaAct
+  sdkacAct
+ *** <> Net client
+  aliceNetClient
+**** alice server endpoint
+  ifaceASAct
+  umasAct cmasAct
+  ahaAct
+  sdkasAct
+*** <> Net client
+  serverAliceNetClient 
+
+******* bob
+  ircbAct ircbUserModel
+**** bob client endpoint
+  ifaceBCAct
+  umbcAct cmbcAct
+  pubAct
+  sdkbcAct
+***** bob server endpoint
+  ifaceBSAct
+  umbsAct cmbsAct
+  ahbAct
+  sdkbsAct
+*** Net clients
+  bobNetClient
+  serverBobNetClient
+   
+**** global
+  ircSrvAct
+  s3SrvAct
+  ircMonitorAct
+  advActor
+*** Net servers
+  s3NetServer
+
+**** new actors for dns support
+ corpAFwd corpBFwd corpSFwd pubRsv 
+ corpANetClient corpBNetClient corpSNetClient
+ pubRsvNetClient 
+
+**** start ahAlice
+    [0.001, (to ahaAddr from  ahaAddr : SkyhookStartCmd), 0]
+**** start ahBob
+    [0.002, (to ahbAddr from ahbAddr : SkyhookStartCmd), 0]
+
+**** start client channel ums
+ [0.05, (to a(cl[1], hcs, sky, um, 1) from a(cl[1], hcs, sky, um, 1) : actionR("ok") ),0]
+ [0.06, (to a(cl[2], hcs, sky, um, 1) from a(cl[2], hcs, sky, um, 1) : actionR("ok") ),0]
+
+**** start server channel ums
+ [0.055, (to a(srvN[1], hcs, sky, um, 1) from a(srvN[1], hcs, sky, um, 1) : actionR("ok") ),0]
+ 
+ [0.065, (to a(srvN[2], hcs, sky, um, 1) from a(srvN[2], hcs, sky, um, 1) : actionR("ok") ),0]
+ 
+***** join chanels
+ [1.01, (to ircSrvAddr from ifaceASAddr :
+   JoinChannel(makeIrcChannelName("#chat"), ircaAddr)), 0]
+
+ [20.015, (to ircSrvAddr from ifaceBSAddr :
+   JoinChannel(makeIrcChannelName("#chat"), ircbAddr)), 0]
+
+ [40.02, (to ircSrvAddr from ifaceASAddr :
+   JoinChannel(makeIrcChannelName("#general"), ircaAddr)), 0]
+
+ [60.025, (to ircSrvAddr from ifaceBSAddr :
+   JoinChannel(makeIrcChannelName("#general"), ircbAddr)), 0]
+
+ [80.03, (to ircSrvAddr from ifaceASAddr :
+   JoinChannel(makeIrcChannelName("#random"), ircaAddr)), 0]
+
+ [100.035, (to ircSrvAddr from ifaceBSAddr :
+   JoinChannel(makeIrcChannelName("#random"), ircbAddr)), 0]
+    
+**** start alice
+  [120.1, to ircaUserModelAddr from ircaUserModelAddr : burstDelayTO, 0]
+**** start bob
+  [120.2, to ircbUserModelAddr from ircbUserModelAddr : burstDelayTO, 0]
+.
+
+  eq IRC-STALE-DURATION-S = 140000. [owise] .
+  eq IRC-PING-INTV-S = 1200000. [owise]  .
+
+op slimit : -> Float .
+eq slimit = 1000000.0 .
+
+op initConfig : -> Config .
+rl[init]: initConfig 
+   => run({0.0 | nil} initState(counter),slimit) .
+
+endm
+eof
+
+set print attribute on .
+***(
+set print attr select on .
+
+print attr select server-pong-timeout  .
+print attr select server-handle-incoming-chat .
+
+*** print attr select fakeRsv-rcvQ .
+*** print attr select fakeFwd-rcvQ .
+print attr select fakeFwd-rcvR .
+print attr select netClientSendDns .
+print attr select netClientGenTcp .
+*** print attr select net-client-dnsresp .
+print attr select net-client-resp .
+*** print attr select net-server-req .
+print attr select net-server-resp .
+print attr select server-handle-incoming-chat .
+)
+
+rew [15000] initConfig .
+q
+eof
+
+  
+
+**(
+print attr select umv2-rcv-timeout .
+print attr select uumv2-rcv-actionR .
+print attr select initMode .
+*** print attr select chooseBurst . 
+*** print attr select chooseBurstSteps .
+*** print attr select rcvActRv2 .
+print attr select rcvActRv2$ .
+print attr select exeActionIrc .
+print attr select eceActionIrcType .
+print attr select fromIrc2ep .
+print attr select fromEp2Irc .
+)
