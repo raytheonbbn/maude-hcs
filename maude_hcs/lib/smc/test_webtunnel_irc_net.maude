@@ -1,0 +1,440 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+---
+--- test_webtunnel_irc.maude
+---
+--- Scenario: 2 IRC clients (Alice and Bob) communicating with a single
+--- IRC server, each via a webtunnel client actor.  A shared webtunnel
+--- server proxy terminates both tunnels and bridges traffic to the server.
+---
+--- Topology:
+---
+---  .----------.   .-----------.   .------.             .-------.   .--------.
+---  |IrcClient1|-->| WtClient1 |-->|NetCl1|====HTTPS===>|NetSrv1|-->|        |-------.
+---  | (Alice)  |<--| (alice)   |<--|      |<===========<|       |<--|WtProxy1|       |
+---  `----------'   `-----------'   `------'             `-------'   |        |  .---------.
+---                                                                   >======<   |IrcServer|
+---  .----------.   .-----------.   .------.             .-------.   |        |  `---------'
+---  |IrcClient2|-->| WtClient2 |-->|NetCl2|====HTTPS===>|NetSrv2|-->|WtProxy2|       |
+---  | (Bob)    |<--| (bob)     |<--|      |<===========<|       |<--|        |<------'
+---  `----------'   `-----------'   `------'             `-------'   `--------'
+---
+--- Timeline:
+---   t=0.10  Alice's WtClient initiates tunnel setup
+---   t=0.15  Bob's WtClient initiates tunnel setup
+---   ~0.46   Tunnels established (link delay + WtConnectOverhead = 0.35s)
+---   t=0.50  Alice joins channel #maude-test (sent after tunnels open)
+---   t=0.55  Bob joins channel #maude-test
+---   t=2.00  Alice sends first IRC message
+---   t=4.00  Bob sends first IRC message
+---   t=6.00  Alice sends second IRC message
+---
+--- To run: load this file in Maude, then execute:
+---   red initConfig .
+---
+
+sload ../../webtunnel/webtunnel_prob
+sload ../../irc/irc_prob-v2
+sload ../../irc/ircMonitor
+sload ../../irc/irc-byteseq-interface
+sload ../../irc/irc-mamodel-v2
+sload ../../common/maude/irc-action-actor-v2.maude
+sload ../../network/net_prob-clt.maude
+sload ../../common/maude/structured-addresses.maude
+
+set print attribute on .
+
+mod TEST_WEBTUNNEL_IRC is
+  pr IRC-V2 .
+  pr IRC_MONITOR .
+  pr IRC-MAMODEL-V2 .
+  pr IRC-USER-ACTION-ACTOR-V2 .
+  pr WEBTUNNEL .
+  pr IRC_NAMES .
+  pr IRC-BYTESEQ-INTERFACE .
+  pr NETWORK_CONNECTION .
+  inc STRUCTURED-ADDRESSES .
+
+  ***** Global constants  
+  **** the user model database
+  eq MAModelMap = ("irc-test" |-> irc-mamodel-v2 ) .
+
+  *** for the default case
+  eq noiseMax(msg:Msg) = 0.00001 .
+
+  ---------------------------------------------------
+  --- Addresses
+  ---------------------------------------------------
+
+  --- IRC layer actors
+  ops ircClient1Addr ircClient2Addr : -> Address .  --- Alice, Bob
+  ops ircClient1UserModelAddr       : -> Address .
+  ops ircClient2UserModelAddr       : -> Address .
+  ops ircServerAddr ircMonitorAddr  : -> Address .  --- IRC server
+  ops client1IfaceAddr client2IfaceAddr : -> Address .
+  ops server1IfaceAddr server2IfaceAddr : -> Address .
+  ops wtClient1Addr wtClient2Addr : -> Address .   --- Alice-side, Bob-side
+  ops wtProxy1Addr wtProxy2Addr   : -> Address .   --- shared proxy
+  ops netClient1Addr netClient2Addr : -> Address .
+  ops netServer1Addr netServer2Addr : -> Address .
+
+  eq ircClient1Addr = a(cl[1],hcs,irc,cl,1) .
+  eq ircClient2Addr = a(cl[2],hcs,irc,cl,1) .
+  eq ircClient1UserModelAddr = a(cl[1],hcs,irc,um,1) .
+  eq ircClient2UserModelAddr = a(cl[2],hcs,irc,um,1) .
+  eq ircServerAddr = a(srvN,srv,irc,srv,0) .
+
+  eq client1IfaceAddr = a(cl[1],hcs,irc,if,1) .
+  eq client2IfaceAddr = a(cl[2],hcs,irc,if,1) .
+  eq server1IfaceAddr = a(srvN[1],hcs,irc,if,1) .
+  eq server2IfaceAddr = a(srvN[2],hcs,irc,if,1) .
+
+  eq wtClient1Addr = a(cl[1],hcs,wt,cl,1) .
+  eq wtClient2Addr = a(cl[2],hcs,wt,cl,1) .
+  eq wtProxy1Addr = a(srvN[1],hcs,wt,srv,1) .
+  eq wtProxy2Addr = a(srvN[2],hcs,wt,srv,1) .
+
+  eq netClient1Addr = a(cl[1],tcp,wt,cl,1) .
+  eq netClient2Addr = a(cl[2],tcp,wt,cl,1) .
+  eq netServer1Addr = a(srvN[1],tcp,wt,srv,1) .
+  eq netServer2Addr = a(srvN[2],tcp,wt,srv,1) .
+
+  ---------------------------------------------------
+  --- Link model parameters
+  ---
+  --- A simple constant-delay, no-drop link for clarity.
+  --- Override these equations to add latency or packet loss.
+  ---------------------------------------------------
+  op LinkParams : -> AttributeSet .
+  eq LinkParams =
+    (4stateLoss: (p13: 0.0,
+                  p31: 1.0,
+                  p32: 0.0,
+                  p23: 0.0,
+                  p14: 0.0,
+                  oneWayDelay: 0.01))
+  .
+
+  eq LinkData =
+    --- Webtunnel clients <-> proxy (and reverse)
+    aaa(wtClient1Addr, wtProxy1Addr,  LinkParams)
+    aaa(wtProxy1Addr,  wtClient1Addr, LinkParams)
+    aaa(wtClient2Addr, wtProxy2Addr,  LinkParams)
+    aaa(wtProxy2Addr,  wtClient2Addr, LinkParams)
+
+    --- All endpoints <-> IXP
+    aaa(wtClient1Addr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, wtClient1Addr, LinkParams)
+    aaa(wtClient2Addr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, wtClient2Addr, LinkParams)
+
+    aaa(wtProxy1Addr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, wtProxy1Addr, LinkParams)
+    aaa(wtProxy2Addr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, wtProxy2Addr, LinkParams)
+  .
+
+  ---------------------------------------------------
+  --- Message schedules
+  ---
+  --- imd(delaySeconds, room, messageSize)
+  --- The delay is relative to the first scheduled send (set via ircMsgSendTime).
+  --- Message text is generated by genIrcText(userId, counter, size).
+  ---------------------------------------------------
+
+  ---------------------------------------------------
+  --- Actors
+  ---------------------------------------------------
+
+  ops ircClient1 ircClient2 ircServer : -> Actor .
+  ops ircClient1UserModel             : -> Actor .
+  ops ircClient2UserModel             : -> Actor .
+  ops client1Iface client2Iface       : -> Actor .
+  ops server1Iface server2Iface       : -> Actor .
+  ops wtClient1 wtClient2             : -> Actor .
+  ops wtProxy1 wtProxy2               : -> Actor .
+  ops netClient1 netClient2           : -> Actor .
+  ops netServer1 netServer2           : -> Actor .
+
+  op advAddr : -> Address .
+  op advActor : -> Actor .
+  eq advActor = mkAdversaryCp3(advAddr) .
+
+  --- IRC clients.  Their raceboatAddr points to the WtClient actor,
+  --- which acts as the transparent next-hop toward the IRC server.
+  eq ircClient1 =
+    mkIrcClient-v2(ircClient1Addr,
+                   client1IfaceAddr,
+                   "alice")
+  .
+  eq ircClient1UserModel = mkIrcUMV2Actor(ircClient1UserModelAddr,
+                                          "irc-test",
+                                          ircClient1Addr)
+  .
+
+  eq ircClient2 =
+    mkIrcClient-v2(ircClient2Addr,
+                   client2IfaceAddr,
+                   "bob")
+  .
+  eq ircClient2UserModel = mkIrcUMV2Actor(ircClient2UserModelAddr,
+                                          "irc-test",
+                                          ircClient2Addr)
+  .
+
+  --- Translation interfaces.
+  eq client1Iface = mkIrcByteSeqIface(client1IfaceAddr,
+                                      ircClient1Addr,
+                                      wtClient1Addr)
+  .
+  eq client2Iface = mkIrcByteSeqIface(client2IfaceAddr,
+                                      ircClient2Addr,
+                                      wtClient2Addr)
+  .
+  eq server1Iface = mkIrcByteSeqIface(server1IfaceAddr,
+                                      ircServerAddr,
+                                      wtProxy1Addr)
+  .
+  eq server2Iface = mkIrcByteSeqIface(server2IfaceAddr,
+                                      ircServerAddr,
+                                      wtProxy2Addr)
+  .
+
+  --- Webtunnel client actors.
+  --- tlsServerName and upgradePath would be the bridge's public domain
+  --- and secret path in a real deployment.
+  eq wtClient1 =
+    < wtClient1Addr : WtClient |
+        thisAddr:        wtClient1Addr,
+        serverProxyAddr: wtProxy1Addr,
+        ircServerAddr:   ircServerAddr,
+        ircClientAddr:   client1IfaceAddr,
+        tlsServerName:   "irc.example.com",
+        upgradePath:     "secret/path/v1",
+        tunnelState:     Closed,
+        pendingMsgs:     emptyQueue >
+  .
+
+  eq wtClient2 =
+    < wtClient2Addr : WtClient |
+        thisAddr:        wtClient2Addr,
+        serverProxyAddr: wtProxy2Addr,
+        ircServerAddr:   ircServerAddr,
+        ircClientAddr:   client2IfaceAddr,
+        tlsServerName:   "irc.example.com",
+        upgradePath:     "secret/path/v1",
+        tunnelState:     Closed,
+        pendingMsgs:     emptyQueue >
+  .
+
+  --- Shared webtunnel server proxy.
+  --- Its raceboatAddr (used by the IRC server for outbound messages) is
+  --- wtProxyAddr itself, since the proxy terminates all tunnel connections.
+  eq wtProxy1 =
+    makeWtServerProxy(wtProxy1Addr, server1IfaceAddr)
+  .
+
+  eq wtProxy2 =
+    makeWtServerProxy(wtProxy2Addr, server2IfaceAddr)
+  .
+
+  --- IRC server.  raceboatAddr = wtProxyAddr so all server-originated
+  --- messages are delivered to the proxy, which routes them into tunnels.
+  eq ircServer =
+    mkIrcServer(ircServerAddr)
+  .
+
+  eq netClient1 = makeNetClient(netClient1Addr,
+                                wtProxy1Addr,
+                                wtClient1Addr,
+                                true,
+                                nullAddr,
+                                nullName)
+  .
+
+  eq netClient2 = makeNetClient(netClient2Addr,
+                                wtProxy2Addr,
+                                wtClient2Addr,
+                                true,
+                                nullAddr,
+                                nullName)
+  .
+
+  eq netServer1 = makeNetServer(netServer1Addr,
+                                wtProxy1Addr)
+  .
+
+  eq netServer2 = makeNetServer(netServer2Addr,
+                                wtProxy2Addr)
+  .
+
+  eq transport(any:Address) = tcp(any:Address) .
+
+  vars dt : Float .
+  vars icAddr isAddr ifsAddr : Address .
+  vars room : String .
+  op mkJoin : Float String Address Address Address -> ScheduleMsg .
+  eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =
+       [dt,
+       (to isAddr from ifsAddr :
+        JoinChannel(makeIrcChannelName(room), icAddr )),
+        0]
+  .
+
+  ---------------------------------------------------
+  --- Initial configuration
+  ---------------------------------------------------
+
+  op initState : -> Config .
+  eq initState =
+    rCtr(8)
+
+    --- Actors
+    ircClient1
+    ircClient2
+    ircClient1UserModel
+    ircClient2UserModel
+    client1Iface
+    client2Iface
+    wtClient1
+    wtClient2
+    server1Iface
+    server2Iface
+    wtProxy1
+    wtProxy2
+    netClient1
+    netClient2
+    netServer1
+    netServer2
+    ircServer
+    mkIrcMonitor(ircMonitorAddr)
+    advActor
+
+    --- Phase 1: Tunnel setup
+    --- Alice's WtClient initiates its tunnel.
+    [0.10, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]
+    --- Bob's WtClient initiates its tunnel.
+    [0.15, (to wtClient2Addr from wtClient2Addr : WtStartCmd), 0]
+    
+    --- Phase 2: Join Channels (after tunnels open at ~0.46)
+    mkJoin(1.0, "#chat", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    mkJoin(1.1, "#general", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    mkJoin(1.2, "#random", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    
+    mkJoin(1.3, "#chat", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+    mkJoin(1.4, "#general", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+    mkJoin(1.5, "#random", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+
+    --- Phase 3: IRC message send timers.
+    **** start alice
+    [3.0, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
+    **** start bob
+    [3.1, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
+  .
+
+  ---------------------------------------------------
+  --- Run parameters
+  ---------------------------------------------------
+  op limit : -> Float .
+  eq limit = 300.0 .    --- simulate 30 simulated seconds
+
+  op initConfig : -> Config .
+  eq initConfig = run({0.0 | nil} initState, limit) .
+
+endm
+set print attribute on .
+rew initConfig .
+q
+eof
+
+---------------------------------------------------
+--- Unit-level rewrite tests
+---
+--- Because this file imports webtunnel_prob, all rules use timed messages.
+--- Unit tests therefore wrap messages in {T, ...} and include rCtr(0).
+---------------------------------------------------
+
+--- Test 1: WtClient transitions from Closed -> Connecting on WtStartCmd.
+rew rCtr(0)
+    wtClient1
+    {0.0, (to wtClient1Addr from wtClient1Addr : WtStartCmd)}
+.
+
+--- Test 2: WtClient transitions from Connecting -> Open on WtConnected
+---         and flushes the queued JoinChannel message.
+rew rCtr(0)
+    < wtClient1Addr : WtClient |
+        thisAddr:        wtClient1Addr,
+        serverProxyAddr: wtProxyAddr,
+        ircServerAddr:   ircServerAddr,
+        ircClientAddr:   ircClient1Addr,
+        tlsServerName:   "irc.example.com",
+        upgradePath:     "secret/path/v1",
+        tunnelState:     Connecting,
+        pendingMsgs:     enqueue(emptyQueue,
+                           JoinChannel(makeIrcChannelName("#maude-test"),
+                                       ircClient1Addr))
+    >
+    {0.0, (to wtClient1Addr from wtProxyAddr : makeHttpResponse("101 Switching Protocols"))}
+.
+
+--- Test 3: WtServerProxy registers a tunnel on HttpRequest and schedules HttpResponse.
+rew rCtr(0)
+    wtProxy
+    {0.0, (to wtProxyAddr from wtClient1Addr
+            : makeHttpRequest(getRequest, url("https://irc.example.com/secret/path/v1")))}
+.
+
+--- Test 4: WtServerProxy forwards a makeHttpRequest(getRequest, JoinChannel) from client to IRC server.
+rew rCtr(0)
+    < wtProxyAddr : WtServerProxy |
+        thisAddr:        wtProxyAddr,
+        ircServerAddr:   ircServerAddr,
+        tunnelClientMap: (makeIrcUserName(wtClient1Addr) ~> ircClient1Addr)
+    >
+    {0.0, (to wtProxyAddr from wtClient1Addr
+            : makeHttpRequest(getRequest, JoinChannel(makeIrcChannelName("#maude-test"), ircClient1Addr)))}
+.
+
+--- Test 5: WtServerProxy routes a PrivMsgRes back through the tunnel to WtClient1.
+rew rCtr(0)
+    < wtProxyAddr : WtServerProxy |
+        thisAddr:        wtProxyAddr,
+        ircServerAddr:   ircServerAddr,
+        tunnelClientMap: (makeIrcUserName(wtClient1Addr) ~> ircClient1Addr)
+    >
+    {0.0, (to wtClient1Addr from ircServerAddr
+            : PrivMsgRes(makeIrcChannelName("#maude-test"),
+                         makeIrcUserName(ircClient2Addr),
+                         "alice:0:120"))}
+.
+
+
