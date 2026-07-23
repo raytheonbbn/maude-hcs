@@ -1,0 +1,165 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set show advisories off .
+
+sload ../../../common/maude/cp2-interfaces
+sload ../../../common/maude/sampler-x
+sload ../../../common/maude/delay-drop-x
+sload ../../../irc/common/irc_name
+sload ../../../irc/common/_aux
+sload ../../../irc/common/irc-msg-model
+sload profiles/irc-tgen-mamodel-v2
+
+mod IRC-TGEN is
+  pr IRC_NODE .
+  pr IRC_AUX .
+  pr CP2-COMMON .
+  inc TGEN-INTERFACE .
+  inc IRC-MSG-MODEL .
+  inc DELAY-X .
+  inc IRC-IRC-MAMODEL-V2 .
+
+  op IrcTgenClient : -> ActorType .
+
+  vars IRC_TGEN_ADDR IRC_SERVER_ADDR ircSourceAddr ircDestinationAddr : Address .
+  vars rbAddr addr ircAddr umAddr : Address .
+  vars attrs attrs1 attrs0 attrs2 : AttributeSet .
+  vars ircName : IrcName .
+  vars ircDestinationName IRC_CLIENT_NAME ircUserName : IrcUserName .
+  vars chatText ircDestination ircSource : String .
+  vars T : Float .
+  vars smsgs msgs : Config .
+  vars msg msg0 msg1 : Msg .
+  vars ctr j j1 size : Nat .
+  vars userId room astr : String .
+  vars fl : Float .
+  vars ircMsg : IrcMsg .
+  vars aspec : Map{String,JV} .
+
+  op mkIrcTgenClient : Address Address String -> Actor .
+  eq mkIrcTgenClient(ircAddr, rbAddr, userId) =
+    < ircAddr : IrcTgenClient |
+        thisAddr: ircAddr,
+        raceboatAddr: rbAddr,
+        ircName: makeIrcUserName(ircAddr),
+        userId: userId,
+        msgCtr: 0
+    > .
+
+  --- Send ircMsg and schedule next if any
+  crl [irc-tgen-client-rcv-actionQ]:
+  rCtr(j)
+  < ircAddr : IrcTgenClient | attrs >
+    {T, (to ircAddr from umAddr : actionQ(aspec) )}
+  =>
+  rCtr(j1)
+  < ircAddr : IrcTgenClient | attrs1 >
+    smsgs
+    if {attrs1, smsgs, j1} := 
+       ircExeAction(attrs, ircAddr, umAddr,
+                    jv2str(aspec["type"]),aspec,j)            
+  .
+
+  op ircExeAction : AttributeSet Address Address String
+                    Map{String,JV} Nat 
+                    -> AttributeSetMsgsNat .  
+
+ceq [irc-action-not-understood] :
+  ircExeAction(attrs,ircAddr,umAddr,astr,aspec,j) 
+    = {attrs,smsgs,j1}
+ if msg := (to umAddr from ircAddr : actionR("notUnderstood"))
+ /\ {smsgs,j1}  := delayMsgsX(j,msg,null)
+  .
+
+ceq ircExeAction(attrs,ircAddr,umAddr,"roommsg",aspec,j) 
+    =  {attrs2,smsgs,j1}
+if jf(fl) := aspec["message_length_bytes"]
+/\ js(room) := aspec["room"]
+/\ attrs0, msgCtr: ctr := attrs
+/\ attrs1, userId: userId, raceboatAddr: rbAddr := attrs
+/\ ircMsg := 
+     genPrivMsgReq(ircAddr,ctr,userId,room,round(fl)) 
+/\ msg0 := to rbAddr from ircAddr : ircMsg
+/\ msg1 := to umAddr from ircAddr : actionR("ok")     
+/\ {smsgs,j1} := delayMsgsX(j,msg0 msg1,null)
+/\ attrs2 := attrs0, msgCtr: s ctr
+.
+
+ceq  ircExeAction(attrs,ircAddr,umAddr,"joinmsg",aspec,j) 
+     = {attrs,smsgs,j1}
+if js(room) := aspec["room"]
+/\ attrs1, raceboatAddr: rbAddr := attrs
+/\ ircMsg :=  genJoinMsgReq(ircAddr,room) 
+/\ msg0 := to rbAddr from ircAddr : ircMsg
+/\ msg1 := to umAddr from ircAddr : actionR("ok")     
+/\ {smsgs,j1} := delayMsgsX(j,msg0 msg1,null)
+.
+
+  op genPrivMsgReq : Address  Nat String String Nat -> IrcMsg .
+  eq genPrivMsgReq(IRC_TGEN_ADDR ,ctr,userId,room,size) =
+     PrivMsgReq(makeIrcChannelName(room),  
+                makeIrcUserName(IRC_TGEN_ADDR),
+                genIrcText(userId,ctr,size))
+  .
+
+  op genJoinMsgReq : Address  String  -> IrcMsg .
+  eq genJoinMsgReq(ircAddr,room) =
+       JoinChannel(makeIrcChannelName(room),ircAddr) 
+  .       
+
+  rl [irc-tgen-client-handle-incoming-chat]:
+  < IRC_TGEN_ADDR : IrcTgenClient | attrs >
+    {T, (to IRC_TGEN_ADDR from rbAddr : PrivMsgRes(ircName, makeIrcUserName(ircSourceAddr), chatText))}
+  =>
+  < IRC_TGEN_ADDR : IrcTgenClient | attrs >
+  .
+
+  --- Handle server ping, respond with a pong if alive.
+ crl [irc-tgen-client-handle-ping]:
+  rCtr(j)
+  < IRC_TGEN_ADDR : IrcTgenClient | attrs >
+    {T, (to IRC_TGEN_ADDR from rbAddr : Ping(ircDestinationName, IRC_SERVER_ADDR))}
+  =>
+  rCtr(j1)
+  < IRC_TGEN_ADDR : IrcTgenClient | attrs >
+ smsgs
+if {smsgs,j1} :=  delayMsgsX(j,(to getRaceboatAddr(attrs) from IRC_TGEN_ADDR : Pong(makeIrcUserName(IRC_TGEN_ADDR), IRC_TGEN_ADDR)), null)
+  .
+
+  --- Handle (ignore) server messages of other clients joining or leaving.
+  crl [irc-tgen-client-handle-channel-go]:
+  < IRC_TGEN_ADDR : IrcTgenClient | attrs >
+    {T, (to IRC_TGEN_ADDR from rbAddr : goMsg:Content)}
+  =>
+  < IRC_TGEN_ADDR : IrcTgenClient | attrs >
+  if isChannelGoMessage(goMsg:Content)
+  .
+endm
