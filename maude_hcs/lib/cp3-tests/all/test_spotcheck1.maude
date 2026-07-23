@@ -81,6 +81,7 @@ sload ../../tgen/maude/dnsprofiles/markov/config_fast_1.maude
 sload ../../tgen/maude/masTGen.maude
 sload ../../tgen/maude/mastodonprofiles/markov/config_influencer_4.maude
 
+sload ../../tgen/maude/irc/ircTgen-actor.maude
 
 mod HCS_TEST is
   pr SCHEDULER .
@@ -128,6 +129,7 @@ mod HCS_TEST is
 
   inc MAS-TGEN .
   inc MASTODON-CONFIG-INFLUENCER-4-MAMODEL .
+  inc IRC-TGEN .
 
 
   vars j : Nat .
@@ -136,7 +138,7 @@ mod HCS_TEST is
   eq noiseMin(msg:Msg)          = 0.001 .
   ***** Global constants  
   **** the user model database
-  eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2, "ftp" |-> ftp-config-ma-v2, "gorilla" |-> gorilla-config-ma-v2, "minio" |-> minio-config-ma-v2) .
+  eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2, "irc-tgen" |-> irc-irc-ma-v2, "ftp" |-> ftp-config-ma-v2, "gorilla" |-> gorilla-config-ma-v2, "minio" |-> minio-config-ma-v2) .
   *** for the default case
   eq noiseMax(msg:Msg)          = 0.00001 .
      
@@ -294,6 +296,10 @@ op skyhookNetServerAddr : -> Address .
   eq masTGAddr = a(cl[10],tgen,mas,app,1) .
   eq masClientAddr = a(cl[10],tgen,mas,cl,1) .
 
+  ops ircTgenUMAddr ircTgenClientAddr : -> Address .
+  eq ircTgenUMAddr = a(cl[11],tgen,irc,um,1) .
+  eq ircTgenClientAddr = a(cl[11],tgen,irc,cl,1) .
+
   ---------------------------------------------------
   --- Link model parameters
   ---------------------------------------------------
@@ -358,6 +364,8 @@ op skyhookNetServerAddr : -> Address .
     aaa(dnsRsvAddr, dnsTGAddr, LinkType-TCP-4stateLoss)
     aaa(masClientAddr, masSrvAddr, LinkType-TCP-4stateLoss)
     aaa(masSrvAddr, masClientAddr, LinkType-TCP-4stateLoss)
+    aaa(ircTgenClientAddr, ircServerAddr, LinkType-TCP-4stateLoss)
+    aaa(ircServerAddr, ircTgenClientAddr, LinkType-TCP-4stateLoss)
     
     aaa(ftpTGAddr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
     aaa(IXP-DEFAULT-ADDR, ftpTGAddr, LinkType-TCP-4stateLoss)
@@ -375,6 +383,8 @@ op skyhookNetServerAddr : -> Address .
     aaa(IXP-DEFAULT-ADDR, dnsTGAddr, LinkType-TCP-4stateLoss)
     aaa(masClientAddr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
     aaa(IXP-DEFAULT-ADDR, masClientAddr, LinkType-TCP-4stateLoss)
+    aaa(ircTgenClientAddr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, ircTgenClientAddr, LinkType-TCP-4stateLoss)
     aaa(wtProxy1Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
     aaa(IXP-DEFAULT-ADDR, wtProxy1Addr, LinkType-TCP-4stateLoss)
     aaa(wtClient1Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
@@ -572,6 +582,12 @@ op skyhookNetServerAddr : -> Address .
   op masUmAct : -> Actor .
   eq masUmAct = mkUMactor(masUMAddr, mastodon-config-influencer-4-ma, masTGAddr) .
 
+  --- IRC TGEN
+  op ircTGenA : -> Actor .
+  eq ircTGenA = mkIrcTgenClient(ircTgenClientAddr, ircServerAddr, "ircTgen") .
+  op ircTgenUmAct : -> Actor .
+  eq ircTgenUmAct = mkIrcUMV2Actor(ircTgenUMAddr, "irc-tgen", ircTgenClientAddr) .
+
   ---------------------------------------------------
   --- Initial State Configuration
   ---------------------------------------------------
@@ -609,6 +625,7 @@ op skyhookNetServerAddr : -> Address .
     minioUmAct minioTGenA minioS3ClientA minioS3ServerA
     dnsUmAct dnsTGenA
     masUmAct masTGenA masClientA
+    ircTgenUmAct ircTGenA
     
     masSrvAct
 
@@ -633,6 +650,7 @@ op skyhookNetServerAddr : -> Address .
     [30.0 + genRandomX(j, 0.0, 0.0001), (to minioUMAddr from minioUMAddr : burstDelayTO), 0]
     [30.0 + genRandomX(j, 0.0, 0.0001), (to dnsUMAddr from dnsUMAddr : actionR("")), 0]
     [30.0 + genRandomX(j, 0.0, 0.0001), (to masUMAddr from masUMAddr : actionR("")), 0]
+    [30.0 + genRandomX(j, 0.0, 0.0001), (to ircTgenUMAddr from ircTgenUMAddr : burstDelayTO), 0]
 
     mkJoin(2.0, "#chat", ircClient1Addr, ircServerAddr, server1IfaceAddr)
     mkJoin(2.1, "#general", ircClient1Addr, ircServerAddr, server1IfaceAddr)
@@ -653,6 +671,10 @@ op skyhookNetServerAddr : -> Address .
     mkJoin(3.2, "#chat", ircClient5Addr, ircServerAddr, server5IfaceAddr)
     mkJoin(3.3, "#general", ircClient5Addr, ircServerAddr, server5IfaceAddr)
     mkJoin(3.4, "#random", ircClient5Addr, ircServerAddr, server5IfaceAddr)
+
+    mkJoin(3.5, "#tgen_chat", ircTgenClientAddr, ircServerAddr, ircTgenClientAddr)
+    mkJoin(3.6, "#tgen_general", ircTgenClientAddr, ircServerAddr, ircTgenClientAddr)
+    mkJoin(3.7, "#tgen_random", ircTgenClientAddr, ircServerAddr, ircTgenClientAddr)
 
     [20.0, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
     [21.0, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
