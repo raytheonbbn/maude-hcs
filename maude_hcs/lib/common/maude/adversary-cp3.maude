@@ -19,9 +19,12 @@ sort FloatInf .
 subsort Float < FloatInf .
 op infty : -> FloatInf [ctor] .
 
-sorts TimesMsg TimesPkt .
+sorts TimesMsg TimesPkt TimesObs .
+subsort TimesMsg  < TimesObs .
+subsort TimesPkt  < TimesObs .
 sort TimesObsList .
-subsort TimesMsg TimesPkt < TimesObsList .
+**** subsort TimesMsg TimesPkt < TimesObsList .
+subsort TimesObs < TimesObsList .
 op nilTO : -> TimesObsList [ctor] .
 op _;;_ : TimesObsList TimesObsList -> TimesObsList
             [ctor assoc id: nilTO] .
@@ -33,6 +36,14 @@ op getRecvTime : TimesMsg -> FloatInf .
 eq getRecvTime(tm(tsnd,tixp,trcv,msg)) = trcv .
 op getIXPTime : TimesMsg -> FloatInf .
 eq getIXPTime(tm(tsnd,tixp,trcv,msg)) = tixp .
+
+op getSender : TimesMsg -> Address .
+eq getSender(tm(tsnd,tixp,trcv, 
+                (to tgt from src : c:Content))) = src .
+op getReceiver : TimesMsg -> Address .
+eq getReceiver(tm(tsnd,tixp,trcv, 
+                (to tgt from src : c:Content))) = tgt .
+
 
 
 sort Pkt .
@@ -48,6 +59,13 @@ op getRecvTime : TimesPkt -> FloatInf .
 eq getRecvTime(tp(tsnd,tixp,trcv,pkt)) = trcv .
 op getIXPTime : TimesPkt -> FloatInf .
 eq getIXPTime(tp(tsnd,tixp,trcv,pkt)) = tixp .
+
+op getSender : TimesPkt -> Address .
+eq getSender(tp(tsnd,tixp,trcv,pkt(tgt,src,new?,cnx,size))) 
+      =  src .
+op getReceiver : TimesMsg -> Address .
+eq getReceiver(tp(tsnd,tixp,trcv, pkt(tgt,src,new?,cnx,size))) 
+      =  tgt .
 
 
 sort Flow .

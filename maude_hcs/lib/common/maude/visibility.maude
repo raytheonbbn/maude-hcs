@@ -1,0 +1,155 @@
+sload structured-addresses 
+sload adversary-cp3
+
+mod VISIBILITY is
+  inc ADVERSARY-CP3-DATA .
+  inc STRUCTURED-ADDRESSES .
+
+vars vp nid : NetId .
+vars tobs : TimesObs .
+vars tmin tmax  obst : FloatInf .
+vars dir : Dir .
+vars j : Nat .
+
+
+
+op netIdMatch : NetId NetId -> Bool .
+eq netIdMatch(ixpN,nid) = true .
+eq netIdMatch(srvN,srvN[j]) = true .
+eq netIdMatch(vp,nid) = vp == nid [owise] .
+
+***(
+A vantage point is a network identifier, one of
+   cl[j] srvN masN minN dnsN ixpN
+)
+
+sort Dir .
+ops incoming outgoing : -> Dir [ctor] .
+
+**** test if tmsg is visible at given vantage point 
+**** in a given time interval with a given direction.
+
+op visible : NetId TimesObs Float Float Dir -> Bool .
+op visTime : NetId TimesObs Float Float Dir -> Bool .
+op visNet : NetId TimesObs Dir -> Bool .
+
+eq visible(vp,tobs,tmin,tmax,dir) = false [owise] .
+eq visible(vp,tobs,tmin,tmax,dir) =
+    visNet(vp,tobs,dir) and visTime(vp,tobs,tmin,tmax,dir) .
+    
+eq visNet(ixpN,tobs,dir)  = true .
+ceq visNet(vp,tobs,dir)  = netIdMatch(vp,nid)
+if nid := (if dir == incoming
+          then getNetId(getReceiver(tobs))
+          else getNetId(getSender(tobs))
+          fi)  [owise] 
+    .
+
+ceq visTime(vp,tobs,tmin,tmax,dir) = 
+      (tmin <= obst) and (obst <= tmax)
+if obst := (if vp == ixpN
+            then getIXPTime(tobs)
+            else (if dir == incoming
+                  then getRecvTime(tobs)
+                  else getSendTime(tobs)
+                  fi) fi)
+  .                       
+
+endm
+eof
+
+sload ../../../deps/dns_formalization/Maude/dns/common/prelim.maude
+
+mod TEST-VISIBILITY is
+  inc VISIBILITY .
+  inc MSG .
+  
+ops tM0 tM1 tM2 : -> TimesMsg .
+ops tP0 tP1 tP2 tP3 : -> TimesPkt .
+
+**** vis ixpN i/o  dnsN i, srvN o
+eq tM0 = ***** t0 dnsN from srvN
+tm(1.16e-3, 6.24e-3, 6.47e-3, to a(dnsN, dns, dns, srv, 0) from a(srvN, dns, dns, cl, 0) : query(clientId(a(srvN[1], tcp, min, cl, 1), 0), 'mastodon . 'com . root, a)) .
+
+***(
+red visible(ixpN,tM0,1.e-3,6.e-3,incoming) .   --- f
+red visible(ixpN,tM0,1.e-3,8.e-3,incoming) .   --- t
+red visible(dnsN,tM0,1.e-3,8.e-3,incoming) .   --- t
+red visible(dnsN,tM0,1.e-3,8.e-3,outgoing) .   --- f
+red visible(srvN,tM0,1.e-3,8.e-3,outgoing) .   --- t
+
+)
+
+**** vis ixpN i/o  dnsN i, srvN o
+eq tM1 =  **** to dnsN from srvN[2]  
+tm(2.209e-3, 7.2745e-3, 7.425e-3, to a(dnsN, dns, dns, srv, 0) from a(srvN, dns, dns, cl, 0) : query(clientId(a(srvN[2], tcp, min, cl, 1), 0), 'mastodon . 'com . root, a)) .
+
+
+***(
+red visible(dnsN,tM1,1.e-3,8.e-3,incoming) .   --- t
+red visible(dnsN,tM1,3.e-3,7.e-3,incoming) .   ---- f
+red visible(dnsN,tM1,2.e-3,8.e-3,outgoing) .   --- f
+red visible(srvN,tM1,2.e-3,8.e-3,outgoing) .   --- t
+
+
+)
+
+**** vis ixpN i/o  minN i  srvN o
+eq tP0 = **** to minN from srvN[1],
+tp( 1.059e-3, 1.605e-2, 3.105e-2, pkt(a( minN, srv, min, srv, 0), a(srvN[1], hcs, sky, cl, 1), true, 0, 200)) .
+
+***(
+red visible(ixpN,tP0,1.e-2,2.e-2,incoming) .   --- t
+red visible(ixpN,tP0,1.e-2,1.5e-2,outgoing) .  --- f
+
+red visible(dnsN,tP0,2.e-2,8.e-2,incoming) .    --- f
+red visible(minN,tP0,2.e-2,8.e-2,incoming) .    --- t
+red visible(minN,tP0,2.e-2,8.e-2,outgoing) .    --- f
+red visible(srvN,tP0,1.e-3,8.e-2,outgoing) .    --- t
+red visible(srvN,tP0,2.e-2,8.e-2,outgoing) .    --- f
+
+)
+
+
+**** vis srvN i minN o
+**** to srvN[1] from minN
+eq tP1 = 
+tp(4.13e-2, 5.634e-2, 7.134e-2, pkt(a(srvN[1], hcs, sky, cl, 1), a(minN, srv, min, srv, 0), false, 0, 200)) .
+
+***(
+red visible(srvN,tP1,2.e-2,8.e-2,incoming) .   --- t
+red visible(srvN,tP1,2.e-2,8.e-2,outgoing) .   --- f
+red visible(minN,tP1,2.e-2,8.e-2,outgoing) .   --- t
+red visible(minN,tP1,1.e-3,8.e-2,incoming) .   --- f
+)
+
+**** vis minN i cl[1] o    
+eq tP2 = **** to minN from cl[1]
+tp(2.8370360732257922e+1, 2.8385360732257922e+1, 2.8400360732257923e+1, pkt(a(minN, srv, min, srv, 0), a(cl[1], hcs, sky, cl, 1), true, 0, 200)) .
+
+***(
+red visible(cl[1],tP2,2.e+1,3.e+1,incoming) .  --- f
+red visible(cl[1],tP2,2.e+1,3.e+1,outgoing) .  --- t
+red visible(minN,tP2,2.e+1,3.e+1,outgoing) .   --- f  
+red visible(minN,tP2,1.e+1,3.e+1,incoming) .   --- t
+)
+
+**** vis cl[1] i minN o
+eq tP3 = **** to cl[1] from minN
+tp(2.8410800667807557e+1, 2.8425800667807557e+1, 2.8440800667807558e+1, pkt(a(cl[1], hcs, sky, cl, 1), a(minN, srv, min, srv, 0), false, 0, 200)) .
+
+***(
+red visible(cl[1],tP3,2.e+1,3.e+1,incoming) .   --- t
+red visible(cl[1],tP3,2.e+1,3.e+1,outgoing) .   --- f
+red visible(minN,tP3,2.e+1,3.e+1,outgoing) .    --- t
+red visible(minN,tP3,1.e+1,3.e+1,incoming) .    --- f
+)
+
+
+endm
+eof
+
+ops aD0 aD1 aD2 aD3 : -> Address .
+eq aD0 = a(cl[1],hcs,sky,cl,1) .
+eq aD0 = a(srvN,hcs,sky,cl,1) .
+
