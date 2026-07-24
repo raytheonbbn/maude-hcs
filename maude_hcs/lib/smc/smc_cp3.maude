@@ -409,7 +409,6 @@ mod SMC_CP3 is
   vars S Z H : Float .
 
   var M : Msg .
-  var TML : TimeMsgList .
   var QUERY : Query .
   var RESP : Response .
   vars K Ksum : Float .
@@ -504,13 +503,6 @@ mod SMC_CP3 is
   ops IXP : -> VantagePoint .
   var vp : VantagePoint .
 
-  subsort TimeMsgList < TimesObsList . --- to be deprecated
-***( --- mv to adversary-cp3 
-  sort TimesObsList .
-  subsort TimesObsList TimesObsList < TimesObsList .
-  op nilTO : -> TimesObsList [ctor] .
-  op _;;_ : TimesObsList TimesObsList -> TimesObsList [ctor assoc id: nilTO] .
-)
   var TOL : TimesObsList .
   vars F0Z GtZ : TimesObsList .
   var TsML : TimesObsList .
@@ -519,39 +511,12 @@ mod SMC_CP3 is
   op visible : VantagePoint Address -> Bool .
   eq visible (vp, ADDR) = true .  
 
-***( --- to be deprecated 
-  op collectObsFlow : TimeMsgList -> FlowList .
-  eq collectObsFlow (nilTML) = nilFlow .
-  eq collectObsFlow (tm(T, to ADDR from ADDR' : QUERY) ; TML) = addFlowList(flow(ADDR', ADDR, 0), collectObsFlow(TML)) .
-  eq collectObsFlow (tm(T, M) ; TML) = collectObsFlow(TML) [owise] .
-)
-
   op collectObsFlow : TimesObsList -> FlowList .
   eq collectObsFlow (nilTO) = nilFlow .
   eq collectObsFlow (tm(Ts, Tx, Tr, to ADDR from ADDR' : QUERY) ;; TsML) = addFlowList(flow(ADDR', ADDR, 0), collectObsFlow(TsML)) .
   eq collectObsFlow (tm(Ts, Tx, Tr, to ADDR from ADDR' : RESP) ;; TsML) = addFlowList(flow(ADDR', ADDR, 0), collectObsFlow(TsML)) .
   eq collectObsFlow (tm(Ts, Tx, Tr, M) ;; TsML) = collectObsFlow(TsML) [owise] .
   eq collectObsFlow (tpkt ;; TsPL) = addFlowList(getFlow(tpkt), collectObsFlow(TsPL)) .
-
-***( --- to be deprecated 
-  op compObsFeature : VantagePoint Feature TimesObsList Float Float -> Float .
-  eq compObsFeature (vp, obsF, nilTO, Tstart, Tend) = 0.0 . 
-  eq compObsFeature (vp, dnsQueryRate, TOL, Tstart, Tend) = 
-    if Tend <= Tstart
-    then 0.0
-    else float(countDNSQuery(TOL, Tstart, Tend)) / (Tend - Tstart) fi .
-  eq compObsFeature (vp, dnsQuerySize, TOL, Tstart, Tend) = 
-    if Tend <= Tstart
-    then 0.0
-    else 
-      if countDNSQuery(TOL, Tstart, Tend) == 0
-      then 0.0
-      else float(sizeDNSQuery(TOL, Tstart, Tend)) / float(countDNSQuery(TOL, Tstart, Tend)) fi .
-  eq compObsFeature (vp, dnsRespSize, TOL, Tstart, Tend) = 
-    if Tend <= Tstart
-    then 0.0
-    else float(countDNSQuery(TOL, Tstart, Tend)) / (Tend - Tstart) fi .
-)
 
   op compObsFeatureX : VantagePoint Feature Flow TimesObsList Float Float -> Float .
   eq compObsFeatureX (vp, obsF, Fid, nilTO, Tstart, Tend) = 0.0 . 
@@ -762,16 +727,6 @@ mod SMC_CP3 is
   --- 01 dns_query_rate                   Number of DNS query messages per second (queries/s)
   -------------------------------------------------------------------------------------------------
 
-***(--- to be deprecated
-  op collectPreNATFlow : FlowList -> FlowList .
-  eq collectPreNATFlow (nilFlow) = nilFlow .
-  eq collectPreNATFlow (flow(ADDR, X(ADDR'), 0) :: FidList) = flow(ADDR, ADDR', 0) :: collectPreNATFlow(FidList) .
-  eq collectPreNATFlow (Fid :: FidList) = collectPreNATFlow(FidList) [owise] .
-
-  op isPreNATDNSQuery : Msg -> Bool .
-  eq isPreNATDNSQuery (to X(ADDR) from ADDR' : QUERY) = true .
-  eq isPreNATDNSQuery (M) = false [owise] .
-)
   op isDNSQuery : Msg -> Bool .
   eq isDNSQuery (to ADDR from ADDR' : QUERY) = true .
   eq isDNSQuery (M) = false [owise] .
@@ -780,22 +735,6 @@ mod SMC_CP3 is
   eq isDNSQuery (QUERY) = true .
   eq isDNSQuery (CO) = false [owise] .
 
-***( --- to be deprecated
-  op countDNSQuery : TimeMsgList Float Float -> Nat .
-  eq countDNSQuery (nilTML, Tstart, Tend) = 0 .
-  eq countDNSQuery (tm(T, M); TML, Tstart, Tend) = 
-    if T >= Tstart and T < Tend and isPreNATDNSQuery(M)  
-    then 1 + countDNSQuery(TML, Tstart, Tend) 
-    else countDNSQuery(TML, Tstart, Tend) fi .
-
-  op countDNSQuery : Flow TimeMsgList Float Float -> Nat .
-  eq countDNSQuery (Fid, nilTML, Tstart, Tend) = 0 .
-  eq countDNSQuery (Fid, tm(T, to X(ADDR) from ADDR' : CO) ; TML, Tstart, Tend) = 
-    if T >= Tstart and T < Tend and isDNSQuery(CO) and Fid == flow(ADDR', ADDR, 0) 
-    then 1 + countDNSQuery(Fid, TML, Tstart, Tend) 
-    else countDNSQuery(Fid, TML, Tstart, Tend) fi .
-  eq countDNSQuery (Fid, tm(T, M) ; TML, Tstart, Tend) = countDNSQuery(Fid, TML, Tstart, Tend) [owise] .
-)
   op countDNSQuery : VantagePoint Flow TimesObsList Float Float -> Nat .
   eq countDNSQuery (vp, Fid, nilTO, Tstart, Tend) = 0 .
   --- eq countDNSQuery (vp, Fid, tm(T, Tx, Tr, to X(ADDR) from ADDR' : CO) ;; TsML, Tstart, Tend) = 
@@ -827,17 +766,8 @@ mod SMC_CP3 is
   op size : Query -> Nat .
   eq size (query(ID, NAME, RTYPE)) = size(NAME) .
 
-***( --- to be deprecated
-  op sizeDNSQuery : TimeMsgList Float Float -> Nat .
-  eq sizeDNSQuery (nilTML, Tstart, Tend) = 0 .
-  eq sizeDNSQuery (tm(T, M); TML, Tstart, Tend) = 
-    if T >= Tstart and T < Tend and isPreNATDNSQuery(M)  
-    then size(getQuery(M)) + sizeDNSQuery(TML, Tstart, Tend) 
-    else sizeDNSQuery(TML, Tstart, Tend) fi .
-)
   op sizeDNSQuery : VantagePoint Flow TimesObsList Float Float -> Nat .
   eq sizeDNSQuery (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  --- eq sizeDNSQuery (vp, Fid, tm(Ts, to X(ADDR) from ADDR' : CO) ; TML, Tstart, Tend) = 
   eq sizeDNSQuery (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
     if Ts >= Tstart and Ts < Tend and isDNSQuery(CO) and Fid == flow(fromAddr, toAddr, 0) 
     then size(CO) + sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) 
@@ -1014,198 +944,4 @@ mod SMC_CP3 is
     else countNewCnx(vp, TsPL, Tstart, Tend) fi .
   eq countNewCnx (vp, tpkt ;; TsPL, Tstart, Tend) = countNewCnx(vp, TsPL, Tstart, Tend) [owise] .
 
-***(  --- to be deprecated
-
-  op collectDNSFlow : TimeMsgList -> FlowList .
-  eq collectDNSFlow (nilTML) = nilFlow .
-  eq collectDNSFlow (tm(T, to ADDR from ADDR' : QUERY) ; TML) = addFlowList(flow(ADDR', ADDR, 0), collectDNSFlow(TML)) .
-  eq collectDNSFlow (tm(T, M) ; TML) = collectDNSFlow(TML) [owise] .
-
-  op compDNSQueryRate : TimeMsgList Float Float -> Float .
-  eq compDNSQueryRate (nilTML, Tstart, Tend) = 0.0 .
-  eq compDNSQueryRate (TML, Tstart, Tend) = 
-    if Tend <= Tstart 
-    then 0.0 
-    else float(countDNSQuery(TML, Tstart, Tend)) / (Tend - Tstart) fi .
-
-  op compDNSQueryRate : Flow TimeMsgList Float Float -> Float .
-  eq compDNSQueryRate (Fid, nilTML, Tstart, Tend) = 0.0 . 
-  eq compDNSQueryRate (Fid, TML, Tstart, Tend) = 
-    if Tend <= Tstart
-    then 0.0
-    else float(countDNSQuery(Fid, TML, Tstart, Tend)) / (Tend - Tstart) fi .
-
-  op collectDNSQueryRateX : TimeMsgList Float Float Float -> List{Float} .
-  eq collectDNSQueryRateX (TML, T, Tend, binSize) =
-    if (T + binSize) <= (Tend + Tesp)
-    then compDNSQueryRate(TML, T, T + binSize) collectDNSQueryRateX (TML, T + binSize, Tend, binSize)
-    else nil fi .
-
-  op collectDNSQueryRate : TimeMsgList Float Float Float -> List{Float} .
-  eq collectDNSQueryRate (TML, Tstart, winSize, binSize) = collectDNSQueryRateX(TML, Tstart, Tstart + winSize, binSize) .
-
-  op collectDNSQueryRateX : Flow TimeMsgList Float Float Float -> List{Float} .
-  eq collectDNSQueryRateX (Fid, TML, T, Tend, binSize) =
-    if (T + binSize) <= (Tend + Tesp)
-    then compDNSQueryRate(Fid, TML, T, T + binSize) collectDNSQueryRateX (Fid, TML, T + binSize, Tend, binSize)
-    else nil fi .
-
-  op collectDNSQueryRate : Flow TimeMsgList Float Float Float -> List{Float} .
-  eq collectDNSQueryRate (Fid, TML, Tstart, winSize, binSize) = collectDNSQueryRateX(Fid, TML, Tstart, Tstart + winSize, binSize) .
-
-  op collectDNSQueryRateFlow : FlowList TimeMsgList Float Float Float -> List{Float} .
-  eq collectDNSQueryRateFlow (nilFlow, TML, Tstart, winSize, binSize) = nil .
-  eq collectDNSQueryRateFlow (Fid :: FidList, TML, Tstart, winSize, binSize) = collectDNSQueryRate(Fid, TML, Tstart, winSize, binSize) collectDNSQueryRateFlow(FidList, TML, Tstart, winSize, binSize) .
-
-  op getECDFDNSQueryRate : TimeMsgList Float Float Float -> List{Float} . 
-  --- eq getECDFDNSQueryRate (TML, Tstart, winSize, binSize) = removeZero(sort(collectDNSQueryRate(TML, Tstart, winSize, binSize))) . 
-  eq getECDFDNSQueryRate (TML, Tstart, winSize, binSize) = removeZero(sort(collectDNSQueryRateFlow(collectPreNATFlow(collectDNSFlow(TML)), TML, Tstart, winSize, binSize))) .
-
-  op getBaselineCDFDNSQueryRate : TimeMsgList Float Float Float -> List{Float} .
-  eq getBaselineCDFDNSQueryRate (F0Z, Tstart, Tend, binSize) = getECDFDNSQueryRate(F0Z, Tstart, Tend, binSize) . 
-
-  op expectedKDNSQueryRate : List{Float} TimeMsgList Float Float Float Float Float Nat -> Float .
-  eq expectedKDNSQueryRate (FL, GtZ, T, Tend, winSize, binSize, Ksum, N) =
-    if (T + winSize) <= (Tend + Tesp) 
-    then if KsDistance(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize)) >= 0.0 
-      then expectedKDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum + KsDistance(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize)), N + 1) 
-      else expectedKDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum, N) 
-      fi 
-    else if N == 0 then 0.0 else Ksum / float(N) fi fi .
-
-  op getKDNSQueryRate : TimeMsgList Float Float Float Float -> Float .
-  eq getKDNSQueryRate (TML, Tstart, Tend, winSize, binSize) = expectedKDNSQueryRate(getBaselineCDFDNSQueryRate(TML, Tstart, Tend, binSize), TML, Tstart, Tend, winSize, binSize, 0.0, 0) .
-
-  op collectZDNSQueryRate : List{Float} TimeMsgList Float Float Float Float Float -> List{Float} .
-  eq collectZDNSQueryRate (FL, GtZ, T, Tend, winSize, binSize, K) =
-    if (T + winSize) <= (Tend + Tesp) 
-    then if KsDistance(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize)) >= 0.0 
-      then KsStatisticZ(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize), K) collectZDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, K)
-      else collectZDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, K) fi 
-    else nil fi .
-
-  op getZDNSQueryRate : TimeMsgList Float Float Float Float -> List{Float} .
-  eq getZDNSQueryRate (TML, Tstart, Tend, winSize, binSize) = collectZDNSQueryRate(getBaselineCDFDNSQueryRate(TML, 0.0, Tstart, binSize), TML, Tstart, Tend, winSize, binSize, getKDNSQueryRate(TML, 0.0, Tstart, winSize, binSize)) .
-
-  op collectTimedZDNSQueryRate : List{Float} TimeMsgList Float Float Float Float Float -> TimedFloatList .
-  eq collectTimedZDNSQueryRate (FL, GtZ, T, Tend, winSize, binSize, K) =
-    if (T + winSize) <= (Tend + Tesp) 
-    then if KsDistance(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize)) >= 0.0 
-      then timedFloat(T + winSize, KsStatisticZ(FL, getECDFDNSQueryRate(GtZ, T, winSize, binSize), K)) collectTimedZDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, K)
-      else collectTimedZDNSQueryRate(FL, GtZ, T + binSize, Tend, winSize, binSize, K) fi
-    else nilTimedFloatList fi .
-
-  op getTimedZDNSQueryRate : TimeMsgList Float Float Float Float -> TimedFloatList .
-  eq getTimedZDNSQueryRate (TML, Tstart, Tend, winSize, binSize) = collectTimedZDNSQueryRate(getBaselineCDFDNSQueryRate(TML, 0.0, Tstart, binSize), TML, Tstart, Tend, winSize, binSize, getKDNSQueryRate(TML, 0.0, Tstart, winSize, binSize)) .
-
----  op getToDDNSQueryRate : Actor Float Float Float Float Float -> Float .
----  eq getToDDNSQueryRate (< ADDR : Adversary | sent: TML, attrs >, Tstart, Tend, winSize, binSize, H) =
-  op getToDDNSQueryRate : TimeMsgList Float Float Float Float Float -> Float .
-  eq getToDDNSQueryRate (TML, Tstart, Tend, winSize, binSize, H) = alarmTimeCUSUM(getTimedZDNSQueryRate(TML, Tstart, Tend, winSize, binSize), H, 0.0) .
-)
-***( --- to be deprecated
-
-  vars dnsF tcpF : Feature . 
-
-  op compDnsFeature : VantagePoint Feature TimeMsgList Float Float -> Float .
-  eq compDnsFeature (vp, dnsF, nilTML, Tstart, Tend) = 0.0 . 
-  eq compDnsFeature (vp, dnsQueryRate, TML, Tstart, Tend) = 
-    if Tend <= Tstart
-    then 0.0
-    else float(countDNSQuery(TML, Tstart, Tend)) / (Tend - Tstart) fi .
-  eq compDnsFeature (vp, dnsQuerySize, TML, Tstart, Tend) = 
-    if Tend <= Tstart
-    then 0.0
-    else 
-      if countDNSQuery(TML, Tstart, Tend) == 0
-      then 0.0
-      else float(sizeDNSQuery(TML, Tstart, Tend)) / float(countDNSQuery(TML, Tstart, Tend)) fi fi .
-  eq compDnsFeature (vp, dnsRespSize, TML, Tstart, Tend) = 
-    if Tend <= Tstart
-    then 0.0
-    else float(countDNSQuery(TML, Tstart, Tend)) / (Tend - Tstart) fi .
-
-  op compDnsFeature : VantagePoint Feature Flow TimeMsgList Float Float -> Float .
-  eq compDnsFeature (vp, dnsF, Fid, nilTML, Tstart, Tend) = 0.0 . 
-  eq compDnsFeature (vp, dnsQueryRate, Fid, TML, Tstart, Tend) = 
-    if Tend <= Tstart
-    then 0.0
-    else float(countDNSQuery(Fid, TML, Tstart, Tend)) / (Tend - Tstart) fi .
-  eq compDnsFeature (vp, dnsQuerySize, Fid, TML, Tstart, Tend) = 
-    if Tend <= Tstart
-    then 0.0
-    else 
-      if countDNSQuery(Fid, TML, Tstart, Tend) == 0
-      then 0.0
-      else float(sizeDNSQuery(Fid, TML, Tstart, Tend)) / float(countDNSQuery(Fid, TML, Tstart, Tend)) fi fi .
-  eq compDnsFeature (vp, dnsRespSize, Fid, TML, Tstart, Tend) = 
-    if Tend <= Tstart
-    then 0.0
-    else float(countDNSQuery(Fid, TML, Tstart, Tend)) / (Tend - Tstart) fi .
-
-  op collectDnsFeatureX : VantagePoint Feature TimeMsgList Float Float Float -> List{Float} .
-  eq collectDnsFeatureX (vp, dnsF, TML, T, Tend, binSize) =
-    if (T + binSize) <= (Tend + Tesp)
-    then compDnsFeature(vp, dnsF, TML, T, T + binSize) collectDnsFeatureX (vp, dnsF, TML, T + binSize, Tend, binSize)
-    else nil fi .
-
-  op collectDnsFeature : VantagePoint Feature TimeMsgList Float Float Float -> List{Float} .
-  eq collectDnsFeature (vp, dnsF, TML, Tstart, winSize, binSize) = collectDnsFeatureX(vp, dnsF, TML, Tstart, Tstart + winSize, binSize) .
-
-  op collectDnsFeatureX : VantagePoint Feature Flow TimeMsgList Float Float Float -> List{Float} .
-  eq collectDnsFeatureX (vp, dnsF, Fid, TML, T, Tend, binSize) =
-    if (T + binSize) <= (Tend + Tesp)
-    then compDnsFeature(vp, dnsF, Fid, TML, T, T + binSize) collectDnsFeatureX (vp, dnsF, Fid, TML, T + binSize, Tend, binSize)
-    else nil fi .
-
-  op collectDnsFeature : VantagePoint Feature Flow TimeMsgList Float Float Float -> List{Float} .
-  eq collectDnsFeature (vp, dnsF, Fid, TML, Tstart, winSize, binSize) = collectDnsFeatureX(vp, dnsF, Fid, TML, Tstart, Tstart + winSize, binSize) .
-
-  op collectDnsFeatureFlow : VantagePoint Feature FlowList TimeMsgList Float Float Float -> List{Float} .
-  eq collectDnsFeatureFlow (vp, dnsF, nilFlow, TML, Tstart, winSize, binSize) = nil .
-  eq collectDnsFeatureFlow (vp, dnsF, Fid :: FidList, TML, Tstart, winSize, binSize) = collectDnsFeature(vp, dnsF, Fid, TML, Tstart, winSize, binSize) collectDnsFeatureFlow(vp, dnsF, FidList, TML, Tstart, winSize, binSize) .
-
-  op getECDFDnsFeature : VantagePoint Feature TimeMsgList Float Float Float -> List{Float} . 
-  eq getECDFDnsFeature (vp, dnsF, TML, Tstart, winSize, binSize) = removeZero(sort(collectDnsFeatureFlow(vp, dnsF, collectPreNATFlow(collectDNSFlow(TML)), TML, Tstart, winSize, binSize))) .
-
-  op getBaselineCDFDnsFeature : VantagePoint Feature TimeMsgList Float Float Float -> List{Float} .
-  eq getBaselineCDFDnsFeature (vp, dnsF, F0Z, Tstart, Tend, binSize) = getECDFDnsFeature(vp, dnsF, F0Z, Tstart, Tend, binSize) . 
-
-  op expectedKDnsFeature : VantagePoint Feature List{Float} TimeMsgList Float Float Float Float Float Nat -> Float .
-  eq expectedKDnsFeature (vp, dnsF, FL, GtZ, T, Tend, winSize, binSize, Ksum, N) =
-    if (T + winSize) <= (Tend + Tesp) 
-    then if KsDistance(FL, getECDFDnsFeature(vp, dnsF, GtZ, T, winSize, binSize)) >= 0.0 
-      then expectedKDnsFeature(vp, dnsF, FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum + KsDistance(FL, getECDFDnsFeature(vp, dnsF, GtZ, T, winSize, binSize)), N + 1) 
-      else expectedKDnsFeature(vp, dnsF, FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum, N) 
-      fi 
-    else if N == 0 then 0.0 else Ksum / float(N) fi fi .
-
-  op getKDnsFeature : VantagePoint Feature TimeMsgList Float Float Float Float -> Float .
-  eq getKDnsFeature (vp, dnsF, TML, Tstart, Tend, winSize, binSize) = expectedKDnsFeature(vp, dnsF, getBaselineCDFDnsFeature(vp, dnsF, TML, Tstart, Tend, binSize), TML, Tstart, Tend, winSize, binSize, 0.0, 0) .
-
-  op collectZDnsFeature : VantagePoint Feature List{Float} TimeMsgList Float Float Float Float Float -> List{Float} .
-  eq collectZDnsFeature (vp, dnsF, FL, GtZ, T, Tend, winSize, binSize, K) =
-    if (T + winSize) <= (Tend + Tesp) 
-    then if KsDistance(FL, getECDFDnsFeature(vp, dnsF, GtZ, T, winSize, binSize)) >= 0.0 
-      then KsStatisticZ(FL, getECDFDnsFeature(vp, dnsF, GtZ, T, winSize, binSize), K) collectZDnsFeature(vp, dnsF, FL, GtZ, T + binSize, Tend, winSize, binSize, K)
-      else collectZDnsFeature(vp, dnsF, FL, GtZ, T + binSize, Tend, winSize, binSize, K) fi 
-    else nil fi .
-
-  op getZDnsFeature : VantagePoint Feature TimeMsgList Float Float Float Float -> List{Float} .
-  eq getZDnsFeature (vp, dnsF, TML, Tstart, Tend, winSize, binSize) = collectZDnsFeature(vp, dnsF, getBaselineCDFDnsFeature(vp, dnsF, TML, 0.0, Tstart, binSize), TML, Tstart, Tend, winSize, binSize, getKDnsFeature(vp, dnsF, TML, 0.0, Tstart, winSize, binSize)) .
-
-  op collectTimedZDnsFeature : VantagePoint Feature List{Float} TimeMsgList Float Float Float Float Float -> TimedFloatList .
-  eq collectTimedZDnsFeature (vp, dnsF, FL, GtZ, T, Tend, winSize, binSize, K) =
-    if (T + winSize) <= (Tend + Tesp) 
-    then if KsDistance(FL, getECDFDnsFeature(vp, dnsF, GtZ, T, winSize, binSize)) >= 0.0 
-      then timedFloat(T + winSize, KsStatisticZ(FL, getECDFDnsFeature(vp, dnsF, GtZ, T, winSize, binSize), K)) collectTimedZDnsFeature(vp, dnsF, FL, GtZ, T + binSize, Tend, winSize, binSize, K)
-      else collectTimedZDnsFeature(vp, dnsF, FL, GtZ, T + binSize, Tend, winSize, binSize, K) fi
-    else nilTimedFloatList fi .
-
-  op getTimedZDnsFeature : VantagePoint Feature TimeMsgList Float Float Float Float -> TimedFloatList .
-  eq getTimedZDnsFeature (vp, dnsF, TML, Tstart, Tend, winSize, binSize) = collectTimedZDnsFeature(vp, dnsF, getBaselineCDFDnsFeature(vp, dnsF, TML, 0.0, Tstart, binSize), TML, Tstart, Tend, winSize, binSize, getKDnsFeature(vp, dnsF, TML, 0.0, Tstart, winSize, binSize)) .
-
-  op getToDDnsFeature : VantagePoint Feature TimeMsgList Float Float Float Float Float -> Float .
-  eq getToDDnsFeature (vp, dnsF, TML, Tstart, Tend, winSize, binSize, H) = alarmTimeCUSUM(getTimedZDnsFeature(vp, dnsF, TML, Tstart, Tend, winSize, binSize), H, 0.0) .
-)
 endm
