@@ -1,0 +1,857 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+sload ../../irc/irc-mamodel-v2.maude
+sload ../../webtunnel/webtunnel_prob.maude
+sload ../../irc/irc_prob-v2
+sload ../../irc/ircMonitor
+sload ../../irc/irc-byteseq-interface
+sload ../../common/maude/irc-action-actor-v2.maude
+sload ../../irc/common/irc_name
+sload ../../irc/common/_aux
+sload ../../irc/common/app_chat
+sload ../../irc/_irc_aux
+sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
+sload ../../obfs4/_obfs4_aux.maude
+sload ../../obfs4/obfs4_prob.maude
+sload ../../common/maude/user-action-actor
+sload ../../raceboatMastodon/maude/enc-dec-actor
+sload ../../raceboatMastodonBidir/maude/rb-cm-bidir-mas.maude
+sload ../../mastodon/maude/probabilistic/mastodon
+sload ../../raceboatMastodon/maude/user_models/client_config_mastodon_bidi
+sload ../../raceboatMastodon/maude/user_models/server_config_mastodon_bidi
+sload ../../common/maude/http-overhead.maude
+sload ../skyhook/skyhook-um-mamodel-1
+sload ../../irc/common/irc-msg-model
+sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
+sload ../../skyhook/skyhook_prob
+sload ../../s3/s3_protocol
+sload ../../dns/maude/probabilistic/iodine_dns.maude
+sload ../../dns/maude/common/_aux.maude
+sload ../../network/net_prob-clt.maude
+sload ../../common/maude/structured-addresses.maude
+
+mod COMBINED_IRC_EXPERIMENTS is
+  pr SCHEDULER .
+  pr USER-ACTION-ACTOR .
+  pr SKYHOOK-UM-MAMODEL-1 .
+  pr IRC-V2 .
+  pr IRC-MAMODEL-V2 .
+  pr IRC-USER-ACTION-ACTOR-V2 .
+  pr IRC-BYTESEQ-INTERFACE .
+  pr CONTENT-MANAGER-SIMPLE-BI .
+  inc ENC-DEC .
+  inc CONTENT-MANAGER-BIDIR .
+  inc MASTODON .
+  inc MASTODON-CLIENT-CONFIG-MASTODON-BIDI-MAMODEL .
+  inc MASTODON-SERVER-CONFIG-MASTODON-BIDI-MAMODEL .
+  pr SKYHOOK .
+  pr S3_PROTOCOL .
+  pr IRC_MONITOR .
+  pr OBFS4 .
+  pr APP_CHATS .
+  pr IRC_NODE .
+  pr WEBTUNNEL .
+  pr IRC_NAMES .
+  pr IODINE_NODE .
+  pr IODINE_DNS .
+  pr TCP_SOCKET .
+  pr NETWORK_NODE .
+  pr NETWORK_CONNECTION .
+  inc STRUCTURED-ADDRESSES .
+
+  vars j : Nat .
+
+  eq encOH(fsize:Nat,ksize:Nat) = 0 .
+  eq noiseMin(msg:Msg)          = 0.001 .
+  ***** Global constants  
+  **** the user model database
+  eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2 ) .
+  *** for the default case
+  eq noiseMax(msg:Msg)          = 0.00001 .
+     
+  eq packetSize                 = 1000 .
+  eq maxPacketSize              = 967 .
+
+  op ed-images : -> ByteSeqL .
+  eq ed-images =
+       image(1, 3779, 500)
+    :: image(2, 2405, 1000)
+    :: image(3, 36861, 1000)
+    :: image(4, 25377, 500)
+    :: image(5, 2440, 300)
+    :: image(6, 1275, 300)
+    :: image(7, 7710, 1000)
+    :: image(8, 3577, 500)
+    :: image(9, 3415, 300)
+    :: image(10, 74123, 600)
+  .
+
+  ---------------------------------------------------
+  --- DNS Zone Configurations
+  ---------------------------------------------------
+  op zone : -> List{Record} .
+  eq zone =
+    < root, soa, 3600.0, soaData(3600.0) >
+    < root, ns, 3600.0, 'a . 'root-servers . 'net . root >
+    < 'a . 'root-servers . 'net . root, a, 3600.0, rootDnsAddr >
+    < 'com . root, ns, 3600.0, 'ns . 'com . root >
+    < 'ns . 'com . root, a, 3600.0, tldDnsAddr >
+  .
+
+  op zoneCom : -> List{Record} .
+  eq zoneCom =
+    < 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'com . root, ns, 3600.0, 'ns . 'com . root >
+    < 'ns . 'com . root, a, 3600.0, tldDnsAddr >
+    < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
+    < 'ns . 'pwnd . 'com . root, a, 3600.0, authDnsAddr >
+    < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
+    < 'ns . 'internet . 'com . root, a, 3600.0, authDnsAddr >
+    < 'corp1 . 'com . root, ns, 3600.0, 'ns . 'corp1 . 'com . root >
+    < 'ns . 'corp1 . 'com . root, a, 3600.0, corp1DnsAddr >
+    < 'corp2 . 'com . root, ns, 3600.0, 'ns . 'corp2 . 'com . root >
+    < 'ns . 'corp2 . 'com . root, a, 3600.0, corp2DnsAddr >
+    < 'corp3 . 'com . root, ns, 3600.0, 'ns . 'corp3 . 'com . root >
+    < 'ns . 'corp3 . 'com . root, a, 3600.0, corp3DnsAddr >
+    < 'corp4 . 'com . root, ns, 3600.0, 'ns . 'corp4 . 'com . root >
+    < 'ns . 'corp4 . 'com . root, a, 3600.0, corp4DnsAddr >
+    < 'corp5 . 'com . root, ns, 3600.0, 'ns . 'corp5 . 'com . root >
+    < 'ns . 'corp5 . 'com . root, a, 3600.0, corp5DnsAddr >
+    < 'serv . 'com . root, ns, 3600.0, 'ns . 'serv . 'com . root >
+    < 'ns . 'serv . 'com . root, a, 3600.0, servDnsAddr >
+  .
+
+  op zoneInternetCom : -> List{Record} .
+  eq zoneInternetCom =
+    < 'internet . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >
+    < 'ns . 'internet . 'com . root, a, 3600.0, authDnsAddr >
+    < 'tmp0 . 'internet . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >
+    < 't1 . 'pwnd . 'com . root, ns, 3600.0, 'ns . 't1 . 'pwnd . 'com . root >
+    < 'ns . 't1 . 'pwnd . 'com . root, a, 3600.0, serverIodineServer4Addr >
+    < 'mastodon . 'pwnd . 'com . root, a, 0.0, masSrvAddr >
+    < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1 . 1 . 2 >
+  .
+
+  op zonePwnd2Com4 : -> List{Record} .
+  eq zonePwnd2Com4 =
+    < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+    < 'ns . 'pwnd2 . 'com . root, a, 3600.0, serverIodineServer4Addr >
+    < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+    < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+    < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
+
+  op zoneCorp1Com  : -> List{Record} .
+  eq zoneCorp1Com  =
+    < 'corp1 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'corp1 . 'com . root, ns, 3600.0, 'ns . 'corp1 . 'com . root >
+    < 'ns . 'corp1 . 'com . root, a, 3600.0, corp1DnsAddr >
+    ---                                   What should these addresses be?
+    < 'tmp1 . 'corp1 . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
+    < wildcard . 'corp1 . 'com . root, a, 0.0, 3 . 1 . 1 . 2 >
+  .
+
+  op zoneCorp2Com  : -> List{Record} .
+  eq zoneCorp2Com  =
+    < 'corp2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'corp2 . 'com . root, ns, 3600.0, 'ns . 'corp2 . 'com . root >
+    < 'ns . 'corp2 . 'com . root, a, 3600.0, corp2DnsAddr >
+    ---                                   What should these addresses be?
+    < 'tmp2 . 'corp2 . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
+    < wildcard . 'corp2 . 'com . root, a, 0.0, 3 . 1 . 1 . 2 >
+  .
+
+  op zoneCorp3Com  : -> List{Record} .
+  eq zoneCorp3Com  =
+    < 'corp3 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'corp3 . 'com . root, ns, 3600.0, 'ns . 'corp3 . 'com . root >
+    < 'ns . 'corp3 . 'com . root, a, 3600.0, corp3DnsAddr >
+    ---                                   What should these addresses be?
+    < 'tmp3 . 'corp3 . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
+    < wildcard . 'corp3 . 'com . root, a, 0.0, 3 . 1 . 1 . 2 >
+  .
+
+  op zoneCorp4Com  : -> List{Record} .
+  eq zoneCorp4Com  =
+    < 'corp4 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'corp4 . 'com . root, ns, 3600.0, 'ns . 'corp4 . 'com . root >
+    < 'ns . 'corp4 . 'com . root, a, 3600.0, corp4DnsAddr >
+    ---                                   What should these addresses be?
+    < 'tmp4 . 'corp4 . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
+    < wildcard . 'corp4 . 'com . root, a, 0.0, 3 . 1 . 1 . 2 >
+  .
+
+  op zoneCorp5Com  : -> List{Record} .
+  eq zoneCorp5Com  =
+    < 'corp5 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'corp5 . 'com . root, ns, 3600.0, 'ns . 'corp5 . 'com . root >
+    < 'ns . 'corp5 . 'com . root, a, 3600.0, corp5DnsAddr >
+    ---                                   What should these addresses be?
+    < 'tmp5 . 'corp5 . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
+    < wildcard . 'corp5 . 'com . root, a, 0.0, 3 . 1 . 1 . 2 >
+  .
+
+  op zoneServCom  : -> List{Record} .
+  eq zoneServCom  =
+    < 'serv . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'serv . 'com . root, ns, 3600.0, 'ns . 'serv . 'com . root >
+    < 'ns . 'serv . 'com . root, a, 3600.0, servDnsAddr >
+    ---                                   What should these addresses be?
+    < 'tmp0 . 'serv . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
+    < wildcard . 'serv . 'com . root, a, 0.0, 3 . 1 . 1 . 2 >
+  .
+
+  --- "SBELT": fallback if there are no known name servers
+  op sb : -> ZoneState .
+  eq sb = < root ('a . 'root-servers . 'net . root |-> rootDnsAddr) >
+  .
+
+  --- Caches
+  op resolverCache : -> Cache .
+  eq resolverCache =
+    cacheEntry(< root, ns, 3600.0, 'a . 'root-servers . 'net . root >, 1)
+    cacheEntry(< 'a . 'root-servers . 'net . root, a, 3600.0, rootDnsAddr >, 1)
+    cacheEntry(< 'com . root, ns, 3600.0, 'ns . 'com . root >, 1)
+    cacheEntry(< 'ns . 'com . root, a, 3600.0, tldDnsAddr >, 1)
+    cacheEntry(< 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >, 1)
+    cacheEntry(< 'ns . 'pwnd . 'com . root, a, 3600.0, authDnsAddr >, 1)
+    cacheEntry(< 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >, 1)
+    cacheEntry(< 'ns . 'internet . 'com . root, a, 3600.0, authDnsAddr >, 1)
+    cacheEntry(< 't1 . 'pwnd . 'com . root, ns, 3600.0, 'ns . 't1 . 'pwnd . 'com . root >, 1)
+    cacheEntry(< 'ns . 't1 . 'pwnd . 'com . root, a, 3600.0, serverIodineServer4Addr >, 1)
+    cacheEntry(< 'corp1 . 'com . root, ns, 3600.0, 'ns . 'corp1 . 'com . root >, 1)
+    cacheEntry(< 'ns . 'corp1 . 'com . root, a, 3600.0, corp1DnsAddr >, 1)
+    cacheEntry(< 'corp2 . 'com . root, ns, 3600.0, 'ns . 'corp2 . 'com . root >, 1)
+    cacheEntry(< 'ns . 'corp2 . 'com . root, a, 3600.0, corp2DnsAddr >, 1)
+    cacheEntry(< 'corp3 . 'com . root, ns, 3600.0, 'ns . 'corp3 . 'com . root >, 1)
+    cacheEntry(< 'ns . 'corp3 . 'com . root, a, 3600.0, corp3DnsAddr >, 1)
+    cacheEntry(< 'corp4 . 'com . root, ns, 3600.0, 'ns . 'corp4 . 'com . root >, 1)
+    cacheEntry(< 'ns . 'corp4 . 'com . root, a, 3600.0, corp4DnsAddr >, 1)
+    cacheEntry(< 'corp5 . 'com . root, ns, 3600.0, 'ns . 'corp5 . 'com . root >, 1)
+    cacheEntry(< 'ns . 'corp5 . 'com . root, a, 3600.0, corp5DnsAddr >, 1)
+    cacheEntry(< 'serv . 'com . root, ns, 3600.0, 'ns . 'serv . 'com . root >, 1)
+    cacheEntry(< 'ns . 'serv . 'com . root, a, 3600.0, servDnsAddr >, 1)
+  .
+
+  ---------------------------------------------------
+  --- Addresses
+  ---------------------------------------------------
+  ops ircClient1Addr ircClient2Addr ircClient3Addr ircClient4Addr : -> Address .
+  ops ircClient1UserModelAddr ircClient2UserModelAddr             : -> Address .
+  ops ircClient3UserModelAddr ircClient4UserModelAddr             : -> Address .
+  ops ircServerAddr s3SrvAddr ircMonitorAddr iodineMonitorAddr    : -> Address .
+  ops client1IfaceAddr server1IfaceAddr wtClient1Addr wtProxy1Addr  : -> Address .
+  ops wtClient1NetClientAddr wtProxy1NetServerAddr                  : -> Address .
+  ops client2IfaceAddr server2IfaceAddr : -> Address .
+  ops obfs4Client2Addr obfs4Server2Addr : -> Address .
+  ops obfs4Client2NetClientAddr obfs4Server2NetServerAddr : -> Address .
+  ops client3IfaceAddr server3IfaceAddr                       : -> Address .
+  ops umac3Addr cmac3Addr pua3Addr sdkac3Addr                 : -> Address .
+  ops umas3Addr cmas3Addr aha3Addr sdkas3Addr                 : -> Address .
+  ops skyhookClient3NetClientAddr : -> Address .
+  ops skyhookServer3NetClientAddr : -> Address .
+  ops skyhookNetServerAddr : -> Address .
+  ops client4IfaceAddr serverIface4Addr                                  : -> Address .
+  ops sendApp4Addr iodineClient4Addr rcvApp4Addr serverIodineServer4Addr : -> Address .
+  ops iodineClient4NetClientAddr iodineServer4NetServerAddr              : -> Address .
+  ops ircClient5Addr ircClient5UserModelAddr client5IfaceAddr server5IfaceAddr : -> Address .
+  ops umac5Addr cmac5Addr mcac5Addr edac5Addr : -> Address .
+  ops umas5Addr cmas5Addr mcas5Addr edas5Addr : -> Address .
+  ops mastodonClient5NetClientAddr mastodonServer5NetClientAddr : -> Address .
+  ops masNetServerAddr : -> Address .
+  ops masSrvAddr : -> Address .
+  ops corp1DnsAddr corp2DnsAddr corp3DnsAddr corp4DnsAddr corp5DnsAddr  : -> Address .
+  ops servDnsAddr                                                       : -> Address .
+  ops publicDnsAddr rootDnsAddr comDnsAddr tldDnsAddr authDnsAddr       : -> Address .
+
+  eq publicDnsAddr  = a(dnsN, dns, dns, srv, 0) .
+  *** Carolyn: This is probably correct, I imagine it should not be a dnsN; what should it be?
+  eq rootDnsAddr    = a(dnsN, dns, dns, srv, 0) .
+  *** Carolyn: This is probably correct, I imagine it should not be a dnsN; what should it be?
+  eq comDnsAddr     = a(dnsN, dns, dns, srv, 0) .
+  *** Carolyn: This is probably correct, I imagine it should not be a dnsN; what should it be?
+  eq tldDnsAddr     = a(dnsN, dns, dns, srv, 0) .
+  *** Carolyn: This is probably correct, I imagine it should not be a dnsN; what should it be?
+  eq authDnsAddr    = a(dnsN, dns, dns, srv, 0) .
+  eq ircServerAddr  = a(srvN, srv, irc, srv, 0) .
+
+  --- Webtunnel / Client 1
+  eq ircClient1Addr           = a(cl[1], hcs, irc, cl, 1) .
+  eq ircClient1UserModelAddr  = a(cl[1], hcs, irc, um, 1) .
+  eq client1IfaceAddr         = a(cl[1], hcs, irc, if, 1) .
+  eq server1IfaceAddr         = a(srvN[1], hcs, irc, if, 1) .
+  eq wtClient1Addr            = a(cl[1], hcs, wt, cl, 1) .
+  eq wtProxy1Addr             = a(srvN[1], hcs, wt, srv, 1) .
+  eq wtClient1NetClientAddr   = a(cl[1], tcp, wt, cl, 1) .
+  eq wtProxy1NetServerAddr    = a(srvN[1], tcp, wt, srv, 1) .
+
+  --- Obfs4 / Client 2
+  eq ircClient2Addr             = a(cl[2], hcs, irc, cl, 1) .
+  eq ircClient2UserModelAddr    = a(cl[2], hcs, irc, um, 1) .
+  eq client2IfaceAddr           = a(cl[2], hcs, irc, if, 1) .
+  eq server2IfaceAddr           = a(srvN[2], hcs, irc, if, 1) .
+  eq obfs4Client2Addr           = a(cl[2], hcs, obfs, cl, 1) .
+  eq obfs4Server2Addr           = a(srvN[2], hcs, obfs, srv, 1) .
+  eq obfs4Client2NetClientAddr  = a(cl[2], tcp, obfs, cl, 1) .
+  eq obfs4Server2NetServerAddr  = a(srvN[2], tcp, obfs, srv, 1) .
+
+  --- Skyhook / Client 3
+  eq ircClient3Addr               = a(cl[3], hcs, irc, cl, 1) .
+  eq ircClient3UserModelAddr      = a(cl[3], hcs, irc, um, 1) .
+  eq client3IfaceAddr             = a(cl[3], hcs, irc, if, 1) .
+  eq server3IfaceAddr             = a(srvN[3], hcs, irc, if, 1) .
+  eq umac3Addr                    = a(cl[3], hcs, sky, um, 1) .
+  eq cmac3Addr                    = a(cl[3], hcs, sky, cm, 1) .
+  eq pua3Addr                     = a(cl[3], hcs, sky, pu, 1) .
+  eq sdkac3Addr                   = a(cl[3], hcs, sky, dl, 1) .
+  eq umas3Addr                    = a(srvN[3], hcs, sky, um, 1) .
+  eq cmas3Addr                    = a(srvN[3], hcs, sky, cm, 1) .
+  eq aha3Addr                     = a(srvN[3], hcs, sky, ah, 1) .
+  eq sdkas3Addr                   = a(srvN[3], hcs, sky, dl, 1) .
+  eq skyhookClient3NetClientAddr  = a(cl[3], tcp, sky, cl, 1) .
+  eq skyhookServer3NetClientAddr  = a(srvN[3], tcp, sky, cl, 1) .
+  eq skyhookNetServerAddr         = a(srvN[3], tcp, sky, srv, 0) .
+  eq s3SrvAddr                    = a(minN, srv, min, srv, 0) .
+
+  --- Iodine / Client 4
+  eq ircClient4Addr             = a(cl[4], hcs, irc, cl, 1) .
+  eq ircClient4UserModelAddr    = a(cl[4], hcs, irc, um, 1) .
+  eq client4IfaceAddr           = a(cl[4], hcs, irc, if, 1) .
+  eq serverIface4Addr           = a(srvN[4], hcs, irc, if, 1) .
+  eq sendApp4Addr               = a(cl[4], hcs, iod, app, 1) .
+  eq iodineClient4Addr          = a(cl[4], hcs, iod, cl, 1) .
+  eq rcvApp4Addr                = a(srvN[4], hcs, iod, app, 1) .
+  eq serverIodineServer4Addr    = a(srvN[4], hcs, iod, iodSrv, 1) .
+  eq iodineClient4NetClientAddr = a(cl[4], tcp, iod, cl, 1) .
+  eq iodineServer4NetServerAddr = a(srvN[4], tcp, iod, srv, 1) .
+
+  --- Mastodon / Client 5
+  eq ircClient5Addr               = a(cl[5], hcs, irc, cl, 1) .
+  eq ircClient5UserModelAddr      = a(cl[5], hcs, irc, um, 1) .
+  eq client5IfaceAddr             = a(cl[5], hcs, irc, if, 1) .
+  eq server5IfaceAddr             = a(srvN[5], hcs, irc, if, 1) .
+  eq umac5Addr                    = a(cl[5], hcs, mas, um, 1) .
+  eq cmac5Addr                    = a(cl[5], hcs, mas, cm, 1) .
+  eq mcac5Addr                    = a(cl[5], hcs, mas, mc, 1) .
+  eq edac5Addr                    = a(cl[5], hcs, mas, ed, 1) .
+  eq umas5Addr                    = a(srvN[5], hcs, mas, um, 1) .
+  eq cmas5Addr                    = a(srvN[5], hcs, mas, cm, 1) .
+  eq mcas5Addr                    = a(srvN[5], hcs, mas, mc, 1) .
+  eq edas5Addr                    = a(srvN[5], hcs, mas, ed, 1) .
+  eq mastodonClient5NetClientAddr = a(cl[5], tcp, mas, cl, 1) .
+  eq mastodonServer5NetClientAddr = a(srvN[5], tcp, mas, cl, 1) .
+  eq masNetServerAddr             = a(masN, tcp, mas, srv, 0) .
+  eq masSrvAddr                   = a(masN, srv, mas, srv, 0) .
+  ---------------------------------------------------
+  --- Link model parameters
+  ---------------------------------------------------
+
+  eq transport(any:Address) = tcp(any:Address) .
+  **** tcp actors
+  eq transport(a(minN, srv, min, srv, 0))   = tcp(a(minN, srv, min, srv, 0)) .
+  eq transport(a(cl[1], hcs, sky, cl, 1))   = tcp(a(cl[1], hcs, sky, cl, 1)) .
+  eq transport(a(srvN[1], hcs, sky, cl, 1)) = tcp(a(srvN[1], hcs, sky, cl, 1)) .
+  eq transport(a(cl[2], hcs, sky, cl, 1))   = tcp(a(cl[2], hcs, sky, cl, 1)) .
+  eq transport(a(srvN[2], hcs, sky, cl, 1)) = tcp(a(srvN[2], hcs, sky, cl, 1)) .
+  eq transport(a(cl[3], hcs, sky, cl, 1))   = tcp(a(cl[3], hcs, sky, cl, 1)) .
+  eq transport(a(srvN[3], hcs, sky, cl, 1)) = tcp(a(srvN[3], hcs, sky, cl, 1)) .
+  eq transport(a(cl[4], hcs, sky, cl, 1))   = tcp(a(cl[4], hcs, sky, cl, 1)) .
+  eq transport(a(srvN[4], hcs, sky, cl, 1)) = tcp(a(srvN[4], hcs, sky, cl, 1)) .
+  eq transport(a(cl[5], hcs, sky, cl, 1))   = tcp(a(cl[5], hcs, sky, cl, 1)) .
+  eq transport(a(srvN[5], hcs, sky, cl, 1)) = tcp(a(srvN[5], hcs, sky, cl, 1)) .
+
+  **** udp actors
+  eq transport(a(dnsN, dns, dns, srv, 0))   = udp(a(dnsN, dns, dns, srv, 0)) .
+  eq transport(a(cl[1], dns, dns, cl, 0))   = udp(a(cl[1], dns, dns, cl, 0)) .
+  eq transport(a(cl[2], dns, dns, cl, 0))   = udp(a(cl[2], dns, dns, cl, 0)) .
+  eq transport(a(cl[3], dns, dns, cl, 0))   = udp(a(cl[3], dns, dns, cl, 0)) .
+  eq transport(a(cl[4], dns, dns, cl, 0))   = udp(a(cl[4], dns, dns, cl, 0)) .
+  eq transport(a(cl[5], dns, dns, cl, 0))   = udp(a(cl[5], dns, dns, cl, 0)) .
+  eq transport(a(srvN, dns, dns, cl, 0))    = udp(a(srvN, dns, dns, cl, 0)) .
+
+  vars dt : Float .
+  vars icAddr isAddr ifsAddr : Address .
+  vars room : String .
+  op mkJoin : Float String Address Address Address -> ScheduleMsg .
+  eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =
+       [dt,
+       (to isAddr from ifsAddr :
+        JoinChannel(makeIrcChannelName(room), icAddr )),
+        0]
+  .
+
+  op LinkType-TCP-4stateLoss : -> AttributeSet .
+  eq LinkType-TCP-4stateLoss = 
+  (4stateLoss: 
+     (p13: 0.0,
+      p31: 1.0,          
+      p32: 0.0,          
+      p23: 0.0,         
+      p14: 0.0,          
+      oneWayDelay: 0.01) 
+  ) .
+  op LinkType-Dns : -> AttributeSet .
+  eq LinkType-Dns = 
+  (delayStd:  0.0),
+  (delayType: "Constant"),
+  (delayMean: 0.),
+  (delayConst: 0.001),
+  (noiseMin: 0.),
+  (noiseMax: 0.00001),
+  (dropP: 0.),
+  (canDrop: false),
+  (4stateLoss: 
+     (p13: 0.0,
+      p31: 1.0,          
+      p32: 0.0,          
+      p23: 0.0,         
+      p14: 0.0,          
+      oneWayDelay: 0.01) 
+  ) .
+
+  eq LinkData =
+    --- Client 1 (Webtunnel) Links
+    aaa(wtClient1Addr, wtProxy1Addr,  LinkType-TCP-4stateLoss)
+    aaa(wtProxy1Addr,  wtClient1Addr, LinkType-TCP-4stateLoss)
+    
+    --- Client 2 (OBFS4) Links
+    aaa(obfs4Client2Addr, obfs4Server2Addr, LinkType-TCP-4stateLoss)
+    aaa(obfs4Server2Addr, obfs4Client2Addr, LinkType-TCP-4stateLoss)
+
+    --- Client 3 (Skyhook) Links
+    aaa(s3SrvAddr, sdkac3Addr, LinkType-TCP-4stateLoss)
+    aaa(s3SrvAddr, sdkas3Addr, LinkType-TCP-4stateLoss)
+    aaa(sdkac3Addr, s3SrvAddr, LinkType-TCP-4stateLoss)
+    aaa(sdkas3Addr, s3SrvAddr, LinkType-TCP-4stateLoss) 
+    
+    --- Client 4 (Iodine) Links
+    aaa(serverIodineServer4Addr, iodineClient4Addr, LinkType-TCP-4stateLoss)
+    aaa(iodineClient4Addr, serverIodineServer4Addr, LinkType-TCP-4stateLoss) 
+    
+    --- Client 5 (Mastodon) Links
+    aaa(masSrvAddr, mcac5Addr, LinkType-TCP-4stateLoss)
+    aaa(masSrvAddr, mcas5Addr, LinkType-TCP-4stateLoss)
+    aaa(mcac5Addr, masSrvAddr, LinkType-TCP-4stateLoss)
+    aaa(mcas5Addr, masSrvAddr, LinkType-TCP-4stateLoss) 
+    aaa(wtProxy1Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, wtProxy1Addr, LinkType-TCP-4stateLoss)
+    aaa(wtClient1Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, wtClient1Addr, LinkType-TCP-4stateLoss)
+
+    aaa(obfs4Server2Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, obfs4Server2Addr, LinkType-TCP-4stateLoss)
+    aaa(obfs4Client2Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, obfs4Client2Addr, LinkType-TCP-4stateLoss)
+
+    aaa(s3SrvAddr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, s3SrvAddr, LinkType-TCP-4stateLoss)
+    aaa(sdkac3Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, sdkac3Addr, LinkType-TCP-4stateLoss)
+    aaa(sdkas3Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, sdkas3Addr, LinkType-TCP-4stateLoss)
+
+    aaa(serverIodineServer4Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, serverIodineServer4Addr, LinkType-TCP-4stateLoss)
+    aaa(iodineClient4Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, iodineClient4Addr, LinkType-TCP-4stateLoss)
+
+    aaa(masSrvAddr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, masSrvAddr, LinkType-TCP-4stateLoss)
+    aaa(mcac5Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, mcac5Addr, LinkType-TCP-4stateLoss)
+    aaa(mcas5Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+    aaa(IXP-DEFAULT-ADDR, mcas5Addr, LinkType-TCP-4stateLoss)
+
+    **** udp links
+    aaa(a(dnsN, dns, dns, srv, 0), a(cl[1], dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(cl[1], dns, dns, cl, 0), a(dnsN, dns, dns, srv, 0), LinkType-Dns)
+    aaa(a(dnsN, dns, dns, srv, 0), a(cl[2], dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(cl[2], dns, dns, cl, 0), a(dnsN, dns, dns, srv, 0), LinkType-Dns)
+    aaa(a(dnsN, dns, dns, srv, 0), a(cl[3], dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(cl[3], dns, dns, cl, 0), a(dnsN, dns, dns, srv, 0), LinkType-Dns)
+    aaa(a(dnsN, dns, dns, srv, 0), a(cl[4], dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(cl[4], dns, dns, cl, 0), a(dnsN, dns, dns, srv, 0), LinkType-Dns)
+    aaa(a(dnsN, dns, dns, srv, 0), a(cl[5], dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(cl[5], dns, dns, cl, 0), a(dnsN, dns, dns, srv, 0), LinkType-Dns)
+    aaa(a(dnsN, dns, dns, srv, 0), a(srvN, dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(srvN, dns, dns, cl, 0), a(dnsN, dns, dns, srv, 0), LinkType-Dns)
+
+    aaa(IXP-DEFAULT-ADDR, a(cl[1], dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(cl[1], dns, dns, cl, 0), IXP-DEFAULT-ADDR, LinkType-Dns)
+    aaa(IXP-DEFAULT-ADDR, a(cl[2], dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(cl[2], dns, dns, cl, 0), IXP-DEFAULT-ADDR, LinkType-Dns)
+    aaa(IXP-DEFAULT-ADDR, a(cl[3], dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(cl[3], dns, dns, cl, 0), IXP-DEFAULT-ADDR, LinkType-Dns)
+    aaa(IXP-DEFAULT-ADDR, a(cl[4], dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(cl[4], dns, dns, cl, 0), IXP-DEFAULT-ADDR, LinkType-Dns)
+    aaa(IXP-DEFAULT-ADDR, a(cl[5], dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(cl[5], dns, dns, cl, 0), IXP-DEFAULT-ADDR, LinkType-Dns)
+    aaa(IXP-DEFAULT-ADDR, a(srvN,  dns, dns, cl, 0), LinkType-Dns)
+    aaa(a(srvN,  dns, dns, cl, 0), IXP-DEFAULT-ADDR, LinkType-Dns)
+
+    aaa(a(dnsN, dns, dns, srv, 0), IXP-DEFAULT-ADDR, LinkType-Dns)
+    aaa(IXP-DEFAULT-ADDR, a(dnsN, dns, dns, srv, 0), LinkType-Dns)
+  .
+
+
+  ---------------------------------------------------
+  --- Actors Setup
+  ---------------------------------------------------
+  ops ircClient1 ircClient2 ircClient3 ircClient4 ircServer s3SrvAct iodineMonitor : -> Actor .
+  ops ircClient1UserModel ircClient2UserModel ircClient3UserModel ircClient4UserModel : -> Actor .
+  
+  ops client1Iface server1Iface wtClient1 wtProxy1 : -> Actor .
+  ops wtClient1NetClient wtProxy1NetServer : -> Actor .
+  ops client2Iface server2Iface obfs4Client2 obfs4Server2 : -> Actor .
+  ops obfs4Client2NetClient obfs4Server2NetServer : -> Actor .
+  ops client3Iface server3Iface umac3Act cmac3Act pua3Act sdkac3Act umas3Act cmas3Act aha3Act sdkas3Act : -> Actor .
+  ops skyhookClient3NetClient skyhookServer3NetClient skyhookNetServer : -> Actor .
+  ops client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4 : -> Actor .
+  ops iodineClient4NetClient iodineServer4NetServer : -> Actor .
+
+  ops ircClient5 ircClient5UserModel : -> Actor .
+  ops client5Iface server5Iface umac5Act cmac5Act mcac5Act edac5Act umas5Act cmas5Act mcas5Act edas5Act : -> Actor .
+  ops mastodonClient5NetClient mastodonServer5NetClient masNetServer masSrvAct : -> Actor .
+
+  ops corp1Dns corp2Dns corp3Dns corp4Dns corp5Dns  : -> Actor .
+  ops servDns                                       : -> Actor .
+  ops publicResolver rootDns authDns tldDns         : -> Actor .
+  ops corp1NetClient corp2NetClient corp3NetClient corp4NetClient corp5NetClient  : -> Actor .
+  ops servNetClient                                                               : -> Actor .
+  ops publicResolverNetClient rootDnsNetClient tldDnsNetClient authDnsNetClient   : -> Actor .
+  
+  op advAddr : -> Address .
+  op advActor : -> Actor .
+  eq advActor = mkAdversaryCp3(advAddr) .
+
+  --- Client 1 (Webtunnel) Setup
+  eq ircClient1          = mkIrcClient-v2(ircClient1Addr, client1IfaceAddr, "Client1") .
+  eq ircClient1UserModel = mkIrcUMV2Actor(ircClient1UserModelAddr, "irc-test", ircClient1Addr) .
+  eq client1Iface        = mkIrcByteSeqIface(client1IfaceAddr, ircClient1Addr, wtClient1Addr) .
+  eq server1Iface        = mkIrcByteSeqIface(server1IfaceAddr, ircServerAddr, wtProxy1Addr) .
+
+  --- WtClient normally relies on learning the address of its local IRC client dynamically when the local client sends its first outbound message.
+  --- Because the server's notification arrived before Alice sent her first outbound message, wtClient tried to forward the notification to nullAddr.
+  --- Maude doesn't have an actor for nullAddr, so the to nullAddr message got permanently stuck at the very front of the event queue. 
+  --- To circumvent this, we initialize wtClient with the address of its local IRC client client1IfaceAddr.
+
+  eq wtClient1 =
+    < wtClient1Addr : WtClient |
+        thisAddr:        wtClient1Addr,
+        serverProxyAddr: wtProxy1Addr,
+        ircServerAddr:   ircServerAddr,
+        ircClientAddr:   client1IfaceAddr,
+        tlsServerName:   "irc.example.com",
+        upgradePath:     "secret/path/v1",
+        tunnelState:     Closed,
+        pendingMsgs:     emptyQueue >
+  .
+  eq wtProxy1             = makeWtServerProxy(wtProxy1Addr, server1IfaceAddr) .
+  eq wtClient1NetClient   = makeNetClient(wtClient1NetClientAddr,
+                                          wtProxy1Addr,
+                                          wtClient1Addr,
+                                          true,
+                                          a(cl[1], dns, dns, cl, 0),
+                                          **** Carolyn: What should it be here?
+                                          nullName)
+  .
+  eq wtProxy1NetServer    = makeNetServer(wtProxy1NetServerAddr, wtProxy1Addr) .
+  eq corp1Dns             = mkNameServer(corp1DnsAddr, (zoneCorp1Com), publicDnsAddr) .
+
+  --- Client 2 (OBFS4) Setup
+  eq ircClient2             = mkIrcClient-v2(ircClient2Addr, client2IfaceAddr, "Client2") .
+  eq ircClient2UserModel    = mkIrcUMV2Actor(ircClient2UserModelAddr, "irc-test", ircClient2Addr) .
+  eq client2Iface           = mkIrcByteSeqIface(client2IfaceAddr, ircClient2Addr, obfs4Client2Addr) .
+  eq obfs4Client2           = makeObfs4Node(obfs4Client2Addr, client2IfaceAddr, obfs4Server2Addr) .
+  eq server2Iface           = mkIrcByteSeqIface(server2IfaceAddr, ircServerAddr, obfs4Server2Addr) .
+  eq obfs4Server2           = makeObfs4Node(obfs4Server2Addr, server2IfaceAddr, obfs4Client2Addr) .
+  eq obfs4Client2NetClient  = makeNetClient(obfs4Client2NetClientAddr,
+                                            obfs4Server2Addr,
+                                            obfs4Client2Addr,
+                                            true,
+                                            **** Carolyn: What should it be here?
+                                            a(cl[2], dns, dns, cl, 0),
+                                            nullName)
+  .
+  eq obfs4Server2NetServer  = makeNetServer(obfs4Server2NetServerAddr, obfs4Server2Addr) .
+  eq corp2Dns               = mkNameServer(corp2DnsAddr, (zoneCorp2Com), publicDnsAddr) .
+
+  --- Client 3 (Skyhook) Setup
+  eq ircClient3               = mkIrcClient-v2(ircClient3Addr, client3IfaceAddr, "Client3") .
+  eq ircClient3UserModel      = mkIrcUMV2Actor(ircClient3UserModelAddr, "irc-test", ircClient3Addr) .
+  eq client3Iface             = mkIrcByteSeqIface(client3IfaceAddr, ircClient3Addr, cmac3Addr) .
+  eq umac3Act                 = mkUMactor(umac3Addr, skyhook-um-mamodel-1-ma, cmac3Addr) .
+  eq cmac3Act                 = mkCMSimpleBi(cmac3Addr, client3IfaceAddr, pua3Addr) .
+  eq pua3Act                  = makeSkyhookPU(pua3Addr, cmac3Addr, sdkac3Addr, "s_to_c_bucket_a", "c_to_s_bucket_a", "s_to_c_uuid_a", "c_to_s_uuid_a-hash") .
+  eq sdkac3Act                = makeS3Client(sdkac3Addr, s3SrvAddr) .
+  eq server3Iface             = mkIrcByteSeqIface(server3IfaceAddr, ircServerAddr, cmas3Addr) .
+  eq umas3Act                 = mkUMactor(umas3Addr, skyhook-um-mamodel-1-ma, cmas3Addr) .
+  eq cmas3Act                 = mkCMSimpleBi(cmas3Addr, server3IfaceAddr, aha3Addr) .
+  eq aha3Act                  = mkSkyhookAH(aha3Addr, cmas3Addr, sdkas3Addr, "c_to_s_bucket_a", "s_to_c_bucket_a", "c_to_s_uuid_a", "s_to_c_uuid_a", "s_to_c_uuid_a", 6) .
+  eq sdkas3Act                = makeS3Client(sdkas3Addr, s3SrvAddr) .
+  eq skyhookClient3NetClient  = makeNetClient(skyhookClient3NetClientAddr,
+                                              s3SrvAddr,
+                                              sdkac3Addr,
+                                              true,
+                                              a(cl[3], dns, dns, cl, 0),
+                                              **** Carolyn: What should it be here?
+                                              nullName)
+  .
+  eq skyhookNetServer = makeNetServer(skyhookNetServerAddr, s3SrvAddr) .
+  eq skyhookServer3NetClient  = makeNetClient(skyhookServer3NetClientAddr,
+                                              s3SrvAddr,
+                                              sdkas3Addr,
+                                              true,
+                                              a(srvN, dns, dns, cl, 0),
+                                              **** Carolyn: What should it be here?
+                                              nullName)
+  .
+  eq corp3Dns                 = mkNameServer(corp3DnsAddr, (zoneCorp3Com), publicDnsAddr) .
+
+  --- Client 4 (Iodine) Setup
+  eq ircClient4             = mkIrcClient-v2(ircClient4Addr, client4IfaceAddr, "Client4") .
+  eq ircClient4UserModel    = mkIrcUMV2Actor(ircClient4UserModelAddr, "irc-test", ircClient4Addr) .
+  eq client4Iface           = mkIrcByteSeqIface(client4IfaceAddr, ircClient4Addr, sendApp4Addr) .
+  eq serverIface4           = mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr) .
+  eq sendApp4               = mkSendApp(sendApp4Addr, rcvApp4Addr, client4IfaceAddr, iodineClient4Addr) .
+  eq rcvApp4                = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .
+  eq iodineClient4          = makeWClient(iodineClient4Addr, serverIodineServer4Addr, 'pwnd2 . 'com . root, a, 0.0) .
+  eq serverIodineServer4    = makeWNameServer(serverIodineServer4Addr, 0.0, zonePwnd2Com4) .
+  eq iodineClient4NetClient = makeNetClient(iodineClient4NetClientAddr,
+                                            serverIodineServer4Addr,
+                                            iodineClient4Addr,
+                                            true,
+                                            a(cl[4], dns, dns, cl, 0),
+                                            **** Carolyn: What should it be here?
+                                            nullName)
+  .
+  eq iodineServer4NetServer = makeNetServer(iodineServer4NetServerAddr, serverIodineServer4Addr) .
+  eq corp4Dns               = mkNameServer(corp4DnsAddr, (zoneCorp4Com), publicDnsAddr) .
+  eq iodineMonitor          = mkWMonitor(iodineMonitorAddr) .
+
+  --- Client 5 (Mastodon) Setup
+  eq ircClient5          = mkIrcClient-v2(ircClient5Addr, client5IfaceAddr, "Client5") .
+  eq ircClient5UserModel = mkIrcUMV2Actor(ircClient5UserModelAddr, "irc-test", ircClient5Addr) .
+  eq client5Iface        = mkIrcByteSeqIface(client5IfaceAddr, ircClient5Addr, cmac5Addr) .
+  eq umac5Act            = mkUMactor(umac5Addr, mastodon-client-config-mastodon-bidi-ma, cmac5Addr) .
+  eq cmac5Act            = mkCMSndRcvActor(cmac5Addr, edac5Addr, mcac5Addr, client5IfaceAddr, "client5", "server5") .
+  eq mcac5Act            = makeMastodonClient(mcac5Addr, masSrvAddr, cmac5Addr) .
+  eq edac5Act            = makeDestiniActor(edac5Addr, ed-images) .
+  
+  eq server5Iface        = mkIrcByteSeqIface(server5IfaceAddr, ircServerAddr, cmas5Addr) .
+  eq umas5Act            = mkUMactor(umas5Addr, mastodon-client-config-mastodon-bidi-ma, cmas5Addr) .
+  eq cmas5Act            = mkCMSndRcvActor(cmas5Addr, edas5Addr, mcas5Addr, server5IfaceAddr, "server5", "client5") .
+  eq mcas5Act            = makeMastodonClient(mcas5Addr, masSrvAddr, cmas5Addr) .
+  eq edas5Act            = makeDestiniActor(edas5Addr, ed-images) .
+  eq corp5Dns            = mkNameServer(corp5DnsAddr, (zoneCorp5Com), publicDnsAddr) .
+  
+  eq mastodonClient5NetClient = makeNetClient(mastodonClient5NetClientAddr,
+                                              masSrvAddr,
+                                              mcac5Addr,
+                                              true,
+                                              a(cl[5], dns, dns, cl, 0),
+                                              **** Carolyn: What should it be here?
+                                              nullName)
+  .
+  eq masNetServer      = makeNetServer(masNetServerAddr, masSrvAddr) .
+  eq mastodonServer5NetClient = makeNetClient(mastodonServer5NetClientAddr,
+                                              masSrvAddr,
+                                              mcas5Addr,
+                                              true,
+                                              a(srvN, dns, dns, cl, 0),
+                                              **** Carolyn: What should it be here?
+                                              nullName)
+  .
+
+  --- Base Infrastructure Setup
+  eq s3SrvAct       = makeS3Server(s3SrvAddr) .
+  eq masSrvAct      = makeMastodonServer(masSrvAddr) .
+  eq ircServer      = mkIrcServer(ircServerAddr) .
+  eq servDns        = mkNameServer(servDnsAddr, (zoneServCom), publicDnsAddr) .
+  eq publicResolver = mkResolver(publicDnsAddr, resolverCache, sb) .
+  eq rootDns        = mkNameServer(rootDnsAddr, (zone), nullAddr) .
+  eq tldDns         = mkNameServer(tldDnsAddr, (zoneCom), nullAddr) .
+  eq authDns        = mkNameServer(authDnsAddr, (zoneInternetCom), nullAddr) .
+
+  eq corp1NetClient = makeNetClient(a(cl[1], udp, dns, cl, 0),
+                                    publicDnsAddr,
+                                    a(cl[1], dns, dns, cl, 0),
+                                    true)
+  .
+  eq corp2NetClient = makeNetClient(a(cl[2], udp, dns, cl, 0),
+                                    publicDnsAddr,
+                                    a(cl[2], dns, dns, cl, 0),
+                                    true)
+  .
+  eq corp3NetClient = makeNetClient(a(cl[3], udp, dns, cl, 0),
+                                    publicDnsAddr,
+                                    a(cl[3], dns, dns, cl, 0),
+                                    true)
+  .
+  eq corp4NetClient = makeNetClient(a(cl[4], udp, dns, cl, 0),
+                                    publicDnsAddr,
+                                    a(cl[4], dns, dns, cl, 0),
+                                    true)
+  .
+  eq corp5NetClient = makeNetClient(a(cl[5], udp, dns, cl, 0),
+                                    publicDnsAddr,
+                                    a(cl[5], dns, dns, cl, 0),
+                                    true)
+  .
+  eq servNetClient  = makeNetClient(a(srvN, udp, dns, cl, 0),
+                                    publicDnsAddr,
+                                    a(srvN, dns, dns, cl, 0),
+                                    true)
+  .
+  eq publicResolverNetClient  = makeNetClient(a(dnsN, udp, dns, cl, 0),
+                                              publicDnsAddr,
+                                              publicDnsAddr,
+                                              true)
+  .
+  *** Carolyn: Should there not be servers for these clients?
+
+  *** Carolyn: This seems wrong too.
+  eq rootDnsNetClient         = makeNetClient(a(dnsN, udp, dns, cl, 0),
+                                              rootDnsAddr,
+                                              rootDnsAddr,
+                                              true)
+  .
+  eq tldDnsNetClient          = makeNetClient(a(dnsN, udp, dns, cl, 0),
+                                              tldDnsAddr,
+                                              tldDnsAddr,
+                                              true)
+  .
+  eq authDnsNetClient         = makeNetClient(a(dnsN, udp, dns, cl, 0),
+                                              authDnsAddr,
+                                              authDnsAddr,
+                                              true)
+  .
+
+  ---------------------------------------------------
+  --- Initial State Configuration
+  ---------------------------------------------------
+  op initState : Nat -> Config .
+  eq initState(j) =
+    rCtr(j + 8)
+
+    --- Core Shared Infrastructure
+    ircServer s3SrvAct iodineMonitor
+    mkIrcMonitor(ircMonitorAddr)
+    servDns servNetClient
+
+    --- Client 1 Entities (Webtunnel)
+    ircClient1 ircClient1UserModel client1Iface server1Iface wtClient1 wtProxy1
+    wtClient1NetClient wtProxy1NetServer
+    corp1Dns corp1NetClient
+    
+    --- Client 2 Entities (OBFS4)
+    ircClient2 ircClient2UserModel client2Iface server2Iface obfs4Client2 obfs4Server2
+    obfs4Client2NetClient obfs4Server2NetServer
+    corp2Dns corp2NetClient
+    
+    --- Client 3 Entities (Skyhook)
+    ircClient3 ircClient3UserModel client3Iface umac3Act cmac3Act pua3Act sdkac3Act server3Iface umas3Act cmas3Act aha3Act sdkas3Act
+    skyhookClient3NetClient skyhookNetServer skyhookServer3NetClient
+    corp3Dns corp3NetClient
+    
+    --- Client 4 (Iodine)
+    ircClient4 ircClient4UserModel client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4
+    iodineClient4NetClient iodineServer4NetServer
+    corp4Dns corp4NetClient
+
+    --- Client 5 (Mastodon)
+    ircClient5 ircClient5UserModel client5Iface server5Iface umac5Act cmac5Act mcac5Act edac5Act umas5Act cmas5Act mcas5Act edas5Act
+    mastodonClient5NetClient masNetServer mastodonServer5NetClient
+    corp5Dns corp5NetClient
+    
+    masSrvAct
+    advActor
+
+    --- DNS Infrastructure
+    publicResolver publicResolverNetClient
+    rootDns rootDnsNetClient tldDns tldDnsNetClient authDns authDnsNetClient
+
+    --- Timers & Execution Triggers
+
+    [0.001, (to aha3Addr from aha3Addr : SkyhookStartCmd), 0]
+    [0.20, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]
+
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to umac3Addr from umac3Addr : actionR("ok")), 0]
+    [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas3Addr from umas3Addr : actionR("ok")), 0]
+    
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to umac5Addr from umac5Addr : actionR("ok")), 0]
+    [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas5Addr from umas5Addr : actionR("ok")), 0]
+
+    mkJoin(2.0, "#chat", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    mkJoin(2.1, "#general", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+    mkJoin(2.2, "#random", ircClient1Addr, ircServerAddr, server1IfaceAddr)
+
+    mkJoin(2.3, "#chat", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+    mkJoin(2.4, "#general", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+    mkJoin(2.5, "#random", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+
+    mkJoin(2.6, "#chat", ircClient3Addr, ircServerAddr, server3IfaceAddr)
+    mkJoin(2.7, "#general", ircClient3Addr, ircServerAddr, server3IfaceAddr)
+    mkJoin(2.8, "#random", ircClient3Addr, ircServerAddr, server3IfaceAddr)
+
+    mkJoin(2.9, "#chat", ircClient4Addr, ircServerAddr, serverIface4Addr)
+    mkJoin(3.0, "#general", ircClient4Addr, ircServerAddr, serverIface4Addr)
+    mkJoin(3.1, "#random", ircClient4Addr, ircServerAddr, serverIface4Addr)
+
+    mkJoin(3.2, "#chat", ircClient5Addr, ircServerAddr, server5IfaceAddr)
+    mkJoin(3.3, "#general", ircClient5Addr, ircServerAddr, server5IfaceAddr)
+    mkJoin(3.4, "#random", ircClient5Addr, ircServerAddr, server5IfaceAddr)
+
+    [20.0, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
+    [21.0, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
+    [22.0, (to ircClient3UserModelAddr from ircClient3UserModelAddr : burstDelayTO), 0]
+    [23.0, (to ircClient4UserModelAddr from ircClient4UserModelAddr : burstDelayTO), 0]
+    [24.0, (to ircClient5UserModelAddr from ircClient5UserModelAddr : burstDelayTO), 0]
+  .
+
+  ---------------------------------------------------
+  --- Run Limits and Initial Configurations
+  ---------------------------------------------------
+  op slimit : -> Float .
+  eq slimit = 1000.0 .
+
+  op initConfig : -> Config .
+  rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .
+endm
+
+set print attribute on .
+rew initConfig .
+q
