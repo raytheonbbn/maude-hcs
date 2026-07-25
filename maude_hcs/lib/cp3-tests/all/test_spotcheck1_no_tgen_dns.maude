@@ -179,7 +179,7 @@ mod COMBINED_IRC_EXPERIMENTS is
     < 'corp1 . 'com . root, soa, 3600.0, soaData(3600.0) >
     < 'corp1 . 'com . root, ns, 3600.0, 'ns . 'corp1 . 'com . root >
     < 'ns . 'corp1 . 'com . root, a, 3600.0, corp1DnsAddr >
-    ---                                   What should these addresses be?
+    ---                           Carolyn: What should these addresses be?
     < 'tmp1 . 'corp1 . 'com . root, a, 0.0, 3 . 0 . 1 . 2 >
     < wildcard . 'corp1 . 'com . root, a, 0.0, 3 . 1 . 1 . 2 >
   .
@@ -297,15 +297,12 @@ mod COMBINED_IRC_EXPERIMENTS is
   ops servDnsAddr                                                       : -> Address .
   ops publicDnsAddr rootDnsAddr comDnsAddr tldDnsAddr authDnsAddr       : -> Address .
 
+  eq corp1DnsAddr   = a(cl[1], dns, dns, cl, 0) .
+  eq corp2DnsAddr   = a(cl[2], dns, dns, cl, 0) .
+  eq corp3DnsAddr   = a(cl[3], dns, dns, cl, 0) .
+  eq corp4DnsAddr   = a(cl[4], dns, dns, cl, 0) .
+  eq corp5DnsAddr   = a(cl[5], dns, dns, cl, 0) .
   eq publicDnsAddr  = a(dnsN, dns, dns, srv, 0) .
-  *** Carolyn: This is probably correct, I imagine it should not be a dnsN; what should it be?
-  eq rootDnsAddr    = a(dnsN, dns, dns, srv, 0) .
-  *** Carolyn: This is probably correct, I imagine it should not be a dnsN; what should it be?
-  eq comDnsAddr     = a(dnsN, dns, dns, srv, 0) .
-  *** Carolyn: This is probably correct, I imagine it should not be a dnsN; what should it be?
-  eq tldDnsAddr     = a(dnsN, dns, dns, srv, 0) .
-  *** Carolyn: This is probably correct, I imagine it should not be a dnsN; what should it be?
-  eq authDnsAddr    = a(dnsN, dns, dns, srv, 0) .
   eq ircServerAddr  = a(srvN, srv, irc, srv, 0) .
 
   --- Webtunnel / Client 1
@@ -379,7 +376,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   --- Link model parameters
   ---------------------------------------------------
 
-  eq transport(any:Address) = tcp(any:Address) .
+  ****eq transport(any:Address) = tcp(any:Address) .
   **** tcp actors
   eq transport(a(minN, srv, min, srv, 0))   = tcp(a(minN, srv, min, srv, 0)) .
   eq transport(a(cl[1], hcs, sky, cl, 1))   = tcp(a(cl[1], hcs, sky, cl, 1)) .
@@ -584,9 +581,9 @@ mod COMBINED_IRC_EXPERIMENTS is
                                           wtProxy1Addr,
                                           wtClient1Addr,
                                           true,
-                                          a(cl[1], dns, dns, cl, 0),
-                                          **** Carolyn: What should it be here?
-                                          nullName)
+                                          corp1DnsAddr, ---- a(cl[1], dns, dns, cl, 0),
+                                          **** DNS name that the dns net knows about
+                                          'mastodon . 'pwnd . 'com . root)
   .
   eq wtProxy1NetServer    = makeNetServer(wtProxy1NetServerAddr, wtProxy1Addr) .
   eq corp1Dns             = mkNameServer(corp1DnsAddr, (zoneCorp1Com), publicDnsAddr) .
@@ -602,9 +599,9 @@ mod COMBINED_IRC_EXPERIMENTS is
                                             obfs4Server2Addr,
                                             obfs4Client2Addr,
                                             true,
-                                            **** Carolyn: What should it be here?
-                                            a(cl[2], dns, dns, cl, 0),
-                                            nullName)
+                                            corp2DnsAddr, ---- a(cl[2], dns, dns, cl, 0),
+                                            **** DNS name that the dns net knows about
+                                            'mastodon . 'pwnd . 'com . root)
   .
   eq obfs4Server2NetServer  = makeNetServer(obfs4Server2NetServerAddr, obfs4Server2Addr) .
   eq corp2Dns               = mkNameServer(corp2DnsAddr, (zoneCorp2Com), publicDnsAddr) .
@@ -626,9 +623,9 @@ mod COMBINED_IRC_EXPERIMENTS is
                                               s3SrvAddr,
                                               sdkac3Addr,
                                               true,
-                                              a(cl[3], dns, dns, cl, 0),
-                                              **** Carolyn: What should it be here?
-                                              nullName)
+                                              corp3DnsAddr, ---- a(cl[3], dns, dns, cl, 0),
+                                              **** DNS name that the dns net knows about
+                                              'mastodon . 'pwnd . 'com . root)
   .
   eq skyhookNetServer = makeNetServer(skyhookNetServerAddr, s3SrvAddr) .
   eq skyhookServer3NetClient  = makeNetClient(skyhookServer3NetClientAddr,
@@ -654,8 +651,11 @@ mod COMBINED_IRC_EXPERIMENTS is
                                             serverIodineServer4Addr,
                                             iodineClient4Addr,
                                             true,
-                                            a(cl[4], dns, dns, cl, 0),
-                                            **** Carolyn: What should it be here?
+                                            corp4DnsAddr, ---- a(cl[4], dns, dns, cl, 0),
+                                            --- presumably the iodine traffic goes through the
+                                            --- corp forwarder and the iodine server is observed
+                                            --- as a public resolver response so no net object
+                                            --- is needed for iodine traffic
                                             nullName)
   .
   eq iodineServer4NetServer = makeNetServer(iodineServer4NetServerAddr, serverIodineServer4Addr) .
@@ -682,8 +682,11 @@ mod COMBINED_IRC_EXPERIMENTS is
                                               masSrvAddr,
                                               mcac5Addr,
                                               true,
-                                              a(cl[5], dns, dns, cl, 0),
-                                              **** Carolyn: What should it be here?
+                                              corp5DnsAddr, ---- a(cl[5], dns, dns, cl, 0),
+                                              --- presumably the Mastodon traffic goes through the
+                                              --- corp forwarder and the iodine server is observed
+                                              --- as a public resolver response so no net object
+                                              --- is needed for iodine traffic
                                               nullName)
   .
   eq masNetServer      = makeNetServer(masNetServerAddr, masSrvAddr) .
@@ -692,7 +695,10 @@ mod COMBINED_IRC_EXPERIMENTS is
                                               mcas5Addr,
                                               true,
                                               a(srvN, dns, dns, cl, 0),
-                                              **** Carolyn: What should it be here?
+                                              --- presumably the Mastodon traffic goes through the
+                                              --- corp forwarder and the iodine server is observed
+                                              --- as a public resolver response so no net object
+                                              --- is needed for iodine traffic
                                               nullName)
   .
 
@@ -708,27 +714,27 @@ mod COMBINED_IRC_EXPERIMENTS is
 
   eq corp1NetClient = makeNetClient(a(cl[1], udp, dns, cl, 0),
                                     publicDnsAddr,
-                                    a(cl[1], dns, dns, cl, 0),
+                                    corp1DnsAddr, ---- a(cl[1], dns, dns, cl, 0),
                                     true)
   .
   eq corp2NetClient = makeNetClient(a(cl[2], udp, dns, cl, 0),
                                     publicDnsAddr,
-                                    a(cl[2], dns, dns, cl, 0),
+                                    corp2DnsAddr, ---- a(cl[2], dns, dns, cl, 0),
                                     true)
   .
   eq corp3NetClient = makeNetClient(a(cl[3], udp, dns, cl, 0),
                                     publicDnsAddr,
-                                    a(cl[3], dns, dns, cl, 0),
+                                    corp3DnsAddr, ---- a(cl[3], dns, dns, cl, 0),
                                     true)
   .
   eq corp4NetClient = makeNetClient(a(cl[4], udp, dns, cl, 0),
                                     publicDnsAddr,
-                                    a(cl[4], dns, dns, cl, 0),
+                                    corp4DnsAddr, ---- a(cl[4], dns, dns, cl, 0),
                                     true)
   .
   eq corp5NetClient = makeNetClient(a(cl[5], udp, dns, cl, 0),
                                     publicDnsAddr,
-                                    a(cl[5], dns, dns, cl, 0),
+                                    corp5DnsAddr, ---- a(cl[5], dns, dns, cl, 0),
                                     true)
   .
   eq servNetClient  = makeNetClient(a(srvN, udp, dns, cl, 0),
@@ -742,23 +748,6 @@ mod COMBINED_IRC_EXPERIMENTS is
                                               true)
   .
   *** Carolyn: Should there not be servers for these clients?
-
-  *** Carolyn: This seems wrong too.
-  eq rootDnsNetClient         = makeNetClient(a(dnsN, udp, dns, cl, 0),
-                                              rootDnsAddr,
-                                              rootDnsAddr,
-                                              true)
-  .
-  eq tldDnsNetClient          = makeNetClient(a(dnsN, udp, dns, cl, 0),
-                                              tldDnsAddr,
-                                              tldDnsAddr,
-                                              true)
-  .
-  eq authDnsNetClient         = makeNetClient(a(dnsN, udp, dns, cl, 0),
-                                              authDnsAddr,
-                                              authDnsAddr,
-                                              true)
-  .
 
   ---------------------------------------------------
   --- Initial State Configuration
