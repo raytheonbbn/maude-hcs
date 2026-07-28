@@ -226,28 +226,72 @@ mod WEBTUNNEL_AUX is
 
   op getSize : Content -> Nat .
 
-  --- TLS ClientHello (~300 B) + HTTP/1.1 Upgrade request headers.
-  --- Webtunnel uses a GET request to a URL.
-  eq getSize(makeHttpRequest(getRequest, url(PATH2)))
-    = 300 + 200 + length(PATH2)
-  .
+  -------------------------------------------------------------------
+  --- 1. IRC Layer Formatting (Adds framing like "PRIVMSG #room1 :...")
+  --- For example:
+  --- 18 = 8 (IRC command "PRIVMSG ") + 6 (target channel "#room1") + 2 (content separator ": ") + 2 (line separation "\r\n")
+  ---
+  --- Note: Let's assume IRC_MSG already includes this, so left it commented out.
+  -------------------------------------------------------------------
+  --- eq getSize(makeIrcMessage(IRC_MSG)) = 18 + getSize(IRC_MSG) .
 
-  --- TLS ServerHello + Certificate + Finished + HTTP 101 Switching Protocols.
-  eq getSize(makeHttpResponse("101 Switching Protocols")) = 600 .
+  -------------------------------------------------------------------
+  --- 2. Inner TLS Layer Encapsulation
+  ---    Adds 5B TLS Header + 1B ContentType + 16B Auth Tag (TLS 1.3 GCM/ChaCha)
+  -------------------------------------------------------------------
+  eq getSize(makeInnerTlsRecord(IRC_MSG)) = 22 + getSize(IRC_MSG) .
 
-  --- One TLS record header (5 B) + HMAC + IV/padding overhead (~35 B).
-  eq getSize(makeHttpRequest(getRequest, IRC_MSG))
-    = 40 + getSize(IRC_MSG)
-  .
-  eq getSize(makeHttpResponse(STATUS_STR, IRC_MSG))
-    = 40 + getSize(IRC_MSG)
-  .
+  -------------------------------------------------------------------
+  --- 3. Outer TLS & Tunneling Frames (WebTunnel / WebSocket) sent to WebTunnel Server.
+  ---    Note: We do not include TCP/IP, that's done by the transport model.
+  ---
+  ---    Adds: 8B websocket frame header,
+  ---         17B webtunnel header/padding,
+  ---         22B TLS content type, auth tag, and header
+  -------------------------------------------------------------------
+  eq getSize(makeWebTunnelFrame(INNER_TLS_RECORD)) = 47 + getSize(INNER_TLS_RECORD) .
+
+  --- -------------------------------------------------------------------
+  --- 4. Top-Level HTTP Constructors (High-Level Caller Interface)
+  --- Both directions delegate to the WebTunnel + Inner TLS stack under the hood
+  --- -------------------------------------------------------------------
+
+  --- Client -> Server Data Frame
+  eq getSize(makeHttpRequest(getRequest, IRC_MSG)) = getSize(makeWebTunnelFrame(makeInnerTlsRecord(IRC_MSG))) .
+
+  --- Server -> Client Data Frame
+  eq getSize(makeHttpResponse(STATUS_STR, IRC_MSG)) = getSize(makeWebTunnelFrame(makeInnerTlsRecord(IRC_MSG))) .
+
+
+  --- -------------------------------------------------------------------
+  --- Client Handshake: TLS ClientHello + HTTP/1.1 Upgrade request headers.
+  ---
+  --- Note: This is a hack, because the testbed is seeing TLS ClientHello packets
+  ---       of size 1553 bytes. It's larger than the expected 1500-byte MTU, but
+  ---       the testbed's virtual interfaces allow that to fit into a single segment.
+  ---       Since our transport model segments data assuming a 1500-byte MTU,
+  ---       we just set this size to 1500 - TCP/IP headers (including TCP timestamps).
+  --- -------------------------------------------------------------------
+  eq getSize(makeHttpRequest(getRequest, url(PATH2))) = 1448 .
+
+  --- -------------------------------------------------------------------
+  --- Server Handshake: TLS ServerHello + Certificate + Finished + HTTP 101 Switching Protocols.
+  ---
+  --- Note: Like the TLS ClientHello, this is a hack. On the testbed, the server handshake
+  ---       is larger than 1500 bytes but sent as a single segment on the wire.
+  ---       So we will model it as a full size segment.
+  --- -------------------------------------------------------------------
+  eq getSize(makeHttpResponse("101 Switching Protocols")) = 1448 .
 
   --- Internal control message; no network bytes.
   eq getSize(WtStartCmd) = 0 .
 
   --- Fall-through: unknown content has zero size.
-  eq getSize(c:Content) = 0 [owise] .
+  ---
+  --- Note: Commented out to be sure that anything not implemented is caught.
+  ---       ie, something will complain that it's not implemented.
+  ---
+  --- eq getSize(c:Content) = 0 [owise] .
 
   ---------------------------------------------------
   --- Tunnel client map helpers
