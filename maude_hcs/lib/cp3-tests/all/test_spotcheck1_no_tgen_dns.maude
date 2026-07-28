@@ -165,14 +165,14 @@ mod COMBINED_IRC_EXPERIMENTS is
     < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1 . 1 . 2 >
   .
 
-  op zonePwnd2Com4 : -> List{Record} .
-  eq zonePwnd2Com4 =
-    < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
-    < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
-    < 'ns . 'pwnd2 . 'com . root, a, 3600.0, serverIodineServer4Addr >
-    < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
-    < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
-    < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
+  op zonePwndCom4 : -> List{Record} .
+  eq zonePwndCom4 =
+    < 'pwnd . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >
+    < 'ns . 'pwnd . 'com . root, a, 3600.0, serverIodineServer4Addr >
+    < 'www0 . 'pwnd . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+    < 'www1 . 'pwnd . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+    < wildcard . 'pwnd . 'com . root, txt, 3600.0, nullAddr > .
 
   op zoneCorp1Com  : -> List{Record} .
   eq zoneCorp1Com  =
@@ -302,6 +302,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq corp3DnsAddr   = a(cl[3], dns, dns, cl, 0) .
   eq corp4DnsAddr   = a(cl[4], dns, dns, cl, 0) .
   eq corp5DnsAddr   = a(cl[5], dns, dns, cl, 0) .
+  eq servDnsAddr    = a(srvN, dns, dns, cl, 0) .
   eq publicDnsAddr  = a(dnsN, dns, dns, srv, 0) .
   eq ircServerAddr  = a(srvN, srv, irc, srv, 0) .
 
@@ -397,7 +398,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq transport(a(cl[2], dns, dns, cl, 0))   = udp(a(cl[2], dns, dns, cl, 0)) .
   eq transport(a(cl[3], dns, dns, cl, 0))   = udp(a(cl[3], dns, dns, cl, 0)) .
   eq transport(a(cl[4], dns, dns, cl, 0))   = a(cl[4], dns, dns, cl, 0) .
-  eq transport(a(srvN[4], hcs, iod, iodSrv, 1)) = udp(a(srvN[4], hcs, iod, iodSrv, 1)) .
+  eq transport(a(srvN[4], hcs, iod, iodSrv, 1)) = a(srvN[4], hcs, iod, iodSrv, 1) .
   eq transport(a(cl[5], dns, dns, cl, 0))   = udp(a(cl[5], dns, dns, cl, 0)) .
   eq transport(a(srvN, dns, dns, cl, 0))    = udp(a(srvN, dns, dns, cl, 0)) .
 
@@ -471,6 +472,16 @@ mod COMBINED_IRC_EXPERIMENTS is
     --- Client 4 (Iodine) Links
     aaa(serverIodineServer4Addr, iodineClient4Addr, LinkType-TCP-4stateLoss)
     aaa(iodineClient4Addr, serverIodineServer4Addr, LinkType-TCP-4stateLoss) 
+    aaa(corp4DnsAddr, publicDnsAddr, LinkType-TCP-4stateLoss)
+    aaa(publicDnsAddr, corp4DnsAddr, LinkType-TCP-4stateLoss)
+    aaa(servDnsAddr,  publicDnsAddr, LinkType-TCP-4stateLoss)
+    aaa(publicDnsAddr, servDnsAddr,  LinkType-TCP-4stateLoss)
+    aaa(corp4DnsAddr,     IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss-Ixp)
+    aaa(IXP-DEFAULT-ADDR, corp4DnsAddr, LinkType-TCP-4stateLoss-Ixp)
+    aaa(publicDnsAddr,    IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss-Ixp)
+    aaa(IXP-DEFAULT-ADDR, publicDnsAddr, LinkType-TCP-4stateLoss-Ixp)
+    aaa(servDnsAddr,      IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss-Ixp)
+    aaa(IXP-DEFAULT-ADDR, servDnsAddr,  LinkType-TCP-4stateLoss-Ixp)
     
     --- Client 5 (Mastodon) Links
     aaa(masSrvAddr, mcac5Addr, LinkType-TCP-4stateLoss)
@@ -646,7 +657,7 @@ mod COMBINED_IRC_EXPERIMENTS is
                                               s3SrvAddr,
                                               sdkas3Addr,
                                               true,
-                                              a(srvN, dns, dns, cl, 0),
+                                              servDnsAddr, ---- a(srvN, dns, dns, cl, 0),
                                               **** Carolyn: What should it be here?
                                               nullName)
   .
@@ -659,8 +670,8 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq serverIface4           = mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr) .
   eq sendApp4               = mkSendApp(sendApp4Addr, rcvApp4Addr, client4IfaceAddr, iodineClient4Addr) .
   eq rcvApp4                = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .
-  eq iodineClient4          = makeWClient(iodineClient4Addr, corp4DnsAddr, 'pwnd2 . 'com . root, a, 0.0) .
-  eq serverIodineServer4    = makeWNameServer(serverIodineServer4Addr, 0.0, zonePwnd2Com4) .
+  eq iodineClient4          = makeWClient(iodineClient4Addr, corp4DnsAddr, 't1 . 'pwnd . 'com . root, a, 0.0) .
+  eq serverIodineServer4    = makeWNameServer(serverIodineServer4Addr, 0.0, zonePwndCom4) .
 ****  eq iodineClient4NetClient = makeNetClient(iodineClient4NetClientAddr,
 ****                                            serverIodineServer4Addr,
 ****                                            iodineClient4Addr,
@@ -713,7 +724,7 @@ mod COMBINED_IRC_EXPERIMENTS is
                                               masSrvAddr,
                                               mcas5Addr,
                                               true,
-                                              a(srvN, dns, dns, cl, 0),
+                                              servDnsAddr, ---- a(srvN, dns, dns, cl, 0),
                                               --- Carolyn: Not clear to me this too should be null.
                                               --- Should it not be treated like WebTunnel?
                                               nullName)
@@ -756,7 +767,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   .
   eq servNetClient  = makeNetClient(a(srvN, udp, dns, cl, 0),
                                     publicDnsAddr,
-                                    a(srvN, dns, dns, cl, 0),
+                                    servDnsAddr, ---- a(srvN, dns, dns, cl, 0),
                                     true)
   .
   eq publicResolverNetClient  = makeNetClient(a(dnsN, udp, dns, cl, 0),
