@@ -1,0 +1,40 @@
+sload ../../../common/maude/user-action-actor-v2-aux
+sload ../../../common/maude/sampler-x
+
+mod FTP-UTILS is
+  inc USER-ACTION-ACTOR-V2-SHARED .
+  inc CONVERSION .
+  inc SAMPLER-X .
+  
+  sort NatNat .
+  op {_,_} : Nat Nat -> NatNat [ctor] .
+  
+  op stringToNat : String -> Nat .
+  eq stringToNat(S:String) = rat(S:String, 10) .
+  
+  op genRandomZipSize : String Nat -> NatNat .
+  
+  op getRand : Nat Nat Nat -> NatNat .
+  
+  vars rj minSz maxSz : Nat .
+  ceq getRand(rj, minSz, maxSz) = { (minSz + (genRandomX(rj) rem s(sd(maxSz, minSz)))) , s rj } if minSz <= maxSz .
+  
+  vars mname key default val : String .
+  vars pars : Map{String,JV} .
+  op getStringOrDefault : Map{String,JV} String String -> String .
+  eq getStringOrDefault((key |-> js(val), pars), key, default) = val .
+  eq getStringOrDefault(pars, key, default) = default [owise] .
+
+  vars maxDepth maxDirs maxFiles minSize maxSize zSize numFiles numDirs accum accum1 accum2 accum3 count depth size rj0 rj1 rj2 rj3 : Nat .
+
+  ceq genRandomZipSize(mname, rj) =
+    { zSize, rj3 }
+    if minSize := stringToNat(getStringOrDefault(getPars(mname), "min_file_size", "1"))
+    /\ maxSize := stringToNat(getStringOrDefault(getPars(mname), "max_file_size", "1000"))
+    /\ maxDirs := stringToNat(getStringOrDefault(getPars(mname), "max_zip_dirs", "3"))
+    /\ maxDepth := stringToNat(getStringOrDefault(getPars(mname), "max_zip_depth", "3"))
+    /\ maxFiles := stringToNat(getStringOrDefault(getPars(mname), "max_zip_files", "3"))
+    /\ {numDirs, rj1} := getRand(rj, 1, maxDirs * maxDepth)
+    /\ {numFiles, rj2} := getRand(rj1, 1, maxFiles * numDirs)
+    /\ {zSize, rj3} := getRand(rj2, minSize * numFiles, maxSize * numFiles) .
+endm

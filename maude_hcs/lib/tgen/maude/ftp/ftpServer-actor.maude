@@ -5,6 +5,7 @@
 sload ../../../common/maude/cp2-interfaces
 sload ./ftp_messages.maude
 sload ../../../common/maude/delay-drop-x-aux
+sload ./ftp-utils.maude
 
   
 mod FTP-SERVER is
@@ -12,6 +13,7 @@ mod FTP-SERVER is
   inc FTP-MESSAGES .
 ***  inc DELAY-X .
   inc DELAY-X-AUX .
+  inc FTP-UTILS .
 
   op FtpServer : -> ActorType .
 
@@ -21,7 +23,7 @@ mod FTP-SERVER is
   vars dAddr cAddr : Address .
   vars msg : Msg .
   vars attrs : AttributeSet .
-  vars reqId : Nat .
+  vars reqId dataSize zSize : Nat .
   vars cmd arg : String .
   vars T : Float .
   vars rj rj1 : Nat .
@@ -65,13 +67,13 @@ mod FTP-SERVER is
     .
 
   --- Data transfers (MLSD, RETR, STOR, APPE)
-eq handleReq(dAddr, cAddr, reqId, "MLSD", arg,rj) =
+ceq handleReq(dAddr, cAddr, reqId, "MLSD", arg,rj) =
  delayMsgLX(rj,
   (to cAddr from dAddr : ftpRes(reqId, "150", "File status okay; about to open data connection.")) ;;
-  (to cAddr from dAddr :  ftpData(reqId, "mock_directory_listing")) ;;
+  (to cAddr from dAddr :  ftpData(reqId, zSize)) ;;
   (to cAddr from dAddr : ftpRes(reqId, "226", "Closing data connection."))
   )
-.
+  if {zSize, rj1} := getRand(rj, 100, 1000) .
  
  ***(
     [0.0, (to cAddr from dAddr : ftpRes(reqId, "150", "File status okay; about to open data connection.")), 0]
@@ -79,13 +81,13 @@ eq handleReq(dAddr, cAddr, reqId, "MLSD", arg,rj) =
     [0.002, (to cAddr from dAddr : ftpRes(reqId, "226", "Closing data connection.")), 0]
 )    
     
-  eq handleReq(dAddr, cAddr, reqId, "RETR", arg,rj) =
+  ceq handleReq(dAddr, cAddr, reqId, "RETR", arg,rj) =
   delayMsgLX(rj,
    (to cAddr from dAddr : ftpRes(reqId, "150", "File status okay; about to open data connection.")) ;;
-   (to cAddr from dAddr : ftpData(reqId, "mock_file_data")) ;;
+   (to cAddr from dAddr : ftpData(reqId, zSize)) ;;
    (to cAddr from dAddr : ftpRes(reqId, "226", "Closing data connection.")) 
   )
-  .
+  if {zSize, rj1} := getRand(rj, 1000, 100000) .
 ***(
     [0.0, (to cAddr from dAddr : ftpRes(reqId, "150", "File status okay; about to open data connection.")), 0]
     [0.001, (to cAddr from dAddr : ftpData(reqId, "mock_file_data")), 0]
@@ -116,14 +118,14 @@ eq handleReq(dAddr, cAddr, reqId, "MLSD", arg,rj) =
   --- Handling Data Uploads from Client (STOR, APPE)
   crl [rcvFtpData]:
     rCtr(rj)
-    {T, (to dAddr from cAddr : ftpData(reqId, arg))}
+    {T, (to dAddr from cAddr : ftpData(reqId, dataSize))}
     < dAddr : FtpServer | attrs >
   =>
     rCtr(s rj1)
     < dAddr : FtpServer | attrs >
   smsgs
  if {smsgs,rj1}  := delayMsgsX(rj,(to cAddr from dAddr : ftpRes(reqId, "226", "Closing data connection.")),null)  
-  [print "(" T ") FtpServer rcvFtpData " arg] .
+  [print "(" T ") FtpServer rcvFtpData size " dataSize] .
 
 **** [0.0, (to cAddr from dAddr : ftpRes(reqId, "226", "Closing data connection.")), 0]
 
