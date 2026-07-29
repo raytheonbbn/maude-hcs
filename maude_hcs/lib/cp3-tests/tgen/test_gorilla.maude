@@ -166,7 +166,10 @@ mod HCS_TEST is
   eq ircTgenClientAddr = a(cl[11],tgen,irc,cl,1) .
   eq ircServerAddr = a(srvN,srv,irc,srv,0) .
 
-  eq transport(any:Address) = tcp(any:Address) .
+  eq transport(gorillaTGAddr) = tcp(gorillaTGAddr) .
+  eq transport(gorillaSrvAddr) = tcp(gorillaSrvAddr) .
+
+  **** eq transport(any:Address) = tcp(any:Address) .
 
   ops LinkType-TCP-4stateLoss LinkType-TCP-4stateLossIxp : -> AttributeSet .
   eq LinkType-TCP-4stateLoss = 
@@ -180,6 +183,13 @@ mod HCS_TEST is
   eq gorillaSrvA = mkGorillaChatServer(gorillaSrvAddr, (gorillaTGAddr)) .
   op gorillaUmAct : -> Actor .
   eq gorillaUmAct = mkTgenUMV2Actor(gorillaUMAddr, "gorilla", gorillaTGAddr) .
+
+  op gorillaTgenClientNet : -> Actor .
+  eq gorillaTgenClientNet = makeNetClient(a(cl[7],tcp,gor,cl,1), gorillaSrvAddr, gorillaTGAddr, true, nullAddr, nullName) .
+
+  op gorillaServerNet : -> Actor .
+  eq gorillaServerNet = makeNetServer(a(srvN,tcp,gor,srv,0), gorillaSrvAddr) .
+  
   eq LinkData =
     aaa(gorillaTGAddr, gorillaSrvAddr, LinkType-TCP-4stateLoss)
     aaa(gorillaSrvAddr, gorillaTGAddr, LinkType-TCP-4stateLoss)
@@ -191,7 +201,7 @@ mod HCS_TEST is
   op initState : Nat -> Config .
   eq initState(j) =
     rCtr(j + 8)
-    gorillaUmAct gorillaTGenA gorillaSrvA
+    gorillaUmAct gorillaTGenA gorillaSrvA gorillaTgenClientNet gorillaServerNet
     [30.0 + genRandomX(j, 0.0, 0.0001), (to gorillaUMAddr from gorillaUMAddr : burstDelayTO), 0]
   .
 
