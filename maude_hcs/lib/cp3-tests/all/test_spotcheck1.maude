@@ -304,7 +304,29 @@ op skyhookNetServerAddr : -> Address .
   --- Link model parameters
   ---------------------------------------------------
 
-  eq transport(any:Address) = tcp(any:Address) .
+  ****eq transport(any:Address) = tcp(any:Address) .
+  **** tcp actors
+  eq transport(s3SrvAddr)                     = tcp(s3SrvAddr) .
+  eq transport(wtClient1Addr)                 = tcp(wtClient1Addr) .
+  eq transport(a(srvN[1], hcs, wt, cl, 1))    = tcp(a(srvN[1], hcs, wt, cl, 1)) .
+  eq transport(obfs4Client2Addr)              = tcp(obfs4Client2Addr) .
+  eq transport(a(srvN[2], hcs, obfs, cl, 1))  = tcp(a(srvN[2], hcs, obfs, cl, 1)) .
+  eq transport(a(cl[3], hcs, sky, cl, 1))     = tcp(a(cl[3], hcs, sky, cl, 1)) .
+  eq transport(a(srvN[3], hcs, sky, cl, 1))   = tcp(a(srvN[3], hcs, sky, cl, 1)) .
+  eq transport(a(cl[5], hcs, mas, cl, 1))     = tcp(a(cl[5], hcs, mas, cl, 1)) .
+  eq transport(a(srvN[5], hcs, mas, cl, 1))   = tcp(a(srvN[5], hcs, mas, cl, 1)) .
+  **** TGENs
+  eq transport(ftpTGAddr)                     = tcp(ftpTGAddr) .
+  eq transport(ftpSrvAddr)                    = tcp(ftpSrvAddr) .
+  eq transport(gorillaTGAddr)                 = tcp(gorillaTGAddr) .
+  eq transport(gorillaSrvAddr)                = tcp(gorillaSrvAddr) .
+  eq transport(minioTGAddr)                   = tcp(minioTGAddr) .
+  eq transport(minioS3ClientAddr)             = tcp(minioS3ClientAddr) .
+  eq transport(minioS3ServerAddr)             = tcp(minioS3ServerAddr) .
+  eq transport(masTGAddr)                     = tcp(masTGAddr) .
+  eq transport(masClientAddr)                 = tcp(masClientAddr) .
+  eq transport(ircTgenClientAddr)             = tcp(ircTgenClientAddr) .
+  eq transport(ircServerAddr)                 = tcp(ircServerAddr) .
 
   vars dt : Float .
   vars icAddr isAddr ifsAddr : Address .
@@ -609,6 +631,12 @@ op skyhookNetServerAddr : -> Address .
   eq ircTGenA = mkIrcTgenClient(ircTgenClientAddr, ircServerAddr, "ircTgen") .
   op ircTgenUmAct : -> Actor .
   eq ircTgenUmAct = mkIrcUMV2Actor(ircTgenUMAddr, "irc-tgen", ircTgenClientAddr) .
+  
+  op ircTgenClientNet : -> Actor .
+  eq ircTgenClientNet = makeNetClient(a(cl[11],tcp,irc,cl,1), ircServerAddr, ircTgenClientAddr, true, nullAddr, nullName) .
+
+  op ircServerNet : -> Actor .
+  eq ircServerNet = makeNetServer(a(srvN,tcp,irc,srv,0), ircServerAddr) .
 
   ---------------------------------------------------
   --- Initial State Configuration
@@ -644,6 +672,7 @@ op skyhookNetServerAddr : -> Address .
     --- TGENs
     ftpUmAct ftpTGenA ftpSrvA ftpClientNet ftpServerNet
     gorillaUmAct gorillaTGenA gorillaSrvA
+    ircTgenUmAct ircTGenA ircTgenClientNet ircServerNet
     minioUmAct minioTGenA minioS3ClientA minioS3ServerA minioClientNet minioServerNet
     dnsUmAct dnsTGenA
     masUmAct masTGenA masClientA masTgenClientNet
