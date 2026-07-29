@@ -38,7 +38,7 @@ from .iodineActors import IodineServer, SendApp, PacedClient, ReceiveApp, TGenCl
 from pathlib import Path
 
 from .. import GLOBALS
-from ..common.commonActors import AdversaryActor
+from ..common.actor import AdversaryActor
 from ..mastodon.mastodonActors import MASTGenClient
 from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp
 from ...parsers.markovJsonToMaudeParser import find_recursively

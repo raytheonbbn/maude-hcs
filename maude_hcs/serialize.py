@@ -36,8 +36,8 @@ class MaudeHCSMaudeEncoder(object):
         pass
 
     def encode(self, o):
-        if not isinstance(o, Config):
-            raise Exception(f'can only encode Config objects in Maude. got {type(o)} instead')
+        # if not (isinstance(o, Config) or isinstance():
+            # raise Exception(f'can only encode Config objects in Maude. got {type(o)} instead')
         return self.generate_maude(o)
     
     def generate_maude(self, o):

@@ -45,7 +45,7 @@ import os
 from .utils import extend_or_truncate
 from .. import GLOBALS, Protocol
 from ..common import X
-from ..common.commonActors import ObservationPattern, AdversaryActor, generateBaselineBins, Msg, HttpRequestPost
+from ..common.actor import ObservationPattern, AdversaryActor, generateBaselineBins, Msg, HttpRequestPost
 from ..mastodon.mastodonActors import MastodonServer, MastodonClient, MASTGenClient
 from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp, RbRcvApp
 from ...deps.dns_formalization.Maude.attack_exploration.src.zone import Record
