@@ -578,6 +578,11 @@ op skyhookNetServerAddr : -> Address .
   op minioUmAct : -> Actor .
   eq minioUmAct = mkTgenUMV2Actor(minioUMAddr, "minio", minioTGAddr) .
 
+  op minioClientNet : -> Actor .
+  eq minioClientNet = makeNetClient(a(cl[8],tcp,min,cl,1), minioS3ServerAddr, minioS3ClientAddr, true, nullAddr, nullName) .
+  op minioServerNet : -> Actor .
+  eq minioServerNet = makeNetServer(a(srvN,tcp,min,srv,0), minioS3ServerAddr) .
+
   --- DNS
   op dnsTGenA : -> Actor .
   eq dnsTGenA = mkDnsTgenA(dnsTGAddr, dnsRsvAddr, 1000, 5.0, 2) .
@@ -591,6 +596,9 @@ op skyhookNetServerAddr : -> Address .
   eq masClientA = makeMastodonClient(masClientAddr, masSrvAddr, masTGAddr) .
   op masUmAct : -> Actor .
   eq masUmAct = mkUMactor(masUMAddr, mastodon-config-influencer-4-ma, masTGAddr) .
+
+  op masTgenClientNet : -> Actor .
+  eq masTgenClientNet = makeNetClient(a(cl[10],tcp,mas,cl,1), masSrvAddr, masClientAddr, true, nullAddr, nullName) .
 
   --- IRC TGEN
   op ircTGenA : -> Actor .
@@ -632,9 +640,9 @@ op skyhookNetServerAddr : -> Address .
     --- TGENs
     ftpUmAct ftpTGenA ftpSrvA
     gorillaUmAct gorillaTGenA gorillaSrvA
-    minioUmAct minioTGenA minioS3ClientA minioS3ServerA
+    minioUmAct minioTGenA minioS3ClientA minioS3ServerA minioClientNet minioServerNet
     dnsUmAct dnsTGenA
-    masUmAct masTGenA masClientA
+    masUmAct masTGenA masClientA masTgenClientNet
     ircTgenUmAct ircTGenA
     
     masSrvAct
@@ -699,7 +707,7 @@ op skyhookNetServerAddr : -> Address .
   --- Run Limits and Initial Configurations
   ---------------------------------------------------
   op slimit : -> Float .
-  eq slimit = 10000.0 .
+  eq slimit = 1000.0 .
 
   op initConfig : -> Config .
   rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .

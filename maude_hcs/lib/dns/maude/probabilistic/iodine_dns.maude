@@ -48,6 +48,7 @@ mod IODINE_DNS is
   vars monAttrs : AttributeSet .
   vars conf : Config .
   vars appAlice appBob wrappedNS : Actor .
+  vars confState : Config .
   vars ID ID' : Id .      ---- Nat < Id
   vars NAME NAME' WNAME SNAME SNAME' QNAME : Name .
   vars downstreamdata : RData .
@@ -114,13 +115,13 @@ crl [iServerEmbedding]:
 ----  TODO: merge into single rule below 
 crl [wnameserver-receive-query-passthru]:
   < ADDR : WNameserver | wattrs,  
-          conf: (wrappedNS)
+          conf: confState
   >
   < MON : WMonitor | queryRcvd: QTL, monAttrs >
   {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}
   =>
   < ADDR : WNameserver | wattrs,           
-          conf: (wrappedNS (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) 
+          conf: (confState {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}) 
   >
   < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
   if  not isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) .
@@ -129,18 +130,18 @@ crl [wnameserver-receive-query-passthru]:
 ----  passthrough
 rl [weird-nameserver-response-passthru]:
   < ADDR : WNameserver | wattrs,  
-          conf: (wrappedNS (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)))
+          conf: (confState [DELAY, (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)), N])
   >
   < MON : WMonitor | queryRcvd: QTL, monAttrs >
   =>
   < ADDR : WNameserver | wattrs, 
-          conf: (wrappedNS) 
+          conf: confState 
   >
   *** Figure out what to do with Response.
   < MON : WMonitor | queryRcvd: QTL, monAttrs >
-  [delayParamd(to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)), 
+  [DELAY, 
   (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)),
-   dropParamd(to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE))]
+   N]
   .
 
 ----  receivs DNS query with weird name
