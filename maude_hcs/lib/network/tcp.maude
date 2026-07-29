@@ -744,11 +744,11 @@ mod TCP-ANALYTICAL-MODEL is
   op TCP-HEADER-BYTES : -> Nat .
   op IP-HEADER-BYTES  : -> Nat .
   op MTU-SIZE-BYTES   : -> Nat .
-  op ETH-SIZE-BYTES   : -> Nat .
+  op MSS-SIZE-BYTES   : -> Nat .
   eq TCP-HEADER-BYTES = 32 [owise] .
   eq IP-HEADER-BYTES  = 20 [owise] .
   eq MTU-SIZE-BYTES   = 1500 [owise] .
-  eq ETH-SIZE-BYTES   = MTU-SIZE-BYTES - IP-HEADER-BYTES - TCP-HEADER-BYTES .
+  eq MSS-SIZE-BYTES   = MTU-SIZE-BYTES - IP-HEADER-BYTES - TCP-HEADER-BYTES .
 
   op buildTimeline : Nat Float ChannelCfg -> FloatList .
 
@@ -785,7 +785,7 @@ mod TCP-ANALYTICAL-MODEL is
   ceq tcpDeliveryTimes(MSZ:Nat, P13:Float, P31:Float, P32:Float,
                        P23:Float, P14:Float, OW) =
      buildTimeline(NSeg:Nat, OW, CC0:ChannelCfg)
-  if NSeg:Nat := ceilDiv(MSZ:Nat, ETH-SIZE-BYTES)
+  if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
   /\ CC0:ChannelCfg := makeChannel(P13:Float, P31:Float, P32:Float,
                                     P23:Float, P14:Float)
   .
@@ -793,12 +793,12 @@ mod TCP-ANALYTICAL-MODEL is
   op tcpDeliveryTimes : Nat AttributeSet -> FloatList .
   ceq tcpDeliveryTimes(MSZ:Nat, linkAttrs) =
     buildTimeline(NSeg:Nat, getOneWayDelay(linkAttrs), CC0:ChannelCfg)
-  if NSeg:Nat := ceilDiv(MSZ:Nat, ETH-SIZE-BYTES)
+  if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
     /\ CC0:ChannelCfg := makeChannel(linkAttrs)
   .
 
   vars deliveryTimes : FloatList .
-  vars msgSize lastPktSizeBytes numOriginalSegments n : Nat .
+  vars msgSize lastPayloadBytes lastPktSizeBytes numOriginalSegments n : Nat .
   vars deliverySizes : NatList .
 
   --- Make a list of n segments with a certain size.
@@ -809,13 +809,14 @@ mod TCP-ANALYTICAL-MODEL is
   .
   eq $makeDeliverySizes(0, msgSize, deliverySizes) = deliverySizes .
 
-  --- Get the TCP delivery sizes, in Bytes.
+  --- Get the TCP delivery sizes on the wire (in Bytes, including 52B headers)
   ---                   TotalMsgSize  DeliveryTimes
   op tcpDeliverySizes : Nat           FloatList -> NatList .
   ceq tcpDeliverySizes(msgSize, deliveryTimes) = deliverySizes
-    if numOriginalSegments := ceilDiv(msgSize, ETH-SIZE-BYTES)
-      /\ lastPktSizeBytes := (msgSize + IP-HEADER-BYTES + TCP-HEADER-BYTES) - ((numOriginalSegments - 1) * ETH-SIZE-BYTES)
-      /\ deliverySizes := $makeDeliverySizes(lenFL(deliveryTimes) - 1, MTU-SIZE-BYTES, nilNatList) :: lastPktSizeBytes
+    if numOriginalSegments := ceilDiv(msgSize, MSS-SIZE-BYTES)
+      /\ lastPayloadBytes := sd(msgSize, (numOriginalSegments - 1) * MSS-SIZE-BYTES)
+      /\ lastPktSizeBytes := lastPayloadBytes + IP-HEADER-BYTES + TCP-HEADER-BYTES
+      /\ deliverySizes := $makeDeliverySizes(sd(numOriginalSegments, 1), MTU-SIZE-BYTES, nilNatList) :: lastPktSizeBytes
   .
 endm
 
