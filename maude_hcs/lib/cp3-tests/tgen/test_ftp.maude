@@ -180,6 +180,15 @@ mod HCS_TEST is
   eq ftpSrvA = mkFtpServerA(ftpSrvAddr) .
   op ftpUmAct : -> Actor .
   eq ftpUmAct = mkTgenUMV2Actor(ftpUMAddr, "ftp", ftpTGAddr) .
+
+  op advAddr : -> Address .
+  op advActor : -> Actor .
+  eq advActor = mkAdversaryCp3(advAddr) .
+
+  op ftpClientNet : -> Actor .
+  eq ftpClientNet = makeNetClient(a(cl[6],tcp,ftp,cl,1), ftpSrvAddr, ftpTGAddr, true, nullAddr, nullName) .
+  op ftpServerNet : -> Actor .
+  eq ftpServerNet = makeNetServer(a(srvN,tcp,ftp,srv,0), ftpSrvAddr) .
   eq LinkData =
     aaa(ftpTGAddr, ftpSrvAddr, LinkType-TCP-4stateLoss)
     aaa(ftpSrvAddr, ftpTGAddr, LinkType-TCP-4stateLoss)
@@ -191,12 +200,12 @@ mod HCS_TEST is
   op initState : Nat -> Config .
   eq initState(j) =
     rCtr(j + 8)
-    ftpUmAct ftpTGenA ftpSrvA
+    ftpUmAct ftpTGenA ftpSrvA ftpClientNet ftpServerNet advActor
     [30.0 + genRandomX(j, 0.0, 0.0001), (to ftpUMAddr from ftpUMAddr : burstDelayTO), 0]
   .
 
   op slimit : -> Float .
-  eq slimit = 10000.0 .
+  eq slimit = 1000.0 .
 
   op initConfig : -> Config .
   rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .
