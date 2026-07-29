@@ -21,8 +21,15 @@ mod GORILLACHAT-TGEN is
   inc CP2_SORTS .
   inc SAMPLER-X .
   inc DELAY-X .
+  inc CONVERSION .
   inc GORILLACHAT-PROTOCOL .
   inc TGEN-INTERFACE .
+
+  --- =========================================================
+  --- Helpers
+  --- =========================================================
+  op round : Float -> Nat .
+  eq round(fl) = floor(rat(fl) + 1/2) .
 
   --- =========================================================
   --- Task sorts for tracking what we're waiting for
@@ -109,7 +116,8 @@ mod GORILLACHAT-TGEN is
   if js("set_room_numbers") := ract["type"]
   /\ jo(rooms) := ract["rooms"]
   /\ msg := (to umAddr from dAddr : actionR("ok"))
-  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  /\ smsgs := [genRandomX(rj, 0.0, 0.00001), msg, 0]
+  /\ j1 := s rj
   [print "  GorillaChatTgen set_room_numbers: " rooms] .
 
   --- select_room: pick room by number, update curRoom, immediate ok
@@ -126,7 +134,8 @@ mod GORILLACHAT-TGEN is
   /\ roomChoice := round(fl)
   /\ newRoom := roomNameByIndex(rooms, roomChoice)
   /\ msg := (to umAddr from dAddr : actionR("ok"))
-  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  /\ smsgs := [genRandomX(rj, 0.0, 0.00001), msg, 0]
+  /\ j1 := s rj
   [print "  GorillaChatTgen select_room: picked room #" roomChoice " -> " newRoom] .
 
   --- select_room: handle jn(Nat) choice (from positive_int domain)
@@ -141,7 +150,8 @@ mod GORILLACHAT-TGEN is
   /\ jn(roomChoice) := ract["choice"]
   /\ newRoom := roomNameByIndex(rooms, roomChoice)
   /\ msg := (to umAddr from dAddr : actionR("ok"))
-  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  /\ smsgs := [genRandomX(rj, 0.0, 0.00001), msg, 0]
+  /\ j1 := s rj
   [print "  GorillaChatTgen select_room: picked room #" roomChoice " -> " newRoom] .
 
   --- wait: schedule delayed actionR("ok") using the sleep duration
@@ -166,8 +176,9 @@ mod GORILLACHAT-TGEN is
   if js("roommsg") := ract["type"]
   /\ jf(fl) := ract["message_length_bytes"]
   /\ msgLen := round(fl)
-  /\ msg := (to srvAddr from dAddr : chatSend(curRoomName, msgLen))
-  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  /\ msg := (to transport(srvAddr) from dAddr : chatSend(curRoomName, msgLen))
+  /\ smsgs := [0.0, msg, 0]
+  /\ j1 := rj
   [print "  GorillaChatTgen roommsg: sending " msgLen " bytes to room " curRoomName] .
 
   --- Fallback: unknown action -> immediate actionR("ok")
@@ -177,7 +188,8 @@ mod GORILLACHAT-TGEN is
     { (attrs, replyTo: null, gcW4: noGChatTask),
       smsgs, j1 }
   if msg := (to umAddr from dAddr : actionR("ok"))
-  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  /\ smsgs := [genRandomX(rj, 0.0, 0.00001), msg, 0]
+  /\ j1 := s rj
   [owise print "  GorillaChatTgen fallback: unknown action, returning ok"] .
 
   --- =========================================================
@@ -198,7 +210,8 @@ mod GORILLACHAT-TGEN is
                                 serverAddr: srvAddr, attrs >
     smsgs
   if msg := (to umAddr from dAddr : actionR("ok"))
-  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+  /\ smsgs := [genRandomX(rj, 0.0, 0.00001), msg, 0]
+  /\ j1 := s rj
   [print "(" T ") GorillaChatTgen " dAddr " rcvChatSendAck -> actionR(ok)"] .
 
   --- chatBroadcast: absorb broadcast messages (no UM interaction needed)

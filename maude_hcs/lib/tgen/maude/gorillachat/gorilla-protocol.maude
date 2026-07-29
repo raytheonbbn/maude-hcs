@@ -18,6 +18,12 @@ mod GORILLACHAT-PROTOCOL is
   inc TGEN-INTERFACE .
 
   --- =========================================================
+  --- Transport Wrapper (Default identity)
+  --- =========================================================
+  op transport : Address -> Address .
+  eq transport(any:Address) = any:Address [owise] .
+
+  --- =========================================================
   --- Chat protocol messages (Content constructors)
   --- =========================================================
 
@@ -90,7 +96,7 @@ mod GORILLACHAT-PROTOCOL is
     smsgs
   if {smsgs, j1} := delayMsgsX(rj,
        mkBroadcast(cs, sAddr, room, cAddr, msgLen)
-       (to cAddr from sAddr : chatSendAck),
+       (to transport(cAddr) from sAddr : chatSendAck),
        null)
   [print "(" T ") GorillaChatServer: " cAddr " sent roommsg (len=" msgLen ") to room " room ", broadcasting"] .
 
@@ -98,7 +104,7 @@ mod GORILLACHAT-PROTOCOL is
   op mkBroadcast : AddressSet Address String Address Nat -> Config .
   eq mkBroadcast(noAddr, sAddr, room, sender, msgLen) = null .
   eq mkBroadcast((cAddr addr cs), sAddr, room, sender, msgLen) =
-    (to cAddr from sAddr : chatBroadcast(room, sender, msgLen))
+    (to transport(cAddr) from sAddr : chatBroadcast(room, sender, msgLen))
     mkBroadcast(cs, sAddr, room, sender, msgLen) .
 
 endm
