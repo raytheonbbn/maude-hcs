@@ -1,0 +1,220 @@
+--- MAUDE_HCS: maude_hcs
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+sload ../../irc/irc-mamodel-v2.maude
+sload ../../webtunnel/webtunnel_prob.maude
+sload ../../irc/irc_prob-v2
+sload ../../irc/ircMonitor
+sload ../../irc/irc-byteseq-interface
+sload ../../common/maude/irc-action-actor-v2.maude
+sload ../../irc/common/irc_name
+sload ../../irc/common/_aux
+sload ../../irc/common/app_chat
+sload ../../irc/_irc_aux
+sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
+sload ../../obfs4/_obfs4_aux.maude
+sload ../../obfs4/obfs4_prob.maude
+sload ../../common/maude/user-action-actor
+sload ../../raceboatMastodon/maude/enc-dec-actor
+sload ../../raceboatMastodonBidir/maude/rb-cm-bidir-mas.maude
+sload ../../mastodon/maude/probabilistic/mastodon
+sload ../../raceboatMastodon/maude/user_models/client_config_mastodon_bidi
+sload ../../raceboatMastodon/maude/user_models/server_config_mastodon_bidi
+sload ../../common/maude/http-overhead.maude
+sload ../skyhook/skyhook-um-mamodel-1
+sload ../../irc/common/irc-msg-model
+sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
+sload ../../skyhook/skyhook_prob
+sload ../../s3/s3_protocol
+sload ../../dns/maude/probabilistic/iodine_dns.maude
+sload ../../dns/maude/common/_aux.maude
+sload ../../network/net_prob.maude
+sload ../../common/maude/structured-addresses.maude
+
+--- TGEN Includes
+sload ../../tgen/maude/ftp/profiles/ftp-medium-tgen-mamodel-v2.maude
+sload ../../common/maude/tgen-action-actor-v2.maude
+sload ../../tgen/maude/ftp/ftpTgen-actor.maude
+sload ../../tgen/maude/ftp/ftpServer-actor.maude
+
+sload ../../tgen/maude/gorillachat/profiles/gorilla-tgen-mamodel-v2.maude
+sload ../../tgen/maude/gorillachat/gorilla-Tgen-actor.maude
+
+sload ../../tgen/maude/minio/profiles/minio-medium-tgen-mamodel-v2.maude
+sload ../../tgen/maude/minio/minioTgen-actor.maude
+
+sload ../../tgen/maude/dnsTgen-actor.maude
+sload ../../tgen/maude/dnsprofiles/markov/config_fast_1.maude
+
+sload ../../tgen/maude/masTGen.maude
+sload ../../tgen/maude/mastodonprofiles/markov/config_influencer_4.maude
+
+sload ../../tgen/maude/irc/ircTgen-actor.maude
+
+mod HCS_TEST is
+  pr SCHEDULER .
+  pr USER-ACTION-ACTOR .
+  pr SKYHOOK-UM-MAMODEL-1 .
+  pr IRC-V2 .
+  pr IRC-MAMODEL-V2 .
+  pr IRC-USER-ACTION-ACTOR-V2 .
+  pr IRC-BYTESEQ-INTERFACE .
+  pr CONTENT-MANAGER-SIMPLE-BI .
+  inc ENC-DEC .
+  inc CONTENT-MANAGER-BIDIR .
+  inc MASTODON .
+  inc MASTODON-CLIENT-CONFIG-MASTODON-BIDI-MAMODEL .
+  inc MASTODON-SERVER-CONFIG-MASTODON-BIDI-MAMODEL .
+  pr SKYHOOK .
+  pr S3_PROTOCOL .
+  pr IRC_MONITOR .
+  pr OBFS4 .
+  pr APP_CHATS .
+  pr IRC_NODE .
+  pr WEBTUNNEL .
+  pr IRC_NAMES .
+  pr IODINE_NODE .
+  pr IODINE_DNS .
+  pr TCP_SOCKET .
+  pr NETWORK_NODE .
+  pr NETWORK_CONNECTION .
+  inc STRUCTURED-ADDRESSES .
+
+  --- TGEN Modules
+  inc FTP-MEDIUM-MAMODEL-V2 .
+  inc USER-ACTION-ACTOR-V2 .
+  inc FTP-TGEN .
+  inc FTP-SERVER .
+
+  inc GORILLA-GORILLA-MAMODEL-V2 .
+  inc GORILLACHAT-TGEN .
+
+  inc MINIO-MEDIUM-MAMODEL-V2 .
+  inc MINIO-TGEN .
+
+  inc DNS-TGEN .
+  inc DNS-CONFIG-FAST-1-MAMODEL .
+
+  inc MAS-TGEN .
+  inc MASTODON-CONFIG-INFLUENCER-4-MAMODEL .
+  inc IRC-TGEN .
+
+  vars j : Nat .
+
+  eq encOH(fsize:Nat,ksize:Nat) = 0 .
+  eq noiseMin(msg:Msg)          = 0.001 .
+  eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2, "irc-tgen" |-> irc-irc-ma-v2, "ftp" |-> ftp-medium-ma-v2, "gorilla" |-> gorilla-gorilla-ma-v2, "minio" |-> minio-medium-ma-v2) .
+  eq noiseMax(msg:Msg)          = 0.00001 .
+     
+  eq packetSize                 = 1000 .
+  eq maxPacketSize              = 967 .
+
+  op ed-images : -> ByteSeqL .
+  eq ed-images =
+       image(1, 3779, 500)
+    :: image(2, 2405, 1000)
+    :: image(3, 36861, 1000)
+    :: image(4, 25377, 500)
+    :: image(5, 2440, 300)
+    :: image(6, 1275, 300)
+    :: image(7, 7710, 1000)
+    :: image(8, 3577, 500)
+    :: image(9, 3415, 300)
+    :: image(10, 74123, 600)
+  .
+
+  op zonePwnd2Com4 : -> List{Record} .
+  eq zonePwnd2Com4 =
+    < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+    < 'ns . 'pwnd2 . 'com . root, a, 3600.0, a(srvN[4],hcs,iod,iodSrv,1) >
+    < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+    < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+    < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
+
+  ops ftpUMAddr ftpTGAddr ftpSrvAddr : -> Address .
+  eq ftpUMAddr = a(cl[6],tgen,ftp,um,1) .
+  eq ftpTGAddr = a(cl[6],tgen,ftp,cl,1) .
+  eq ftpSrvAddr = a(srvN,tgen,ftp,srv,0) .
+
+  ops gorillaUMAddr gorillaTGAddr gorillaSrvAddr : -> Address .
+  eq gorillaUMAddr = a(cl[7],tgen,gor,um,1) .
+  eq gorillaTGAddr = a(cl[7],tgen,gor,cl,1) .
+  eq gorillaSrvAddr = a(srvN,tgen,gor,srv,0) .
+
+  ops minioUMAddr minioTGAddr minioS3ClientAddr minioS3ServerAddr : -> Address .
+  eq minioUMAddr = a(cl[8],tgen,min,um,1) .
+  eq minioTGAddr = a(cl[8],tgen,min,cl,1) .
+  eq minioS3ClientAddr = a(cl[8],tgen,min,if,1) .
+  eq minioS3ServerAddr = a(srvN,tgen,min,srv,0) .
+
+  ops dnsUMAddr dnsTGAddr dnsRsvAddr : -> Address .
+  eq dnsUMAddr = a(cl[9],tgen,dns,um,1) .
+  eq dnsTGAddr = a(cl[9],tgen,dns,cl,1) .
+  eq dnsRsvAddr = a(srvN[4],hcs,iod,iodSrv,1) .
+
+  ops masUMAddr masTGAddr masClientAddr masSrvAddr : -> Address .
+  eq masUMAddr = a(cl[10],tgen,mas,um,1) .
+  eq masTGAddr = a(cl[10],tgen,mas,app,1) .
+  eq masClientAddr = a(cl[10],tgen,mas,cl,1) .
+  eq masSrvAddr = a(masN,srv,mas,srv,0) .
+
+  ops ircTgenUMAddr ircTgenClientAddr ircServerAddr : -> Address .
+  eq ircTgenUMAddr = a(cl[11],tgen,irc,um,1) .
+  eq ircTgenClientAddr = a(cl[11],tgen,irc,cl,1) .
+  eq ircServerAddr = a(srvN,srv,irc,srv,0) .
+
+  eq transport(any:Address) = tcp(any:Address) .
+
+  ops LinkType-TCP-4stateLoss LinkType-TCP-4stateLossIxp : -> AttributeSet .
+  eq LinkType-TCP-4stateLoss = 
+  (4stateLoss: (p13: 0.0, p31: 1.0, p32: 0.0, p23: 0.0, p14: 0.0, oneWayDelay: 0.01) ) .
+  eq LinkType-TCP-4stateLossIxp = 
+  (4stateLoss: (p13: 0.0, p31: 1.0, p32: 0.0, p23: 0.0, p14: 0.0, oneWayDelay: 0.005) ) .
+
+  op dnsTGenA : -> Actor .
+  eq dnsTGenA = mkDnsTgenA(dnsTGAddr, dnsRsvAddr, 2, 5.0, 2) .
+  op dnsUmAct : -> Actor .
+  op advAddr : -> Address .
+  op advActor : -> Actor .
+  eq advActor = mkAdversaryCp3(advAddr) .
+
+  eq dnsUmAct = mkUMactor(dnsUMAddr, dns-config-fast-1-ma, dnsTGAddr) .
+  op serverIodineServer4 : -> Actor .
+  eq serverIodineServer4 = makeWNameServer(dnsRsvAddr, 0.0, zonePwnd2Com4) .
+  
+  op iodineMonitorAddr : -> Address .
+  eq iodineMonitorAddr = a(srvN[4],hcs,iod,iodSrv,2) .
+  
+  op iodineMonitor : -> Actor .
+  eq iodineMonitor = mkWMonitor(iodineMonitorAddr) .
+
+
+  eq LinkData =
+    aaa(dnsTGAddr, dnsRsvAddr, LinkType-TCP-4stateLoss)
+    aaa(dnsRsvAddr, dnsTGAddr, LinkType-TCP-4stateLoss)
+    aaa(dnsTGAddr,          IXP-DEFAULT-ADDR,   LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR,   dnsTGAddr,          LinkType-TCP-4stateLossIxp)
+    aaa(dnsRsvAddr,         IXP-DEFAULT-ADDR,   LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR,   dnsRsvAddr,         LinkType-TCP-4stateLossIxp)  .
+
+  op initState : Nat -> Config .
+  eq initState(j) =
+    rCtr(j + 8)
+    dnsUmAct dnsTGenA serverIodineServer4 iodineMonitor advActor
+    [30.0 + genRandomX(j, 0.0, 0.0001), (to dnsUMAddr from dnsUMAddr : actionR("")), 0]
+  .
+
+  op slimit : -> Float .
+  eq slimit = 10000.0 .
+
+  op initConfig : -> Config .
+  rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .
+
+endm
+
+set print attribute on .
+rew initConfig .
+q
