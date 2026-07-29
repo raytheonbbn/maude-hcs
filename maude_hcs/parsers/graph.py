@@ -29,71 +29,60 @@
 #
 # MAUDE_HCS: end
 
-from dataclasses import dataclass, field
 import json
-import yaml
-from dataclasses_json import dataclass_json
 import networkx as nx
 import logging
 
+from dataclasses import dataclass, field
+from dataclasses_json import dataclass_json
+from collections.abc import Callable
+
 from typing import Any, Dict
+
+from maude_hcs.lib.common.address import Address
 
 logger = logging.getLogger(__name__)
 
+IXP_ADDR_NAME = "IXP-DEFAULT-ADDR"
+
 def default_loss() -> dict[str, float]:
-   return {'p13': 0.0, 'p31': 0.0, 'p32': 0.0, 'p23': 0.0, 'p14': 0.0}
-
-@dataclass_json
-@dataclass
-class Link:
-    """Represents a network link with its properties."""    
-    src_id: int = 0
-    src_label: str = ''
-    dst_id: int = 0
-    dst_label: str = ''
-    label: str = ''
-    latency: float = 0.0
-    jitter: float = 0.0
-    # Loss probability:
-    loss: dict[str, float] = field(default_factory = default_loss)
-
-    def __eq__(self, other):
-        # Check if the 'other' object is an instance of the same class
-        if not isinstance(other, Link):
-            return False
-
-        # Define custom comparison logic based on attributes
-        return self.src_label == other.src_label and self.dst_label == other.dst_label
-
-    def __hash__(self):
-        # Hash based on the same attributes used in __eq__
-        return hash((self.src_label, self.dst_label))
-
-    def is_similar_to(self, link):
-       return self.latency == link.latency and self.jitter == link.jitter and self.loss == link.loss       
+  return {'p13': 0.0, 'p31': 0.0, 'p32': 0.0, 'p23': 0.0, 'p14': 0.0}
 
 @dataclass_json
 @dataclass
 class Node:
-    """Represents a network node with its properties."""
-    id: int
-    label: str
-    address: str
-    ip_address: str
-    host_bandwidth_up: str
-    host_bandwidth_down: str
+  """Represents a Maude network actor"""
+  addr: Address
+  label: str
+  maude: str
 
-    @staticmethod
-    def from_label(id: int, label: str):
-        clean_address = label.replace('_', '-')
-        return Node(
-            id=id,
-            label=label,
-            address=clean_address,
-            ip_address="",  # Default/Empty as not provided in YAML
-            host_bandwidth_up="1 Gbit",  # Default
-            host_bandwidth_down="1 Gbit"  # Default
-        )
+@dataclass_json
+@dataclass
+class Link: 
+  """Represents a network link between two Maude network actors"""
+  src: Node | None  # if src is None, assumed to be ixp
+  dst: Node | None  # ditto
+  label: str
+  latency: float = 0.0
+
+  # Loss probability:
+  loss: dict[str, float] = field(default_factory = default_loss)
+
+  def has_same_endpoints(self, other):
+    return self.src == other.src and self.dst == other.dst
+
+  def is_similar_to(self, other):
+      return self.latency == other.latency and self.loss == other.loss    
+
+class Counter:
+  """A counter that returns and increments the current count each time its called"""
+  def __init__(self, start: int):
+    self.i = start
+
+  def __call__(self):
+    result = self.i
+    self.i += 1
+    return self.i
 
 
 @dataclass_json
@@ -103,74 +92,53 @@ class Topology:
     nodes: list[Node] = field(default_factory=list)
     links: list[Link] = field(default_factory=list)
 
-    def nextID(self):
-        next_id = 0
-        for node in self.nodes:
-            if node.id > next_id:
-                next_id = node.id
-        return next_id + 1
+    def getNodebyLabel(self, label):
+      for node in self.nodes:
+        if node.label == label:
+          return node
 
-    def getNodebyId(self, id_):
-       for node in self.nodes:
-          if node.id == id_:
-             return node
-       return None
-    
-    def getNodebyLabel(self, label_):
-       # exact match to start
-       for node in self.nodes:
-          if node.label == label_:
-             return node
-       # partial matches
-       for node in self.nodes:
-          if label_ in node.label:
-             return node
-       return None
+    def merge(self, other):
+      assert set(self.nodes).intersection(set(other.nodes)) == {None}, "topologies to be merged should only have IXP node in common"
+      nodes = self.nodes + other.nodes
+
+      links = self.links + other.links
+      assert len(links) == len(self.links) + len(other.links), "topologies to be merged should not have links in common"
+      assert self.isDirected == other.isDirected, "topologies to be merged should have same directionality"
+
+      return Topology(self.isDirected, nodes, links)
 
     @staticmethod
-    def from_gml(gml_path: str):      
-      return Topology.from_gml_graph(parse_shadow_gml(gml_path))
+    def merge_all(topos):
+      assert len(topos) > 0, "list of topologies to merge must be non-empty"
+      result = topos[0]
+      for topo in topos[1:]:
+        result = result.merge(topo)
+      return result
 
     @staticmethod
-    def from_gml_graph(graph: nx.DiGraph):      
-      nodes = []
-      links = []
-      for id in graph.nodes:
-         node = graph.nodes[id]
-         nodes.append(
-            Node(id=id, label=node.get("label"), address=node.get("label").replace('_', '-'), ip_address=node.get("ip_addr", ''), host_bandwidth_up=node.get("host_bandwidth_up"), host_bandwidth_down=node.get("host_bandwidth_down"))
-          )
-      for u_id, v_id, edge_data in graph.edges(data=True):
-        source_node_data  = graph.nodes[u_id]
-        target_node_data  = graph.nodes[v_id]
-        source_label      = source_node_data.get("label")
-        target_label      = target_node_data.get("label")
-        latency_value     = parse_latency_str(edge_data.get("latency", "-1."))
-        jitter_value      = parse_latency_str(edge_data.get("jitter", "0s"))
-        loss_value        = parse_loss_str(edge_data.get("packet_loss", "0."))
-        if source_label is None or target_label is None or latency_value == -1.:
-          raise ValueError("Missing or malformatted information")
-        links.append(Link(src_id=u_id, src_label=source_label, dst_id=v_id, dst_label=target_label, label=edge_data.get("label",''), latency=latency_value, jitter=jitter_value, loss=loss_value))
-      return Topology(isDirected=False, nodes=nodes, links=links)
+    def from_yml_and_loss(yml: Dict[Any, Any], loss_specs: Dict[Any, Any]) -> "Topology":
+      subnet_idx = Counter(0)
 
-    @staticmethod
-    def from_tne_network_dict_and_yml(tne_network: Dict[Any, Any], yml: Dict[Any, Any], loss_specs: Dict[Any, Any]) -> "Topology":
-      """
-      The T&E code includes functionality to parse a yaml config file into a fully-disambiguated network graph.
-      This function takes that graph (along with the original yaml config) and converts it to a Topology object
-      that the rest of our code understands.
-      """
+      yml_networks = yml["network"]
+      yml_nodes = yml["nodes"]
+      yml_tgens = yml["tgen"]
 
-      next_id = 0
+      irc_server_addr = Address("irc_server_addr", "a(srvN,srv,irc,srv,0)")
+      irc_server = Node(irc_server_addr, "irc_server", f"mkIrcServer({irc_server_addr.name})")
 
-      ixp_net_nodes = tne_network["router_net"]["container_info"]
-      ixp_router = Node.from_label(next_id, "router_ixp")
-      ixp_router.ip_address = ixp_net_nodes[ixp_router.label]
+      # racetunnel_topo = mk_racetunnel_topo(networks, nodes, tgen, loss_specs)
+      # sky_topo = mk_sky_topo(networks, nodes, tgen, loss_specs)
+      # obfs_topo = mk_obfs_topo(networks, nodes, tgen, loss_specs)
+      # iodine_topo = mk_iodine_topo(networks, nodes, tgen, loss_specs)
+      mastodon_topo = mk_mastodon_topo(yml_networks, yml_nodes, yml_tgens, loss_specs, irc_server, subnet_idx())
 
-      next_id += 1
-
-      nodes = [ixp_router]
-      links = []
+      return Topology.merge_all([
+        # racetunnel_topo,
+        # sky_topo,
+        # obfs_topo,
+        # iodine_topo,
+        mastodon_topo
+      ])
 
       for (net_name, net_topo) in tne_network.items():
         if net_name == "router_net": continue # Already handled ixp net above
@@ -210,396 +178,153 @@ class Topology:
       return Topology(isDirected=True, nodes=nodes, links=links)
 
 
-    @staticmethod
-    def from_yml(data: Dict[Any, Any]):
-      """
-      Creates a Topology object from a YAML setup file.
-      """
-
-
-      nodes, links = parse_setup_yml(data)
-      # Assuming the YAML represents a directed graph based on src/dst structure
-      return Topology(isDirected=True, nodes=nodes, links=links)
-
-    def save(self, full_path: str):
-      formatted = json.dumps(self.to_dict(), indent=4)
-      with open(full_path, 'w') as f:
-        f.write(formatted)
-
-
-def _simple_type_converter(value_str):
-    """
-    Attempts to convert GML string values read by networkx
-    to int or float if possible.
-
-    NetworkX's GML reader provides values *after* handling quotes.
-    This function tries to infer the numeric type.
-
-    Args:
-        value_str: The attribute value (potentially string).
-
-    Returns:
-        The value converted to int, float, or the original type (likely string).
-    """
-    # Check if it's already a number (NetworkX might sometimes parse directly)
-    if isinstance(value_str, (int, float)):
-        return value_str
-    # If it's a string, try converting
-    if isinstance(value_str, str):
-        try:
-            # Try converting to integer first
-            return int(value_str)
-        except ValueError:
-            try:
-                # If int fails, try converting to float
-                return float(value_str)
-            except ValueError:
-                # If both fail, return the original string
-                return value_str
-    # Return original value if not a string or number we handle
-    return value_str
-
-def parse_shadow_gml(gml_path: str) -> nx.DiGraph:
-    """
-    Parses a GML file specified according to Shadow's network graph format
-    (https://shadow.github.io/docs/guide/network_graph_spec.html)
-    and returns a NetworkX DiGraph object.
-
-    Node and edge attributes specified in the GML are included in the graph.
-    Numeric attributes are converted to int or float where possible.
-
-    Args:
-        gml_path: The path to the GML file.
-
-    Returns:
-        A NetworkX DiGraph object representing the network.
-
-    Raises:
-        FileNotFoundError: If the gml_path does not exist.
-        nx.NetworkXError: If the GML file is malformed or cannot be parsed by NetworkX.
-        TypeError: If the parsed graph is unexpectedly not directed.
-        Exception: For other unexpected errors during parsing.
-    """
-    logging.info(f"Attempting to parse Shadow GML file: {gml_path}")
-    try:
-        # Use networkx's built-in GML reader:
-        # - label='id': Use the 'id' attribute from GML as the node identifier in NetworkX.
-        # - destringizer: Apply our function to convert attribute values from strings.
-        graph = nx.read_gml(gml_path, label='id', destringizer=_simple_type_converter)
-
-        # Verify that the graph is directed, as expected for Shadow networks
-        # The 'directed 1' line in GML should ensure this, but we double-check.
-        if not graph.is_directed():
-            # This case should be rare if 'directed 1' is present and parsed correctly
-            logging.warning(f"Parsed graph from {gml_path} was not directed. Attempting conversion.")
-            # Convert the graph to a directed graph
-            graph = nx.DiGraph(graph)
-            if not graph.is_directed():
-                 # If conversion fails, something is fundamentally wrong
-                 raise TypeError(f"Could not ensure the graph from {gml_path} is directed.")
-
-        convert_names_to_maude_names(graph)
-
-        logging.info(f"Successfully parsed GML. Graph has {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges.")
-
-        # Optional: Log details of a sample node and edge for debugging
-        if graph.nodes:
-            node_id_example = list(graph.nodes())[0]
-            logging.debug(f"Sample Node (ID: {node_id_example}) Attributes: {graph.nodes[node_id_example]}")
-        if graph.edges:
-            edge_example = list(graph.edges())[0]
-            logging.debug(f"Sample Edge {edge_example} Attributes: {graph.edges[edge_example]}")
-
-        return graph
-
-    except FileNotFoundError:
-        logging.error(f"GML file not found at path: {gml_path}")
-        raise # Re-raise the specific error
-    except nx.NetworkXError as e:
-        logging.error(f"NetworkX failed to parse GML file '{gml_path}': {e}")
-        raise # Re-raise the specific error
-    except Exception as e:
-        logging.error(f"An unexpected error occurred during GML parsing of '{gml_path}': {e}")
-        raise # Re-raise any other exceptions
-
-
-def parse_setup_yml(data: Dict[Any, Any]) -> tuple[list[Node], list[Link]]:
-    """
-    Parses a YAML dict (itself parsed from a YAML config file) to extract topology information.
-
-    Reads 'network_section' and 'weird_network_section' to create Node and Link objects.
-    Since the YAML does not explicitly define nodes with IDs/IPs, nodes are inferred
-    from link sources and destinations. Arbitrary IDs are assigned, and missing
-    attributes (IP, bandwidth) are set to defaults.
-
-    Args:
-        data: Dictionary parsed from a YAML config file
-
-    Returns:
-        tuple: (list[Node], list[Link])
-    """
-    nodes_map = {}  # Map label -> Node object
-    links = []
-
-    # Sections to parse
-    sections_to_parse = [
-        data.get('network_section', []),
-        data.get('weird_network_section', [])
-    ]
-
-    # Combine lists, filtering out None if a section is missing
-    all_link_entries = [entry for section in sections_to_parse if section for entry in section]
-
-    next_node_id = 0
-
-    def get_or_create_node(label):
-        nonlocal next_node_id
-        if label not in nodes_map:
-            new_node = Node.from_label(next_node_id, label)
-            nodes_map[label] = new_node
-            next_node_id += 1
-        return nodes_map[label]
-
-    for entry in all_link_entries:
-        src_label = entry.get('src')
-        dst_label = entry.get('dst')
-        net_params = entry.get('net_params', {})
-
-        if not src_label or not dst_label:
-            logging.warning(f"Skipping entry due to missing src or dst: {entry}")
-            continue
-
-        # Get or create nodes
-        src_node = get_or_create_node(src_label)
-        dst_node = get_or_create_node(dst_label)
-
-        # Parse Link params
-        latency_str = net_params.get('latency', "0ms")
-        jitter_str = net_params.get('jitter', "0ms")
-        loss_val = net_params.get('loss', 0.0)
-
-        try:
-            latency = parse_latency_str(latency_str)
-            jitter = parse_latency_str(jitter_str)
-            # Handle loss if it's a string or float
-            loss = parse_loss_str(str(loss_val))
-        except ValueError as e:
-            logging.error(f"Error parsing link params for {src_label}->{dst_label}: {e}")
-            continue
-
-        link_label = f"from {src_label} to {dst_label}"
-
-        links.append(Link(
-            src_id=src_node.id,
-            src_label=src_label,
-            dst_id=dst_node.id,
-            dst_label=dst_label,
-            label=link_label,
-            latency=latency,
-            jitter=jitter,
-            loss=loss
-        ))
-
-    logging.info(f"Successfully parsed YAML. Found {len(nodes_map)} nodes and {len(links)} links.")
-    return list(nodes_map.values()), links
-
-def get_node_names(graph: nx.DiGraph) -> list:
+def mk_mastodon_topo(
+    yml_networks: Dict[Any, Any], 
+    yml_nodes: Dict[Any, Any],
+    yml_tgens: Dict[Any, Any],
+    loss_specs: Dict[str, Dict[str, float]],
+    irc_server: Node,
+    subnet_idx: int,
+) -> (Address, Address, Topology):
   """
-  Get the shadow node names.
-
-  Args:
-    graph: The graph from which to get the node names.
+  Create the chunk of the final network topology corresponding to (most) Mastodon traffic.
+  Doesn't include tgens, since those are spread throughout all the networks.
+  They are added to the final network topology in a separate step, using the returned addresses.
 
   Returns:
-    A list of the shadow node names.
+    - the primary router address for the mastodon client subnet,
+    - the primary router for the mastodon server subnet,
+    - the topology chunk for mastodon traffic
   """
-  node_names  = [graph.nodes[id]["label"] for id in graph.nodes.keys()]
-  return node_names
+
+  nodes = []
+  links = []
+
+  client_subnet_config = yml_networks["client_net_mastodon"]["params"]
+
+  client_up_latency = client_subnet_config["upstream"]["latency"]
+  client_down_latency = client_subnet_config["downstream"]["latency"]
+
+  client_up_loss = loss_specs[client_subnet_config["upstream"]["loss_profile"]]
+  client_down_loss = loss_specs[client_subnet_config["downstream"]["loss_profile"]]
+
+  # Create the static actor addresses (these are always basically the same, regardless of how many active hcs clients there are)
+  mast_server_iface_addr = Address("mast_server_iface_addr", f"a(srvN[{subnet_idx}],hcs,irc,if,1)")
+  mast_umas_addr = Address("mast_umas_addr", f"a(srvN{subnet_idx},hcs,mas,um,1)")
+  mast_cmas_addr = Address("mast_cmas_addr", f"(srvN[{subnet_idx}],hcs,mas,cm,1)")
+  mast_mcas_addr = Address("mast_mcas_addr", f"a(srvN[{subnet_idx}],hcs,mas,mc,1)")
+  mast_edas_addr = Address("mast_edas_addr", f"a(srvN[{subnet_idx}],hcs,mas,ed,1)")
+  mast_server_netclient_addr = Address("mast_server_netclient_addr", f"a(srvN[{subnet_idx}],tcp,mas,cl,1)")
+  mast_server_addr = Address("mast_server_addr", f"a(masN,tcp,mas,srv,1)")
+  mast_subnet_router_addr = Address("mast_subnet_router_addr", f"a(masN,srv,mas,srv,1)")
+
+  # Create the actual static actors
+  mast_server_iface = Node(
+    mast_server_iface_addr, 
+    "mast_server_iface", 
+    f"mkIrcByteSeqIface({mast_server_iface_addr.name}, {irc_server.addr.name}, {mast_cmas_addr.name})")
+  mast_umas = Node(
+    mast_umas_addr,
+    "mast_umas",
+    f"mkUMactor({mast_umas_addr.name}, mastodon-client-config-mastodon-bidi-ma, {mast_cmas_addr.name})")
+  mast_cmas = Node(
+    mast_cmas_addr,
+    "mast_cmas",
+    f'mkCMSndRcvActor({mast_cmas_addr.name}, {mast_edas_addr.name}, {mast_mcas_addr.name}, {mast_server_iface_addr.name}, "server5", "client5")')
+  mast_mcas = Node(
+    mast_mcas_addr,
+    "mast_mcas",
+    f"makeMastodonClient({mast_mcas_addr.name}, {mast_subnet_router_addr.name}, {mast_cmas_addr.name})")
+  mast_edas = Node(
+    mast_edas_addr,
+    "mast_edas",
+    f"makeDestiniActor({mast_edas_addr.name}, ed-iamges)")
+  mast_server = Node(
+    mast_server_addr,
+    "mast_server",
+    f"makeNetServer({mast_server_addr.name}, {mast_subnet_router_addr.name})")
+  mast_server_netclient = Node(
+    mast_server_netclient_addr,
+    "mast_server_netclient",
+    f"makeNetClient({mast_server_netclient_addr.name}, {mast_subnet_router_addr.name}, {mast_mcas_addr.name}, true, nullAddr, nullName)")
+  mast_subnet_router = Node(
+    mast_subnet_router_addr,
+    "mast_subnet_router",
+    f"makeMastodonServer({mast_subnet_router_addr.name})")
+
+  nodes += [mast_server_iface, mast_umas, mast_cmas, mast_mcas, mast_edas, mast_server, mast_server_netclient, mast_subnet_router]
+
+  hcs_config = yml_nodes["node_type_mastodon"]
+  num_hcs_clients = hcs_config["client_per_network"]["client_net_mastodon"]["quantity"]
+
+  actor_idx = Counter(0)
+
+  for _ in range(len(num_hcs_clients)):
+    idx = actor_idx()
+    mast_client_addr = Address(f"mast_client_addr_{idx}", f"a(cl[{subnet_idx}],hcs,irc,cl,1)")
+    mast_client_user_model_addr = Address(f"mast_client_user_model_addr_{idx}", f"a(cl[{subnet_idx}],hcs,irc,um,1)")
+    mast_client_iface_addr = Address(f"mast_client_iface_addr_{idx}", f"a(cl[{subnet_idx}],hcs,irc,if,1)")
+    mast_umac_addr = Address(f"mast_umac_addr_{idx}", f"a(cl[{subnet_idx}],hcs,mas,um,{idx})")
+    mast_cmac_addr = Address(f"mast_cmac_addr_{idx}", f"a(cl[{subnet_idx}],hcs,mas,cm,1)")
+    mast_mcac_addr = Address(f"mast_mcac_addr_{idx}", f"a(cl[{subnet_idx}],hcs,mas,mc,1)")
+    mast_edac_addr = Address(f"mast_edac_addr_{idx}", f"a(cl[{subnet_idx}],hcs,mas,ed,1)")
+    mast_client_netclient_addr = Address(f"mast_client_netclient_addr_{idx}", f"a(cl[{subnet_idx}],tcp,mas,cl,1)")
 
 
-def convert_names_to_maude_names(graph: nx.DiGraph) -> nx.DiGraph:
-  """
-  Shadow names may include characters that are special in maude, including _.
-  Change it to non offending characters.
+    # eq client5Iface        = mkIrcByteSeqIface(client5IfaceAddr, ircClient5Addr, cmac5Addr) .
+    # eq umac5Act            = mkUMactor(umac5Addr, mastodon-client-config-mastodon-bidi-ma, cmac5Addr) .
+    # eq cmac5Act            = mkCMSndRcvActor(cmac5Addr, edac5Addr, mcac5Addr, client5IfaceAddr, "client5", "server5") .
+    # eq mcac5Act            = makeMastodonClient(mcac5Addr, masSrvAddr, cmac5Addr) .
+    # eq edac5Act            = makeDestiniActor(edac5Addr, ed-images) .
+    # eq mastodonClient5NetClient = makeNetClient(mastodonClient5NetClientAddr, masSrvAddr, mcac5Addr, true, nullAddr, nullName) .
+  
+    mast_client = Node(
+      mast_client_addr, 
+      f"mast_client_{idx}", 
+      f"mkIrcClient-v2({mast_client_addr.name}, {mast_client_iface_addr.name}, \"Client{subnet_idx}\")")
+    mast_client_user_model = Node(
+      mast_client_user_model_addr, 
+      f"mast_client_user_model_{idx}", 
+      f"mkIrcUMV2Actor({mast_client_user_model_addr.name}, \"irc-test\", {mast_client_addr.name})")
+    mast_client_iface = Node(
+      mast_client_iface_addr, 
+      f"mast_client_iface_{idx}", 
+      f"mkIrcByteSeqIface({mast_client_iface_addr.name}, {mast_client_addr.name}, {mast_cmac_addr.name})")
+    mast_umac = Node(
+      mast_umac_addr, 
+      f"mast_umac_{idx}", 
+      f"mkUMactor({mast_umac_addr.name}, mastodon-client-config-mastodon-bidi-ma, {mast_cmac_addr.name})")
+    mast_cmac = Node(
+      mast_cmac_addr, 
+      f"mast_cmac_{idx}", 
+      f'mkCMSndRcvActor({mast_cmac_addr.name}, {mast_edac_addr.name}, {mast_mcac_addr.name}, {mast_client_iface_addr.name}, "client{idx}", "server5")')
+    mast_mcac = Node(
+      mast_mcac_addr, 
+      f"mast_mcac_{idx}", 
+      f"makeMastodonClient({mast_mcac_addr.name}, {mast_subnet_router_addr.name}, {mast_cmac_addr.name})")
+    mast_edac = Node(
+      mast_edac_addr, 
+      f"mast_edac_{idx}", 
+      f"makeDestiniActor({mast_edac_addr.name}, ed-images)")
+    mast_client_netclient = Node(
+      mast_client_netclient_addr, 
+      f"mast_client_netclient_{idx}", 
+      f"makeNetClient({mast_client_netclient_addr.name}, {mast_subnet_router_addr.name}, {mast_mcac_addr.name}, true, nullAddr, nullName)")
 
-  Args:
-    graph: The graph whose node labels need to change.
-
-  Returns:
-    An updated graph.
-
-  """
-  for node_id in graph.nodes:
-    node = graph.nodes[node_id]
-    node["label"] = node.get("label").replace('_', '-')
-
-
-def get_edge_info_by_label(graph: nx.DiGraph) -> dict:
-  """
-  Get edge info mapped to a link label.
-
-  Args:
-    graph: The graph from which to get that info.
-
-  Returns:
-    The dictionary of labels to edge information.
-  """
-  link_info = dict()
-  for u_id, v_id, edge_data in graph.edges(data=True):
-    source_node_data  = graph.nodes[u_id]
-    target_node_data  = graph.nodes[v_id]
-
-    source_label      = source_node_data.get("label")
-    target_label      = target_node_data.get("label")
-    latency_value     = parse_latency_str(edge_data.get("latency", "-1."))
-    jitter_value      = parse_latency_str(edge_data.get("jitter", "0s"))
-    loss_value        = parse_loss_str(edge_data.get("packet_loss", "0."))
-
-    if source_label is None or target_label is None or latency_value == -1.:
-      raise ValueError("Missing or malformatted information")
-    else:
-      link_info[f"{source_label}->{target_label}"] = {
-          "latency": latency_value,
-          "jitter": jitter_value,
-          "loss": loss_value,
-      }
-
-  return link_info
+    nodes += [mast_client, mast_client_user_model, mast_client_iface, mast_umac, mast_cmac, mast_mcac, mast_edac, mast_client_netclient]
 
 
-def get_edge_delays_by_label(graph: nx.DiGraph) -> dict:
-    """
-    Extracts edge latencies from a parsed graph, using node labels for keys.
-
-    Assumes nodes have a 'label' attribute and edges have a 'latency' attribute.
-    Skips edges where either node label or edge latency is missing.
-
-    Args:
-        graph: A NetworkX DiGraph, presumably parsed from Shadow GML,
-               containing node 'label' and edge 'latency' attributes.
-
-    Returns:
-        A dictionary where keys are strings "source_label->target_label"
-        and values are the corresponding edge latencies (float).
-    """
-    if not isinstance(graph, nx.DiGraph):
-        logging.error("Input graph is not a NetworkX DiGraph.")
-        # Depending on requirements, could raise TypeError or return empty dict
-        raise TypeError("Input must be a NetworkX DiGraph.")
-
-    edge_delays = {}
-    skipped_count = 0
-
-    for u_id, v_id, edge_data in graph.edges(data=True):
-        try:
-            # Retrieve source and target node data
-            source_node_data = graph.nodes[u_id]
-            target_node_data = graph.nodes[v_id]
-
-            # Get labels and latency using .get() to handle potential missing keys
-            source_label = source_node_data.get('label')
-            target_label = target_node_data.get('label')
-            latency_str = edge_data.get('latency')
-
-            # Check if all required attributes are present and latency is numeric
-            if source_label is not None and target_label is not None and latency_str is not None:
-                # Ensure latency is treated as a number (float likely)
-                try:
-                    numeric_latency = parse_latency_str(latency_str)
-                    edge_key = (source_label, target_label)
-                    edge_delays[edge_key] = numeric_latency
-                except (ValueError, TypeError):
-                     logging.warning(f"Edge ({u_id}->{v_id}) latency '{latency_str}' is not a valid number. Skipping.")
-                     skipped_count += 1
-            else:
-                # Log which attribute was missing
-                missing = []
-                if source_label is None: missing.append(f"source label for node {u_id}")
-                if target_label is None: missing.append(f"target label for node {v_id}")
-                if latency_str is None: missing.append(f"latency for edge ({u_id}->{v_id})")
-                logging.warning(f"Skipping edge ({u_id}->{v_id}) due to missing attributes: {', '.join(missing)}.")
-                skipped_count += 1
-
-        except KeyError as e:
-            # This handles cases where u_id or v_id might somehow not be in graph.nodes
-            logging.error(f"Node ID {e} not found while processing edge ({u_id}, {v_id}). Skipping edge.")
-            skipped_count += 1
-        except Exception as e:
-            # Catch unexpected errors during processing of a single edge
-            logging.error(f"Unexpected error processing edge ({u_id}->{v_id}): {e}. Skipping edge.")
-            skipped_count += 1
+  aaa(masSrvAddr, mcac5Addr, LinkType-TCP-4stateLoss)
+  aaa(masSrvAddr, mcas5Addr, LinkType-TCP-4stateLoss)
+  aaa(mcac5Addr, masSrvAddr, LinkType-TCP-4stateLoss)
+  aaa(mcas5Addr, masSrvAddr, LinkType-TCP-4stateLoss) 
+  aaa(wtProxy1Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+  aaa(IXP-DEFAULT-ADDR, wtProxy1Addr, LinkType-TCP-4stateLoss)
+  aaa(wtClient1Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLoss)
+  aaa(IXP-DEFAULT-ADDR, wtClient1Addr, LinkType-TCP-4stateLoss)
 
 
-    if skipped_count > 0:
-        logging.info(f"Processed edges. Skipped {skipped_count} edge(s) due to missing labels or latency.")
-
-    logging.info(f"Generated edge delay dictionary with {len(edge_delays)} entries.")
-    return edge_delays
 
 
-def parse_latency_str(latency_str: str) -> float:
-  """
-  Parse a latency string like "50ms".
-
-  Args:
-    latency_str: The latency string to parse.
-
-  Returns:
-    The numerical value in seconds.
-  """
-  unit_divisor  = 1
-  if 'ms' in latency_str:
-    unit_divisor = 1e3
-  elif 'us' in latency_str:
-    unit_divisor  = 1e6
-  latency_str = latency_str.replace('ms','').replace('us','').replace('s','')
-  try:
-    numeric_latency = float(latency_str) / unit_divisor
-  except ValueError as e:
-    print(f"Latency {latency_str} is not a valid value")
-    raise ValueError(e)
-  return numeric_latency
-
-
-def parse_loss_str(loss_str: str) -> float:
-  """
-  Parse a loss string like "0.1".
-
-  Args:
-    loss_str: The loss string to parse.
-
-  Returns:
-    The numerical valued.
-  """
-  try:
-    numeric_loss = float(loss_str)
-    return numeric_loss
-  except ValueError as e:
-    print(f"Loss {loss_str} is not a valid value")
-    raise ValueError(e)
-
-
-def find_node_name(nodes: list, substrings: list, default=None) -> list:
-  """
-  Find the node name that matches at least one element of a list of substrings.
-
-  Args:
-    nodes: The list of nodes with proper names, like "application-client", "tld-dns", etc..
-    substrings: The list of abreviated names, like "client" or "tld".
-    default: The default name to return if none is found to match in 'nodes'.
-  """
-  if nodes is None:
-    return default
-
-  node_names  = []
-  for substring in substrings:
-    node_names.extend(list(filter(lambda s: substring in s, nodes)))
-  if len(node_names) > 1:
-    print(f"Warning: more than one match for {substrings} in {nodes}.")
-    raise ValueError
-  if len(node_names) == 0:
-    print(f"No testbed shadow file node corresponding to {substrings}.")
-    if default is None:
-      raise ValueError
-    return default
-  return node_names[0]
+  # create fixed nodes
+  # create tgens

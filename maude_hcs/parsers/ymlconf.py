@@ -326,14 +326,11 @@ class YmlConf:
     Parses the system configuration YAML file into structured objects.
     """
 
-    def __init__(self, yml_path: str, loss_specs_dir: str):
+    def __init__(self, yml_path: str, loss_specs_dir: str, baseline_dir: str):
         self.yml_path = yml_path
 
         # 1. Load the raw YAML
         self.data = load_yaml_to_dict(Path(yml_path))
-
-        # 1.1 Instantiate all required nodes with labels and addresses
-        tne_network = go_network_gen(self.data)
 
         # 1.2 Parse loss specs
         # I |Ii
@@ -344,14 +341,23 @@ class YmlConf:
             loss_spec_path = Path(loss_specs_dir) / (ln + ".yaml")
             loss_specs[ln] = load_yaml_to_dict(loss_spec_path)
 
-        self.network = Topology.from_tne_network_dict_and_yml(tne_network, self.data, loss_specs)
+        # Network contains all nodes(actors), including their addresses and maude names / definitions
+        self.network = Topology.from_yml_and_loss(self.data, loss_specs)
 
-        self.background_traffic: List[Tuple[str, str, int]] = self._parse_tgen(self.data)
-        self.underlying_network: UnderlyingNetwork = self._parse_underlying(tne_network)
-        self.application: Application = self._parse_application(self.data)
-
-        # self.adversary: Adversary = self._parse_adversary(self.data, self.yml_path)
+        # TODO: should include baseline log
         self.adversary = None
+
+        # TODO: copy logic from cp3_config
+        self.nameservers = None
+
+        # TODO: should contain initial messages to be tossed in the maude soup, along with actors
+        self.triggers = None
+
+        # TODO: should contain steganographic destini images, based on tgens
+        self.images = None
+
+        # TODO: should contain all the background params necessary for initial maude config
+        self.params = None
 
     def _parse_tgen(self, data: dict) -> List[Tuple[str, str, int]]:
         """
@@ -442,7 +448,7 @@ class YmlConf:
 
         return Application(alice=alice, bob=bob, iodine=iodine, destini=destini)
 
-    def _parse_adversary(self, data: dict, ymlpath: str) -> Adversary:
+    def _parse_adversary(self, data: dict, baseline_dir: str) -> Adversary:
         baseline = data.get('adversary_phase0', {})
         actual = data.get('adversary_phase1', {})
 

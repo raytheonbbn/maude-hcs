@@ -28,39 +28,40 @@
 #
 # MAUDE_HCS: end
 
-from pathlib import Path
 import os
+import traceback
+import logging
+
+from pathlib import Path
 from maude_hcs.lib import GLOBALS, flatten
 from .cache import ResolverCache
-from .DNSConfig import DNSConfig
+from Maude.attack_exploration.src.conversion_utils import address_to_maude, name_to_maude
 
 from maude_hcs.lib.common.paramtopo import ParameterizedTopo
-from maude_hcs.lib.dns.IodineDNSConfig import IodineDNSConfig
-from Maude.attack_exploration.src.actors import Nameserver, Client
+from Maude.attack_exploration.src.actors import Nameserver
 from Maude.attack_exploration.src.query import Query
 from Maude.attack_exploration.src.network import *
 from maude_hcs.lib.dns.iodineActors import TGenClient, Router, IodineClient, IodineServer, SendApp, ReceiveApp, \
     WMonitor, IResolver, DNSTGenClient, Ctr
-from maude_hcs.parsers.masdnshcsconfig import MASHCSProtocolConfig, \
-    MASBackgroundTrafficTgenClient, MASUnderlyingNetwork, MASWeirdNetwork
+from maude_hcs.parsers.masdnshcsconfig import MASBackgroundTrafficTgenClient
 from .cache import CacheEntry, ResolverCache
 from .corporate import createAuthZone, createRootZone, createTLDZone
-import logging
-import os
 
 from .utils import extend_or_truncate
 from .. import GLOBALS, Protocol
 from ..common import X
-from ..common.commonActors import ObservationPattern, AdversaryActor, generateBaselineBins, Msg, HttpRequestPost
-from ..mastodon.mastodonActors import MastodonServer, MastodonClient, MASTGenClient
+from ..common.actor import AdversaryActor
+from ..mastodon.mastodonActors import MastodonServer, MASTGenClient
 from ..raceboat.raceboatActors import RaceboatClient, RaceboatServer, RbSendApp, RbRcvApp
 from ...deps.dns_formalization.Maude.attack_exploration.src.zone import Record
-from ...parsers.dnshcsconfig import DNSUnderlyingNetwork, DNSWeirdNetwork, DNSBackgroundTrafficTgenClient
+from ...parsers.dnshcsconfig import DNSBackgroundTrafficTgenClient
 from ...parsers.hcsconfig import HCSConfig
 from ...parsers.markovJsonToMaudeParser import find_and_load_json
 from ...parsers.quatexGenerator import QuatexGenerator
 from ...parsers.ymlconf import Destini
 from ...parsers.graph import Node, Link
+from ...parsers.markovJsonToMaudeParser import find_recursively
+from ..common import get_relative_file_path
 
 TOPLEVELDIR = Path(os.path.dirname(__file__)).parent.parent
 DNS_MAUDE_ROOT = Path("deps/dns_formalization/Maude")
@@ -68,9 +69,367 @@ WEIRD_DNS_MAUDE_ROOT = Path(os.path.dirname(__file__)).joinpath(Path("maude/"))
 
 CWD = Path.cwd()
 
-class CP3Config(IodineDNSConfig):
-    def __init__(self, *args):
-        super().__init__(*args)
+class CP3Config:
+    
+    def __init__(self, standaloneActors, monitor, applications, weird_networks, clients, paced_clients, resolvers, nameservers, root_nameservers, network, output_dir) -> None:
+
+        self.standaloneActors = standaloneActors
+        self.monitor = monitor
+        self.paced_clients = paced_clients
+        print(clients)
+        self.applications = applications
+        self.tunnels = weird_networks
+        self.output_dir = output_dir
+
+        self.path = str(TOPLEVELDIR.joinpath(DNS_MAUDE_ROOT)) + os.path.sep
+        self.weirdpath = str(WEIRD_DNS_MAUDE_ROOT)
+        self.preamble = None
+
+        self.clients = clients
+        self.resolvers = resolvers
+        self.nameservers = nameservers
+
+        self.root_nameservers = root_nameservers
+        self.network  = network
+
+        self.monitor_address = 'mAddr'
+
+        self.common_path = Path(self.weirdpath).parent.parent.joinpath('common').joinpath('maude')
+
+    def _get_actor_addresses(self):
+        addresses = [self.monitor_address]
+        for client in self.clients:
+            addresses.append(client.address)
+        for resolver in self.resolvers:
+            addresses.append(resolver.address)
+        for nameserver in self.nameservers:
+            addresses.append(nameserver.address)
+
+        for router in self.standaloneActors:
+            if router.address:
+                addresses.append(router.address)
+        for client in self.paced_clients:
+            addresses.append(client.address)
+            if isinstance(client, TGenClient):
+                addresses += client.getAddresses()
+        for app in self.applications:
+            addresses.append(app.address)
+        for actor in self.tunnels:
+            addresses.append(actor.address)
+            if isinstance(actor, RaceboatClient) or isinstance(actor, RaceboatServer):
+                addresses.append(actor.userModelAddress)
+                addresses.append(actor.contentManagerAddress)
+                addresses.append(actor.destiniAddress)
+                addresses.append(actor.masClientAddress)
+        return sorted(set(addresses))
+
+    def _get_addr_ops(self) -> str:
+        res = '--- Actor addresses\n'
+        res += f'ops ' + ' '.join(self._get_actor_addresses()) + ' : -> Address .\n'
+        return res
+
+    def _get_sbelt(self) -> str:
+        res = '--- "SBELT": fallback if there are no known name servers\n'
+        res += 'op sb : -> ZoneState .\n'
+        
+        res += 'eq sb = < root ('
+        res += ', '.join(f'{name_to_maude(name)} |-> {self.root_nameservers[name]}' \
+            for name in self.root_nameservers)
+        res += ') > .\n'
+
+        return res
+    
+    def _get_zones(self):        
+        """
+        Also include zones from any weird name servers
+        return set([zone for zonelist in map(lambda ns: ns.zones, self.nameservers) for zone in zonelist])
+        """       
+        zones = set([zone for zonelist in map(lambda ns: ns.zones, self.nameservers) for zone in zonelist]) 
+        for actor in self.tunnels:
+            if isinstance(actor, IodineServer):
+                zones = zones.union(set(actor.zones))
+        return zones
+
+    def _to_maude_common_definitions(self, param_dict) -> str:
+        defs = 'eq monitorQueryLog? = true .\n\n'
+
+        for param, val in param_dict.items():
+            if isinstance(val, str):
+                defs += f'eq {param} = {val} .\n'
+            else:
+                defs += f'eq {param} = {str(val).lower()} .\n'
+
+        defs += '\n'
+
+        defs += self._get_addr_ops() + '\n'
+        defs += self._get_sbelt() + '\n'
+        defs += self._to_maude_zones()
+
+        # Tgen actors and raceboat/destini have image list defs, include here
+        new_defs = set()
+        for client in sorted(self.paced_clients, key=lambda x: x.address):
+            if isinstance(client, MASTGenClient):
+                _d = client.to_maude_defs()
+                if _d.strip():
+                    new_defs.add(_d)
+        for tun in sorted(self.tunnels, key=lambda x: x.address):
+            if isinstance(tun, RaceboatClient):
+                _d = tun.to_maude_defs()
+                if _d.strip():
+                    new_defs.add(_d)
+        for app in sorted(self.applications, key=lambda x: x.address):
+            if isinstance(app, RbSendApp):
+                _d = app.to_maude_defs()
+                if _d.strip():
+                    new_defs.add(_d)
+        for actr in self.standaloneActors:
+            if isinstance(actr, AdversaryActor):
+                _d = actr.to_maude_defs()
+                if _d.strip():
+                    new_defs.add(_d)
+        defs += '\n'.join(sorted(new_defs))
+        defs += '\n'
+        return defs
+
+    def to_relative_path(self, path):
+        return get_relative_file_path(self.output_dir, path)
+
+    def _to_maude_zones(self) -> str:
+        res = '--- Zone files\n'
+        for zone in self._get_zones():
+            res += zone.to_maude() + '\n\n'
+        return res
+
+    # Override
+    def _maude_loads(self, path, model) -> str:
+        # sload ../../../mastodon/maude/probabilistic/mastodon
+        # sload ../../../app/maude/probabilistic
+
+        res = '--- This maude file has been created automatically from the Python representation ---\n'
+        res += '\n'.join([
+            f'sload {self.to_relative_path(self.weirdpath + "/probabilistic/iodine_dns")}',
+            f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('dnsTgen-actor-uniqueId'))}\n'                
+            f'sload {self.to_relative_path(self.common_path.joinpath("user-action-actor"))}\n'
+            f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('tgen').joinpath('maude').joinpath('masTGen.maude'))}\n'
+            f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('mastodon').joinpath('maude').joinpath('probabilistic').joinpath('mastodon'))}',
+            f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('app').joinpath('maude').joinpath('probabilistic-no-rb'))}',
+            f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('rb-cm-client-hash'))}',
+            f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('rb-cm-server'))}',
+            f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('raceboat').joinpath('enc-dec-actor'))}',
+            f'sload {self.to_relative_path(Path(self.weirdpath).parent.parent.joinpath('common').joinpath('maude').joinpath('http-overhead'))}',
+            f'sload {self.to_relative_path(self.common_path.joinpath("router"))}',
+            f'sload {self.to_relative_path(self.common_path.joinpath("adversary-observer"))}'
+        ])
+        tgen_loads = set()
+        for tc in self.paced_clients:
+            if isinstance(tc, TGenClient):
+                # we change the mmodel file when we create the maude name so change it back
+                mod = '_'.join(tc.profile.replace('-', '_').split('_')[1:])
+                key = None # since dns and mastodon profiles can use same names, key is used to distinguish
+                if isinstance(tc, MASTGenClient):
+                    key = 'mastodonprofiles'
+                elif isinstance(tc, DNSTGenClient):
+                    key = 'dnsprofiles'
+                file = find_recursively(GLOBALS.TOPLEVELDIR, f'config_{mod}.maude', key=key)
+                tgen_loads.add(f'sload {self.to_relative_path(file)}')
+        rb_loads = set()
+        for actor in self.tunnels:
+            if isinstance(actor, RaceboatClient) or isinstance(actor, RaceboatServer):
+                mod = '_'.join(actor.profile.replace('-', '_').split('_')[1:])
+                try:
+                    file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude')
+                    rb_loads.add(f'sload {self.to_relative_path(file)}')
+                except:
+                    logger.warning(f'Could not find {mod}.maude. Exception {traceback.format_exc()}')
+
+        if tgen_loads:
+            res += '\n ---- tgen models\n'
+            res += '\n'.join(sorted(tgen_loads))
+        if rb_loads:
+            res += '\n ---- raceboat models\n'
+            res += '\n'.join(sorted(rb_loads))
+
+        return res
+
+    # override
+    def _maude_includes(self, params, path, model):
+        #           'inc MASTODON .',
+        #           'inc MAS-TGEN .',
+        #           'inc CP2_APP .',
+
+        includes = [
+            ' inc DNS .',
+            ' inc USER-ACTION-ACTOR .',
+            ' inc DNS-TGEN .',
+            ' inc IODINE_DNS . --- + TEST-HELPERS .',
+            ' inc ROUTER .',
+            ' inc MASTODON .',
+            ' inc MAS-TGEN .',
+            ' inc ADVERSARY-OBSERVER .',
+            ' inc CP2_APP .',
+            'inc ENC-DEC .',
+            'inc CONTENT-MANAGER-CLIENT .',
+            'inc CONTENT-MANAGER-SERVER .',
+            'inc HTTP-OVERHEAD .'
+        ]
+
+        res = '\n'.join(includes)
+        # TGEN models
+        tgen_incs = set()
+        for tc in self.paced_clients:
+            if isinstance(tc, TGenClient):
+                tgen_incs.add(f' inc {tc.profile.upper()}-MAMODEL .')
+        if tgen_incs:
+            res += '\n ---- tgen model includes\n'
+            res += '\n'.join(sorted(tgen_incs))
+            # res += '\n'
+        # Raceboat models
+        rb_incs = set()
+        for actor in self.tunnels:
+            if isinstance(actor, RaceboatClient) or isinstance(actor, RaceboatServer):
+                rb_incs.add(f' inc {actor.profile.upper()}-MAMODEL .')
+        if rb_incs:
+            res += '\n ---- raceboat model includes\n'
+            res += '\n'.join(sorted(rb_incs))
+            res += '\n'
+        return res
+
+    # Override to add tunnels and applications to conf
+    def _to_maude_actors(self) -> str:
+        res = '  --- Clients\n'
+        for client in self.clients:
+            res += '  ' + client.to_maude() + '\n'
+
+        res += '  --- Resolvers\n'
+        for resolver in self.resolvers:
+            res += '  ' + resolver.to_maude() + '\n'
+
+        res += '  --- Nameservers\n'
+        for nameserver in self.nameservers:
+            res += '  ' + nameserver.to_maude() + '\n'
+
+        res += '  --- standalone actors\n'
+        for router in self.standaloneActors:
+            res += '  ' + router.to_maude() + '\n'
+        res += '  --- tunnels\n'
+        for tunnel in self.tunnels:
+            res += '  ' + tunnel.to_maude() + '\n'
+        
+        res += '  --- applications\n'
+        for application in self.applications:
+            res += '  ' + application.to_maude() + '\n'
+        
+        # add the start messages if requested
+        # include the monitor for the quantitative analysis        
+        res += '  --- WMonitor\n'
+        res += '  ' + self.monitor.to_maude() + '\n'
+        res += '  --- tgens \n'
+        for client in self.paced_clients:
+            res += '  ' + client.to_maude() + '\n'
+            if client.start:
+                res += f'  [genRandom(0.0, 0.0001), to {address_to_maude(client.address)} : start, 0]\n'
+        res += '  --- App start messages\n'
+        for app in self.applications:
+            if isinstance(app, SendApp) and app.start >= 0:
+                res += f'  [{str(app.start)}, (to {address_to_maude(app.address)} : start), 0] \n'
+            if isinstance(app, ReceiveApp) and app.start >= 0: # TODO: testing for Bob also add start messages for RecvApp
+                res += f'  [1.0, (to {address_to_maude(app.address)} : start), 0] \n'
+        
+        return res
+
+    def set_params(self, nondet_params : dict, prob_params : dict):
+        self.nondet_params = nondet_params
+        self.prob_params = prob_params
+    
+    def set_model_type(self, type):
+        if not type in GLOBALS.MODEL_TYPES:
+            raise Exception(f'Type {type} must be in {GLOBALS.MODEL_TYPES}')
+        self.model_type = type
+
+    def set_preamble(self, L: list[str] = []):
+        self.preamble = L
+    
+    def _to_maude_caches(self) -> str:
+        res = '--- Caches\n'
+        for resolver in self.resolvers:
+            if resolver.cache:
+                res += resolver.cache.to_maude() + '\n'
+        return res
+
+    def _to_maude_address_defs(self) -> str:
+        res = ""
+        addrs = self._get_actor_addresses()
+        for addr in addrs:
+            res += f"eq {addr} = a(srvN[1],hcs,wt,srv,1) .\n"
+        return res
+
+    def to_maude_prob(self, param_dict, path) -> str:
+        # preamble
+        res = '\n'.join([pr for pr in self.preamble])
+        res += '\n\n'
+
+        # sloads
+        res += self._maude_loads(path, 'prob')
+        res += '\n\n'
+
+        # start defining module
+        res += f'mod {GLOBALS.MODULE_NAME} is\n'
+
+        # define includes
+        res += self._maude_includes(param_dict, path, 'prob')
+
+        # parameters
+        res += self._to_maude_common_definitions(flatten(param_dict))
+        res += '\n'
+
+        # caches
+        res += self._to_maude_caches()
+        res += '\n'
+
+        res += self._to_maude_address_defs()
+        res += '\n'
+        
+        res += '--- Initial configuration\n'
+        res += 'op initState : -> Config .\n'
+        res += 'eq initState =\n'
+        res += '  --- Client start messages\n'
+        for client in self.clients:
+            res += f'  [id, (to {client.address} : start), 0]\n'
+        res += self._to_maude_actors()
+        res += '  .\n\n'
+        
+        res += self.network.to_maude_network()
+        res += '\n'
+        res += 'op initConfig : -> Config .\n'
+        res += 'eq initConfig = run({0.0 | nil} initState,slimit) .\n'
+        res += 'endm\n'
+
+        return res       
+
+    def to_maude(self):
+        params = self.nondet_params.copy()
+        params.update(self.prob_params)
+        return self.to_maude_prob(params, self.path)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def mk_cp3_config(hcsconf: HCSConfig) -> CP3Config:
     def getOrAddTopologyNode(_name:str):
@@ -113,7 +472,7 @@ def mk_cp3_config(hcsconf: HCSConfig) -> CP3Config:
 
     # adversary constants
     baselineBinSize = 1.0  # sec
-    maxWindowSize = 5 #ignoring adversary for now, using mock values hcsconf.adversary.getMaxWindowSize('m')
+    maxWindowSize = 5 #TODO FIX THIS ignoring adversary for now, using mock values hcsconf.adversary.getMaxWindowSize('m')
     tlimit = 20 * maxWindowSize
     record_ttl    = underlying_network.record_ttl
     if tlimit > record_ttl:
@@ -196,7 +555,7 @@ def mk_cp3_config(hcsconf: HCSConfig) -> CP3Config:
 
     # adversary
     ## the smc measures
-    maxNBinWindowSize = 5 #ignoring adversary for now, using mock values hcsconf.adversary.getMaxWindowSize('n')
+    maxNBinWindowSize = 5 #TODO FIX THIS ignoring adversary for now, using mock values hcsconf.adversary.getMaxWindowSize('n')
     # the adversary is going to start at maxWindowSize because we will put the baseline data in the first window
     # we are also adding an offset to C.8 to count the number of tcp connections created by mastodon TGEN actors
     #   NOTE: this would not have mattered (noise) if hte thresholds weren't too small and sensitive to noise

@@ -1,6 +1,12 @@
 import math
+
 from enum import Enum
 from typing import List, Dict, Any
+
+from dataclasses import dataclass
+from dataclasses_json import dataclass_json
+
+from .address import Address
 
 from maude_hcs.deps.dns_formalization.Maude.attack_exploration.src.conversion_utils import address_to_maude
 
@@ -17,6 +23,14 @@ messages from external actor to corporate actor preNat
 
 """
 from Maude.attack_exploration.src.query import Query
+
+@dataclass_json
+@dataclass
+class Actor:
+    addr: Address
+    
+
+    
 
 class HttpRequestPost:
     def __init__(self, fname: str, lenBytes: int):

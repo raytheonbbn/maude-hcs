@@ -313,7 +313,7 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
             if cnt == 0: continue
             if 'monitor' in type: continue
             for j in range(cnt):
-                if type == 'dns':
+                if type == 'tgen_type_dns':
                     C = DNSBackgroundTrafficTgenClient()
                     C.client_name = f'dns-tgen-client-{(i + j)}'
                     # this converts it to an importable module name
@@ -321,7 +321,7 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
                     # search for the json_prof file and grab the parameters dict
                     # use that to set the retry and lifetime
                     # we have already copied the json file to the right directory in maude_hcs, find it
-                    data = find_and_load_json(PROJECT_TOPLEVEL_DIR, json_prof, 'dnsprofiles')
+                    data = find_and_load_json(PROJECT_TOPLEVEL_DIR, "config_" + json_prof + ".json", 'dnsprofiles')
                     C.client_retry_to = float(data['parameters']['request_timeout'])
                     C.client_num_retry = int(floor(data['parameters']['request_lifetime'] / C.client_retry_to))
                     bg.clients.append(C)

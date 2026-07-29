@@ -147,12 +147,12 @@ def build_cli_parser():
                                  default=None,
                                  help="Name of the global yml config file, which includes the topology, and actor information and params",
                                  required=False)
-    # generate_parser.add_argument("--adversary",
-    #                              dest="adversary",
-    #                              metavar='FILE',
-    #                              default=None,
-    #                              help="Path to adversary config file",
-    #                              required=False)
+    generate_parser.add_argument("--baseline-dir",
+                                 dest="baseline_dir",
+                                 metavar='FILE',
+                                 default=None,
+                                 help="Path to baseline network stats .json files, so adversary knows what looks normal for its vantage point",
+                                 required=False)
     generate_parser.add_argument("--loss-specs-dir",
                                 dest="loss_specs_dir",
                                 metavar='DIR',
