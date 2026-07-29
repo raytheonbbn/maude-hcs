@@ -5,15 +5,20 @@
 sload ../../../common/maude/sampler-x
 sload ../../../common/maude/cp2-interfaces
 sload ./ftp_messages.maude
-sload ../../../common/maude/delay-drop-x
+*** sload ../../../common/maude/delay-drop-x
+**** sload ../../../common/maude/delay-drop-x-aux
+sload ../../../common/maude/multi-msg-send
+
 
 mod FTP-TGEN is
   inc CP2-COMMON .
   inc SAMPLER-X .
   inc FTP-MESSAGES .
   inc TGEN-INTERFACE .
-  inc DELAY-X .
-
+****  inc DELAY-X .
+  inc DELAY-X-AUX .
+  inc MULTI-MSG-SEND .
+    
   sorts FtpTask FtpTaskList .
   subsort FtpTask < FtpTaskList .
   op emptyTasks : -> FtpTaskList .
@@ -41,8 +46,8 @@ mod FTP-TGEN is
   vars dAddr umAddr rsvAddr : Address .
   vars attrs attrs1 attrs2 : AttributeSet .
   vars msg msg1 msg0 : Msg .
-  vars msgs msgs0 : Config .
-  vars rj rj1 n n0 j j1 k nRetryMax reqId reqId0 : Nat .
+  vars msgs msgs0 : MsgList .
+  vars rj rj1 rj2 n n0 j j1 k nRetryMax reqId reqId0 : Nat .
   vars T retryTo : Float .
   vars ract : Map{String,JV} .
   vars cmd arg status text dataStr : String .
@@ -78,13 +83,13 @@ mod FTP-TGEN is
     {T, (to dAddr from umAddr : actionQ(ract))}
     < dAddr : FtpTgen | attrs, w4: noTask, replyTo: null, pendingTasks: emptyTasks, reqId: reqId, retryMax: nRetryMax, ftpRsv: rsvAddr, nRetry: k >
   =>
-    rCtr(s rj1)
+    rCtr(rj2)
     < dAddr : FtpTgen | attrs1 >
     smsgs
 ****  delayMsgs(msgs, null)
-    (if msgs0 == null then null else [getRetryTO(attrs) + genRandomX(rj, -0.00001, 0.00001), msgs0, 0] fi)
-  if {attrs1, msgs, msgs0, rj1} := nextFtpTask((attrs, w4: noTask, replyTo: (to dAddr from umAddr : actionQ(ract)), pendingTasks: genTasks(ract), reqId: s reqId, retryMax: nRetryMax, nRetry: nRetryMax, ftpRsv: rsvAddr), dAddr, rsvAddr, s reqId, rj)
-  /\ {smsgs,rj1} := delayMsgsX(rj,msgs,null)
+    (if msgs0 == nilML then null else [getRetryTO(attrs) + genRandomX(rj, -0.00001, 0.00001), msgs0, 0] fi)
+  if [attrs1, msgs, msgs0, rj1] := nextFtpTask((attrs, w4: noTask, replyTo: (to dAddr from umAddr : actionQ(ract)), pendingTasks: genTasks(ract), reqId: s reqId, retryMax: nRetryMax, nRetry: nRetryMax, ftpRsv: rsvAddr), dAddr, rsvAddr, s reqId, s rj)
+  /\ {smsgs,rj2} := delayMsgLX(rj1,msgs)
   [print "(" T ") FtpTgen rcvFtpAction " ract] .
 
 **** CLT note that from examination of genTasks, msgs is at most
@@ -117,32 +122,33 @@ mod FTP-TGEN is
   eq genTasksStr(cmd) = sendCmdTask("NOOP", "") [owise] .
 
   --- Step through tasks
-  op nextFtpTask : AttributeSet Address Address Nat Nat -> AttributeSetMsgsMsgsNat .
+  op nextFtpTask : AttributeSet Address Address Nat Nat -> AttributeSetMsgLMsgLNat .
   eq nextFtpTask((attrs, w4: task0, pendingTasks: emptyTasks), dAddr, rsvAddr, reqId, rj) =
-     { (attrs, w4: noTask, pendingTasks: emptyTasks), null, null, rj } .
+    [ (attrs, w4: noTask, pendingTasks: emptyTasks), nilML, nilML, rj ] .
      
      
   eq nextFtpTask((attrs, w4: task0, pendingTasks: (sendCmdTask(cmd, arg) :: tasks)), dAddr, rsvAddr, reqId, rj) =
-    { (attrs, w4: sendCmdTask(cmd, arg), pendingTasks: tasks),
-      (to rsvAddr from dAddr : ftpReq(reqId, cmd, arg)),
+    [ (attrs, w4: sendCmdTask(cmd, arg), pendingTasks: tasks),
+      (to transport(rsvAddr) from dAddr : ftpReq(reqId, cmd, arg)),
       (to dAddr : ftpTO(ftpReq(reqId, cmd, arg))),
-      rj } .
+      rj ] .
       
   ceq nextFtpTask((attrs, w4: task0, pendingTasks: (sendDataTask(dataStr) :: tasks)), dAddr, rsvAddr, reqId, rj) =
-    { attrs2, msgs (to rsvAddr from dAddr : ftpData(reqId, dataStr)), msgs0, rj1 }
-  if {attrs2, msgs, msgs0, rj1} := nextFtpTask((attrs, w4: sendDataTask(dataStr), pendingTasks: tasks), dAddr, rsvAddr, reqId, rj) .
+    [ attrs2, msgs ;;
+    (to transport(rsvAddr) from dAddr : ftpData(reqId, dataStr)), msgs0, rj1 ]
+  if [attrs2, msgs, msgs0, rj1] := nextFtpTask((attrs, w4: sendDataTask(dataStr), pendingTasks: tasks), dAddr, rsvAddr, reqId, rj) .
   
   eq nextFtpTask((attrs, w4: task0, pendingTasks: (waitDataTask :: tasks)), dAddr, rsvAddr, reqId, rj) =
-    { (attrs, w4: waitDataTask, pendingTasks: tasks),
-      null,
+    [ (attrs, w4: waitDataTask, pendingTasks: tasks),
+      nilML,
       (to dAddr : ftpDataTO(ftpReq(reqId, "WAIT", ""))),
-      rj } .
+      rj ] .
       
   eq nextFtpTask((attrs, w4: task0, pendingTasks: (wait226Task :: tasks)), dAddr, rsvAddr, reqId, rj) =
-    { (attrs, w4: wait226Task, pendingTasks: tasks),
-      null,
+    [ (attrs, w4: wait226Task, pendingTasks: tasks),
+      nilML,
       (to dAddr : ftpDataTO(ftpReq(reqId, "WAIT", ""))),
-      rj } .
+      rj ] .
 
   --- Handling responses
   crl [rcvFtpRes]:
@@ -150,12 +156,14 @@ mod FTP-TGEN is
     {T, (to dAddr from rsvAddr : ftpRes(reqId, status, text))}
     < dAddr : FtpTgen | ftpRsv: rsvAddr, w4: task, reqId: reqId, attrs >
   =>
-    rCtr(rj1)
+    rCtr(rj2)
     < dAddr : FtpTgen | attrs1 >
-    delayMsgs(msgs, null)
-    (if msgs0 == null then null else [getRetryTO(attrs) + genRandomX(rj, -0.00001, 0.00001), msgs0, 0] fi)
+ ****   delayMsgs(msgs, null)
+    smsgs
+    (if msgs0 == nilML then null else [getRetryTO(attrs) + genRandomX(rj, -0.00001, 0.00001), msgs0, 0] fi)
   if matchRes(task, status)
-  /\ {attrs1, msgs, msgs0, rj1} := handleRes((ftpRsv: rsvAddr, w4: task, reqId: reqId, attrs), dAddr, rsvAddr, reqId, rj)
+  /\ [attrs1, msgs, msgs0, rj1] := handleRes((ftpRsv: rsvAddr, w4: task, reqId: reqId, attrs), dAddr, rsvAddr, reqId, rj)
+  /\ {smsgs,rj2} := delayMsgLX(s rj1,msgs)
   [print "(" T ") FtpTgen receives ftpRes " status " " text] .
 
   op matchRes : FtpTask String -> Bool .
@@ -169,24 +177,26 @@ mod FTP-TGEN is
     {T, (to dAddr from rsvAddr : ftpData(reqId, dataStr))}
     < dAddr : FtpTgen | ftpRsv: rsvAddr, w4: waitDataTask, reqId: reqId, attrs >
   =>
-    rCtr(rj1)
+    rCtr(rj2)
     < dAddr : FtpTgen | attrs1 >
     delayMsgs(msgs, null)
-    (if msgs0 == null then null else [getRetryTO(attrs) + genRandomX(rj, -0.00001, 0.00001), msgs0, 0] fi)
-  if {attrs1, msgs, msgs0, rj1} := handleRes((ftpRsv: rsvAddr, w4: waitDataTask, reqId: reqId, attrs), dAddr, rsvAddr, reqId, rj)
+    (if msgs0 == nilML then null else [getRetryTO(attrs) + genRandomX(rj, -0.00001, 0.00001), msgs0, 0] fi)
+  if [attrs1, msgs, msgs0, rj1] := handleRes((ftpRsv: rsvAddr, w4: waitDataTask, reqId: reqId, attrs), dAddr, rsvAddr, reqId, rj)
+  /\ {smsgs,rj2} := delayMsgLX(s rj,msgs)
   [print "(" T ") FtpTgen receives ftpData " dataStr] .
 
-  op handleRes : AttributeSet Address Address Nat Nat -> AttributeSetMsgsMsgsNat .
+  op handleRes : AttributeSet Address Address Nat Nat -> AttributeSetMsgLMsgLNat .
   eq handleRes((attrs, w4: task0, pendingTasks: emptyTasks, replyTo: (to dAddr from umAddr : ac), nRetry: k), dAddr, rsvAddr, reqId, rj) =
-    { (attrs, pendingTasks: emptyTasks, replyTo: null, w4: noTask, nRetry: k),
+    [ (attrs, pendingTasks: emptyTasks, replyTo: null, w4: noTask, nRetry: k),
       (to umAddr from dAddr : actionR("ok")),
-      null,
-      rj } .
+      nilML,
+      rj ] .
 
   eq handleRes((attrs, w4: task0, pendingTasks: (task :: tasks), replyTo: (to dAddr from umAddr : ac), nRetry: k, retryMax: nRetryMax), dAddr, rsvAddr, reqId, rj) =
     nextFtpTask((attrs, w4: task0, pendingTasks: (task :: tasks), replyTo: (to dAddr from umAddr : ac), nRetry: nRetryMax, retryMax: nRetryMax), dAddr, rsvAddr, reqId, rj) .
   
-  eq handleRes(attrs, dAddr, rsvAddr, reqId, rj) = {attrs, null, null, rj} [owise] .
+  eq handleRes(attrs, dAddr, rsvAddr, reqId, rj) = 
+     [attrs, nilML, nilML, rj] [owise] .
 
   --- Timeout logic
   --- 1) Ignore bad timeouts
@@ -209,9 +219,9 @@ mod FTP-TGEN is
 *****    [delayParamd(msg), msg, dropParamd(msg)]
     smsgs
     [getRetryTO(attrs) + genRandomX(rj, -0.0001, 0.0001), msg1, 0]
-  if msg := (to rsvAddr from dAddr : ftpReq(reqId, cmd, arg))
+  if msg := (to transport(rsvAddr) from dAddr : ftpReq(reqId, cmd, arg))
   /\ msg1 := (to dAddr : ftpTO(ftpReq(reqId, cmd, arg)))
-  /\ {smsgs,rj1} := delayMsgsX(rj,msg,null)
+  /\ {smsgs,rj1} := delayMsgsX(s rj,msg,null)
   [print "(" T ") FtpTgen ftpTOretry nRetry left " n] .
 
   --- 3) Give up
@@ -220,7 +230,7 @@ mod FTP-TGEN is
     {T, (to dAddr : ftpTO(ftpReq(reqId, cmd, arg)))}
     < dAddr : FtpTgen | nRetry: 0, w4: sendCmdTask(cmd, arg), replyTo: (to dAddr from umAddr : ac), reqId: reqId, attrs >
   =>
-    rCtr(s rj)
+    rCtr(rj1)
     < dAddr : FtpTgen | nRetry: 0, w4: noTask, replyTo: null, reqId: reqId, attrs >
 ****  delayMsgs(msg0, null)
   if msg0 := (to umAddr from dAddr : actionR("failed"))
@@ -247,7 +257,7 @@ mod FTP-TGEN is
     {T, (to dAddr : ftpDataTO(ftpReq(reqId, "WAIT", "")))}
     < dAddr : FtpTgen | nRetry: 0, w4: task, replyTo: (to dAddr from umAddr : ac), reqId: reqId, attrs >
   =>
-    rCtr(s rj)
+    rCtr(s rj1)
     < dAddr : FtpTgen | nRetry: 0, w4: noTask, replyTo: null, reqId: reqId, attrs >
  ****   delayMsgs((to umAddr from dAddr : actionR("failed")), null)
   smsgs
