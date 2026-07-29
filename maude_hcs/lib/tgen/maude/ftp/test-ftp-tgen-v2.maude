@@ -7,20 +7,23 @@
 
 set show advisories off .
 
-sload ./ftp-mamodel-v2.maude
+sload ./profiles/ftp-medium-tgen-mamodel-v2.maude
 sload ../../../common/maude/tgen-action-actor-v2.maude
 sload ./ftpTgen-actor.maude
 sload ./ftpServer-actor.maude
 
 mod FTP-TGEN-V2-TEST is
-  inc FTP-CONFIG-MAMODEL-V2 .
+  inc FTP-MEDIUM-MAMODEL-V2 .
   inc USER-ACTION-ACTOR-V2 .
   inc FTP-TGEN .
   inc FTP-SERVER .
 
   --- Global constants
   --- The user model database: map model name to MAModel-v2
-  eq MAModelMap = ("ftp" |-> ftp-config-ma-v2) .
+  eq MAModelMap = ("ftp" |-> ftp-medium-ma-v2) .
+
+  --- Default Link Data
+  eq getLinkData(msg:Msg) = (canDrop: false, delayConst: 0.01) [owise] .
 
   --- Override default model timeout — the FTP idle states
   --- have ~300s mean sleep, so the default 1000s is too low.
@@ -38,7 +41,7 @@ mod FTP-TGEN-V2-TEST is
 
   --- FTP Tgen Actor: connects to the FTP server
   op ftpTGenA : -> Actor .
-  eq ftpTGenA = mkFtpTgenA(ftpTGAddr, ftpSrvAddr, 5.0, 2) .
+  eq ftpTGenA = mkFtpTgenA(ftpTGAddr, ftpSrvAddr, 5.0, 2, "ftp") .
 
   --- FTP Server Actor
   op ftpSrvA : -> Actor .
@@ -69,8 +72,11 @@ endm
 
 set print attribute on .
 
-eof
-
 --- Basic test: run for 100000 time units
-rew [2000] run({0.0 | nil} iS(1), 100000.0) .
+rew run({0.0 | nil} iS(1), 100000.0) .
 
+--- Search for ftpData messages to verify their randomized sizes
+--- search [10] run({0.0 | nil} iS(1), 100000.0) =>* 
+---   C:Config {T:Float, (to dAddr:Address from cAddr:Address : ftpData(reqId:Nat, dataSize:Nat))} .
+
+eof
