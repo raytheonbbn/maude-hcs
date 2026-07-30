@@ -420,12 +420,16 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq ftpUMAddr  = a(cl[6], tgen, ftp, um, 1) .
   eq ftpTGAddr  = a(cl[6], tgen, ftp, cl, 1) .
   eq ftpSrvAddr = a(srvN, tgen, ftp, srv, 0) .
+  eq ftpTGenANetClientAddr  = a(cl[6], tcp, ftp, cl, 1) .
+  eq ftpTGenANetServerAddr  = a(srvN, tcp, ftp, srv, 0) .
 
   ops gorillaUMAddr gorillaTGAddr gorillaSrvAddr          : -> Address .
   ops gorillaTGenANetClientAddr gorillaTGenANetServerAddr : -> Address .
   eq gorillaUMAddr  = a(cl[7], tgen, gor, um, 1) .
   eq gorillaTGAddr  = a(cl[7], tgen, gor, cl, 1) .
   eq gorillaSrvAddr = a(srvN, tgen, gor, srv, 0) .
+  eq gorillaTGenANetClientAddr  = a(cl[7], tcp, gor, cl, 1) .
+  eq gorillaTGenANetServerAddr  = a(srvN, tcp, gor, srv, 0) .
 
   ops minioUMAddr minioTGAddr minioS3ClientAddr minioS3ServerAddr : -> Address .
   ops minioS3ClientNetClientAddr                                  : -> Address .
@@ -433,6 +437,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq minioTGAddr        = a(cl[8], tgen, min, cl, 1) .
   eq minioS3ClientAddr  = a(cl[8], tgen, min, if, 1) .
   eq minioS3ServerAddr  = a(srvN, tgen, min, srv, 0) .
+  eq minioS3ClientNetClientAddr = a(cl[8], tcp, min, cl, 1) .
 
   ops dnsUMAddr dnsTGAddr dnsRsvAddr : -> Address .
   eq dnsUMAddr  = a(cl[9], tgen, dns, um, 1) .
@@ -445,9 +450,12 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq masTGAddr      = a(cl[10], tgen, mas, app, 1) .
   eq masClientAddr  = a(cl[10], tgen, mas, cl, 1) .
 
-  ops ircTgenUMAddr ircTgenClientAddr : -> Address .
+  ops ircTgenUMAddr ircTgenClientAddr       : -> Address .
+  ops ircTgenClientNetAddr ircServerNetAddr : -> Address .
   eq ircTgenUMAddr      = a(cl[11], tgen, irc, um, 1) .
   eq ircTgenClientAddr  = a(cl[11], tgen, irc, cl, 1) .
+  eq ircTgenClientNetAddr = a(cl[11], tcp, irc, cl, 1) .
+  eq ircServerNetAddr     = a(srvN, tcp, irc, srv, 0) .
 
 ---------------------------------------------------
   --- Link model parameters
@@ -455,39 +463,66 @@ mod COMBINED_IRC_EXPERIMENTS is
 
   ****eq transport(any:Address) = tcp(any:Address) .
   **** tcp actors
-  eq transport(s3SrvAddr)                     = tcp(s3SrvAddr) .
   eq transport(wtClient1Addr)                 = tcp(wtClient1Addr) .
-  **** Carolyn: These are suspicious.
-  eq transport(a(srvN[1], hcs, wt, cl, 1))    = tcp(a(srvN[1], hcs, wt, cl, 1)) .
+  eq transport(a(cl[1], hcs, wt, cl, 1))      = tcp(a(cl[1], hcs, wt, cl, 1)) .
+  eq transport(wtProxy1Addr)                  = tcp(wtProxy1Addr) .
+  eq transport(a(srvN[1], hcs, wt, srv, 1))   = tcp(a(srvN[1], hcs, wt, srv, 1)) .
   eq transport(obfs4Client2Addr)              = tcp(obfs4Client2Addr) .
-  eq transport(a(srvN[2], hcs, obfs, cl, 1))  = tcp(a(srvN[2], hcs, obfs, cl, 1)) .
-  eq transport(a(cl[3], hcs, sky, cl, 1))     = tcp(a(cl[3], hcs, sky, cl, 1)) .
-  eq transport(a(srvN[3], hcs, sky, cl, 1))   = tcp(a(srvN[3], hcs, sky, cl, 1)) .
+  eq transport(a(cl[2], hcs, obfs, cl, 1))    = tcp(a(cl[2], hcs, obfs, cl, 1)) .
+  eq transport(a(srvN[2], hcs, obfs, srv, 1)) = tcp(a(srvN[2], hcs, obfs, srv, 1)) .
+  eq transport(a(cl[3], hcs, sky, dl, 1))     = tcp(a(cl[3], hcs, sky, dl, 1)) .
+  eq transport(a(srvN[3], hcs, sky, dl, 1))   = tcp(a(srvN[3], hcs, sky, dl, 1)) .
+  eq transport(s3SrvAddr)                     = tcp(s3SrvAddr) .
+  eq transport(a(minN, srv, min, srv, 0))     = tcp(a(minN, srv, min, srv, 0)) .
   ---- Iodine sends to the local DNS forwarder, which then uses UDP.
-  eq transport(a(cl[5], hcs, mas, cl, 1))     = tcp(a(cl[5], hcs, mas, cl, 1)) .
-  eq transport(a(srvN[5], hcs, mas, cl, 1))   = tcp(a(srvN[5], hcs, mas, cl, 1)) .
+  eq transport(mcac5Addr)                     = tcp(mcac5Addr) .
+  eq transport(a(cl[5], hcs, mas, mc, 1))     = tcp(a(cl[5], hcs, mas, mc, 1)) .
+  eq transport(mcas5Addr)                     = tcp(mcas5Addr) .
+  eq transport(a(srvN[5], hcs, mas, mc, 1))   = tcp(a(srvN[5], hcs, mas, mc, 1)) .
+  eq transport(masSrvAddr)                    = tcp(masSrvAddr) .
+  eq transport(a(masN, srv, mas, srv, 0))     = tcp(a(masN, srv, mas, srv, 0)) .
+
   **** TGENs
   eq transport(ftpTGAddr)                     = tcp(ftpTGAddr) .
+  eq transport(a(cl[6], tgen, ftp, cl, 1))    = tcp(a(cl[6], tgen, ftp, cl, 1)) .
   eq transport(ftpSrvAddr)                    = tcp(ftpSrvAddr) .
+  eq transport(a(srvN, tgen, ftp, srv, 0))    = tcp(a(srvN, tgen, ftp, srv, 0)) .
   eq transport(gorillaTGAddr)                 = tcp(gorillaTGAddr) .
+  eq transport(a(cl[7], tgen, gor, cl, 1))    = tcp(a(cl[7], tgen, gor, cl, 1)) .
   eq transport(gorillaSrvAddr)                = tcp(gorillaSrvAddr) .
+  eq transport(a(srvN, tgen, gor, srv, 0))    = tcp(a(srvN, tgen, gor, srv, 0)) .
   eq transport(minioTGAddr)                   = tcp(minioTGAddr) .
+  eq transport(a(cl[8], tgen, min, cl, 1))    = tcp(a(cl[8], tgen, min, cl, 1)) .
   eq transport(minioS3ClientAddr)             = tcp(minioS3ClientAddr) .
+  eq transport(a(cl[8], tgen, min, if, 1))    = tcp(a(cl[8], tgen, min, if, 1)) .
   eq transport(minioS3ServerAddr)             = tcp(minioS3ServerAddr) .
+  eq transport(a(srvN, tgen, min, srv, 0))    = tcp(a(srvN, tgen, min, srv, 0)) .
   eq transport(masTGAddr)                     = tcp(masTGAddr) .
+  eq transport(a(cl[10], tgen, mas, app, 1))  = tcp(a(cl[10], tgen, mas, app, 1)) .
   eq transport(masClientAddr)                 = tcp(masClientAddr) .
+  eq transport(a(cl[10], tgen, mas, cl, 1))   = tcp(a(cl[10], tgen, mas, cl, 1)) .
   eq transport(ircTgenClientAddr)             = tcp(ircTgenClientAddr) .
+  eq transport(a(cl[11], tgen, irc, cl, 1))   = tcp(a(cl[11], tgen, irc, cl, 1)) .
   eq transport(ircServerAddr)                 = tcp(ircServerAddr) .
+  eq transport(a(srvN, srv, irc, srv, 0))     = tcp(a(srvN, srv, irc, srv, 0)) .
 
   **** udp actors
-  eq transport(publicDnsAddr)           = udp(publicDnsAddr) .
-  eq transport(corp1DnsAddr)            = udp(corp1DnsAddr) .
-  eq transport(corp2DnsAddr)            = udp(corp2DnsAddr) .
-  eq transport(corp3DnsAddr)            = udp(corp3DnsAddr) .
-  eq transport(corp4DnsAddr)            = corp4DnsAddr .
-  eq transport(serverIodineServer4Addr) = serverIodineServer4Addr .
-  eq transport(corp5DnsAddr)            = udp(corp5DnsAddr) .
-  eq transport(servDnsAddr)             = udp(servDnsAddr) .
+  eq transport(publicDnsAddr)             = udp(publicDnsAddr) .
+  eq transport(a(dnsN, dns, dns, srv, 0)) = udp(a(dnsN, dns, dns, srv, 0)) .
+  eq transport(corp1DnsAddr)              = udp(corp1DnsAddr) .
+  eq transport(a(cl[1], dns, dns, cl, 0)) = udp(a(cl[1], dns, dns, cl, 0)) .
+  eq transport(corp2DnsAddr)              = udp(corp2DnsAddr) .
+  eq transport(a(cl[2], dns, dns, cl, 0)) = udp(a(cl[2], dns, dns, cl, 0)) .
+  eq transport(corp3DnsAddr)              = udp(corp3DnsAddr) .
+  eq transport(a(cl[3], dns, dns, cl, 0)) = udp(a(cl[3], dns, dns, cl, 0)) .
+  eq transport(corp4DnsAddr)                    = corp4DnsAddr .
+  eq transport(a(cl[4], dns, dns, cl, 0))       = a(cl[4], dns, dns, cl, 0) .
+  eq transport(serverIodineServer4Addr)         = serverIodineServer4Addr .
+  eq transport(a(srvN[4], hcs, iod, iodSrv, 1)) = a(srvN[4], hcs, iod, iodSrv, 1) .
+  eq transport(corp5DnsAddr)              = udp(corp5DnsAddr) .
+  eq transport(a(cl[5], dns, dns, cl, 0)) = udp(a(cl[5], dns, dns, cl, 0)) .
+  eq transport(servDnsAddr)               = udp(servDnsAddr) .
+  eq transport(a(srvN, dns, dns, cl, 0))  = udp(a(srvN, dns, dns, cl, 0)) .
 
   vars dt : Float .
   vars icAddr isAddr ifsAddr : Address .
@@ -935,15 +970,24 @@ mod COMBINED_IRC_EXPERIMENTS is
   .
 
   --- IRC TGEN
-  ops ircTGenA ircTgenUmAct : -> Actor .
+  ops ircTGenA ircTgenUmAct         : -> Actor .
+  ops ircTgenClientNet ircServerNet : -> Actor .
   eq ircTGenA     = mkIrcTgenClient(ircTgenClientAddr, ircServerAddr, "ircTgen") .
   eq ircTgenUmAct = mkIrcUMV2Actor(ircTgenUMAddr, "irc-tgen", ircTgenClientAddr) .
 
   op ircTgenClientNet : -> Actor .
-  eq ircTgenClientNet = makeNetClient(a(cl[11],tcp,irc,cl,1), ircServerAddr, ircTgenClientAddr, true, nullAddr, nullName) .
+  eq ircTgenClientNet = makeNetClient(ircTgenClientNetAddr,
+                                      ircServerAddr,
+                                      ircTgenClientAddr,
+                                      true,
+                                      nullAddr,
+                                      nullName)
+  .
 
   op ircServerNet : -> Actor .
-  eq ircServerNet = makeNetServer(a(srvN,tcp,irc,srv,0), ircServerAddr) .
+  eq ircServerNet = makeNetServer(ircServerNetAddr,
+                                  ircServerAddr)
+  .
 
   ---------------------------------------------------
   --- Initial State Configuration
@@ -989,6 +1033,13 @@ mod COMBINED_IRC_EXPERIMENTS is
     --- DNS Infrastructure
     publicResolver publicResolverNetClient
     rootDns rootDnsNetClient tldDns tldDnsNetClient authDns authDnsNetClient
+
+    --- TGENs
+    ftpUmAct ftpTGenA ftpSrvA ftpTGenANetClient ftpTGenANetServer
+    gorillaUmAct gorillaTGenA gorillaSrvA gorillaTGenANetClient gorillaTGenANetServer
+    minioUmAct minioTGenA minioS3ClientA minioS3ServerA minioS3ClientNetClient
+    masUmAct masTGenA masClientA masClientANetClient
+    ircTgenUmAct ircTGenA ircTgenClientNet ircServerNet
 
     --- Timers & Execution Triggers
 
