@@ -44,9 +44,10 @@ mod FTP-TGEN is
   op reqId:_ : Nat -> Attribute [ctor] .
 
   vars dAddr umAddr rsvAddr : Address .
-  vars attrs attrs1 attrs2 : AttributeSet .
+  vars attrs attrs0 attrs1 attrs2 : AttributeSet .
   vars msg msg1 msg0 : Msg .
   vars msgs msgs0 : MsgList .
+  vars dmsg : ScheduleMsg .
   vars rj rj1 rj2 n n0 j j1 k nRetryMax reqId reqId0 : Nat .
   vars T retryTo : Float .
   vars ract : Map{String,JV} .
@@ -179,10 +180,11 @@ mod FTP-TGEN is
   =>
     rCtr(rj2)
     < dAddr : FtpTgen | attrs1 >
-    delayMsgs(msgs, null)
+ ****   delayMsgs(msgs, null)
+    smsgs
     (if msgs0 == nilML then null else [getRetryTO(attrs) + genRandomX(rj, -0.00001, 0.00001), msgs0, 0] fi)
   if [attrs1, msgs, msgs0, rj1] := handleRes((ftpRsv: rsvAddr, w4: waitDataTask, reqId: reqId, attrs), dAddr, rsvAddr, reqId, rj)
-  /\ {smsgs,rj2} := delayMsgLX(s rj,msgs)
+  /\ {smsgs,rj2} := delayMsgLX(s rj1,msgs)
   [print "(" T ") FtpTgen receives ftpData " dataStr] .
 
   op handleRes : AttributeSet Address Address Nat Nat -> AttributeSetMsgLMsgLNat .
@@ -243,6 +245,54 @@ mod FTP-TGEN is
   crl [ftpDataTOretry]:
     rCtr(rj)
     {T, (to dAddr : ftpDataTO(ftpReq(reqId, "WAIT", "")))}
+    < dAddr : FtpTgen | attrs >
+  =>
+    rCtr(rj1)
+    < dAddr : FtpTgen |  attrs2 >
+    smsgs
+    if {attrs2,smsgs,rj1} :=
+       handleFtpDataTO(attrs,
+              (to dAddr : ftpDataTO(ftpReq(reqId, "WAIT", ""))),rj )
+     [print "(" T ") FtpTgen " dAddr " ftpDataTO " ]
+    .
+    
+  op handleFtpDataTO : AttributeSet  Msg Nat ->
+                   AttributeSetMsgsNat .
+  eq handleFtpDataTO(attrs, msg,rj) = {attrs,null,rj}                 
+     [owise print " >>>FtpTgen ftpDataTO ignore" ] .
+      
+**** retry      
+  ceq handleFtpDataTO(attrs,msg,rj) =  {attrs2,dmsg,s rj}
+  if (to dAddr : ftpDataTO(ftpReq(reqId, "WAIT", ""))) := msg
+  /\ attrs0,  nRetry: s n := attrs 
+  /\ attrs1,  w4: task, ftpRsv: rsvAddr, reqId: reqId := attrs 
+  /\ (task == waitDataTask or task == wait226Task)
+  /\ dmsg := [getRetryTO(attrs) + genRandomX(rj, -0.0001, 0.0001),
+              msg, 0]
+  /\ attrs2 := attrs0, nRetry: n              
+  [print " >>>FtpTgen ftpDataTO retry, left " n] .
+
+  ceq handleFtpDataTO(attrs,msg,rj) =  {attrs2,smsgs, rj1}
+
+  if (to dAddr : ftpDataTO(ftpReq(reqId, "WAIT", ""))) := msg
+  /\ attrs0,  nRetry: 0, reqId: reqId := attrs 
+  /\ attrs1,  w4: task, replyTo: (to dAddr from umAddr : ac) := attrs
+  /\ (task == waitDataTask or task == wait226Task)
+  /\ {smsgs,rj1} := 
+     delayMsgsX(rj,(to umAddr from dAddr : actionR("failed")), null)
+  /\  attrs2 := attrs1, w4: noTask, replyTo: null
+  [print " >>> FtpTgen ftpDataTO retries maxed out"] .
+
+
+endm
+eof
+---- origianl timeout rules --- missed too many cases
+  --- Data timeout logic can follow the same ignore/retry/giveup patterns.
+  --- Assuming simple ignore/giveup for data to avoid too much duplication, 
+  --- or implementing retry for `WAIT` timeout.
+  crl [ftpDataTOretry]:
+    rCtr(rj)
+    {T, (to dAddr : ftpDataTO(ftpReq(reqId, "WAIT", "")))}
     < dAddr : FtpTgen | nRetry: s n, w4: task, ftpRsv: rsvAddr, reqId: reqId, attrs >
   =>
     rCtr(s rj)
@@ -266,4 +316,19 @@ mod FTP-TGEN is
      delayMsgsX(rj,(to umAddr from dAddr : actionR("failed")), null)
   [print "(" T ") FtpTgen ftpDataTOgiveup failed"] .
 
-endm
+***** irrelevant
+***** probably should have one rule and aux equations to deal
+**** with owise situations
+
+  rl [ftpDataTOirrelevant]:
+    rCtr(rj)
+    {T, (to dAddr : ftpDataTO(ftpReq(reqId, "WAIT", "")))}
+    < dAddr : FtpTgen |  w4: noTask,  attrs >
+  =>
+    rCtr(s rj)
+    < dAddr : FtpTgen | w4: noTask,  attrs >
+ ****   delayMsgs((to umAddr from dAddr : actionR("failed")), null)
+****  smsgs
+  [print "(" T ") FtpTgen ftpDataTOirrelevant "] 
+  .
+
