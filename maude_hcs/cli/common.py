@@ -55,6 +55,7 @@ def write_file_to_directory(contents, output_dir, filename, force, parser):
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     output_file = os.path.join(output_dir, filename)
+    print(output_file)
     if os.path.exists(output_file):
         if os.path.isdir(output_file):
             parser.error(f'error: output path is a directory', file=sys.stderr)
@@ -62,3 +63,9 @@ def write_file_to_directory(contents, output_dir, filename, force, parser):
             print(f'Overwriting {output_file}')
         else:
             parser.error(f'file already exists, use -f/--force to overwrite {output_file}', file=sys.stderr)
+
+
+    with open(output_file, 'w') as f:
+        f.write(contents)
+
+    logger.info(f'Wrote to {output_file}')

@@ -30,10 +30,10 @@
 import json
 
 from .common import write_file_to_directory
-from maude_hcs.analysis import HCSAnalysis
+# from maude_hcs.analysis import HCSAnalysis
 from maude_hcs.lib import GLOBALS
 from maude_hcs.parsers.markovJsonToMaudeParser import process_directories
-from maude_hcs.lib.dns.cp3_config import mk_cp3_config
+# from maude_hcs.lib.dns.cp3_config import mk_cp3_config
 import logging
 from pathlib import Path
 

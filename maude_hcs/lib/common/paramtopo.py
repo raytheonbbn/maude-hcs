@@ -92,7 +92,7 @@ class ParameterizedTopo:
   def findOrAddNode(self, label: str) -> Node:
       src_node = self.topo.getNodebyLabel(label)
       if not src_node:
-          node = Node(id=self.topo.nextID(), label=label, address=label.replace('_', '-'),
+          node = Node(id=self.topo.nextID(), name=label, address=label.replace('_', '-'),
                    ip_address='', host_bandwidth_up='', host_bandwidth_down='')
           self.topo.nodes.append(node)
           return node
@@ -113,8 +113,8 @@ class ParameterizedTopo:
                     src_node = self.findOrAddNode(new_link.src_label)
                     dst_node = self.findOrAddNode(new_link.dst_label)
                     new_links.append(
-                        Link(src_id=src_node.id, src_label=src_node.label,
-                             dst_label=dst_node.label, dst_id=dst_node.id,
+                        Link(src_id=src_node.id, src_label=src_node.name,
+                             dst_label=dst_node.name, dst_id=dst_node.id,
                              loss=link.loss,
                              latency=link.latency,
                              jitter=link.jitter,

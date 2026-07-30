@@ -284,7 +284,7 @@ def test_topology_parsing(yml_conf_file):
     assert len(conf.network.links) == 14
 
     # Check specific link existence
-    link_labels = [l.label for l in conf.network.links]
+    link_labels = [l.name for l in conf.network.links]
     assert "from public_dns to router" in link_labels
     assert "from router to public_dns" in link_labels
     assert "from public_dns to root_dns" in link_labels
@@ -316,7 +316,7 @@ def test_topology_parsing(yml_conf_file):
     for link in conf.network.links:
         if link.src_id == 6 and link.dst_id == 5:
             #Link(src_id=6, src_label='user_bob', dst_id=5, dst_label='mastodon_proxy', label='from user_bob to mastodon_proxy', latency=0.015, jitter=0.0, loss=0.0),
-            assert link.label == "from user_bob to mastodon_proxy"
+            assert link.name == "from user_bob to mastodon_proxy"
             assert link.latency == 0.015
             assert link.jitter == 0.0
             assert link.loss == 0.0

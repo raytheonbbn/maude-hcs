@@ -166,16 +166,16 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
         # Then create the HCS config one object at a time
         un = DNSUnderlyingNetwork()
         un.module = 'dns'
-        un.root_name = shadowconf.network.getNodebyLabel('root').label
-        un.tld_name = shadowconf.network.getNodebyLabel('tld').label
+        un.root_name = shadowconf.network.getNodebyLabel('root').name
+        un.tld_name = shadowconf.network.getNodebyLabel('tld').name
         un.tld_domain = 'com.' # TODO parse zome files??
-        un.resolver_name = shadowconf.network.getNodebyLabel('public-dns').label
-        un.corporate_name = shadowconf.network.getNodebyLabel('local-dns').label
+        un.resolver_name = shadowconf.network.getNodebyLabel('public-dns').name
+        un.corporate_name = shadowconf.network.getNodebyLabel('local-dns').name
         un.corporate_domain = 'corporate.com.' # TODO parse zome files??
-        un.everythingelse_name = shadowconf.network.getNodebyLabel('internet-dns').label
+        un.everythingelse_name = shadowconf.network.getNodebyLabel('internet-dns').name
         un.everythingelse_domain = 'internet.com.' # TODO parse zome files??
         un.everythingelse_num_records = 1
-        un.pwnd2_name = shadowconf.network.getNodebyLabel('application-server').label
+        un.pwnd2_name = shadowconf.network.getNodebyLabel('application-server').name
         #un.pwnd2_domain = shadowconf.hosts['application_server'].getProcessByPName('iodined').args[-1]
         un.pwnd2_domain = "pwnd.com."
         un.populate_resolver_cache = True        
@@ -253,13 +253,13 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
         if alice is None:
             alice = ymlconf.application.alice.mastodon_user
         else:
-            alice = alice.label
+            alice = alice.name
 
         bob = ymlconf.network.getNodebyLabel('user_bob')
         if bob is None:
             bob = ymlconf.application.bob.mastodon_user
         else:
-            bob = bob.label
+            bob = bob.name
 
         # application
         app = DuplexApplication()
@@ -268,10 +268,10 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
         # Then create the HCS config one object at a time
         un = DNSUnderlyingNetwork()
         un.module = 'dns'
-        un.root_name = ymlconf.network.getNodebyLabel('root_dns').label
-        un.tld_name = ymlconf.network.getNodebyLabel('tld_dns').label
+        un.root_name = ymlconf.network.getNodebyLabel('root_dns').name
+        un.tld_name = ymlconf.network.getNodebyLabel('tld_dns').name
         un.tld_domain = 'com.'  # TODO parse zome files??
-        un.resolver_name = ymlconf.network.getNodebyLabel('public_dns').label
+        un.resolver_name = ymlconf.network.getNodebyLabel('public_dns').name
 
         # We no longer have a specific corporate network/router/dns, not sure whether/how this needs to be changed.
         # # the router and the corp dns domain
@@ -280,7 +280,7 @@ class DNSHCSProtocolConfig(HCSProtocolConfig):
         # un.corporate_domain = 'corporate.com.'  # TODO parse zome files??
 
         # this is the auth server for pwnd.com also (and all other domains on internet)
-        un.everythingelse_name = ymlconf.network.getNodebyLabel('auth_dns').label
+        un.everythingelse_name = ymlconf.network.getNodebyLabel('auth_dns').name
         un.everythingelse_domain = 'internet.com.'  # TODO parse zome files??
         un.everythingelse_num_records = 1
 

@@ -10,14 +10,15 @@ from pathlib import Path
 from pprint import pp
 
 from maude_hcs import PROJECT_TOPLEVEL_DIR
-from maude_hcs.parsers.graph import Topology
+from maude_hcs.parsers.graph import Topology, LinkType, Address
 from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
 from maude_hcs.parsers.protocolconfig import XFile
 from maude_hcs.parsers import load_yaml_to_dict
 
-from .tne_parser.generate_network_topology import go_network_gen
-
 logger = logging.getLogger(__name__)
+    
+def indent(i: int, lst: list[str]) -> list[str]:
+    return [(" " * (i*4)) + line for line in lst]
 
 @dataclass_json
 @dataclass
@@ -339,10 +340,13 @@ class YmlConf:
         loss_specs = {}
         for ln in loss_names:
             loss_spec_path = Path(loss_specs_dir) / (ln + ".yaml")
-            loss_specs[ln] = load_yaml_to_dict(loss_spec_path)
+            loss_spec = load_yaml_to_dict(loss_spec_path)
+            loss_specs[ln] = LinkType.from_yml(ln, loss_spec)
 
-        # Network contains all nodes(actors), including their addresses and maude names / definitions
-        self.network = Topology.from_yml_and_loss(self.data, loss_specs)
+        # topo contains all nodes(actors), including their addresses and maude names / definitions
+        (topo, client_addrs) = Topology.from_yml_and_loss(self.data, loss_specs)
+        self.topo: Topology = topo
+        self.client_addrs: list[Address] = client_addrs
 
         # TODO: should include baseline log
         self.adversary = None
@@ -358,6 +362,326 @@ class YmlConf:
 
         # TODO: should contain all the background params necessary for initial maude config
         self.params = None
+
+    def to_init_maude(self) -> str:
+
+        preamble = [
+            "set clear rules off .",
+            "set print attribute off .",
+            "set show advisories off .",
+        ]
+
+        sloads = [
+            "sload ../../irc/irc-mamodel-v2.maude",
+            "sload ../../webtunnel/webtunnel_prob.maude",
+            "sload ../../irc/irc_prob-v2",
+            "sload ../../irc/ircMonitor",
+            "sload ../../irc/irc-byteseq-interface",
+            "sload ../../common/maude/irc-action-actor-v2.maude",
+            "sload ../../irc/common/irc_name",
+            "sload ../../irc/common/_aux",
+            "sload ../../irc/common/app_chat",
+            "sload ../../irc/_irc_aux",
+            "sload ../../../deps/dns_formalization/Maude/common/apmaude.maude",
+            "sload ../../obfs4/_obfs4_aux.maude",
+            "sload ../../obfs4/obfs4_prob.maude",
+            "sload ../../common/maude/user-action-actor",
+            "sload ../../raceboatMastodon/maude/enc-dec-actor",
+            "sload ../../raceboatMastodonBidir/maude/rb-cm-bidir-mas.maude",
+            "sload ../../mastodon/maude/probabilistic/mastodon",
+            "sload ../../raceboatMastodon/maude/user_models/client_config_mastodon_bidi",
+            "sload ../../raceboatMastodon/maude/user_models/server_config_mastodon_bidi",
+            "sload ../../common/maude/http-overhead.maude",
+            "sload ../skyhook/skyhook-um-mamodel-1",
+            "sload ../../irc/common/irc-msg-model",
+            "sload ../../raceboatSkyhook/maude/rb-cm-simple-bi",
+            "sload ../../skyhook/skyhook_prob",
+            "sload ../../s3/s3_protocol",
+            "sload ../../dns/maude/probabilistic/iodine_dns.maude",
+            "sload ../../dns/maude/common/_aux.maude",
+            "sload ../../network/net_prob.maude",
+            "sload ../../common/maude/structured-addresses.maude",
+
+            "--- TGEN Includes",
+            "sload ../../tgen/maude/ftp/profiles/ftp-medium-tgen-mamodel-v2.maude",
+            "sload ../../common/maude/tgen-action-actor-v2.maude",
+            "sload ../../tgen/maude/ftp/ftpTgen-actor.maude",
+            "sload ../../tgen/maude/ftp/ftpServer-actor.maude",
+
+            "sload ../../tgen/maude/gorillachat/profiles/gorilla-tgen-mamodel-v2.maude",
+            "sload ../../tgen/maude/gorillachat/gorilla-Tgen-actor.maude",
+
+            "sload ../../tgen/maude/minio/profiles/minio-medium-tgen-mamodel-v2.maude",
+            "sload ../../tgen/maude/minio/minioTgen-actor.maude",
+            "sload ../../s3/s3_protocol.maude",
+
+            "sload ../../tgen/maude/dnsTgen-actor.maude",
+            "sload ../../tgen/maude/dnsprofiles/markov/config_fast_1.maude",
+
+            "sload ../../tgen/maude/masTGen.maude",
+            "sload ../../tgen/maude/mastodonprofiles/markov/config_influencer_4.maude",
+
+            "sload ../../tgen/maude/irc/ircTgen-actor.maude",
+        ]
+
+        mod_start_and_includes = [
+            "mod HCS_TEST is",
+
+            *indent(1, [
+                "pr SCHEDULER .",
+                "pr USER-ACTION-ACTOR .",
+                "pr SKYHOOK-UM-MAMODEL-1 .",
+                "pr IRC-V2 .",
+                "pr IRC-MAMODEL-V2 .",
+                "pr IRC-USER-ACTION-ACTOR-V2 .",
+                "pr IRC-BYTESEQ-INTERFACE .",
+                "pr CONTENT-MANAGER-SIMPLE-BI .",
+                "inc ENC-DEC .",
+                "inc CONTENT-MANAGER-BIDIR .",
+                "inc MASTODON .",
+                "inc MASTODON-CLIENT-CONFIG-MASTODON-BIDI-MAMODEL .",
+                "inc MASTODON-SERVER-CONFIG-MASTODON-BIDI-MAMODEL .",
+                "pr SKYHOOK .",
+                "pr S3_PROTOCOL .",
+                "pr IRC_MONITOR .",
+                "pr OBFS4 .",
+                "pr APP_CHATS .",
+                "pr IRC_NODE .",
+                "pr WEBTUNNEL .",
+                "pr IRC_NAMES .",
+                "pr IODINE_NODE .",
+                "pr IODINE_DNS .",
+                "pr TCP_SOCKET ."
+                "pr NETWORK_NODE .",
+                "pr NETWORK_CONNECTION .",
+                "inc STRUCTURED-ADDRESSES .",
+
+                "--- TGEN Modules",
+                "inc FTP-MEDIUM-MAMODEL-V2 .",
+                "inc USER-ACTION-ACTOR-V2 .",
+                "inc FTP-TGEN .",
+                "inc FTP-SERVER .",
+
+                "inc GORILLA-GORILLA-MAMODEL-V2 .",
+                "inc GORILLACHAT-TGEN .",
+
+                "inc MINIO-MEDIUM-MAMODEL-V2 .",
+                "inc MINIO-TGEN .",
+
+                "inc DNS-TGEN .",
+                "inc DNS-CONFIG-FAST-1-MAMODEL .",
+
+                "inc MAS-TGEN .",
+                "inc MASTODON-CONFIG-INFLUENCER-4-MAMODEL .",
+                "inc IRC-TGEN .",])
+        ]
+
+        params = indent(1, [
+            'vars j : Nat .',
+
+            'eq encOH(fsize:Nat,ksize:Nat) = 0 .',
+            'eq noiseMin(msg:Msg)          = 0.001 .',
+            '***** Global constants  ',
+            '**** the user model database',
+            'eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2, "irc-tgen" |-> irc-irc-ma-v2, "ftp" |-> ftp-medium-ma-v2, "gorilla" |-> gorilla-gorilla-ma-v2, "minio" |-> minio-medium-ma-v2) .',
+            '*** for the default case',
+            'eq noiseMax(msg:Msg)          = 0.00001 .',
+
+            'eq packetSize                 = 1000 .',
+            'eq maxPacketSize              = 967 .',
+
+            'op ed-images : -> ByteSeqL .',
+            'eq ed-images =',
+            *indent(1, [
+                'image(1, 3779, 500)',
+                ':: image(2, 2405, 1000)',
+                ':: image(3, 36861, 1000)',
+                ':: image(4, 25377, 500)',
+                ':: image(5, 2440, 300)',
+                ':: image(6, 1275, 300)',
+                ':: image(7, 7710, 1000)',
+                ':: image(8, 3577, 500)',
+                ':: image(9, 3415, 300)',
+                ':: image(10, 74123, 600)',]),
+            '.',
+        ])
+
+        nameservers = indent(1, [
+            "op zonePwnd2Com4 : -> List{Record} .",
+            "eq zonePwnd2Com4 =",
+            *indent(1, [
+                "< 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >",
+                "< 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >",
+                "< 'ns . 'pwnd2 . 'com . root, a, 3600.0, serverIodineServer4Addr >",
+                "< 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >",
+                "< 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >",
+                "< wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .",]),
+        ])
+
+        address_names = list(map(lambda x: x.addr.name, self.topo.nodes))
+        address_decls = indent(1, [
+            "ops",
+            *indent(1, address_names),
+            ": -> Address",
+        ])
+
+        address_defs = indent(1, 
+            list(map(
+                lambda addr: f"eq {addr.name} = {addr.maude}.",
+                self.topo.nodes))
+        )
+
+        linktype_params = indent(1, [
+            'eq transport(any:Address) = tcp(any:Address) .',
+            '',
+            'vars dt : Float .',
+            'vars icAddr isAddr ifsAddr : Address .',
+            'vars room : String .',
+            'op mkJoin : Float String Address Address Address -> ScheduleMsg .',
+            'eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =',
+            *indent(1, [
+                '[dt,',
+                '(to isAddr from ifsAddr :',
+                'JoinChannel(makeIrcChannelName(room), icAddr )),',
+                '0]',]),
+            '.',
+        ])
+
+        linktypes = self.topo.get_link_types()
+        linktype_decls = indent(1, [
+            "ops",
+            *indent(1, list(map(lambda ltyp: ltyp.name, linktypes))),
+            ": -> AttributeSet",
+        ])
+
+        linktype_defs = indent(1,
+            list(map(
+                lambda ltyp: f"eq {ltyp.name} = {ltyp.maude()} .",
+                linktypes
+            ))
+        )
+        
+        linkdata_defs = indent(1, [
+            "eq LinkData =",
+            *indent(1, list(map(
+                lambda lnk: lnk.maude(),
+                self.topo.links
+            ))),
+            "."
+        ])
+
+        actor_decls = indent(1, [
+            "ops",
+            *indent(1, list(map(
+                lambda node: node.name,
+                self.topo.nodes
+            ))),
+            "."
+        ])
+
+        actor_defs = indent(1,
+            list(map(
+                lambda node: f"eq {node.name} = {node.maude} .",
+                self.topo.nodes
+            ))
+        )
+
+        adversary_def = indent(1, [
+            "op advAddr : -> Address .",
+            "op advActor : -> Actor .",
+            "eq advActor = mkAdversaryCp3(advAddr) .",
+        ])
+
+        init_state_start = indent(1, [
+            "op initState : Nat -> Config .",
+            "eq initState(j) =",
+            *indent(1, [
+                "rCtr(j + 8)",
+                *map(lambda node: node.name, self.topo.nodes),
+            ]),          
+        ])
+
+        trigger_msgs = indent(2, [
+            '[0.001, (to aha3Addr from aha3Addr : SkyhookStartCmd), 0]',
+            '[0.20, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]',
+            '[1.0 + genRandomX(j, 0.0, 0.0001), (to umac3Addr from umac3Addr : actionR("ok")), 0]',
+            '[1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas3Addr from umas3Addr : actionR("ok")), 0]',
+            '[1.0 + genRandomX(j, 0.0, 0.0001), (to umac5Addr from umac5Addr : actionR("ok")), 0]',
+            '[1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas5Addr from umas5Addr : actionR("ok")), 0]',
+            '--- TGEN Starts',
+            '[30.0 + genRandomX(j, 0.0, 0.0001), (to ftpUMAddr from ftpUMAddr : burstDelayTO), 0]',
+            '[30.0 + genRandomX(j, 0.0, 0.0001), (to gorillaUMAddr from gorillaUMAddr : burstDelayTO), 0]',
+            '[30.0 + genRandomX(j, 0.0, 0.0001), (to minioUMAddr from minioUMAddr : burstDelayTO), 0]',
+            '[30.0 + genRandomX(j, 0.0, 0.0001), (to dnsUMAddr from dnsUMAddr : actionR("")), 0]',
+            '[30.0 + genRandomX(j, 0.0, 0.0001), (to masUMAddr from masUMAddr : actionR("")), 0]',
+            '[30.0 + genRandomX(j, 0.0, 0.0001), (to ircTgenUMAddr from ircTgenUMAddr : burstDelayTO), 0]',
+            'mkJoin(2.0, "#chat", ircClient1Addr, ircServerAddr, server1IfaceAddr)',
+            'mkJoin(2.1, "#general", ircClient1Addr, ircServerAddr, server1IfaceAddr)',
+            'mkJoin(2.2, "#random", ircClient1Addr, ircServerAddr, server1IfaceAddr)',
+            'mkJoin(2.3, "#chat", ircClient2Addr, ircServerAddr, server2IfaceAddr)',
+            'mkJoin(2.4, "#general", ircClient2Addr, ircServerAddr, server2IfaceAddr)',
+            'mkJoin(2.5, "#random", ircClient2Addr, ircServerAddr, server2IfaceAddr)',
+            'mkJoin(2.6, "#chat", ircClient3Addr, ircServerAddr, server3IfaceAddr)',
+            'mkJoin(2.7, "#general", ircClient3Addr, ircServerAddr, server3IfaceAddr)',
+            'mkJoin(2.8, "#random", ircClient3Addr, ircServerAddr, server3IfaceAddr)',
+            'mkJoin(2.9, "#chat", ircClient4Addr, ircServerAddr, serverIface4Addr)',
+            'mkJoin(3.0, "#general", ircClient4Addr, ircServerAddr, serverIface4Addr)',
+            'mkJoin(3.1, "#random", ircClient4Addr, ircServerAddr, serverIface4Addr)',
+            'mkJoin(3.2, "#chat", ircClient5Addr, ircServerAddr, server5IfaceAddr)',
+            'mkJoin(3.3, "#general", ircClient5Addr, ircServerAddr, server5IfaceAddr)',
+            'mkJoin(3.4, "#random", ircClient5Addr, ircServerAddr, server5IfaceAddr)',
+            'mkJoin(3.5, "#tgen_chat", ircTgenClientAddr, ircServerAddr, ircTgenClientAddr)',
+            'mkJoin(3.6, "#tgen_general", ircTgenClientAddr, ircServerAddr, ircTgenClientAddr)',
+            'mkJoin(3.7, "#tgen_random", ircTgenClientAddr, ircServerAddr, ircTgenClientAddr)',
+            '[20.0, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]',
+            '[21.0, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]',
+            '[22.0, (to ircClient3UserModelAddr from ircClient3UserModelAddr : burstDelayTO), 0]',
+            '[23.0, (to ircClient4UserModelAddr from ircClient4UserModelAddr : burstDelayTO), 0]',
+            '[24.0, (to ircClient5UserModelAddr from ircClient5UserModelAddr : burstDelayTO), 0]',
+        ])
+
+        mod_finale = [
+            *indent(1, [
+                "op slimit : -> Float .",
+                "eq slimit = 1000.0 .",
+
+                "op initConfig : -> Config .",
+                "rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .",
+                "op allClientsAddr : -> AddrList .",
+                "eq allClientsAddr = ircClient1Addr ; ircClient2Addr ; ircClient3Addr ; ircClient4Addr ; ircClient5Addr ; ircTgenClientAddr .",]),
+
+            "endm",
+        ]
+
+        file_finale = [
+            "set print attribute on .",
+            "rew initConfig .",
+            "q",
+        ]
+
+        return '\n'.join([
+            *preamble, "",
+            *sloads, "",
+            *mod_start_and_includes, "",
+            *params, "",
+            *nameservers, "",
+            *address_decls, "",
+            *address_defs, "",
+            *linktype_params, "",
+            *linktype_decls, "",
+            *linktype_defs,
+            *linkdata_defs,
+            *actor_decls,
+            *actor_defs,
+            *adversary_def,
+            # tgen_decls,
+            # tgen_defs,
+            *init_state_start,
+            *trigger_msgs,
+            *indent(1, ["."]),
+            *mod_finale,"",
+            *file_finale,
+        ])
 
     def _parse_tgen(self, data: dict) -> List[Tuple[str, str, int]]:
         """
