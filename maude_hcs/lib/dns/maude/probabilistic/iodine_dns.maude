@@ -110,6 +110,18 @@ crl [iServerEmbedding]:
     [print "(" T ") iServerEmbedding get pkt " Pkt ", making list of fragments." ]
     .
 
+--- Embedding "else" rule that is only there to log an error.
+crl [iServerEmbeddingSending]:
+  < ADDR : WNameserver | wattrs, fragmentsToSend: F:FragmentList >
+  < MON : WMonitor | pktSent: PTL, monAttrs >
+  {T, (to ADDR from BOB : Pkt)}
+  =>
+  < ADDR : WNameserver | wattrs, fragmentsToSend: F:FragmentList >
+  < MON : WMonitor | pktSent: PTL, monAttrs >
+  if (isSending(wattrs, fragmentsToSend: F:FragmentList) and getNumAttempts(wattrs) <= 5)
+    [print "(" T ") iServerEmbedding cannot embed pkt " Pkt " (busy).  SHOULD NOT BE HAPPENING." ]
+    .
+
 ----  receivs DNS query with standard name
 ----  passthrough
 ----  TODO: merge into single rule below 
@@ -185,10 +197,11 @@ crl [wnameserver-receive-query-weird]:
   /\ txComplete := isTxComplete(wattrs2)
   /\ msgOutExt := 
     if txComplete
-      then (to getToAddr(query(ID, QNAME, QTYPE)) : start)
+      **** Transmission is complete (and ACKed).
+      then (to getToAddr(query(ID, QNAME, QTYPE)) : txDone)
       else nullMsg
     fi
-  [print "(" T ") WServer receiving query " ID ", sending " msgOut " + " appMsgOut " + " msgOutExt ]
+  [print "(" T ") WServer receiving query " ID " from " ADDR1 ", sending " msgOut " + " appMsgOut " + to local RcvApp: " msgOutExt ]
   .
 
   --- TODO remove when done testing
@@ -214,7 +227,7 @@ crl [wnameserver-receive-query-weird]:
 
   --- If Bob has been told to start (by the W name server), packetize its outgoing file 
   crl [receive-app-send-packet]:
-    < BOB : RcvApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet, iodineReady: IODINEREADY >
+    < BOB : RcvApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet >
     {T, (to BOB : start)}
   => 
     < BOB : RcvApp | appAttrsNext > 
@@ -227,16 +240,26 @@ crl [wnameserver-receive-query-weird]:
                      else (packetizeProb(appAttrs, BOB, ADDR, file(0,fileSize), packetSize, maxPacketSize), fileDestAddr: ADDR)
                      fi)
      *** The queue is populated and wnameserver is presumed ready since it sent a start
-    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, iodineReady: true)
+    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true)
     /\ {appAttrsNext, msgOut} := 
-        if getNumAdmittedPkts(appAttrs1) > 0
+        if (isIodineReady(appAttrs) and (getNumAdmittedPkts(appAttrs1) > 0))
           --- If packets are ready to send to WNameServer, do it
           then sendPkt(appAttrs1, BOB)
           --- Otherwise, wait
           else {appAttrs1, nullMsg}
         fi
-        [print "(" T ") RcvApp start or nudge from wserver, send possible pkt " msgOut ", setting timeout if not null." ]
-.
+        [print "(" T ") RcvApp " BOB " start or nudge from wserver, send possible pkt " msgOut ", setting timeout (if not null)." ]
+  .
+
+  ---- Rule to handle a txDone: Iodine is ready to send again.
+  rl [receive-app-tx-done]:
+    < BOB : RcvApp | (appAttrs, iodineReady: IODINEREADY) >
+    {T,  (to BOB : txDone)}
+  =>
+    < BOB : RcvApp | (appAttrs, iodineReady: true) >
+    [0.00001, (to BOB : start), 0]
+    [ print "(" T ") RcvApp received packet send done, Iodine server ready, try sending." ]
+  .
 
   ---- Timeout rule for Bob, symmetric to send-app-pkt-timeout, puts Bob's outgoing packets on timeouts so they send at particular intervals
   crl [receive-app-pkt-timeout]:
@@ -295,12 +318,15 @@ crl [wnameserver-receive-query-weird]:
   
   ---               Attributes   Src     Dest     File Min Max
   op packetizeProb : AttributeSet Address Address ByteSeq Nat Nat -> AttributeSet .
+  eq packetizeProb(appAttrs, ALICE, BOB, noBytes, MIN_PKT_SIZE, MAX_PKT_SIZE)  = appAttrs
+    [ print "Nothing to packetize (empty file)" ]
+  .
   ceq packetizeProb((appAttrs, queue: PACKET_LIST, packetCounter: N), ALICE, BOB, FILE, MIN_PKT_SIZE, MAX_PKT_SIZE) = appAttrs1
     if PktSize := getSize(FILE) 
     /\ PACKETS' := $packetizeProb(mtpl, ALICE, BOB, FILE, PktSize, MIN_PKT_SIZE, MAX_PKT_SIZE, N)
     /\ maxCount:Nat := s getMaxPacketCount(PACKETS')
-    /\ appAttrs1 := (appAttrs, queue: PACKETS', packetCounter: maxCount:Nat)
-    [ print "Packetizing " FILE " of size " PktSize "B into " PACKETS' "." ]
+    /\ appAttrs1 := (appAttrs, queue: (PACKET_LIST ; PACKETS'), packetCounter: maxCount:Nat)
+    [ print "Packetizing " FILE " of size " PktSize "B into " PACKETS' ". Appending to " PACKET_LIST ]
   .
 
   ---             CurrentPktList Src   Dest      File FileSize Min Max Counter
@@ -428,7 +454,7 @@ crl [wnameserver-receive-query-weird]:
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
        /\ sentFragment := grabCurrentFragment(wattrsNext)
-    [print "(" T ") iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout." ]
+    [print "(" T ") iClientEmbedding " ADDR " get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout." ]
     .
 
   --- Handle a response from the resolver to WClient.
