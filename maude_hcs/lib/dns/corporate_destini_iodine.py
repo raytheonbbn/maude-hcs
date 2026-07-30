@@ -344,19 +344,19 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
     # topo_transforms[Link(dst_label=mastodon_server_address, src_label=router.address)].append(
     #     Link(dst_label=mastodon_server_address, src_label=raceboatSvr.masClientAddress))
     # DNS topo transforms
-    topo_transforms[Link(src_label=resolver_node.label, dst_label=router.address)] = \
-        [Link(src_label=resolver_node.label, dst_label=nameserverCORP.address)]
-    topo_transforms[Link(dst_label=resolver_node.label, src_label=router.address)] = \
-        [Link(dst_label=resolver_node.label, src_label=nameserverCORP.address)]
+    topo_transforms[Link(src_label=resolver_node.name, dst_label=router.address)] = \
+        [Link(src_label=resolver_node.name, dst_label=nameserverCORP.address)]
+    topo_transforms[Link(dst_label=resolver_node.name, src_label=router.address)] = \
+        [Link(dst_label=resolver_node.name, src_label=nameserverCORP.address)]
     # user bob communicates with mastodon server and resolver through its respective clients
     topo_transforms[Link(src_label=app.bob_address, dst_label=mastodon_server_address)] = \
         [Link(src_label=raceboatSvr.masClientAddress, dst_label=mastodon_server_address)]
     topo_transforms[Link(dst_label=app.bob_address, src_label=mastodon_server_address)] = \
         [Link(dst_label=raceboatSvr.masClientAddress, src_label=mastodon_server_address)]
-    topo_transforms[Link(src_label=app.bob_address, dst_label=resolver_node.label)] = \
-        [Link(src_label=iodineSvr.address, dst_label=resolver_node.label)]
-    topo_transforms[Link(dst_label=app.bob_address, src_label=resolver_node.label)] = \
-        [Link(dst_label=iodineSvr.address, src_label=resolver_node.label)]
+    topo_transforms[Link(src_label=app.bob_address, dst_label=resolver_node.name)] = \
+        [Link(src_label=iodineSvr.address, dst_label=resolver_node.name)]
+    topo_transforms[Link(dst_label=app.bob_address, src_label=resolver_node.name)] = \
+        [Link(dst_label=iodineSvr.address, src_label=resolver_node.name)]
 
     parameterized_network.transform(topo_transforms)
 

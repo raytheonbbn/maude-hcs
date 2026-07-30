@@ -105,13 +105,13 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
         if alice is None:
             alice = ymlconf.application.alice.mastodon_user
         else:
-            alice = alice.label
+            alice = alice.name
 
         bob = ymlconf.network.getNodebyLabel('user_bob')
         if bob is None:
             bob = ymlconf.application.bob.mastodon_user
         else:
-            bob = bob.label
+            bob = bob.name
 
         # application
         app = DuplexApplication()
@@ -132,7 +132,7 @@ class MASHCSProtocolConfig(HCSProtocolConfig):
         if not ymlconf.network.getNodebyLabel(m_un.mastodon_address):
             # does there exist a node that starts with mastodon?
             if ymlconf.network.getNodebyLabel('mastodon'):
-                m_un.mastodon_address = ymlconf.network.getNodebyLabel('router_mastodon_net').label
+                m_un.mastodon_address = ymlconf.network.getNodebyLabel('router_mastodon_net').name
             else:
                 raise Exception('mastodon server address not found in network')
 
