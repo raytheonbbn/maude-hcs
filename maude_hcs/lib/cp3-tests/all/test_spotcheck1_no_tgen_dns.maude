@@ -379,28 +379,27 @@ mod COMBINED_IRC_EXPERIMENTS is
 
   ****eq transport(any:Address) = tcp(any:Address) .
   **** tcp actors
-  eq transport(a(minN, srv, min, srv, 0))     = tcp(a(minN, srv, min, srv, 0)) .
-  eq transport(a(cl[1], hcs, wt, cl, 1))      = tcp(a(cl[1], hcs, wt, cl, 1)) .
+  eq transport(s3SrvAddr)                     = tcp(s3SrvAddr) .
+  eq transport(wtClient1Addr)                 = tcp(wtClient1Addr) .
+  **** Carolyn: These are suspicious.
   eq transport(a(srvN[1], hcs, wt, cl, 1))    = tcp(a(srvN[1], hcs, wt, cl, 1)) .
-  eq transport(a(cl[2], hcs, obfs, cl, 1))    = tcp(a(cl[2], hcs, obfs, cl, 1)) .
+  eq transport(obfs4Client2Addr)              = tcp(obfs4Client2Addr) .
   eq transport(a(srvN[2], hcs, obfs, cl, 1))  = tcp(a(srvN[2], hcs, obfs, cl, 1)) .
   eq transport(a(cl[3], hcs, sky, cl, 1))     = tcp(a(cl[3], hcs, sky, cl, 1)) .
   eq transport(a(srvN[3], hcs, sky, cl, 1))   = tcp(a(srvN[3], hcs, sky, cl, 1)) .
   ---- Iodine sends to the local DNS forwarder, which then uses UDP.
-****  eq transport(a(cl[4], hcs, sky, cl, 1))   = tcp(a(cl[4], hcs, sky, cl, 1)) .
-****  eq transport(a(srvN[4], hcs, sky, cl, 1)) = tcp(a(srvN[4], hcs, sky, cl, 1)) .
   eq transport(a(cl[5], hcs, mas, cl, 1))     = tcp(a(cl[5], hcs, mas, cl, 1)) .
   eq transport(a(srvN[5], hcs, mas, cl, 1))   = tcp(a(srvN[5], hcs, mas, cl, 1)) .
 
   **** udp actors
-  eq transport(a(dnsN, dns, dns, srv, 0))   = udp(a(dnsN, dns, dns, srv, 0)) .
-  eq transport(a(cl[1], dns, dns, cl, 0))   = udp(a(cl[1], dns, dns, cl, 0)) .
-  eq transport(a(cl[2], dns, dns, cl, 0))   = udp(a(cl[2], dns, dns, cl, 0)) .
-  eq transport(a(cl[3], dns, dns, cl, 0))   = udp(a(cl[3], dns, dns, cl, 0)) .
-  eq transport(a(cl[4], dns, dns, cl, 0))       = a(cl[4], dns, dns, cl, 0) .
-  eq transport(a(srvN[4], hcs, iod, iodSrv, 1)) = a(srvN[4], hcs, iod, iodSrv, 1) .
-  eq transport(a(cl[5], dns, dns, cl, 0))   = udp(a(cl[5], dns, dns, cl, 0)) .
-  eq transport(a(srvN, dns, dns, cl, 0))    = udp(a(srvN, dns, dns, cl, 0)) .
+  eq transport(publicDnsAddr)           = udp(publicDnsAddr) .
+  eq transport(corp1DnsAddr)            = udp(corp1DnsAddr) .
+  eq transport(corp2DnsAddr)            = udp(corp2DnsAddr) .
+  eq transport(corp3DnsAddr)            = udp(corp3DnsAddr) .
+  eq transport(corp4DnsAddr)            = corp4DnsAddr .
+  eq transport(serverIodineServer4Addr) = serverIodineServer4Addr .
+  eq transport(corp5DnsAddr)            = udp(corp5DnsAddr) .
+  eq transport(servDnsAddr)             = udp(servDnsAddr) .
 
   vars dt : Float .
   vars icAddr isAddr ifsAddr : Address .
@@ -658,7 +657,6 @@ mod COMBINED_IRC_EXPERIMENTS is
                                               sdkas3Addr,
                                               true,
                                               servDnsAddr, ---- a(srvN, dns, dns, cl, 0),
-                                              **** Carolyn: What should it be here?
                                               nullName)
   .
   eq corp3Dns                 = mkNameServer(corp3DnsAddr, (zoneCorp3Com), publicDnsAddr) .
@@ -669,20 +667,11 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq client4Iface           = mkIrcByteSeqIface(client4IfaceAddr, ircClient4Addr, sendApp4Addr) .
   eq serverIface4           = mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr) .
   eq sendApp4               = mkSendApp(sendApp4Addr, rcvApp4Addr, client4IfaceAddr, iodineClient4Addr) .
-  eq rcvApp4                = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .
+  eq rcvApp4                = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, serverIodineServer4Addr) .
   eq iodineClient4          = makeWClient(iodineClient4Addr, corp4DnsAddr, 't1 . 'pwnd . 'com . root, a, 0.0) .
   eq serverIodineServer4    = makeWNameServer(serverIodineServer4Addr, 0.0, zonePwndCom4) .
-****  eq iodineClient4NetClient = makeNetClient(iodineClient4NetClientAddr,
-****                                            serverIodineServer4Addr,
-****                                            iodineClient4Addr,
-****                                            true,
-****                                            corp4DnsAddr, ---- a(cl[4], dns, dns, cl, 0),
-****                                            --- presumably the iodine traffic goes through the
-****                                            --- corp forwarder and the iodine server is observed
-****                                            --- as a public resolver response so no net object
-****                                            --- is needed for iodine traffic
-****                                            nullName)
-****  .
+  **** No net client for iodine client: queries are addressed to corpDns, which 
+  **** has a net client.
   **** UDP is symmetric.  So, here the Iodine server is a Net Client.
   eq iodineServer4NetServer = makeNetClient(iodineServer4NetServerAddr,
                                             publicDnsAddr,
@@ -715,8 +704,6 @@ mod COMBINED_IRC_EXPERIMENTS is
                                               mcac5Addr,
                                               true,
                                               corp5DnsAddr, ---- a(cl[5], dns, dns, cl, 0),
-                                              --- Carolyn: Not clear to me this too should be null.
-                                              --- Should it not be treated like WebTunnel?
                                               'mastodon . 'pwnd . 'com . root)
   .
   eq masNetServer      = makeNetServer(masNetServerAddr, masSrvAddr) .
@@ -725,8 +712,6 @@ mod COMBINED_IRC_EXPERIMENTS is
                                               mcas5Addr,
                                               true,
                                               servDnsAddr, ---- a(srvN, dns, dns, cl, 0),
-                                              --- Carolyn: Not clear to me this too should be null.
-                                              --- Should it not be treated like WebTunnel?
                                               nullName)
   .
 
@@ -775,7 +760,8 @@ mod COMBINED_IRC_EXPERIMENTS is
                                               publicDnsAddr,
                                               true)
   .
-  *** Carolyn: Should there not be servers for these clients?
+****  eq IRC-STALE-DURATION-S = 21600. .
+****  eq IRC-PING-INTV-S = 21600. .
 
   ---------------------------------------------------
   --- Initial State Configuration
@@ -828,6 +814,9 @@ mod COMBINED_IRC_EXPERIMENTS is
 
     [1.0 + genRandomX(j, 0.0, 0.0001), (to umac3Addr from umac3Addr : actionR("ok")), 0]
     [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas3Addr from umas3Addr : actionR("ok")), 0]
+
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to sendApp4Addr : start), 0]
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to rcvApp4Addr : start), 0]
     
     [1.0 + genRandomX(j, 0.0, 0.0001), (to umac5Addr from umac5Addr : actionR("ok")), 0]
     [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas5Addr from umas5Addr : actionR("ok")), 0]
@@ -863,7 +852,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   --- Run Limits and Initial Configurations
   ---------------------------------------------------
   op slimit : -> Float .
-  eq slimit = 1000.0 .
+  eq slimit = 100.0 .
 
   op initConfig : -> Config .
   rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .
