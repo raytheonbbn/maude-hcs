@@ -428,7 +428,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq gorillaSrvAddr = a(srvN, tgen, gor, srv, 0) .
 
   ops minioUMAddr minioTGAddr minioS3ClientAddr minioS3ServerAddr : -> Address .
-  ops minioS3ClientNetClientAddr minioS3ServerNetServerAddr       : -> Address .
+  ops minioS3ClientNetClientAddr                                  : -> Address .
   eq minioUMAddr        = a(cl[8], tgen, min, um, 1) .
   eq minioTGAddr        = a(cl[8], tgen, min, cl, 1) .
   eq minioS3ClientAddr  = a(cl[8], tgen, min, if, 1) .
@@ -440,6 +440,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq dnsRsvAddr = serverIodineServer4Addr .
 
   ops masUMAddr masTGAddr masClientAddr : -> Address .
+  ops masClientANetClientAddr           : -> Address .
   eq masUMAddr      = a(cl[10], tgen, mas, um, 1) .
   eq masTGAddr      = a(cl[10], tgen, mas, app, 1) .
   eq masClientAddr  = a(cl[10], tgen, mas, cl, 1) .
@@ -754,7 +755,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   eq client4Iface           = mkIrcByteSeqIface(client4IfaceAddr, ircClient4Addr, sendApp4Addr) .
   eq serverIface4           = mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr) .
   eq sendApp4               = mkSendApp(sendApp4Addr, rcvApp4Addr, client4IfaceAddr, iodineClient4Addr) .
-  eq rcvApp4                = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .
+  eq rcvApp4                = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, serverIodineServer4Addr) .
   eq iodineClient4          = makeWClient(iodineClient4Addr, corp4DnsAddr, 't1 . 'pwnd . 'com . root, a, 0.0) .
   eq serverIodineServer4    = makeWNameServer(serverIodineServer4Addr, 0.0, zonePwndCom4) .
   **** No net client for iodine client: queries are addressed to corpDns, which 
@@ -852,7 +853,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   --- FTP
   ops ftpTGenA ftpSrvA ftpUmAct           : -> Actor .
   ops ftpTGenANetClient ftpTGenANetServer : -> Actor .
-  eq ftpTGenA = mkFtpTgenA(ftpTGAddr, ftpSrvAddr, 5.0, 2) .
+  eq ftpTGenA = mkFtpTgenA(ftpTGAddr, ftpSrvAddr, 5.0, 2, "ftp") .
   eq ftpSrvA  = mkFtpServerA(ftpSrvAddr) .
   eq ftpUmAct = mkTgenUMV2Actor(ftpUMAddr, "ftp", ftpTGAddr) .
   eq ftpTGenANetClient  = makeNetClient(ftpTGenANetClientAddr,
@@ -889,7 +890,7 @@ mod COMBINED_IRC_EXPERIMENTS is
   --- MinIO
   ops minioTGenA minioS3ClientA minioS3ServerA minioUmAct : -> Actor .
   ops minioS3ClientNetClient minioS3ServerNetServer       : -> Actor .
-  eq minioTGenA     = mkMinioTgenA(minioTGAddr, minioS3ClientAddr, "tgen") .
+  eq minioTGenA     = mkMinioTgenA(minioTGAddr, minioS3ClientAddr, "tgen", "minio") .
   eq minioS3ClientA = makeS3Client(minioS3ClientAddr, minioS3ServerAddr) .
   eq minioS3ServerA =
     < minioS3ServerAddr : AwsS3HttpServer |
@@ -911,9 +912,6 @@ mod COMBINED_IRC_EXPERIMENTS is
                                             **** is part of.
                                             nullName)
   .
-  eq minioS3ServerNetServer = makeNetServer(minioS3ServerNetServerAddr,
-                                            minioS3ServerAddr)
-  .
 
   --- DNS
   ops dnsTGenA dnsUmAct : -> Actor .
@@ -922,9 +920,19 @@ mod COMBINED_IRC_EXPERIMENTS is
 
   --- Mastodon
   ops masTGenA masClientA masUmAct  : -> Actor .
+  ops masClientANetClient           : -> Actor .
   eq masTGenA = mkMasTGenActor(masTGAddr, masClientAddr, ed-images, mastodon-config-influencer-4-ma) .
   eq masClientA = makeMastodonClient(masClientAddr, masSrvAddr, masTGAddr) .
   eq masUmAct = mkUMactor(masUMAddr, mastodon-config-influencer-4-ma, masTGAddr) .
+  eq masClientANetClient  = makeNetClient(masClientANetClientAddr,
+                                          masSrvAddr,
+                                          masClientAddr,
+                                          true,
+                                          corp5DnsAddr, **** Resolver for this client
+                                          **** This will have to depend on what sub net the TGEN
+                                          **** is part of.
+                                          nullName)
+  .
 
   --- IRC TGEN
   ops ircTGenA ircTgenUmAct : -> Actor .
@@ -990,6 +998,10 @@ mod COMBINED_IRC_EXPERIMENTS is
     [1.0 + genRandomX(j, 0.0, 0.0001), (to umac3Addr from umac3Addr : actionR("ok")), 0]
     [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas3Addr from umas3Addr : actionR("ok")), 0]
     
+    --- Start the send and rcv "apps" for Iodine.
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to sendApp4Addr : start), 0]
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to rcvApp4Addr : start), 0]
+    
     [1.0 + genRandomX(j, 0.0, 0.0001), (to umac5Addr from umac5Addr : actionR("ok")), 0]
     [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas5Addr from umas5Addr : actionR("ok")), 0]
 
@@ -1028,6 +1040,9 @@ mod COMBINED_IRC_EXPERIMENTS is
 
   op initConfig : -> Config .
   rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .
+
+  op allClientsAddr : -> AddrList .
+  eq allClientsAddr = ircClient1Addr ; ircClient2Addr ; ircClient3Addr ; ircClient4Addr ; ircClient5Addr ; ircTgenClientAddr .
 endm
 
 set print attribute on .
