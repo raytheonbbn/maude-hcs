@@ -403,6 +403,8 @@ mod SMC_CP3 is
   op baselineTend : -> Float .
   eq baselineTend = 2.0 .
 
+  var baselineCDF : List{Float} .
+
   sort TimedFloat .
   sort TimedFloatList .
   subsort TimedFloat < TimedFloatList .
@@ -616,6 +618,9 @@ mod SMC_CP3 is
   op getKObsFeature : NetId Feature TimesObsList Float Float Float Float -> Float .
   eq getKObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = expectedKObsFeature(vp, obsF, getBaselineCDFObsFeature(vp, obsF, TOL, Tstart, Tend, binSize), TOL, Tstart, Tend, winSize, binSize, 0.0, 0) .
 
+  op getKObsFeature : NetId Feature TimesObsList Float Float Float Float List{Float} -> Float .
+  eq getKObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF) = expectedKObsFeature(vp, obsF, baselineCDF, TOL, Tstart, Tend, winSize, binSize, 0.0, 0) .
+
   op collectZObsFeature : NetId Feature List{Float} TimesObsList Float Float Float Float Float -> List{Float} .
   eq collectZObsFeature (vp, obsF, FL, GtZ, T, Tend, winSize, binSize, K) =
     if (T + winSize) <= (Tend + Tesp) 
@@ -625,7 +630,10 @@ mod SMC_CP3 is
     else nil fi .
 
   op getZObsFeature : NetId Feature TimesObsList Float Float Float Float -> List{Float} .
-  eq getZObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = collectZObsFeature(vp, obsF, getBaselineCDFObsFeature(vp, obsF, TOL, 0.0, Tstart, binSize), TOL, Tstart, Tend, winSize, binSize, getKObsFeature(vp, obsF, TOL, baselineTstart, baselineTend, winSize, binSize)) .
+  eq getZObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = collectZObsFeature(vp, obsF, getBaselineCDFObsFeature(vp, obsF, TOL, baselineTstart, baselineTend, binSize), TOL, Tstart, Tend, winSize, binSize, getKObsFeature(vp, obsF, TOL, baselineTstart, baselineTend, winSize, binSize)) .
+
+  op getZObsFeature : NetId Feature TimesObsList Float Float Float Float List{Float} Float -> List{Float} .
+  eq getZObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF, K) = collectZObsFeature(vp, obsF, baselineCDF, TOL, Tstart, Tend, winSize, binSize, K) .
 
   op collectTimedZObsFeature : NetId Feature List{Float} TimesObsList Float Float Float Float Float -> TimedFloatList .
   eq collectTimedZObsFeature (vp, obsF, FL, GtZ, T, Tend, winSize, binSize, K) =
@@ -638,25 +646,45 @@ mod SMC_CP3 is
   op getTimedZObsFeature : NetId Feature TimesObsList Float Float Float Float -> TimedFloatList .
   eq getTimedZObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = collectTimedZObsFeature(vp, obsF, getBaselineCDFObsFeature(vp, obsF, TOL, 0.0, Tstart, binSize), TOL, Tstart, Tend, winSize, binSize, getKObsFeature(vp, obsF, TOL, baselineTstart, baselineTend, winSize, binSize)) .
 
+  op getTimedZObsFeature : NetId Feature TimesObsList Float Float Float Float List{Float} Float -> TimedFloatList .
+  eq getTimedZObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF, K) = collectTimedZObsFeature(vp, obsF, baselineCDF, TOL, Tstart, Tend, winSize, binSize, K) .
+
   op getToDObsFeature : NetId Feature TimesObsList Float Float Float Float Float -> Float .
   eq getToDObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, H) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TOL, Tstart, Tend, winSize, binSize), H, 0.0) .
+
+  op getToDObsFeature : NetId Feature TimesObsList Float Float Float Float Float List{Float} Float -> Float .
+  eq getToDObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, H, baselineCDF, K) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF, K), H, 0.0) .
 
   op getToDDnsFeature : Actor NetId Feature Float Float Float Float Float -> Float .
   eq getToDDnsFeature (< ADDR : Adversary | dns: TsML, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, H) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TsML, Tstart, Tend, winSize, binSize), H, 0.0) .
 
+  op getToDDnsFeature : Actor NetId Feature Float Float Float Float Float List{Float} Float -> Float .
+  eq getToDDnsFeature (< ADDR : Adversary | dns: TsML, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, H, baselineCDF, K) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TsML, Tstart, Tend, winSize, binSize, baselineCDF, K), H, 0.0) .
+
   op getToDTcpFeature : Actor NetId Feature Float Float Float Float Float -> Float .
   eq getToDTcpFeature (< ADDR : Adversary | tcp: TsPL, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, H) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TsPL, Tstart, Tend, winSize, binSize), H, 0.0) .
+
+  op getToDTcpFeature : Actor NetId Feature Float Float Float Float Float List{Float} Float -> Float .
+  eq getToDTcpFeature (< ADDR : Adversary | tcp: TsPL, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, H, baselineCDF, K) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TsPL, Tstart, Tend, winSize, binSize, baselineCDF, K), H, 0.0) .
 
   op getCUSUMObsFeature : NetId Feature TimesObsList Float Float Float Float -> Float .
   eq getCUSUMObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = getCUSUM(getTimedZObsFeature(vp, obsF, TOL, Tstart, Tend, winSize, binSize), Tstart, Tend, 0.0) .
 
+  op getCUSUMObsFeature : NetId Feature TimesObsList Float Float Float Float List{Float} Float -> Float .
+  eq getCUSUMObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF, K) = getCUSUM(getTimedZObsFeature(vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF, K), Tstart, Tend, 0.0) .
+
   op getCUSUMDnsFeature : Actor NetId Feature Float Float Float Float -> Float .
   eq getCUSUMDnsFeature (< ADDR : Adversary | dns: TsML, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) = getCUSUM(getTimedZObsFeature(vp, obsF, TsML, Tstart, Tend, winSize, binSize), Tstart, Tend, 0.0) .
+
+  op getCUSUMDnsFeature : Actor NetId Feature Float Float Float Float List{Float} Float -> Float .
+  eq getCUSUMDnsFeature (< ADDR : Adversary | dns: TsML, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, baselineCDF, K) = getCUSUM(getTimedZObsFeature(vp, obsF, TsML, Tstart, Tend, winSize, binSize, baselineCDF, K), Tstart, Tend, 0.0) .
 
   op getCUSUMTcpFeature : Actor NetId Feature Float Float Float Float -> Float .
   eq getCUSUMTcpFeature (< ADDR : Adversary | tcp: TsPL, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) = getCUSUM(getTimedZObsFeature(vp, obsF, TsPL, Tstart, Tend, winSize, binSize), Tstart, Tend, 0.0) .
 
-  op isDnsFeature : Feature -> Bool .
+  op getCUSUMTcpFeature : Actor NetId Feature Float Float Float Float List{Float} Float -> Float .
+  eq getCUSUMTcpFeature (< ADDR : Adversary | tcp: TsPL, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, baselineCDF, K) = getCUSUM(getTimedZObsFeature(vp, obsF, TsPL, Tstart, Tend, winSize, binSize, baselineCDF, K), Tstart, Tend, 0.0) .
+
   op isDnsFeature : Feature -> Bool .
   eq isDnsFeature (dnsQueryRate) = true .
   eq isDnsFeature (dnsQuerySize) = true .
@@ -687,6 +715,15 @@ mod SMC_CP3 is
       then getToDTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H) 
       else 0.0 fi fi .
 
+  op getToD : Actor NetId Feature Float Float Float Float Float List{Float} Float -> Float .
+  eq getToD (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H, baselineCDF, K) = 
+    if isDnsFeature(obsF) 
+    then getToDDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H, baselineCDF, K) 
+    else 
+      if isTcpFeature(obsF) 
+      then getToDTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H, baselineCDF, K) 
+      else 0.0 fi fi .
+
   op getCUSUM : Actor NetId Feature Float Float Float Float -> Float .
   eq getCUSUM (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize) = 
     if isDnsFeature(obsF) 
@@ -694,6 +731,15 @@ mod SMC_CP3 is
     else 
       if isTcpFeature(obsF) 
       then getCUSUMTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize) 
+      else 0.0 fi fi .
+
+  op getCUSUM : Actor NetId Feature Float Float Float Float List{Float} Float -> Float .
+  eq getCUSUM (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, baselineCDF, K) = 
+    if isDnsFeature(obsF) 
+    then getCUSUMDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, baselineCDF, K) 
+    else 
+      if isTcpFeature(obsF) 
+      then getCUSUMTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, baselineCDF, K) 
       else 0.0 fi fi .
 
   op getTsML : Actor -> TimesObsList .
