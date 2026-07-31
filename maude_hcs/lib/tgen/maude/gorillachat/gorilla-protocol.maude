@@ -5,7 +5,7 @@
 ---
 --- The server models the gorilla/websocket hub from the Go code:
 ---   - Maintains a set of connected client addresses
----   - When a client sends a message, broadcasts to ALL clients
+---   - When a client sends a message, broadcasts to members of that room
 ---   - Acknowledges the send to the originating client
 ---
 
@@ -22,6 +22,22 @@ mod GORILLACHAT-PROTOCOL is
   --- =========================================================
   op transport : Address -> Address .
   eq transport(any:Address) = any:Address [owise] .
+
+  --- =========================================================
+  --- Room Sets & Client Room Mappings
+  --- =========================================================
+  sort RoomSet .
+  subsort String < RoomSet .
+  op noRoom : -> RoomSet [ctor] .
+  op _rm_ : RoomSet RoomSet -> RoomSet [ctor assoc comm id: noRoom] .
+
+  sort ClientRooms .
+  op _hasRooms_ : Address RoomSet -> ClientRooms [ctor] .
+
+  sort ClientRoomsSet .
+  subsort ClientRooms < ClientRoomsSet .
+  op noClientRooms : -> ClientRoomsSet [ctor] .
+  op _cr_ : ClientRoomsSet ClientRoomsSet -> ClientRoomsSet [ctor assoc comm id: noClientRooms] .
 
   --- =========================================================
   --- Chat protocol messages (Content constructors)
@@ -41,14 +57,38 @@ mod GORILLACHAT-PROTOCOL is
   ---   msgLen: message payload length in bytes
   op chatBroadcast : String Address Nat -> Content [ctor] .
 
+  --- Client -> Server: register client rooms (sent on set_room_numbers)
+  op setClientRooms : Address RoomSet -> Content [ctor] .
+
   --- =========================================================
   --- Message Sizes
   --- =========================================================
   op getSize : Content -> Nat .
-  eq getSize(chatSend(room, msgLen)) = msgLen .
+  eq getSize(chatSend(rm:String, ml:Nat)) = ml:Nat .
   eq getSize(chatSendAck) = 50 .
-  eq getSize(chatBroadcast(room, sender, msgLen)) = msgLen .
+  eq getSize(chatBroadcast(rm:String, sd:Address, ml:Nat)) = ml:Nat .
+  eq getSize(setClientRooms(ca:Address, rs:RoomSet)) = 0 .
   eq getSize(AnyContent:Content) = 0 [owise] .
+
+  --- =========================================================
+  --- Room & ClientRooms helper operations
+  --- =========================================================
+  op extractRoomNames : Map{String,JV} -> RoomSet .
+  eq extractRoomNames(empty) = noRoom .
+  eq extractRoomNames((rm:String |-> jv:JV, rms:Map{String,JV})) =
+    rm:String rm extractRoomNames(rms:Map{String,JV}) .
+
+  op hasRoom : Address String ClientRoomsSet -> Bool .
+  eq hasRoom(ca:Address, rm:String,
+             (ca:Address hasRooms (rm:String rm rs:RoomSet)) cr crs:ClientRoomsSet) = true .
+  eq hasRoom(ca:Address, rm:String, crs:ClientRoomsSet) = false [owise] .
+
+  op updateClientRooms : Address RoomSet ClientRoomsSet -> ClientRoomsSet .
+  eq updateClientRooms(ca:Address, rs:RoomSet,
+                       (ca:Address hasRooms ors:RoomSet) cr crs:ClientRoomsSet) =
+    (ca:Address hasRooms rs:RoomSet) cr crs:ClientRoomsSet .
+  eq updateClientRooms(ca:Address, rs:RoomSet, crs:ClientRoomsSet) =
+    (ca:Address hasRooms rs:RoomSet) cr crs:ClientRoomsSet [owise] .
 
   --- =========================================================
   --- Address set for tracking connected clients
@@ -67,6 +107,7 @@ mod GORILLACHAT-PROTOCOL is
 
   --- Server attributes
   op clients:_ : AddressSet -> Attribute [ctor] .
+  op clientRooms:_ : ClientRoomsSet -> Attribute [ctor] .
 
   --- Variables
   vars sAddr cAddr sender : Address .
@@ -77,34 +118,49 @@ mod GORILLACHAT-PROTOCOL is
   vars T : Float .
   vars cs : AddressSet .
   vars smsgs : Config .
+  vars rSet : RoomSet .
+  vars cRoomsSet : ClientRoomsSet .
 
   --- Constructor
   op mkGorillaChatServer : Address AddressSet -> Actor .
   eq mkGorillaChatServer(sAddr, cs) =
-    < sAddr : GorillaChatServer | clients: cs > .
+    < sAddr : GorillaChatServer | clients: cs, clientRooms: noClientRooms > .
 
   --- =========================================================
-  --- Server rule: receive chatSend, broadcast to all, ack sender
+  --- Server rule: register client rooms (from set_room_numbers)
+  --- =========================================================
+  rl [serverSetClientRooms]:
+    {T, (to sAddr from cAddr : setClientRooms(cAddr, rSet))}
+    < sAddr : GorillaChatServer | clientRooms: cRoomsSet, attrs >
+  =>
+    < sAddr : GorillaChatServer | clientRooms: updateClientRooms(cAddr, rSet, cRoomsSet), attrs >
+  [print "(" T ") GorillaChatServer registered rooms for " cAddr ": " rSet] .
+
+  --- =========================================================
+  --- Server rule: receive chatSend, broadcast to room members, ack sender
   --- =========================================================
   crl [serverBroadcast]:
     rCtr(rj)
     {T, (to sAddr from cAddr : chatSend(room, msgLen))}
-    < sAddr : GorillaChatServer | clients: cs, attrs >
+    < sAddr : GorillaChatServer | clients: cs, clientRooms: cRoomsSet, attrs >
   =>
     rCtr(j1)
-    < sAddr : GorillaChatServer | clients: cs, attrs >
+    < sAddr : GorillaChatServer | clients: cs, clientRooms: cRoomsSet, attrs >
     smsgs
   if {smsgs, j1} := delayMsgsX(rj,
-       mkBroadcast(cs, sAddr, room, cAddr, msgLen)
+       mkBroadcast(cs, cRoomsSet, sAddr, room, cAddr, msgLen)
        (to transport(cAddr) from sAddr : chatSendAck),
        null)
-  [print "(" T ") GorillaChatServer: " cAddr " sent roommsg (len=" msgLen ") to room " room ", broadcasting"] .
+  [print "(" T ") GorillaChatServer: " cAddr " sent roommsg (len=" msgLen ") to room " room ", broadcasting to members"] .
 
-  --- Helper: generate broadcast messages to all clients in the set
-  op mkBroadcast : AddressSet Address String Address Nat -> Config .
-  eq mkBroadcast(noAddr, sAddr, room, sender, msgLen) = null .
-  eq mkBroadcast((cAddr addr cs), sAddr, room, sender, msgLen) =
-    (to transport(cAddr) from sAddr : chatBroadcast(room, sender, msgLen))
-    mkBroadcast(cs, sAddr, room, sender, msgLen) .
+  --- Helper: generate broadcast messages to clients having room in clientRooms
+  op mkBroadcast : AddressSet ClientRoomsSet Address String Address Nat -> Config .
+  eq mkBroadcast(noAddr, cRoomsSet, sAddr, room, sender, msgLen) = null .
+  eq mkBroadcast((cAddr addr cs), cRoomsSet, sAddr, room, sender, msgLen) =
+    (if hasRoom(cAddr, room, cRoomsSet)
+     then (to transport(cAddr) from sAddr : chatBroadcast(room, sender, msgLen))
+     else null
+     fi)
+    mkBroadcast(cs, cRoomsSet, sAddr, room, sender, msgLen) .
 
 endm
