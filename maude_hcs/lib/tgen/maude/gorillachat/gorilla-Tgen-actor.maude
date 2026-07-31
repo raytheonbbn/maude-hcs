@@ -57,9 +57,9 @@ mod GORILLACHAT-TGEN is
   --- =========================================================
   vars dAddr umAddr srvAddr : Address .
   vars attrs attrs0 attrs1 attrs2 : AttributeSet .
-  vars msg msg0 msg1 : Msg .
+  vars msg msg0 msg1 msg2 : Msg .
   vars msgs msgs0 smsgs : Config .
-  vars rj rj1 j j1 reqId reqId0 : Nat .
+  vars rj rj1 j j1 j2 reqId reqId0 : Nat .
   vars T sleepTime fl : Float .
   vars ract rooms oldRoomMap : Map{String,JV} .
   vars room curRoomName : String .
@@ -107,17 +107,19 @@ mod GORILLACHAT-TGEN is
   op dispatchGCAction : AttributeSet Map{String,JV} Address Address Nat
                         -> AttributeSetMsgsNat .
 
-  --- set_room_numbers: store room mappings locally, immediate ok
+  --- set_room_numbers: store room mappings locally, immediate ok, notify server of client rooms
   ceq dispatchGCAction((attrs, replyTo: (to dAddr from umAddr : ac),
                         roomMap: oldRoomMap, gcW4: task),
                        ract, dAddr, srvAddr, rj) =
     { (attrs, replyTo: null, roomMap: rooms, gcW4: noGChatTask),
-      smsgs, j1 }
+      smsgs, j2 }
   if js("set_room_numbers") := ract["type"]
   /\ jo(rooms) := ract["rooms"]
   /\ msg := (to umAddr from dAddr : actionR("ok"))
-  /\ smsgs := [genRandomX(rj, 0.0, 0.00001), msg, 0]
+  /\ msg2 := (to srvAddr from dAddr : setClientRooms(dAddr, extractRoomNames(rooms)))
+  /\ smsgs := [genRandomX(rj, 0.0, 0.00001), msg, 0] [0.0, msg2, 0]
   /\ j1 := s rj
+  /\ j2 := s j1
   [print "  GorillaChatTgen set_room_numbers: " rooms] .
 
   --- select_room: pick room by number, update curRoom, immediate ok
@@ -220,7 +222,7 @@ mod GORILLACHAT-TGEN is
     < dAddr : GorillaChatTgen | attrs >
   =>
     < dAddr : GorillaChatTgen | attrs >
-  [print "(" T ") GorillaChatTgen " dAddr " rcvBroadcast from " umAddr " in " room " (len=" msgLen ")"] .
+  [print "(" T ") GorillaChatTgen " dAddr " received chat broadcast from " umAddr " in " room " (len=" msgLen ")"] .
 
   --- =========================================================
   --- Helper: look up room name by index in the roomMap
