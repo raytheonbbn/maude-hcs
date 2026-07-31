@@ -29,11 +29,12 @@
 #
 # MAUDE_HCS: end
 
-import logging
+import logging, math
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from dataclasses_json import dataclass_json
 from collections.abc import Callable
+from enum import auto, Enum
 
 from typing import Any, Dict
 
@@ -42,9 +43,24 @@ logger = logging.getLogger(__name__)
 def default_loss() -> dict[str, float]:
   return {'p13': 0.0, 'p31': 0.0, 'p32': 0.0, 'p23': 0.0, 'p14': 0.0}
 
+def profile_to_maude(prof: str) -> str:
+  return "mastodon-config-influencer-4-ma" # TODO: fix this!!
+
 # Note: any dataclass below with a name represents a maude variable *binding*, not just
 # the maude value itself. In other words, it represents a maude object that should be bound
 # to 'name' in the resulting maude file. Sometimes these objects may be used like plain maude values, however
+
+class TGenType(Enum):
+  MASTODON = "mas"
+  DNS = "dns"
+  FTP = "ftp"
+  MINIO = "min"
+  GORILLA = "gor"
+  IRC = "irc"
+
+  # TODO: what the heck are these?
+  MASTODON_MONITOR = auto()
+  MINIO_MONITOR = auto()
 
 @dataclass_json
 @dataclass(frozen=True)
@@ -67,10 +83,10 @@ class Node:
   maude: str
 
 @dataclass_json
-@dataclass(frozen=True)
+@dataclass(frozen=True, order=True)
 class LinkType:
   """Represents qualities of a network link (loss transition probabilities)"""
-  name: str
+  prof: str
   p13: float = 0.0
   p31: float = 0.0
   p32: float = 0.0
@@ -78,6 +94,13 @@ class LinkType:
   p14: float = 0.0
   latency: float = 0.0
 
+  @staticmethod
+  def from_yml(prof, yml: dict[str, Any], latency: float = 0.0) -> "LinkType":
+    return LinkType(prof, yml["p13"], yml["p31"], yml["p32"], yml["p23"], yml["p14"], latency)
+
+  def name(self) -> str:
+    return f"LinkType-{self.prof}-{self.latency}"
+  
   def maude(self) -> str:
     return (
       "(4stateLoss:"
@@ -89,16 +112,19 @@ class LinkType:
       f"  oneWayDelay: {self.latency})"
       ")"
     )
-  
-  @staticmethod
-  def from_yml(name, yml: dict[str, Any], latency: float = 0.0) -> "LinkType":
-    return LinkType(name, yml["p13"], yml["p31"], yml["p32"], yml["p23"], yml["p14"], latency)
 
-  # To allow sorting, which allows us to give deterministic order for uniquified lists of linktypes
-  def __lt__(self, other: "LinkType") -> bool:
-    return self.name < other.name
+  def combine(self, other: "LinkType") -> "LinkType":
+    """Represents a (very) rough approximation of the linktype that would result from self followed by other"""
+    return LinkType(
+      prof=max(self.prof, other.prof),
+      p13=max(self.p13, other.p13),
+      p31=max(self.p31, other.p31),
+      p32=max(self.p32, other.p32),
+      p23=max(self.p23, other.p23),
+      p14=max(self.p14, other.p14),
+      latency=self.latency + other.latency,
+    )
 
-  
 @dataclass_json
 @dataclass(frozen=True)
 class Link: 
@@ -114,7 +140,7 @@ class Link:
       return self.type == other.type
 
   def maude(self) -> str:
-    return f"aaa({self.src.addr.name if self.src else "IXP-DEFAULT-ADDR"}, {self.dst.addr.name if self.dst else "IXP-DEFAULT-ADDR"}, {self.type.name})"
+    return f"aaa({self.src.addr.name if self.src else "IXP-DEFAULT-ADDR"}, {self.dst.addr.name if self.dst else "IXP-DEFAULT-ADDR"}, {self.type.name()})"
 
 class Counter:
   """A counter that returns and increments the current count each time its called"""
@@ -127,157 +153,256 @@ class Counter:
     return result
 
 @dataclass_json
+@dataclass(frozen=True)
+class TGenConfig:
+  profile: str
+  uplink: LinkType
+  downlink: LinkType
+
+@dataclass_json
 @dataclass
 class Topology:
-    isDirected: bool
+  isDirected: bool
 
-    # A list of ALL nodes in this topology, whether they appear in the declared links or not.
-    nodes: list[Node] = field(default_factory=list)
+  # A list of ALL nodes in this topology, whether they appear in the declared links or not.
+  nodes: list[Node] = field(default_factory=list)
 
-    # this is a list of DECLARED links, for the purpose of determining link types.
-    # Implicitly, any node can communicate with any other.
-    links: list[Link] = field(default_factory=list)
+  # this is a list of DECLARED links, for the purpose of determining link types.
+  # Implicitly, any node can communicate with any other.
+  links: list[Link] = field(default_factory=list)
 
-    def __post_init__(self):
-      self.validate()
+  def __post_init__(self):
+    self.validate()
 
-    def validate(self):
-      assert len(self.nodes) == len(set(self.nodes)), "Topology instance should not contain duplicate nodes"
-      assert len(self.links) == len(set(self.links)), "Topology instance should not contain duplicate links"
+  def validate(self):
+    assert len(self.nodes) == len(set(self.nodes)), "Topology instance should not contain duplicate nodes"
+    assert len(self.links) == len(set(self.links)), "Topology instance should not contain duplicate links"
 
-      link_nodes = []
-      for link in self.links:
-        if link.src is not None: link_nodes.append(link.src)
-        if link.dst is not None: link_nodes.append(link.dst)
+    link_nodes = []
+    for link in self.links:
+      if link.src is not None: link_nodes.append(link.src)
+      if link.dst is not None: link_nodes.append(link.dst)
 
-      assert set(link_nodes).issubset(self.nodes), "every endpoint in self.links must also be in self.nodes"
+    assert set(link_nodes).issubset(self.nodes), "every endpoint in self.links must also be in self.nodes"
 
-    def get_node_by_name(self, name: str):
-      for node in self.nodes:
-        if node.name == name:
-          return node
+  def get_node_by_name(self, name: str):
+    for node in self.nodes:
+      if node.name == name:
+        return node
 
-    def get_link_types(self) -> list[LinkType]:
-      return sorted(list(set(map(lambda lnk: lnk.type, self.links))))
+  def get_link_types(self) -> list[LinkType]:
+    return sorted(list(set(map(lambda lnk: lnk.type, self.links))))
 
-    def merge(self, other: "Topology") -> "Topology":
-      assert set(self.nodes).intersection(set(other.nodes)) == {None}, "topologies to be merged should only have IXP node in common"
-      nodes = self.nodes + other.nodes
+  def merge(self, other: "Topology") -> "Topology":
+    assert set(self.nodes).intersection(set(other.nodes)) == {None}, "topologies to be merged should only have IXP node in common"
+    nodes = self.nodes + other.nodes
 
-      links = self.links + other.links
-      assert len(links) == len(self.links) + len(other.links), "topologies to be merged should not have links in common"
-      assert self.isDirected == other.isDirected, "topologies to be merged should have same directionality"
+    links = self.links + other.links
+    assert len(links) == len(self.links) + len(other.links), "topologies to be merged should not have links in common"
+    assert self.isDirected == other.isDirected, "topologies to be merged should have same directionality"
 
-      return Topology(self.isDirected, nodes, links) 
+    return Topology(self.isDirected, nodes, links) 
 
-    @staticmethod
-    def merge_all(topos: list["Topology"]) -> "Topology":
-      assert len(topos) > 0, "list of topologies to merge must be non-empty"
-      result = topos[0]
-      for topo in topos[1:]:
-        result = result.merge(topo)
-      return result
+  @staticmethod
+  def merge_all(topos: list["Topology"]) -> "Topology":
+    assert len(topos) > 0, "list of topologies to merge must be non-empty"
+    result = topos[0]
+    for topo in topos[1:]:
+      result = result.merge(topo)
+    return result
 
-    @staticmethod
-    def from_yml_and_loss(yml: Dict[Any, Any], loss_specs: Dict[Any, Any]) -> tuple["Topology", list[Address]]:
-      """Returns Topology and list of client addresses"""
-      subnet_idx = Counter(0)
+def parse_profile_counts(total: int, profiles: dict[str, float]) -> dict[str, int]:
+  """Return the number of tgens that should be assigned to each profile type"""
+  result = {}
+  current_sum = 0
+  prof: str | None = None
 
-      yml_networks = yml["network"]
-      yml_nodes = yml["nodes"]
-      yml_tgens = yml["tgen"]
+  for prof, percent in profiles.items():
 
-      irc_server_addr = Address("irc_server_addr", "a(srvN,srv,irc,srv,0)")
-      irc_server = Node(irc_server_addr, "irc_server", f"mkIrcServer({irc_server_addr.name})")
-
-      # (racetunnel_topo = mk_racetunnel_topo(networks, nodes, tgen, loss_specs)
-      # sky_topo = mk_sky_topo(networks, nodes, tgen, loss_specs)
-      # obfs_topo = mk_obfs_topo(networks, nodes, tgen, loss_specs)
-      # (iodine_topo, iodine_server_addr, iodine_client_addrs) = mk_iodine_topo(yml_networks, yml_nodes, yml_tgens, loss_specs, irc_server, subnet_idx())
-      (mastodon_topo, mastodon_server_addr, mastodon_client_addrs) = mk_mastodon_topo(yml_networks, yml_nodes, yml_tgens, loss_specs, irc_server, subnet_idx())
-      client_addrs = mastodon_client_addrs
-
-      # Figure this out soon, might be tricky
-      # We don't actually care where tgens come from, we just directly connect them to their server.
-      # So just figure out how many tgens of each type, and maybe have a function for each type?
-      # mastodon_tgens_topo = mk_mastodon_tgens_topo(give all )
-
-      combined_topo = Topology.merge_all([
-        # racetunnel_topo,
-        # sky_topo,
-        # obfs_topo,
-        # iodine_topo,
-        mastodon_topo
-      ])
-
-      combined_topo.nodes.insert(0, irc_server)
-      combined_topo.validate()
-
-      return (combined_topo, client_addrs)
-
-
-# Following function translated from:
-
-  # Addrs:
-  # eq ircClient5Addr = a(cl[5],hcs,irc,cl,1) .
-  # eq ircClient5UserModelAddr = a(cl[5],hcs,irc,um,1) .
-  # eq client5IfaceAddr = a(cl[5],hcs,irc,if,1) .
-  # eq server5IfaceAddr = a(srvN[5],hcs,irc,if,1) .
-  # eq umac5Addr = a(cl[5],hcs,mas,um,1) .
-  # eq cmac5Addr = a(cl[5],hcs,mas,cm,1) .
-  # eq mcac5Addr = a(cl[5],hcs,mas,mc,1) .
-  # eq edac5Addr = a(cl[5],hcs,mas,ed,1) .
-  # eq umas5Addr = a(srvN[5],hcs,mas,um,1) .
-  # eq cmas5Addr = a(srvN[5],hcs,mas,cm,1) .
-  # eq mcas5Addr = a(srvN[5],hcs,mas,mc,1) .
-  # eq edas5Addr = a(srvN[5],hcs,mas,ed,1) .
-  # eq mastodonClient5NetClientAddr = a(cl[5],tcp,mas,cl,1) .
-  # eq mastodonServer5NetClientAddr = a(srvN[5],tcp,mas,cl,1) .
-  # eq masNetServerAddr = a(masN,tcp,mas,srv,0) .
-  # eq masSrvAddr = a(masN,srv,mas,srv,0) .
-
-  # Actors:
-  # eq ircClient5          = mkIrcClient-v2(ircClient5Addr, client5IfaceAddr, "Client5") .
-  # eq ircClient5UserModel = mkIrcUMV2Actor(ircClient5UserModelAddr, "irc-test", ircClient5Addr) .
-  # eq client5Iface        = mkIrcByteSeqIface(client5IfaceAddr, ircClient5Addr, cmac5Addr) .
-  # eq umac5Act            = mkUMactor(umac5Addr, mastodon-client-config-mastodon-bidi-ma, cmac5Addr) .
-  # eq cmac5Act            = mkCMSndRcvActor(cmac5Addr, edac5Addr, mcac5Addr, client5IfaceAddr, "client5", "server5") .
-  # eq mcac5Act            = makeMastodonClient(mcac5Addr, masSrvAddr, cmac5Addr) .
-  # eq edac5Act            = makeDestiniActor(edac5Addr, ed-images) .
+    # Formula: ceil(percent * total / 100)
+    # Note: 'percent' in yaml is typically 30 for 30%, not 0.3
+    count = math.ceil((percent * total) / 100.0)
+    result[prof] = count
+    current_sum += count
   
-  # eq server5Iface        = mkIrcByteSeqIface(server5IfaceAddr, ircServerAddr, cmas5Addr) .
-  # eq umas5Act            = mkUMactor(umas5Addr, mastodon-client-config-mastodon-bidi-ma, cmas5Addr) .
-  # eq cmas5Act            = mkCMSndRcvActor(cmas5Addr, edas5Addr, mcas5Addr, server5IfaceAddr, "server5", "client5") .
-  # eq mcas5Act            = makeMastodonClient(mcas5Addr, masSrvAddr, cmas5Addr) .
-  # eq edas5Act            = makeDestiniActor(edas5Addr, ed-images) .
-  
-  # eq mastodonClient5NetClient = makeNetClient(mastodonClient5NetClientAddr, masSrvAddr, mcac5Addr, true, nullAddr, nullName) .
-  # eq masNetServer      = makeNetServer(masNetServerAddr, masSrvAddr) .
-  # eq mastodonServer5NetClient = makeNetClient(mastodonServer5NetClientAddr, masSrvAddr, mcas5Addr, true, nullAddr, nullName) .
-  # eq masSrvAct = makeMastodonServer(masSrvAddr) .
+  # If we have overshot or undershot, adjust the LAST profile
+  # The requirement specifically says "reduce the last section as needed"
+  # implying we might have overshot due to ceil()
+  if current_sum > total:
+    assert prof is not None, "tgen profile dict must be non-empty"
+    result[prof] = result[prof] - (current_sum - total)
+    assert result[prof] >= 0, "these tgen profile percentages don't make sense!"
 
-  # Constant Links:
-  # aaa(masSrvAddr, mcas5Addr, LinkType-TCP-4stateLoss)
-  # aaa(mcas5Addr, masSrvAddr, LinkType-TCP-4stateLoss) 
+  return result
 
-  # aaa(masSrvAddr,       IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
-  # aaa(IXP-DEFAULT-ADDR, masSrvAddr,       LinkType-TCP-4stateLossIxp)
+def parse_subnet_linktypes(yml_subnets: dict, linktype_templates: dict[str, LinkType]) -> dict[str, tuple[LinkType, LinkType]]:
+  """Return upload/download linktypes for each subnet name in yml_networks"""
 
-  # aaa(mcas5Addr,        IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
-  # aaa(IXP-DEFAULT-ADDR, mcas5Addr,        LinkType-TCP-4stateLossIxp)
+  result = {}
 
-  # Per-client links
-  # aaa(mcac5Addr,        IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
-  # aaa(IXP-DEFAULT-ADDR, mcac5Addr,        LinkType-TCP-4stateLossIxp)
-  # aaa(masSrvAddr, mcac5Addr, LinkType-TCP-4stateLoss)
-  # aaa(mcac5Addr, masSrvAddr, LinkType-TCP-4stateLoss)
+  for subnet_name, val in yml_subnets.items():
+    params = val["params"]
 
+    up_latency = params["upstream"]["latency"]
+    up_profile = params["upstream"]["loss_profile"]
+    up_template = linktype_templates[up_profile]
+    up_link = replace(up_template, prof=f"LinkType-{up_profile}-{up_latency}", latency=up_latency)
+
+    down_latency = params["downstream"]["latency"]
+    down_profile = params["downstream"]["loss_profile"]
+    down_template = linktype_templates[down_profile]
+    down_link = replace(down_template, prof=f"LinkType-{down_profile}-{down_latency}", latency=down_latency)
+
+    result[subnet_name] = (up_link, down_link)
+
+  return result
+
+def parse_tgen_cfgs(yml_tgens, subnet_linktypes) -> dict[TGenType, list[TGenConfig]]:
+  """
+  Returned list has one entry for each tgen required. So, in general, the list will contain duplicates, since
+  any subnet can contain many tgens with identical characteristics.
+  """
+  type_map = {
+    "tgen_type_mastodon": TGenType.MASTODON,
+    "tgen_type_ftp": TGenType.FTP,
+    "tgen_type_dns": TGenType.DNS,
+    "tgen_type_minio": TGenType.MINIO,
+    "tgen_type_gorilla": TGenType.GORILLA,
+    "tgen_type_irc": TGenType.IRC,
+  }
+  result = {}
+  for tgen_type_name, val in yml_tgens.items():
+    if tgen_type_name not in type_map:
+      print(f"Unrecognized tgen type {tgen_type_name}, continuing...")
+      continue
+
+    tgen_type = type_map[tgen_type_name]
+    tgen_per_network = val["tgen_per_network"]
+    result[tgen_type] = []
+
+    for subnet_name, val in tgen_per_network.items():
+      linktypes = subnet_linktypes[subnet_name]
+      profile_counts = parse_profile_counts(val["quantity"], val["profiles"])
+
+      for prof, count in profile_counts.items():
+        tgen_cfg = TGenConfig(prof, linktypes[0], linktypes[1])
+        result[tgen_type] += [tgen_cfg] * count
+
+  return result
+
+@dataclass(frozen=True)
+class Cp3Config:
+  """Simple class that stores everything we need to generate maude file"""
+  topo: Topology
+  undef_addrs: list[str]
+  client_addrs: list[Address]
+
+  @staticmethod
+  def from_yml_and_loss(yml: dict, linktype_templates: dict) -> "Cp3Config":
+    """
+    linktype_templates tells us e.g. what a "poor" connection looks like, in terms of the markov loss model.
+    does not include latencies, those are more specific to subnets
+    """
+    subnet_idx = Counter(0)
+
+    yml_subnets = yml["network"]
+    yml_nodes = yml["nodes"]
+    yml_tgens = yml["tgen"]
+
+    subnet_linktypes = parse_subnet_linktypes(yml_subnets, linktype_templates)
+    tgen_cfgs = parse_tgen_cfgs(yml_tgens, subnet_linktypes)
+
+    irc_server_addr = Address("irc_server_addr", "a(srvN,srv,irc,srv,0)")
+    irc_server = Node(irc_server_addr, "irc_server", f"mkIrcServer({irc_server_addr.name})")
+
+    # (racetunnel_topo = mk_racetunnel_topo(networks, nodes, tgen, loss_specs)
+    # sky_topo = mk_sky_topo(networks, nodes, tgen, loss_specs)
+    # obfs_topo = mk_obfs_topo(networks, nodes, tgen, loss_specs)
+    # (iodine_topo, iodine_server_addr, iodine_client_addrs) = mk_iodine_topo(yml_subnets, yml_nodes, linktype_templates, irc_server, subnet_idx())
+    (mastodon_topo, mastodon_server, mastodon_client_addrs) = mk_mastodon_topo(yml_subnets, yml_nodes, linktype_templates, irc_server, subnet_idx())
+    client_addrs = mastodon_client_addrs
+
+    # Figure this out soon, might be tricky
+    # We don't actually care where tgens come from, we just directly connect them to their server.
+    # So just figure out how many tgens of each type, and maybe have a function for each type?
+    # mastodon_tgens_topo = mk_mastodon_tgens_topo(give all )
+
+    combined_topo = Topology.merge_all([
+      # racetunnel_topo,
+      # sky_topo,
+      # obfs_topo,
+      # iodine_topo,
+      mastodon_topo
+    ])
+
+    combined_topo.nodes.insert(0, irc_server)
+    combined_topo.validate()
+
+  # MASTODON = auto()
+  # DNS = auto()
+  # FTP = auto()
+  # MINIO = auto()
+  # GORILLA = auto()
+  # IRC = auto()
+
+    insert_mastodon_tgens(
+      tgen_cfgs[TGenType.MASTODON],
+      combined_topo,
+      mastodon_server,
+      subnet_linktypes["mastodon_net"],
+      subnet_idx())
+
+
+
+    return Cp3Config(combined_topo, ["iod_monitor_addr", "irc_monitor_addr"], client_addrs)
+
+def insert_mastodon_tgens(
+    tgen_cfgs: list[TGenConfig],
+    topo: Topology,
+    mastodon_server: Node,
+    mastodon_server_linktypes: tuple[LinkType, LinkType],
+    subnet_idx: int):
+
+  for i, tgen_cfg in enumerate(tgen_cfgs):
+    mast_tgen_addr = Address(f"mast_tgen_addr_{i}", f"a(cl[{subnet_idx}],tgen,mas,app,1)") # TODO: what does this actually represent?
+    mast_tgen_usermodel_addr = Address(f"mast_tgen_usermodel_addr_{i}", f"a(cl[{subnet_idx}],tgen,mas,um,1)")
+    mast_client_addr = Address(f"mast_client_addr_{i}", f"a(cl[{subnet_idx}],tgen,mas,cl,1)")
+
+    maude_prof = profile_to_maude(tgen_cfg.profile)
+    mast_tgen = Node(
+      mast_tgen_addr,
+      f"mast_tgen_{i}",
+      f"mkMasTGenActor({mast_tgen_addr.name}, {mast_client_addr.name}, ed-images, {maude_prof})")
+    mast_tgen_usermodel = Node(
+      mast_tgen_usermodel_addr,
+      f"mast_tgen_usermodel_{i}",
+      f"mkUMactor({mast_tgen_usermodel_addr.name}, {maude_prof}, {mast_tgen_addr.name})")
+    mast_client = Node(
+      mast_client_addr,
+      f"mast_client_{i}",
+      f"makeMastodonClient({mast_client_addr.name}, {mastodon_server.addr.name}, {mast_tgen_addr.name})")
+    mast_tgen_netclient = Node(
+      Address("", f"a(cl[{subnet_idx}],tcp,mas,cl,1)"),
+      f"mast_tgen_netclient_{i}",
+      f"makeNetClient(a(cl[{subnet_idx}],tcp,mas,cl,1), {mastodon_server.addr.name}, {mast_client_addr}, true, nullAddr, nullName)")
+
+    client_uplink, client_downlink = tgen_cfg.uplink, tgen_cfg.downlink
+    mast_uplink, mast_downlink = mastodon_server_linktypes
+    tgen_uplink, tgen_downlink = client_uplink.combine(mast_downlink), mast_uplink.combine(client_downlink)
+    links = [
+      Link(mast_client, mastodon_server, tgen_uplink),
+      Link(mastodon_server, mast_client, tgen_downlink),
+      Link(mast_client, None, client_uplink),
+      Link(None, mast_client, client_downlink),
+    ]
+
+    topo.nodes.extend([mast_tgen, mast_tgen_usermodel, mast_client, mast_tgen_netclient])
+    topo.links.extend(links)
 
 def mk_mastodon_topo(
-    yml_networks: Dict[Any, Any], 
-    yml_nodes: Dict[Any, Any],
-    yml_tgens: Dict[Any, Any],
-    loss_specs: Dict[str, Dict[str, float]],
+    yml_subnets: dict, 
+    yml_nodes: dict,
+    subnet_linktypes: Dict[str, LinkType],
     irc_server: Node,
     subnet_idx: int,
 ) -> tuple[Topology, Node, list[Address]]:
@@ -296,12 +421,23 @@ def mk_mastodon_topo(
   nodes = []
 
   # Create the static actor addresses (these are always basically the same, regardless of how many active hcs clients there are)
-  mast_server_iface_addr = Address("mast_server_iface_addr", f"a(srvN[{subnet_idx}],hcs,irc,if,1)")
+  mast_server_iface_addr = Address("mast_server_iface_addr", f"a(srvN[{subnet_idx}],hcs,irc,if,1)") # No, this is for IRC side
+  # This should be irc_server_mast_iface
+
+  # These are all for IRC Side
   mast_umas_addr = Address("mast_umas_addr", f"a(srvN{subnet_idx},hcs,mas,um,1)")
   mast_cmas_addr = Address("mast_cmas_addr", f"(srvN[{subnet_idx}],hcs,mas,cm,1)")
   mast_mcas_addr = Address("mast_mcas_addr", f"a(srvN[{subnet_idx}],hcs,mas,mc,1)")
   mast_edas_addr = Address("mast_edas_addr", f"a(srvN[{subnet_idx}],hcs,mas,ed,1)")
+  # Should be irc_server_mast_usermodel_addr
+  # irc_server_mast_cmgr_addr
+  # irc_server_mast_mastclient_addr
+  # irc_server_mast_destini_addr
+
+  # this is also on IRC side, can tell by fact is uses srvN
   mast_server_netclient_addr = Address("mast_server_netclient_addr", f"a(srvN[{subnet_idx}],tcp,mas,cl,1)")
+
+
   mast_server_addr = Address("mast_server_addr", f"a(masN,tcp,mas,srv,1)")
   mast_subnet_router_addr = Address("mast_subnet_router_addr", f"a(masN,srv,mas,srv,1)")
 
@@ -403,13 +539,13 @@ def mk_mastodon_topo(
     nodes += named_nodes.values()
     client_nodes.update(named_nodes)
 
-  server_subnet_config = yml_networks["mastodon_net"]["params"]
+  # server_subnet_config = yml_subnets["mastodon_net"]["params"]
   
-  server_up_latency = server_subnet_config["upstream"]["latency"]
-  server_down_latency = server_subnet_config["downstream"]["latency"]
+  # server_up_latency = server_subnet_config["upstream"]["latency"]
+  # server_down_latency = server_subnet_config["downstream"]["latency"]
 
-  server_up_loss = loss_specs[server_subnet_config["upstream"]["loss_profile"]]
-  server_down_loss = loss_specs[server_subnet_config["downstream"]["loss_profile"]]
+  # server_up_loss = loss_specs[server_subnet_config["upstream"]["loss_profile"]]
+  # server_down_loss = loss_specs[server_subnet_config["downstream"]["loss_profile"]]
 
   # TODO: give these the proper linktypes! Ask Christophe exactly how to combine probabilities
   links = [
@@ -421,13 +557,13 @@ def mk_mastodon_topo(
     Link(None, mast_mcas),
   ]
 
-  client_subnet_config = yml_networks["client_net_mastodon"]["params"]
+  # client_subnet_config = yml_subnets["client_net_mastodon"]["params"]
 
-  client_up_latency = client_subnet_config["upstream"]["latency"]
-  client_down_latency = client_subnet_config["downstream"]["latency"]
+  # client_up_latency = client_subnet_config["upstream"]["latency"]
+  # client_down_latency = client_subnet_config["downstream"]["latency"]
 
-  client_up_loss = loss_specs[client_subnet_config["upstream"]["loss_profile"]]
-  client_down_loss = loss_specs[client_subnet_config["downstream"]["loss_profile"]]
+  # client_up_loss = loss_specs[client_subnet_config["upstream"]["loss_profile"]]
+  # client_down_loss = loss_specs[client_subnet_config["downstream"]["loss_profile"]]
 
   for i in range(num_hcs_clients):
     links += [
@@ -439,7 +575,6 @@ def mk_mastodon_topo(
     ]
 
   return (Topology(True, nodes, links), mast_server, client_addrs)
-
 
   # Addrs
   # eq ircClient4Addr = a(cl[4],hcs,irc,cl,1) .
@@ -470,24 +605,21 @@ def mk_mastodon_topo(
   # aaa(serverIodineServer4Addr, iodineClient4Addr, LinkType-TCP-4stateLoss)
   # aaa(iodineClient4Addr, serverIodineServer4Addr, LinkType-TCP-4stateLoss) 
 
-
 # def mk_iodine_topo(
-#     yml_networks: Dict[Any, Any], 
+#     yml_subnets: Dict[Any, Any], 
 #     yml_nodes: Dict[Any, Any],
-#     yml_tgens: Dict[Any, Any],
-#     loss_specs: Dict[str, Dict[str, float]],
+#     subnet_linktypes: Dict[str, LinkType],
 #     irc_server: Node,
-#     iod_monitor: Node,
 #     subnet_idx: int,
 # ) -> tuple[Topology, Node, list[Address]]:
 #   """
 #   See mk_mastodon_topo.
 #   """
 
-#   nodes = [].
+#   nodes = []
 
 #   # eq serverIface4Addr = a(srvN[4],hcs,irc,if,1) .
-#   # eq rcvApp4Addr = a(srvN[4],hcs,iod,app,1) .
+#   # eq rcvApp4Addr = a(srvN[4],hcs,iod,app,1) .jj
 #   # eq serverIodineServer4Addr = a(srvN[4],hcs,iod,iodSrv,1) .
 #   # eq iodineServer4NetServerAddr = a(srvN[4],tcp,iod,srv,1) .
 
@@ -498,8 +630,8 @@ def mk_mastodon_topo(
 #   iod_server_netserver_addr = Address("iod_server_netserver_addr", f"a(srvN[{subnet_idx}],tcp,iod,srv,1)")
 
 
-#   iod_server_iface = Node(iod_server_iface_addr, "iod_server_iface", f"mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr) .")
-#   iod_server_rcv_app = Node(iod_server_rcv_app_addr, "iod_server_rcv_app", f"mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .")
+#   iod_server_iface = Node(iod_server_iface_addr, "iod_server_iface", f"mkIrcByteSeqIface({iod_server_iface_addr}, {iod_server_addr}, {iod_server_rcv_app_addr}) .")
+#   iod_server_rcv_app = Node(iod_server_rcv_app_addr, "iod_server_rcv_app", f"mkRcvApp({iod_server_rcv_app_addr}, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .")
 #   iod_server = Node(iod_server_addr, "iod_server", f"makeWNameServer(serverIodineServer4Addr, 0.0, zonePwnd2Com4) .")
 #   iod_server_netserver = Node(iod_server_netserver_addr, "iod_server_netserver", f"makeNetServer(iodineServer4NetServerAddr, serverIodineServer4Addr) .")
 
@@ -624,13 +756,13 @@ def mk_mastodon_topo(
 #     nodes += named_nodes.values()
 #     client_nodes.update(named_nodes)
 
-#   server_subnet_config = yml_networks["mastodon_net"]["params"]
+#   # server_subnet_config = yml_subnets["mastodon_net"]["params"]
   
-#   server_up_latency = server_subnet_config["upstream"]["latency"]
-#   server_down_latency = server_subnet_config["downstream"]["latency"]
+#   # server_up_latency = server_subnet_config["upstream"]["latency"]
+#   # server_down_latency = server_subnet_config["downstream"]["latency"]
 
-#   server_up_loss = loss_specs[server_subnet_config["upstream"]["loss_profile"]]
-#   server_down_loss = loss_specs[server_subnet_config["downstream"]["loss_profile"]]
+#   # server_up_loss = loss_specs[server_subnet_config["upstream"]["loss_profile"]]
+#   # server_down_loss = loss_specs[server_subnet_config["downstream"]["loss_profile"]]
 
 #   # TODO: give these the proper linktypes! Ask Christophe exactly how to combine probabilities
 #   links = [
@@ -642,13 +774,13 @@ def mk_mastodon_topo(
 #     Link(None, mast_mcas),
 #   ]
 
-#   client_subnet_config = yml_networks["client_net_mastodon"]["params"]
+#   # client_subnet_config = yml_subnets["client_net_mastodon"]["params"]
 
-#   client_up_latency = client_subnet_config["upstream"]["latency"]
-#   client_down_latency = client_subnet_config["downstream"]["latency"]
+#   # client_up_latency = client_subnet_config["upstream"]["latency"]
+#   # client_down_latency = client_subnet_config["downstream"]["latency"]
 
-#   client_up_loss = loss_specs[client_subnet_config["upstream"]["loss_profile"]]
-#   client_down_loss = loss_specs[client_subnet_config["downstream"]["loss_profile"]]
+#   # client_up_loss = loss_specs[client_subnet_config["upstream"]["loss_profile"]]
+#   # client_down_loss = loss_specs[client_subnet_config["downstream"]["loss_profile"]]
 
 #   for i in range(num_hcs_clients):
 #     links += [
