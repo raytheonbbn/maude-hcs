@@ -163,8 +163,11 @@ mod HCS_TEST is
   eq masSrvAddr = a(masN,srv,mas,srv,0) .
 
   ops ircTgenUMAddr ircTgenClientAddr ircServerAddr : -> Address .
+  ops ircTgen2UMAddr ircTgen2ClientAddr : -> Address .
   eq ircTgenUMAddr = a(cl[11],tgen,irc,um,1) .
   eq ircTgenClientAddr = a(cl[11],tgen,irc,cl,1) .
+  eq ircTgen2UMAddr = a(cl[12],tgen,irc,um,1) .
+  eq ircTgen2ClientAddr = a(cl[12],tgen,irc,cl,1) .
   eq ircServerAddr = a(srvN,srv,irc,srv,0) .
 
   eq transport(any:Address) = tcp(any:Address) .
@@ -179,6 +182,10 @@ mod HCS_TEST is
   eq ircTGenA = mkIrcTgenClient(ircTgenClientAddr, ircServerAddr, "ircTgen") .
   op ircTgenUmAct : -> Actor .
   eq ircTgenUmAct = mkIrcUMV2Actor(ircTgenUMAddr, "irc-tgen", ircTgenClientAddr) .
+  op ircTGen2A : -> Actor .
+  eq ircTGen2A = mkIrcTgenClient(ircTgen2ClientAddr, ircServerAddr, "ircTgen2") .
+  op ircTgen2UmAct : -> Actor .
+  eq ircTgen2UmAct = mkIrcUMV2Actor(ircTgen2UMAddr, "irc-tgen", ircTgen2ClientAddr) .
   op ircServer : -> Actor .
   eq ircServer = mkIrcServer(ircServerAddr) .
   op mon : -> TClass .
@@ -194,6 +201,8 @@ mod HCS_TEST is
   
   op ircTgenClientNet : -> Actor .
   eq ircTgenClientNet = makeNetClient(a(cl[11],tcp,irc,cl,1), ircServerAddr, ircTgenClientAddr, true, nullAddr, nullName) .
+  op ircTgen2ClientNet : -> Actor .
+  eq ircTgen2ClientNet = makeNetClient(a(cl[12],tcp,irc,cl,1), ircServerAddr, ircTgen2ClientAddr, true, nullAddr, nullName) .
 
   op ircServerNet : -> Actor .
   eq ircServerNet = makeNetServer(a(srvN,tcp,irc,srv,0), ircServerAddr) .
@@ -202,17 +211,19 @@ mod HCS_TEST is
     aaa(ircServerAddr, ircTgenClientAddr, LinkType-TCP-4stateLoss)
     aaa(ircTgenClientAddr,  IXP-DEFAULT-ADDR,   LinkType-TCP-4stateLossIxp)
     aaa(IXP-DEFAULT-ADDR,   ircTgenClientAddr,  LinkType-TCP-4stateLossIxp)
+    aaa(ircTgen2ClientAddr, ircServerAddr, LinkType-TCP-4stateLoss)
+    aaa(ircServerAddr, ircTgen2ClientAddr, LinkType-TCP-4stateLoss)
+    aaa(ircTgen2ClientAddr, IXP-DEFAULT-ADDR,   LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR,   ircTgen2ClientAddr,  LinkType-TCP-4stateLossIxp)
     aaa(ircServerAddr,      IXP-DEFAULT-ADDR,   LinkType-TCP-4stateLossIxp)
     aaa(IXP-DEFAULT-ADDR,   ircServerAddr,      LinkType-TCP-4stateLossIxp)  .
 
   op initState : Nat -> Config .
   eq initState(j) =
     rCtr(j + 8)
-    ircTgenUmAct ircTGenA ircServer ircMonitor advActor ircTgenClientNet ircServerNet
+    ircTgenUmAct ircTGenA ircTgen2UmAct ircTGen2A ircServer ircMonitor advActor ircTgenClientNet ircTgen2ClientNet ircServerNet
         [30.0 + genRandomX(j, 0.0, 0.0001), (to ircTgenUMAddr from ircTgenUMAddr : burstDelayTO), 0]
-    [3.5, (to ircServerAddr from ircTgenClientAddr : JoinChannel(makeIrcChannelName("#tgen_chat"), ircTgenClientAddr )), 0]
-    [3.6, (to ircServerAddr from ircTgenClientAddr : JoinChannel(makeIrcChannelName("#tgen_general"), ircTgenClientAddr )), 0]
-    [3.7, (to ircServerAddr from ircTgenClientAddr : JoinChannel(makeIrcChannelName("#tgen_random"), ircTgenClientAddr )), 0]
+        [30.0 + genRandomX(s j, 0.0, 0.0001), (to ircTgen2UMAddr from ircTgen2UMAddr : burstDelayTO), 0]
   .
 
   op slimit : -> Float .

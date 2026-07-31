@@ -140,14 +140,17 @@ mod HCS_TEST is
   eq ftpSrvAddr = a(srvN,tgen,ftp,srv,0) .
 
   ops gorillaUMAddr gorillaTGAddr gorillaSrvAddr : -> Address .
+  ops gorilla2UMAddr gorilla2TGAddr : -> Address .
   eq gorillaUMAddr = a(cl[7],tgen,gor,um,1) .
   eq gorillaTGAddr = a(cl[7],tgen,gor,cl,1) .
+  eq gorilla2UMAddr = a(cl[8],tgen,gor,um,1) .
+  eq gorilla2TGAddr = a(cl[8],tgen,gor,cl,1) .
   eq gorillaSrvAddr = a(srvN,tgen,gor,srv,0) .
 
   ops minioUMAddr minioTGAddr minioS3ClientAddr minioS3ServerAddr : -> Address .
-  eq minioUMAddr = a(cl[8],tgen,min,um,1) .
-  eq minioTGAddr = a(cl[8],tgen,min,cl,1) .
-  eq minioS3ClientAddr = a(cl[8],tgen,min,if,1) .
+  eq minioUMAddr = a(cl[9],tgen,min,um,1) .
+  eq minioTGAddr = a(cl[9],tgen,min,cl,1) .
+  eq minioS3ClientAddr = a(cl[9],tgen,min,if,1) .
   eq minioS3ServerAddr = a(srvN,tgen,min,srv,0) .
 
   ops dnsUMAddr dnsTGAddr dnsRsvAddr : -> Address .
@@ -179,13 +182,19 @@ mod HCS_TEST is
 
   op gorillaTGenA : -> Actor .
   eq gorillaTGenA = mkGorillaChatTgenA(gorillaTGAddr, gorillaSrvAddr) .
+  op gorilla2TGenA : -> Actor .
+  eq gorilla2TGenA = mkGorillaChatTgenA(gorilla2TGAddr, gorillaSrvAddr) .
   op gorillaSrvA : -> Actor .
-  eq gorillaSrvA = mkGorillaChatServer(gorillaSrvAddr, (gorillaTGAddr)) .
+  eq gorillaSrvA = mkGorillaChatServer(gorillaSrvAddr, (gorillaTGAddr addr gorilla2TGAddr)) .
   op gorillaUmAct : -> Actor .
   eq gorillaUmAct = mkTgenUMV2Actor(gorillaUMAddr, "gorilla", gorillaTGAddr) .
+  op gorilla2UmAct : -> Actor .
+  eq gorilla2UmAct = mkTgenUMV2Actor(gorilla2UMAddr, "gorilla", gorilla2TGAddr) .
 
   op gorillaTgenClientNet : -> Actor .
   eq gorillaTgenClientNet = makeNetClient(a(cl[7],tcp,gor,cl,1), gorillaSrvAddr, gorillaTGAddr, true, nullAddr, nullName) .
+  op gorilla2TgenClientNet : -> Actor .
+  eq gorilla2TgenClientNet = makeNetClient(a(cl[8],tcp,gor,cl,1), gorillaSrvAddr, gorilla2TGAddr, true, nullAddr, nullName) .
 
   op gorillaServerNet : -> Actor .
   eq gorillaServerNet = makeNetServer(a(srvN,tcp,gor,srv,0), gorillaSrvAddr) .
@@ -197,16 +206,21 @@ mod HCS_TEST is
   eq LinkData =
     aaa(gorillaTGAddr, gorillaSrvAddr, LinkType-TCP-4stateLoss)
     aaa(gorillaSrvAddr, gorillaTGAddr, LinkType-TCP-4stateLoss)
+    aaa(gorilla2TGAddr, gorillaSrvAddr, LinkType-TCP-4stateLoss)
+    aaa(gorillaSrvAddr, gorilla2TGAddr, LinkType-TCP-4stateLoss)
     aaa(gorillaTGAddr,      IXP-DEFAULT-ADDR,   LinkType-TCP-4stateLossIxp)
     aaa(IXP-DEFAULT-ADDR,   gorillaTGAddr,      LinkType-TCP-4stateLossIxp)
+    aaa(gorilla2TGAddr,     IXP-DEFAULT-ADDR,   LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR,   gorilla2TGAddr,     LinkType-TCP-4stateLossIxp)
     aaa(gorillaSrvAddr,     IXP-DEFAULT-ADDR,   LinkType-TCP-4stateLossIxp)
     aaa(IXP-DEFAULT-ADDR,   gorillaSrvAddr,     LinkType-TCP-4stateLossIxp)  .
 
   op initState : Nat -> Config .
   eq initState(j) =
     rCtr(j + 8)
-    gorillaUmAct gorillaTGenA gorillaSrvA gorillaTgenClientNet gorillaServerNet advActor
+    gorillaUmAct gorillaTGenA gorilla2UmAct gorilla2TGenA gorillaSrvA gorillaTgenClientNet gorilla2TgenClientNet gorillaServerNet advActor
     [30.0 + genRandomX(j, 0.0, 0.0001), (to gorillaUMAddr from gorillaUMAddr : burstDelayTO), 0]
+    [30.0 + genRandomX(s j, 0.0, 0.0001), (to gorilla2UMAddr from gorilla2UMAddr : burstDelayTO), 0]
   .
 
   op slimit : -> Float .
