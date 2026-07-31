@@ -2,13 +2,13 @@ from signal import alarm
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import ks_2samp
+from scipy.stats import ks_2samp, ks_1samp
 
 # ==========================================
 # 1. Generate Test Dataset (H0 and H1)
 # ==========================================
 # np.random.seed(42)
-BASE = True
+BASE = False
 
 total_bins = 60
 switch_point = 30 # Time step where H1 (HCS) begins
@@ -32,19 +32,29 @@ baseline_pool = np.random.poisson(lam=5, size=2000)
 m = 10     # Window size (number of recent bins)
 h = 1.0    # Evidence threshold for alarming
 
-# --- NEW: Estimate k empirically ---
 num_estimation_trials = 500
-baseline_ks_distances = np.zeros(num_estimation_trials)
+baseline_ks_distances  = np.zeros(num_estimation_trials)
+baseline_ks1_distances = np.zeros(num_estimation_trials)
+
+baseline_pool_sorted = np.sort(np.asarray(baseline_pool, dtype=np.int64))
+def cdf_fn(x):
+    return np.searchsorted(baseline_pool_sorted, x, side="right") / len(baseline_pool_sorted)
 
 for i in range(num_estimation_trials):
     # Draw a random window of size m representing normal H0 behavior
     sample_window = np.random.poisson(lam=5, size=m)
     # Calculate KS distance against the baseline pool
     ks_stat, _ = ks_2samp(sample_window, baseline_pool)
+    # Do the same using T&E's ks_1samp
+    ks1_stat = ks_1samp(sample_window, cdf_fn).statistic
+    print(f'{ks_stat}, {ks1_stat}, {(ks_stat - ks1_stat)/ks_stat}')
     baseline_ks_distances[i] = ks_stat
+    baseline_ks1_distances[i] = ks1_stat
 
 # k is the expected (mean) KS distance under H0
-k = np.mean(baseline_ks_distances)
+k  = np.mean(baseline_ks_distances)
+k1 = np.mean(baseline_ks1_distances)
+print(f'mean k: {k}, {k1}, {(k - k1)/k}')
 
 print(f"Empirically estimated expected KS distance (k) = {k:.4f}")
 print("-" * 50)
