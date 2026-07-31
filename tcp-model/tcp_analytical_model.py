@@ -4,19 +4,16 @@ import numpy as np
 # TCP Analytical Model over Two Cascaded Bidirectional 16-State Links
 # ==============================================================================
 #
-# Computes E[T_k]: expected arrival time of the k-th TCP data segment at the
-# server, measured from the client's first SYN transmission across two links.
+# Computes E[T_k]: expected arrival time of the k-th TCP data segment at both:
+#   1. First-hop intermediate node (e.g. Wi-Fi Access Point / Router)
+#   2. Final destination server
+# measured from the client's first SYN transmission across two links.
 #
 # Models TCP as implemented in Ubuntu 22.04 (Linux 5.15+):
 #   - CUBIC congestion control (default)
 #   - SACK (Selective Acknowledgment)
 #   - RACK-TLP (Recent ACK / Tail Loss Probe) loss detection
 #   - Slow Start and Congestion Avoidance
-#
-# Multi-Hop Architecture:
-#   - Evaluates Link 1 (e.g. Wi-Fi/Access) and Link 2 (e.g. Core/Backhaul)
-#   - Maintains independent 16-state vectors for each link
-#   - Traverses flights sequentially without requiring 256-state expansion
 # ==============================================================================
 
 PROFILES = {
@@ -118,10 +115,16 @@ class MultiHopPath:
 
 
 # ─────────────────────── Network Parameters ───────────────────────
+# Per-Hop Delays
+OWD1 = 0.010                      # Link 1 one-way propagation delay (s) [e.g. 10ms]
+OWD2 = 0.010                      # Link 2 one-way propagation delay (s) [e.g. 10ms]
+OWD  = OWD1 + OWD2                # Total path one-way propagation delay (20ms)
+RTT  = 2 * OWD                    # Total Round-trip time (40ms)
 
-O   = 0.02                       # Total path one-way propagation delay (s)
-RTT = 2 * O                      # Round-trip time (s)
-SER = 1514 * 8 / 1e9             # Per-packet serialization delay at 1 Gbps
+SER1 = 1514 * 8 / 1e9            # Per-packet serialization delay on Link 1 (1 Gbps)
+SER2 = 1514 * 8 / 1e9            # Per-packet serialization delay on Link 2 (1 Gbps)
+SER  = SER1 + SER2               # Aggregate per-packet serialization delay
+
 MAX_CWND = 60                    # Physical ceiling for the network path
 BUFFER_CAPACITY = 55             # Physical limit where tail-drop loss occurs
 
@@ -161,12 +164,15 @@ def _cubic_w(t, w_max):
 def _build_timeline(max_k=2000):
     global _ACTIVE_PROFILE_NAME
     
-    times = np.full(max_k + 1, np.nan)
-    flts  = np.zeros(max_k + 1, dtype=int)
-    times[0] = 0.0
+    times_first = np.full(max_k + 1, np.nan)
+    times_dest  = np.full(max_k + 1, np.nan)
+    flts        = np.zeros(max_k + 1, dtype=int)
+    
+    times_first[0] = 0.0
+    times_dest[0]  = 0.0
     total_el = 0.0
 
-    # Phase 1: Handshake
+    # Phase 1: Handshake (SYN exchange completes at t = RTT)
     t = RTT
     pi1 = _link1.pi_stat @ _link1.P @ _link1.P
     pi2 = _link2.pi_stat @ _link2.P @ _link2.P
@@ -195,8 +201,10 @@ def _build_timeline(max_k=2000):
         for i in range(current_flight_size):
             k = seg + i + 1
             if k <= max_k:
-                times[k] = t + O + i * SER
-                flts[k]  = flt
+                # Arrival at First Hop (Link 1) vs Final Destination (Link 1 + Link 2)
+                times_first[k] = t + OWD1 + i * SER1
+                times_dest[k]  = t + OWD  + i * SER
+                flts[k]       = flt
         seg += current_flight_size
 
         dt_recovery = (2 * RTT + RTT * RACK_FRAC) * (0.5 if _ACTIVE_PROFILE_NAME == "none" else 1.0)
@@ -248,8 +256,9 @@ def _build_timeline(max_k=2000):
         for k_idx in range(seg_start + 1, seg_end + 1):
             if k_idx <= max_k:
                 fractional_offset = (k_idx - 1 - seg_start) / max(1.0, E_del)
-                times[k_idx] = t + O + (fractional_offset * W * SER)
-                flts[k_idx]  = flt
+                times_first[k_idx] = t + OWD1 + (fractional_offset * W * SER1)
+                times_dest[k_idx]  = t + OWD  + (fractional_offset * W * SER)
+                flts[k_idx]       = flt
 
         seg += E_del
         t   += E_dt
@@ -270,21 +279,31 @@ def _build_timeline(max_k=2000):
         cwnd = max(2.0, min(cwnd_next, LOCAL_MAX_CWND))
         flt += 1
 
-    return times, flts, total_el
+    return times_first, times_dest, flts, total_el
 
 # ─────────────────────── Public API ───────────────────────
 
 _cache: dict = {}
 
 def expected_time_k(k):
+    """Returns (t_first_hop, t_destination, flight_id) for segment k."""
     global _cache
-    if 'times' not in _cache or k >= len(_cache['times']):
+    if 'times_dest' not in _cache or k >= len(_cache['times_dest']):
         n = max(2000, k + 500)
-        t, f, el = _build_timeline(n)
-        _cache = {'times': t, 'flights': f, 'total_el': el}
+        t_first, t_dest, f, el = _build_timeline(n)
+        _cache = {
+            'times_first': t_first,
+            'times_dest': t_dest,
+            'flights': f,
+            'total_el': el
+        }
     if k <= 0:
-        return 0.0, 0
-    return float(_cache['times'][k]), int(_cache['flights'][k])
+        return 0.0, 0.0, 0
+    return (
+        float(_cache['times_first'][k]),
+        float(_cache['times_dest'][k]),
+        int(_cache['flights'][k])
+    )
 
 def get_total_retransmissions():
     global _cache
