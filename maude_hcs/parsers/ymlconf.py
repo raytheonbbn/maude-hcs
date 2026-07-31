@@ -10,7 +10,7 @@ from pathlib import Path
 from pprint import pp
 
 from maude_hcs import PROJECT_TOPLEVEL_DIR
-from maude_hcs.parsers.graph import Topology, LinkType, Address
+from maude_hcs.parsers.graph import Topology, LinkType, Address, Cp3Config
 from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
 from maude_hcs.parsers.protocolconfig import XFile
 from maude_hcs.parsers import load_yaml_to_dict
@@ -336,32 +336,19 @@ class YmlConf:
         # 1.2 Parse loss specs
         # I |Ii
         # II|I_
-        loss_names = ["bad", "poor", "fair", "good", "excellent", "none"]
-        loss_specs = {}
-        for ln in loss_names:
+        linktype_profiles = ["bad", "poor", "fair", "good", "excellent", "none"]
+        linktype_templates = {}
+        for ln in linktype_profiles:
             loss_spec_path = Path(loss_specs_dir) / (ln + ".yaml")
             loss_spec = load_yaml_to_dict(loss_spec_path)
-            loss_specs[ln] = LinkType.from_yml(ln, loss_spec)
 
-        # topo contains all nodes(actors), including their addresses and maude names / definitions
-        (topo, client_addrs) = Topology.from_yml_and_loss(self.data, loss_specs)
-        self.topo: Topology = topo
-        self.client_addrs: list[Address] = client_addrs
+            # these are basically "progenitor" or "template" linktypes, since they don't have names or latencies yet
+            linktype_templates[ln] = LinkType.from_yml("", loss_spec)
 
-        # TODO: should include baseline log
-        self.adversary = None
-
-        # TODO: copy logic from cp3_config
-        self.nameservers = None
-
-        # TODO: should contain initial messages to be tossed in the maude soup, along with actors
-        self.triggers = None
-
-        # TODO: should contain steganographic destini images, based on tgens
-        self.images = None
-
-        # TODO: should contain all the background params necessary for initial maude config
-        self.params = None
+        cp3_config = Cp3Config.from_yml_and_loss(self.data, linktype_templates)
+        self.topo: Topology = cp3_config.topo
+        self.client_addrs: list[Address] = cp3_config.client_addrs
+        self.undef_addrs: list[str] = cp3_config.undef_addrs
 
     def to_init_maude(self) -> str:
 
@@ -550,7 +537,7 @@ class YmlConf:
         linktypes = self.topo.get_link_types()
         linktype_decls = indent(1, [
             "ops",
-            *indent(1, list(map(lambda ltyp: ltyp.name, linktypes))),
+            *indent(1, list(map(lambda ltyp: ltyp.name(), linktypes))),
             ": -> AttributeSet",
         ])
 
