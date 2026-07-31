@@ -300,18 +300,11 @@ mod HCS_TEST is
                                 wtProxy2Addr)
   .
 
-  eq transport(any:Address) = tcp(any:Address) .
-
-  vars dt : Float .
-  vars icAddr isAddr ifsAddr : Address .
-  vars room : String .
-  op mkJoin : Float String Address Address Address -> ScheduleMsg .
-  eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =
-       [dt,
-       (to isAddr from ifsAddr :
-        JoinChannel(makeIrcChannelName(room), icAddr )),
-        0]
-  .
+  vars NID : NetId .
+  vars TT ROLE : TClass .
+  vars IX : Nat .
+  eq transport(a(NID, TT, wt, ROLE, IX)) = tcp(a(NID, TT, wt, ROLE, IX)) .
+  eq transport(any:Address) = any:Address [owise] .
 
   ---------------------------------------------------
   --- Initial configuration
@@ -348,14 +341,8 @@ mod HCS_TEST is
     --- Bob's WtClient initiates its tunnel.
     [0.15, (to wtClient2Addr from wtClient2Addr : WtStartCmd), 0]
     
-    --- Phase 2: Join Channels (after tunnels open at ~0.46)
-    mkJoin(1.0, "#chat", ircClient1Addr, ircServerAddr, server1IfaceAddr)
-    mkJoin(1.1, "#general", ircClient1Addr, ircServerAddr, server1IfaceAddr)
-    mkJoin(1.2, "#random", ircClient1Addr, ircServerAddr, server1IfaceAddr)
-    
-    mkJoin(1.3, "#chat", ircClient2Addr, ircServerAddr, server2IfaceAddr)
-    mkJoin(1.4, "#general", ircClient2Addr, ircServerAddr, server2IfaceAddr)
-    mkJoin(1.5, "#random", ircClient2Addr, ircServerAddr, server2IfaceAddr)
+    --- Phase 2: Join Channels handled automatically by UM-V2 set_room_numbers state
+    --- (no manual mkJoin messages over network needed)
 
     --- Phase 3: IRC message send timers.
     **** start alice
@@ -368,7 +355,7 @@ mod HCS_TEST is
   --- Run parameters
   ---------------------------------------------------
   op limit : -> Float .
-  eq limit = 300.0 .    --- simulate 30 simulated seconds
+  eq limit = 1000.0 .    --- simulate 30 simulated seconds
 
   op initConfig : -> Config .
   eq initConfig = run({0.0 | nil} initState, limit) .
@@ -381,67 +368,3 @@ set print attribute on .
 rew initConfig .
 q
 eof
-
----------------------------------------------------
---- Unit-level rewrite tests
----
---- Because this file imports webtunnel_prob, all rules use timed messages.
---- Unit tests therefore wrap messages in {T, ...} and include rCtr(0).
----------------------------------------------------
-
---- Test 1: WtClient transitions from Closed -> Connecting on WtStartCmd.
-rew rCtr(0)
-    wtClient1
-    {0.0, (to wtClient1Addr from wtClient1Addr : WtStartCmd)}
-.
-
---- Test 2: WtClient transitions from Connecting -> Open on WtConnected
----         and flushes the queued JoinChannel message.
-rew rCtr(0)
-    < wtClient1Addr : WtClient |
-        thisAddr:        wtClient1Addr,
-        serverProxyAddr: wtProxyAddr,
-        ircServerAddr:   ircServerAddr,
-        ircClientAddr:   ircClient1Addr,
-        tlsServerName:   "irc.example.com",
-        upgradePath:     "secret/path/v1",
-        tunnelState:     Connecting,
-        pendingMsgs:     enqueue(emptyQueue,
-                           JoinChannel(makeIrcChannelName("#maude-test"),
-                                       ircClient1Addr))
-    >
-    {0.0, (to wtClient1Addr from wtProxyAddr : makeHttpResponse("101 Switching Protocols"))}
-.
-
---- Test 3: WtServerProxy registers a tunnel on HttpRequest and schedules HttpResponse.
-rew rCtr(0)
-    wtProxy
-    {0.0, (to wtProxyAddr from wtClient1Addr
-            : makeHttpRequest(getRequest, url("https://irc.example.com/secret/path/v1")))}
-.
-
---- Test 4: WtServerProxy forwards a makeHttpRequest(getRequest, JoinChannel) from client to IRC server.
-rew rCtr(0)
-    < wtProxyAddr : WtServerProxy |
-        thisAddr:        wtProxyAddr,
-        ircServerAddr:   ircServerAddr,
-        tunnelClientMap: (makeIrcUserName(wtClient1Addr) ~> ircClient1Addr)
-    >
-    {0.0, (to wtProxyAddr from wtClient1Addr
-            : makeHttpRequest(getRequest, JoinChannel(makeIrcChannelName("#maude-test"), ircClient1Addr)))}
-.
-
---- Test 5: WtServerProxy routes a PrivMsgRes back through the tunnel to WtClient1.
-rew rCtr(0)
-    < wtProxyAddr : WtServerProxy |
-        thisAddr:        wtProxyAddr,
-        ircServerAddr:   ircServerAddr,
-        tunnelClientMap: (makeIrcUserName(wtClient1Addr) ~> ircClient1Addr)
-    >
-    {0.0, (to wtClient1Addr from ircServerAddr
-            : PrivMsgRes(makeIrcChannelName("#maude-test"),
-                         makeIrcUserName(ircClient2Addr),
-                         "alice:0:120"))}
-.
-
-
