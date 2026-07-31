@@ -401,7 +401,7 @@ mod SMC_CP3 is
   eq baselineTstart = 0.0 .
 
   op baselineTend : -> Float .
-  eq baselineTend = 2.0 .
+  eq baselineTend = 100.0 .
 
   var baselineCDF : List{Float} .
 
@@ -626,6 +626,34 @@ mod SMC_CP3 is
 
   op getBaselineCDFObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
   eq getBaselineCDFObsFeature (vp, obsF, F0Z, Tstart, Tend, binSize) = getECDFObsFeature(vp, obsF, F0Z, Tstart, Tend, binSize) . 
+
+***(
+  op getBaseline : Config -> Actor .
+  eq getBaseline (C < ADDR : BaseLineMonitor | attrs >) = < ADDR : BaseLineMonitor | attrs > .
+
+  var blElmt : BaseLineElement .
+  var blList : BaseLineList .
+
+  op extractCDF : BaselineElmt NetId Feature -> List{Float} . 
+  eq extractCDF (bl(vp, obsF, K, baselineCDF)) = baselineCDF .  
+  eq extractCDF (blElmt) = nil [owise] .  
+
+  op extractK : BaselineElmt NetId Feature  -> Float . 
+  eq extractK (bl(vp, obsF, K, baselineCDF), vp, obsF) = K .  
+  eq extractK (blElmt) = 0.0 [owise] .  
+
+  op getBaselineCDF : Actor NetId Feature Float Float Float -> List{Float} .
+  eq getBaselineCDF (< ADDR : BaseLineMonitor | baseline: bl(vp, obsF, K, baselineCDF) ;; blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) = 
+    baselineCDF . 
+  eq getBaselineCDF (< ADDR : BaseLineMonitor | baseline: bl(vp, obsF, K, baselineCDF) ;; blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) = 
+    getBaselineCDF(< ADDR : BaseLineMonitor | baseline: blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) [owise] . 
+      
+  op getBaselineK : Actor NetId Feature Float Float Float -> Float .
+  eq getBaselineK (< ADDR : BaseLineMonitor | baseline: bl(vp, obsF, K, baselineCDF) ;; blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) = 
+    K . 
+  eq getBaselineK (< ADDR : BaseLineMonitor | baseline: bl(vp, obsF, K, baselineCDF) ;; blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) = 
+    getBaselineK(< ADDR : BaseLineMonitor | baseline: blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) [owise] . 
+)
 
   op expectedKObsFeature : NetId Feature List{Float} TimesObsList Float Float Float Float Float Nat -> Float .
   eq expectedKObsFeature (vp, obsF, FL, GtZ, T, Tend, winSize, binSize, Ksum, N) =
