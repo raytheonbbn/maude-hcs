@@ -528,6 +528,17 @@ mod SMC_CP3 is
     then tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; filterFlow(Fid, TsML) 
     else filterFlow(Fid, TsML) fi . 
 
+  op filterWindow : TimesObsList Float Float -> TimesObsList .
+  eq filterWindow (nilTO, Tstart, Tend) = nilTO .
+  eq filterWindow (tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if (Tr < Tstart) or (Ts > Tend) 
+    then filterWindow(TsPL, Tstart, Tend) 
+    else tp(Ts, Tx, Tr, pkt) ;; filterWindow(TsPL, Tstart, Tend) fi . 
+  eq filterWindow (tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
+    if (Tr < Tstart) or (Ts > Tend) 
+    then filterWindow(TsML, Tstart, Tend)  
+    else tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; filterWindow(TsML, Tstart, Tend) fi .
+
   op compObsFeatureX : NetId Feature Flow TimesObsList Float Float -> Float .
   eq compObsFeatureX (vp, obsF, Fid, nilTO, Tstart, Tend) = 0.0 . 
   eq compObsFeatureX (vp, dnsQueryRate, Fid, TOL, Tstart, Tend) = 
@@ -602,7 +613,7 @@ mod SMC_CP3 is
     else nil fi .
 
   op collectObsFeature : NetId Feature Flow TimesObsList Float Float Float -> List{Float} .
-  eq collectObsFeature (vp, obsF, Fid, TOL, Tstart, winSize, binSize) = collectObsFeatureX(vp, obsF, Fid, filterFlow(Fid, TOL), Tstart, Tstart + winSize, binSize) .
+  eq collectObsFeature (vp, obsF, Fid, TOL, Tstart, winSize, binSize) = collectObsFeatureX(vp, obsF, Fid, filterWindow(filterFlow(Fid, TOL), Tstart, Tstart + winSize), Tstart, Tstart + winSize, binSize) .
 
   op collectObsFeatureFlow : NetId Feature FlowList TimesObsList Float Float Float -> List{Float} .
   eq collectObsFeatureFlow (vp, obsF, nilFlow, TOL, Tstart, winSize, binSize) = nil .
@@ -719,10 +730,10 @@ mod SMC_CP3 is
   op getToD : Actor NetId Feature Float Float Float Float Float -> Float .
   eq getToD (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H) = 
     if isDnsFeature(obsF) 
-    then getToDDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H) 
+    then getToDDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H, getBaselineCDFObsFeature (vp, obsF, TsML, baselineTstart, baselineTend, binSize), getKObsFeature (vp, obsF, TsML, baselineTstart, baselineTend, winSize, binSize)) 
     else 
       if isTcpFeature(obsF) 
-      then getToDTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H) 
+      then getToDTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H, getBaselineCDFObsFeature (vp, obsF, TsPL, baselineTstart, baselineTend, binSize), getKObsFeature (vp, obsF, TsPL, baselineTstart, baselineTend, winSize, binSize)) 
       else 0.0 fi fi .
 
   op getToD : Actor NetId Feature Float Float Float Float Float List{Float} Float -> Float .
@@ -737,10 +748,14 @@ mod SMC_CP3 is
   op getCUSUM : Actor NetId Feature Float Float Float Float -> Float .
   eq getCUSUM (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize) = 
     if isDnsFeature(obsF) 
-    then getCUSUMDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize) 
+    then getCUSUMDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, getBaselineCDFObsFeature (vp, obsF, TsML, baselineTstart, baselineTend, binSize), getKObsFeature (vp, obsF, TsML, baselineTstart, baselineTend, winSize, binSize)) 
+    --- then getCUSUMDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize)
+    --- both work, to be tested for scalability 
     else 
       if isTcpFeature(obsF) 
-      then getCUSUMTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize) 
+      then getCUSUMTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, getBaselineCDFObsFeature (vp, obsF, TsPL, baselineTstart, baselineTend, binSize), getKObsFeature (vp, obsF, TsPL, baselineTstart, baselineTend, winSize, binSize)) 
+      --- then getCUSUMTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize)
+      --- both work, to be tested for scalability 
       else 0.0 fi fi .
 
   op getCUSUM : Actor NetId Feature Float Float Float Float List{Float} Float -> Float .
@@ -871,7 +886,7 @@ mod SMC_CP3 is
   op sizeTCPUpload : NetId Flow TimesObsList Float Float -> Nat .
   eq sizeTCPUpload (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq sizeTCPUpload (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) --- and Fid == getFlow(pkt) 
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) --- and Fid == getFlow(pkt)  
     then size(pkt) + sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) 
     else sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) fi .
   eq sizeTCPUpload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) [owise] .
