@@ -1457,7 +1457,17 @@ mod HCS_TEST is
   --- Base Infrastructure
   ops ircServer s3SrvAct iodineMonitor advActor : -> Actor .
   eq ircServer      = mkIrcServer(ircServerAddr) .
-  eq s3SrvAct       = makeS3Server(s3SrvAddr) .
+  eq s3SrvAct       = 
+    < s3SrvAddr : AwsS3HttpServer |
+        thisAddr: s3SrvAddr,
+        s3DataMap: (
+          ("/tgen/list-1" -> restToByteSeq("obj1.zip;obj2.zip;data/")) ;
+          ("/tgen/stat-1" -> restToByteSeq("obj1.zip:1024:2025-01-01")) ;
+          ("/tgen/cd-1" -> restToByteSeq("subdir1/;subdir2/")) ;
+          ("/tgen/retr-1" -> restToByteSeq("mock_file_content_bytes"))
+        )
+    >
+  .
   eq masSrvAct      = makeMastodonServer(masSrvAddr) .
   eq iodineMonitor  = mkWMonitor(iodineMonitorAddr) .
   eq advActor       = mkAdversaryCp3(advAddr) .
