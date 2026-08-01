@@ -104,6 +104,8 @@ class JsonToMaudeV2Parser:
           "browse" |-> jo(("browse" |-> jf(0.5)), ("download" |-> jf(0.3)), ...),
           "download" |-> jo(...)
         """
+        if not markov_data:
+            return "empty"
         entries = []
         for state, transitions in markov_data.items():
             trans_entries = []
@@ -186,6 +188,8 @@ class JsonToMaudeV2Parser:
         Each state maps to a jo(...) containing its full state block.
         Idle/wait states are auto-expanded.
         """
+        if not states_data:
+            return "  empty"
         entries = []
         for sname, sdata in states_data.items():
             # Expand idle/wait states into full v2 state blocks
@@ -253,6 +257,22 @@ class JsonToMaudeV2Parser:
         states_data = data.get("states", {})
         params_data = data.get("parameters", {})
 
+        if not states_data and "actions" in data:
+            states_data = {}
+            for aname, adef in data["actions"].items():
+                sleep_val = adef.get("sleep", {"random": "gaussian", "mean": 0.0, "std": 0.0})
+                states_data[aname] = {
+                    "type": "state",
+                    "initial_action": aname,
+                    "dwell_steps": {"random": "gaussian", "mean": 1.0, "std": 0.0},
+                    "actions": {aname: adef},
+                    "markov": {aname: {aname: 1.0}},
+                    "burst_prob": 0.0,
+                    "burst_steps": {"random": "gaussian", "mean": 0.0, "std": 0.0},
+                    "inter_burst_delay": sleep_val,
+                    "intra_burst_delay": {"random": "gaussian", "mean": 0.0, "std": 0.0}
+                }
+
         # Convert sections
         markov_str = self.convert_v2_markov_section(markov_data)
         states_str = self.convert_v2_states_section(states_data)
@@ -277,19 +297,28 @@ class JsonToMaudeV2Parser:
         output.append(f"   mav2({m_name}-markov, {m_name}-states, {m_name}-params) .")
         output.append("")
 
-        output.append(f"eq {m_name}-markov =")
-        output.append(f"{markov_str}")
-        output.append("  .")
+        if markov_str.strip() == "empty":
+            output.append(f"eq {m_name}-markov = empty .")
+        else:
+            output.append(f"eq {m_name}-markov =")
+            output.append(f"{markov_str}")
+            output.append("  .")
         output.append("")
 
-        output.append(f"eq {m_name}-states =")
-        output.append(f"{states_str}")
-        output.append("  .")
+        if states_str.strip() == "empty":
+            output.append(f"eq {m_name}-states = empty .")
+        else:
+            output.append(f"eq {m_name}-states =")
+            output.append(f"{states_str}")
+            output.append("  .")
         output.append("")
 
-        output.append(f"eq {m_name}-params = (")
-        output.append(f"        {params_str}")
-        output.append("        ) .")
+        if not params_str.strip():
+            output.append(f"eq {m_name}-params = empty .")
+        else:
+            output.append(f"eq {m_name}-params = (")
+            output.append(f"        {params_str}")
+            output.append("        ) .")
         output.append("")
         output.append("endfm")
         output.append("")
@@ -298,34 +327,38 @@ class JsonToMaudeV2Parser:
         return "\n".join(output)
 
 
-def calculate_relative_load_path(full_output_path, target_lib_suffix="lib/common/maude/markov-action-model-v2.maude"):
+def calculate_relative_load_path(full_output_path, target_lib_suffix="maude_hcs/lib/common/maude/markov-action-model-v2.maude"):
     """
-    Calculates the relative path for the 'sload' statement by anchoring on the 'lib' directory.
+    Calculates the relative path for the 'sload' statement by anchoring on the repo root containing 'maude_hcs'.
     """
     abs_output_path = os.path.abspath(full_output_path)
-    parts = list(os.path.normpath(abs_output_path).split(os.sep))
+    curr = os.path.dirname(abs_output_path)
+    repo_root = None
+    while curr and curr != os.path.dirname(curr):
+        if os.path.exists(os.path.join(curr, "maude_hcs", "lib", "common", "maude", "markov-action-model-v2.maude")):
+            repo_root = curr
+            break
+        curr = os.path.dirname(curr)
 
-    if "lib" not in parts:
-        print(
-            f"Warning: Could not correctly determine the relative import. "
-            f"'lib' directory not found in path: {full_output_path}")
+    if repo_root is None:
+        parts = list(os.path.normpath(abs_output_path).split(os.sep))
+        if "lib" in parts:
+            lib_index = parts.index("lib")
+            root_parts = parts[:lib_index]
+            if abs_output_path.startswith(os.sep):
+                base_dir = os.sep + os.path.join(*root_parts) if root_parts else os.sep
+            else:
+                base_dir = os.path.join(*root_parts) if root_parts else "."
+            norm_suffix = os.path.normpath(target_lib_suffix)
+            target_abs_path = os.path.join(base_dir, norm_suffix)
+            source_dir = os.path.dirname(abs_output_path)
+            rel_path = os.path.relpath(target_abs_path, start=source_dir)
+            return rel_path.replace(os.sep, '/')
         return target_lib_suffix
 
-    lib_index = parts.index("lib")
-    root_parts = parts[:lib_index]
-
-    if abs_output_path.startswith(os.sep):
-        base_dir = os.sep + os.path.join(*root_parts) if root_parts else os.sep
-    elif parts[0].endswith(':'):
-        base_dir = os.path.join(*root_parts)
-    else:
-        base_dir = os.path.join(*root_parts) if root_parts else "."
-
-    norm_suffix = os.path.normpath(target_lib_suffix)
-    target_abs_path = os.path.join(base_dir, norm_suffix)
+    target_abs_path = os.path.join(repo_root, "maude_hcs", "lib", "common", "maude", "markov-action-model-v2.maude")
     source_dir = os.path.dirname(abs_output_path)
     rel_path = os.path.relpath(target_abs_path, start=source_dir)
-
     return rel_path.replace(os.sep, '/')
 
 
@@ -347,12 +380,16 @@ def process_directories(args, input_root, output_root):
                 full_input_path = os.path.join(root, file)
                 rel_dir = os.path.relpath(root, input_root)
                 stem = os.path.splitext(file)[0]
-                stem_clean = args.protocol + "-" + stem.replace("_", "-")
+                proto = args.protocol
+                if "tgen_user_models" in full_input_path and not proto.endswith("tgen"):
+                    stem_clean = f"{proto}-tgen-{stem.replace('_', '-')}"
+                else:
+                    stem_clean = f"{proto}-{stem.replace('_', '-')}"
 
                 target_dir = os.path.join(output_root, rel_dir)
                 os.makedirs(target_dir, exist_ok=True)
 
-                output_filename = f"{stem}-v2.maude"
+                output_filename = f"{stem}.maude"
                 full_output_path = os.path.join(target_dir, output_filename)
 
                 rel_load_path = calculate_relative_load_path(full_output_path)
@@ -392,11 +429,15 @@ def convert_single_file(args):
         return
 
     stem = os.path.splitext(os.path.basename(input_path))[0]
-    stem_clean = args.protocol + "-" + stem.replace("_", "-")
+    proto = args.protocol
+    if "tgen_user_models" in os.path.abspath(input_path) and not proto.endswith("tgen"):
+        stem_clean = f"{proto}-tgen-{stem.replace('_', '-')}"
+    else:
+        stem_clean = f"{proto}-{stem.replace('_', '-')}"
 
     if output_path is None:
         output_dir = os.path.dirname(input_path)
-        output_path = os.path.join(output_dir, f"{stem}-v2.maude")
+        output_path = os.path.join(output_dir, f"{stem}.maude")
 
     rel_load_path = calculate_relative_load_path(output_path)
 
