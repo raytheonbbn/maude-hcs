@@ -28,8 +28,6 @@
 #
 # MAUDE_HCS: end
 
-from maude_hcs.parsers.hcsconfig import HCSConfig
-from maude_hcs.serialize import MaudeHCSEncoder
 import logging
 import sys
 import os

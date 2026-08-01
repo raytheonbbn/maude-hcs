@@ -46,7 +46,7 @@ def main():
         loss_specs_dir,
         parent_dir / "data" / "baselines" / "pwnd_cp3_spot_check",
         output_dir, # path to directory where we should dump maude result
-        "out",
+        "out.maude",
     )
 
 if __name__ == "__main__":

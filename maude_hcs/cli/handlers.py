@@ -32,7 +32,7 @@ import json
 from .common import write_file_to_directory
 # from maude_hcs.analysis import HCSAnalysis
 from maude_hcs.lib import GLOBALS
-from maude_hcs.parsers.markovJsonToMaudeParser import process_directories
+from maude_hcs.parsers.markovV2JsonToMaudeParser import process_directories
 # from maude_hcs.lib.dns.cp3_config import mk_cp3_config
 import logging
 from pathlib import Path
@@ -41,8 +41,9 @@ from umaudemc.command.scheck import scheck
 import importlib.util
 import maude
 
-from ..parsers.hcsconfig import HCSConfig
-from ..parsers.ymlconf import parse_destini, YmlConf
+# from ..parsers.hcsconfig import HCSConfig
+from ..parsers.ymlconf import parse_destini
+from maude_hcs.parsers.cp3_config import Cp3Config
 
 logger = logging.getLogger(__name__)
 
@@ -50,21 +51,6 @@ MARKOV_NAME = 'markov'
 GENERATE_NAME = 'generate'
 SCHECK_NAME = 'scheck'
 IMAGES_NAME = 'images'
-
-def buildHCSConfig(args):
-    protocol = args.protocol
-    if args.run_args_filename:
-        return HCSConfig.from_file(Path(args.run_args_filename))
-    elif args.shadow_filename:
-        return HCSConfig.from_shadow(Path(args.shadow_filename))
-    # build from yml
-    elif args.yml_filename:
-        assert(args.loss_specs_dir is not None)
-        assert(args.baseline_dir is not None)
-        ymlconf = YmlConf(args.yml_filename, args.loss_specs_dir, args.baseline_dir)
-        return HCSConfig.from_yml_conf(ymlconf)
-    else:
-        raise ValueError("Unsupported input. Specify run_args or yml_filename or shadow_filename.")
 
 def handle_command(command, parser, args):
     handlers = {
@@ -87,8 +73,8 @@ def handle_generate(args, parser):
     if args.run_args_filename and args.yml_filename:
         raise Exception('Either specify a json HCS config with --run-args OR a yml config, but not both.')
 
-    ymlconf = YmlConf(args.yml_filename, args.loss_specs_dir, args.baseline_dir)
-    write_file_to_directory(ymlconf.to_init_maude(), args.output_dir, args.filename, True, parser)
+    conf = Cp3Config(args.yml_filename, args.loss_specs_dir, args.baseline_dir)
+    write_file_to_directory(conf.to_init_maude(), args.output_dir, args.filename, True, parser)
 
 def handle_scheck(args, parser):
     logger.debug("Handle umaudemc scheck")

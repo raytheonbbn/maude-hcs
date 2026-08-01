@@ -12,28 +12,12 @@ from pprint import pp
 from maude_hcs import PROJECT_TOPLEVEL_DIR
 from maude_hcs.parsers.graph import Topology, LinkType, Address, Cp3Config
 from maude_hcs.parsers.markovJsonToMaudeParser import find_and_load_json
-from maude_hcs.parsers.protocolconfig import XFile
 from maude_hcs.parsers import load_yaml_to_dict
 
 logger = logging.getLogger(__name__)
     
 def indent(i: int, lst: list[str]) -> list[str]:
     return [(" " * (i*4)) + line for line in lst]
-
-@dataclass_json
-@dataclass
-class UnderlyingNetwork:
-    server_fqdn: str
-    server_address: str
-
-@dataclass_json
-@dataclass
-class Alice:
-    mastodon_user: str
-    raceboat_prof_config: str
-    raceboat_prof: str
-    hashtags: List[str]
-    xfiles: List[XFile]
 
 @dataclass_json
 @dataclass
@@ -142,15 +126,6 @@ class Destini:
         lines.append("\n")
 
         return "\n".join(lines)
-
-@dataclass_json
-@dataclass
-class Application:
-    alice: Alice
-    bob: Bob
-    iodine: Iodine
-    destini: Destini
-
 
 @dataclass_json
 @dataclass
@@ -727,73 +702,6 @@ class YmlConf:
         
         return ret
 
-    def _parse_underlying(self, data: dict) -> UnderlyingNetwork:
-        return UnderlyingNetwork(
-            server_fqdn="mastodon.pwnd.com",
-            server_address=data["router_net"]["container_info"]["router_mastodon_net"]
-        )
-
-    def _parse_application(self, data: dict) -> Application:
-        node_data = data["nodes"]["node_type_mastodon"]["channel_config"][0]["vars"]
-
-        alice = Alice(
-            mastodon_user="alice",
-            raceboat_prof_config=node_data["client"]["user_model"],
-            raceboat_prof="client_default.json",
-            hashtags=[],
-            xfiles=[]
-        )
-
-        bob = Bob(
-            mastodon_user="bob",
-            raceboat_prof_config=node_data["client"]["user_model"],
-            raceboat_prof="server_default.json",
-        )
-
-        iodine = Iodine(
-            max_query_length=0,
-            max_response_size=0,
-        )
-
-        destini = self.load_destini_from_json()
-
-        return Application(alice=alice, bob=bob, iodine=iodine, destini=destini)
-
-    def _parse_adversary(self, data: dict, baseline_dir: str) -> Adversary:
-        baseline = data.get('adversary_phase0', {})
-        actual = data.get('adversary_phase1', {})
-
-        # Populate pre/post nat
-        vantage_points = actual.get('vantage_points', {})
-        router_pre_nat = vantage_points.get('router_pre_nat', {})
-        router_post_nat = vantage_points.get('router_post_nat', {})
-
-        # get adversary bins if they exist
-        # first get the filename for the bins
-        filename = None
-        baseline_bin_data = {}
-        scripts = router_post_nat.get('scripts', [])
-        for script in scripts:
-            name = script.get('name')
-            params = script.get('params', {})
-            if name == 'bin_loader':
-                filename = params['json_path']
-                break
-        if filename:
-            f = Path(ymlpath).parent.joinpath('zeek').joinpath(filename[1:])
-            try:
-                baseline_bin_data = find_and_load_json(f.parent, f.parts[-1])
-            except:
-                logger.warning(f'Failed to load baseline bin data from {f}')
-
-        return Adversary(
-            baseline=baseline,
-            baseline_bins=baseline_bin_data,
-            actual=actual,
-            router_pre_nat=router_pre_nat,
-            router_post_nat=router_post_nat
-        )
-
     def load_destini_from_json(self) -> Destini:
         """
         Parses a JSON file and creates a Destini object.
@@ -802,7 +710,7 @@ class YmlConf:
         # from_json() is provided by the @dataclass_json decorator
         return Destini.from_dict(json_content)
 
-def parse_destini(input_directory: str) -> str:
+def parse_destini(input_directory: str) -> Destini:
     """
     Scans a directory for files, creates CoverImage objects, builds a Destini object,
     and returns its JSON string representation.
