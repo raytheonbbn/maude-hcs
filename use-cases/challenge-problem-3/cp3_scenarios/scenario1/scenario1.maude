@@ -246,7 +246,7 @@ mod HCS_TEST is
   eq maxPacketSize              = 967 .
   --- how much to delay the HCS and TGENs
   ops hcsDelay tgenDelay : -> Float .
-  eq hcsDelay  = 60. [owise] .
+  eq hcsDelay  = 0. [owise] .
   eq tgenDelay = 30.0 [owise] .
 
   --- User Model Database (MAModelMap)
@@ -768,7 +768,6 @@ mod HCS_TEST is
   eq transport(ircTgenSky4TgAddr) = tcp(ircTgenSky4TgAddr) .
   eq transport(ftpSrvAddr) = tcp(ftpSrvAddr) .
   eq transport(gorillaSrvAddr) = tcp(gorillaSrvAddr) .
-  eq transport(minioS3SrvAddr) = tcp(minioS3SrvAddr) .
   eq transport(ircServerAddr) = tcp(ircServerAddr) .
 
   --- UDP transport for DNS resolvers
@@ -908,8 +907,8 @@ mod HCS_TEST is
     aaa(IXP-DEFAULT-ADDR, publicDnsAddr, LinkType-Dns)
 
     --- TGEN IXP Links
-    aaa(minioS3SrvAddr, minTgenSky2S3ClAddr, LinkType-ClientNetSky)
-    aaa(minTgenSky2S3ClAddr, minioS3SrvAddr, LinkType-ClientNetSky)
+    aaa(s3SrvAddr, minTgenSky2S3ClAddr, LinkType-ClientNetSky)
+    aaa(minTgenSky2S3ClAddr, s3SrvAddr, LinkType-ClientNetSky)
     aaa(masTgenMas1McAddr, IXP-DEFAULT-ADDR, LinkType-Ixp)
     aaa(IXP-DEFAULT-ADDR, masTgenMas1McAddr, LinkType-Ixp)
     aaa(masTgenMas1TgAddr, IXP-DEFAULT-ADDR, LinkType-Ixp)
@@ -1226,8 +1225,7 @@ mod HCS_TEST is
     aaa(IXP-DEFAULT-ADDR, ftpSrvAddr, LinkType-Ixp)
     aaa(gorillaSrvAddr, IXP-DEFAULT-ADDR, LinkType-Ixp)
     aaa(IXP-DEFAULT-ADDR, gorillaSrvAddr, LinkType-Ixp)
-    aaa(minioS3SrvAddr, IXP-DEFAULT-ADDR, LinkType-Ixp)
-    aaa(IXP-DEFAULT-ADDR, minioS3SrvAddr, LinkType-Ixp)  .
+  .
 
   ---------------------------------------------------
   --- Actor Declarations & Definitions
@@ -1521,19 +1519,6 @@ mod HCS_TEST is
   ops gorillaSrvAct gorillaNetSrvAct : -> Actor .
   eq gorillaSrvAct   = mkGorillaChatServer(gorillaSrvAddr, (gorTgenMas1TgAddr addr gorTgenMas2TgAddr addr gorTgenMas3TgAddr addr gorTgenMas4TgAddr addr gorTgenRt1TgAddr addr gorTgenRt2TgAddr addr gorTgenRt3TgAddr addr gorTgenRt4TgAddr addr gorTgenIod1TgAddr addr gorTgenIod2TgAddr addr gorTgenIod3TgAddr addr gorTgenIod4TgAddr addr gorTgenObfs1TgAddr addr gorTgenObfs2TgAddr addr gorTgenObfs3TgAddr addr gorTgenObfs4TgAddr addr gorTgenSky1TgAddr addr gorTgenSky2TgAddr addr gorTgenSky3TgAddr addr gorTgenSky4TgAddr)) .
   eq gorillaNetSrvAct = makeNetServer(gorillaNetSrvAddr, gorillaSrvAddr) .
-
-  ops minioS3SrvAct : -> Actor .
-  eq minioS3SrvAct =
-    < minioS3SrvAddr : AwsS3HttpServer |
-        thisAddr: minioS3SrvAddr,
-        s3DataMap: (
-          ("/tgen/list-1" -> restToByteSeq("obj1.zip;obj2.zip;data/")) ;
-          ("/tgen/stat-1" -> restToByteSeq("obj1.zip:1024:2025-01-01")) ;
-          ("/tgen/cd-1" -> restToByteSeq("subdir1/;subdir2/")) ;
-          ("/tgen/retr-1" -> restToByteSeq("mock_file_content_bytes"))
-        )
-    >
-  .
 
   ops ircTgenSrvNet : -> Actor .
   eq ircTgenSrvNet = makeNetServer(ircTgenSrvNetAddr, ircServerAddr) .
@@ -2169,10 +2154,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenMas1 (profile=fast, network=client_net_mastodon)
   ops minTgenMas1Act minTgenMas1UmAct minTgenMas1S3ClAct minTgenMas1NetClAct : -> Actor .
   eq minTgenMas1Act      = mkMinioTgenA(minTgenMas1TgAddr, minTgenMas1S3ClAddr, "tgen", "minio") .
-  eq minTgenMas1S3ClAct  = makeS3Client(minTgenMas1S3ClAddr, minioS3SrvAddr) .
+  eq minTgenMas1S3ClAct  = makeS3Client(minTgenMas1S3ClAddr, s3SrvAddr) .
   eq minTgenMas1UmAct    = mkTgenUMV2Actor(minTgenMas1UmAddr, "minio-tgen-fast", minTgenMas1TgAddr) .
   eq minTgenMas1NetClAct = makeNetClient(minTgenMas1NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenMas1S3ClAddr,
                                   true,
                                   corpMasDnsAddr,
@@ -2181,10 +2166,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenMas2 (profile=fast, network=client_net_mastodon)
   ops minTgenMas2Act minTgenMas2UmAct minTgenMas2S3ClAct minTgenMas2NetClAct : -> Actor .
   eq minTgenMas2Act      = mkMinioTgenA(minTgenMas2TgAddr, minTgenMas2S3ClAddr, "tgen", "minio") .
-  eq minTgenMas2S3ClAct  = makeS3Client(minTgenMas2S3ClAddr, minioS3SrvAddr) .
+  eq minTgenMas2S3ClAct  = makeS3Client(minTgenMas2S3ClAddr, s3SrvAddr) .
   eq minTgenMas2UmAct    = mkTgenUMV2Actor(minTgenMas2UmAddr, "minio-tgen-fast", minTgenMas2TgAddr) .
   eq minTgenMas2NetClAct = makeNetClient(minTgenMas2NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenMas2S3ClAddr,
                                   true,
                                   corpMasDnsAddr,
@@ -2193,10 +2178,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenMas3 (profile=slow, network=client_net_mastodon)
   ops minTgenMas3Act minTgenMas3UmAct minTgenMas3S3ClAct minTgenMas3NetClAct : -> Actor .
   eq minTgenMas3Act      = mkMinioTgenA(minTgenMas3TgAddr, minTgenMas3S3ClAddr, "tgen", "minio") .
-  eq minTgenMas3S3ClAct  = makeS3Client(minTgenMas3S3ClAddr, minioS3SrvAddr) .
+  eq minTgenMas3S3ClAct  = makeS3Client(minTgenMas3S3ClAddr, s3SrvAddr) .
   eq minTgenMas3UmAct    = mkTgenUMV2Actor(minTgenMas3UmAddr, "minio-tgen-slow", minTgenMas3TgAddr) .
   eq minTgenMas3NetClAct = makeNetClient(minTgenMas3NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenMas3S3ClAddr,
                                   true,
                                   corpMasDnsAddr,
@@ -2205,10 +2190,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenMas4 (profile=slow, network=client_net_mastodon)
   ops minTgenMas4Act minTgenMas4UmAct minTgenMas4S3ClAct minTgenMas4NetClAct : -> Actor .
   eq minTgenMas4Act      = mkMinioTgenA(minTgenMas4TgAddr, minTgenMas4S3ClAddr, "tgen", "minio") .
-  eq minTgenMas4S3ClAct  = makeS3Client(minTgenMas4S3ClAddr, minioS3SrvAddr) .
+  eq minTgenMas4S3ClAct  = makeS3Client(minTgenMas4S3ClAddr, s3SrvAddr) .
   eq minTgenMas4UmAct    = mkTgenUMV2Actor(minTgenMas4UmAddr, "minio-tgen-slow", minTgenMas4TgAddr) .
   eq minTgenMas4NetClAct = makeNetClient(minTgenMas4NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenMas4S3ClAddr,
                                   true,
                                   corpMasDnsAddr,
@@ -2217,10 +2202,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenRt1 (profile=fast, network=client_net_racetunnel)
   ops minTgenRt1Act minTgenRt1UmAct minTgenRt1S3ClAct minTgenRt1NetClAct : -> Actor .
   eq minTgenRt1Act      = mkMinioTgenA(minTgenRt1TgAddr, minTgenRt1S3ClAddr, "tgen", "minio") .
-  eq minTgenRt1S3ClAct  = makeS3Client(minTgenRt1S3ClAddr, minioS3SrvAddr) .
+  eq minTgenRt1S3ClAct  = makeS3Client(minTgenRt1S3ClAddr, s3SrvAddr) .
   eq minTgenRt1UmAct    = mkTgenUMV2Actor(minTgenRt1UmAddr, "minio-tgen-fast", minTgenRt1TgAddr) .
   eq minTgenRt1NetClAct = makeNetClient(minTgenRt1NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenRt1S3ClAddr,
                                   true,
                                   corpRtDnsAddr,
@@ -2229,10 +2214,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenRt2 (profile=medium, network=client_net_racetunnel)
   ops minTgenRt2Act minTgenRt2UmAct minTgenRt2S3ClAct minTgenRt2NetClAct : -> Actor .
   eq minTgenRt2Act      = mkMinioTgenA(minTgenRt2TgAddr, minTgenRt2S3ClAddr, "tgen", "minio") .
-  eq minTgenRt2S3ClAct  = makeS3Client(minTgenRt2S3ClAddr, minioS3SrvAddr) .
+  eq minTgenRt2S3ClAct  = makeS3Client(minTgenRt2S3ClAddr, s3SrvAddr) .
   eq minTgenRt2UmAct    = mkTgenUMV2Actor(minTgenRt2UmAddr, "minio-tgen-medium", minTgenRt2TgAddr) .
   eq minTgenRt2NetClAct = makeNetClient(minTgenRt2NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenRt2S3ClAddr,
                                   true,
                                   corpRtDnsAddr,
@@ -2241,10 +2226,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenRt3 (profile=medium, network=client_net_racetunnel)
   ops minTgenRt3Act minTgenRt3UmAct minTgenRt3S3ClAct minTgenRt3NetClAct : -> Actor .
   eq minTgenRt3Act      = mkMinioTgenA(minTgenRt3TgAddr, minTgenRt3S3ClAddr, "tgen", "minio") .
-  eq minTgenRt3S3ClAct  = makeS3Client(minTgenRt3S3ClAddr, minioS3SrvAddr) .
+  eq minTgenRt3S3ClAct  = makeS3Client(minTgenRt3S3ClAddr, s3SrvAddr) .
   eq minTgenRt3UmAct    = mkTgenUMV2Actor(minTgenRt3UmAddr, "minio-tgen-medium", minTgenRt3TgAddr) .
   eq minTgenRt3NetClAct = makeNetClient(minTgenRt3NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenRt3S3ClAddr,
                                   true,
                                   corpRtDnsAddr,
@@ -2253,10 +2238,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenRt4 (profile=slow, network=client_net_racetunnel)
   ops minTgenRt4Act minTgenRt4UmAct minTgenRt4S3ClAct minTgenRt4NetClAct : -> Actor .
   eq minTgenRt4Act      = mkMinioTgenA(minTgenRt4TgAddr, minTgenRt4S3ClAddr, "tgen", "minio") .
-  eq minTgenRt4S3ClAct  = makeS3Client(minTgenRt4S3ClAddr, minioS3SrvAddr) .
+  eq minTgenRt4S3ClAct  = makeS3Client(minTgenRt4S3ClAddr, s3SrvAddr) .
   eq minTgenRt4UmAct    = mkTgenUMV2Actor(minTgenRt4UmAddr, "minio-tgen-slow", minTgenRt4TgAddr) .
   eq minTgenRt4NetClAct = makeNetClient(minTgenRt4NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenRt4S3ClAddr,
                                   true,
                                   corpRtDnsAddr,
@@ -2265,10 +2250,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenIod1 (profile=medium, network=client_net_iodine)
   ops minTgenIod1Act minTgenIod1UmAct minTgenIod1S3ClAct minTgenIod1NetClAct : -> Actor .
   eq minTgenIod1Act      = mkMinioTgenA(minTgenIod1TgAddr, minTgenIod1S3ClAddr, "tgen", "minio") .
-  eq minTgenIod1S3ClAct  = makeS3Client(minTgenIod1S3ClAddr, minioS3SrvAddr) .
+  eq minTgenIod1S3ClAct  = makeS3Client(minTgenIod1S3ClAddr, s3SrvAddr) .
   eq minTgenIod1UmAct    = mkTgenUMV2Actor(minTgenIod1UmAddr, "minio-tgen-medium", minTgenIod1TgAddr) .
   eq minTgenIod1NetClAct = makeNetClient(minTgenIod1NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenIod1S3ClAddr,
                                   true,
                                   corpIodDnsAddr,
@@ -2277,10 +2262,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenIod2 (profile=medium, network=client_net_iodine)
   ops minTgenIod2Act minTgenIod2UmAct minTgenIod2S3ClAct minTgenIod2NetClAct : -> Actor .
   eq minTgenIod2Act      = mkMinioTgenA(minTgenIod2TgAddr, minTgenIod2S3ClAddr, "tgen", "minio") .
-  eq minTgenIod2S3ClAct  = makeS3Client(minTgenIod2S3ClAddr, minioS3SrvAddr) .
+  eq minTgenIod2S3ClAct  = makeS3Client(minTgenIod2S3ClAddr, s3SrvAddr) .
   eq minTgenIod2UmAct    = mkTgenUMV2Actor(minTgenIod2UmAddr, "minio-tgen-medium", minTgenIod2TgAddr) .
   eq minTgenIod2NetClAct = makeNetClient(minTgenIod2NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenIod2S3ClAddr,
                                   true,
                                   corpIodDnsAddr,
@@ -2289,10 +2274,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenIod3 (profile=slow, network=client_net_iodine)
   ops minTgenIod3Act minTgenIod3UmAct minTgenIod3S3ClAct minTgenIod3NetClAct : -> Actor .
   eq minTgenIod3Act      = mkMinioTgenA(minTgenIod3TgAddr, minTgenIod3S3ClAddr, "tgen", "minio") .
-  eq minTgenIod3S3ClAct  = makeS3Client(minTgenIod3S3ClAddr, minioS3SrvAddr) .
+  eq minTgenIod3S3ClAct  = makeS3Client(minTgenIod3S3ClAddr, s3SrvAddr) .
   eq minTgenIod3UmAct    = mkTgenUMV2Actor(minTgenIod3UmAddr, "minio-tgen-slow", minTgenIod3TgAddr) .
   eq minTgenIod3NetClAct = makeNetClient(minTgenIod3NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenIod3S3ClAddr,
                                   true,
                                   corpIodDnsAddr,
@@ -2301,10 +2286,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenIod4 (profile=slow, network=client_net_iodine)
   ops minTgenIod4Act minTgenIod4UmAct minTgenIod4S3ClAct minTgenIod4NetClAct : -> Actor .
   eq minTgenIod4Act      = mkMinioTgenA(minTgenIod4TgAddr, minTgenIod4S3ClAddr, "tgen", "minio") .
-  eq minTgenIod4S3ClAct  = makeS3Client(minTgenIod4S3ClAddr, minioS3SrvAddr) .
+  eq minTgenIod4S3ClAct  = makeS3Client(minTgenIod4S3ClAddr, s3SrvAddr) .
   eq minTgenIod4UmAct    = mkTgenUMV2Actor(minTgenIod4UmAddr, "minio-tgen-slow", minTgenIod4TgAddr) .
   eq minTgenIod4NetClAct = makeNetClient(minTgenIod4NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenIod4S3ClAddr,
                                   true,
                                   corpIodDnsAddr,
@@ -2313,10 +2298,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenObfs1 (profile=fast, network=client_net_obfs)
   ops minTgenObfs1Act minTgenObfs1UmAct minTgenObfs1S3ClAct minTgenObfs1NetClAct : -> Actor .
   eq minTgenObfs1Act      = mkMinioTgenA(minTgenObfs1TgAddr, minTgenObfs1S3ClAddr, "tgen", "minio") .
-  eq minTgenObfs1S3ClAct  = makeS3Client(minTgenObfs1S3ClAddr, minioS3SrvAddr) .
+  eq minTgenObfs1S3ClAct  = makeS3Client(minTgenObfs1S3ClAddr, s3SrvAddr) .
   eq minTgenObfs1UmAct    = mkTgenUMV2Actor(minTgenObfs1UmAddr, "minio-tgen-fast", minTgenObfs1TgAddr) .
   eq minTgenObfs1NetClAct = makeNetClient(minTgenObfs1NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenObfs1S3ClAddr,
                                   true,
                                   corpObfsDnsAddr,
@@ -2325,10 +2310,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenObfs2 (profile=fast, network=client_net_obfs)
   ops minTgenObfs2Act minTgenObfs2UmAct minTgenObfs2S3ClAct minTgenObfs2NetClAct : -> Actor .
   eq minTgenObfs2Act      = mkMinioTgenA(minTgenObfs2TgAddr, minTgenObfs2S3ClAddr, "tgen", "minio") .
-  eq minTgenObfs2S3ClAct  = makeS3Client(minTgenObfs2S3ClAddr, minioS3SrvAddr) .
+  eq minTgenObfs2S3ClAct  = makeS3Client(minTgenObfs2S3ClAddr, s3SrvAddr) .
   eq minTgenObfs2UmAct    = mkTgenUMV2Actor(minTgenObfs2UmAddr, "minio-tgen-fast", minTgenObfs2TgAddr) .
   eq minTgenObfs2NetClAct = makeNetClient(minTgenObfs2NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenObfs2S3ClAddr,
                                   true,
                                   corpObfsDnsAddr,
@@ -2337,10 +2322,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenObfs3 (profile=medium, network=client_net_obfs)
   ops minTgenObfs3Act minTgenObfs3UmAct minTgenObfs3S3ClAct minTgenObfs3NetClAct : -> Actor .
   eq minTgenObfs3Act      = mkMinioTgenA(minTgenObfs3TgAddr, minTgenObfs3S3ClAddr, "tgen", "minio") .
-  eq minTgenObfs3S3ClAct  = makeS3Client(minTgenObfs3S3ClAddr, minioS3SrvAddr) .
+  eq minTgenObfs3S3ClAct  = makeS3Client(minTgenObfs3S3ClAddr, s3SrvAddr) .
   eq minTgenObfs3UmAct    = mkTgenUMV2Actor(minTgenObfs3UmAddr, "minio-tgen-medium", minTgenObfs3TgAddr) .
   eq minTgenObfs3NetClAct = makeNetClient(minTgenObfs3NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenObfs3S3ClAddr,
                                   true,
                                   corpObfsDnsAddr,
@@ -2349,10 +2334,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenObfs4 (profile=medium, network=client_net_obfs)
   ops minTgenObfs4Act minTgenObfs4UmAct minTgenObfs4S3ClAct minTgenObfs4NetClAct : -> Actor .
   eq minTgenObfs4Act      = mkMinioTgenA(minTgenObfs4TgAddr, minTgenObfs4S3ClAddr, "tgen", "minio") .
-  eq minTgenObfs4S3ClAct  = makeS3Client(minTgenObfs4S3ClAddr, minioS3SrvAddr) .
+  eq minTgenObfs4S3ClAct  = makeS3Client(minTgenObfs4S3ClAddr, s3SrvAddr) .
   eq minTgenObfs4UmAct    = mkTgenUMV2Actor(minTgenObfs4UmAddr, "minio-tgen-medium", minTgenObfs4TgAddr) .
   eq minTgenObfs4NetClAct = makeNetClient(minTgenObfs4NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenObfs4S3ClAddr,
                                   true,
                                   corpObfsDnsAddr,
@@ -2361,10 +2346,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenSky1 (profile=fast, network=client_net_sky)
   ops minTgenSky1Act minTgenSky1UmAct minTgenSky1S3ClAct minTgenSky1NetClAct : -> Actor .
   eq minTgenSky1Act      = mkMinioTgenA(minTgenSky1TgAddr, minTgenSky1S3ClAddr, "tgen", "minio") .
-  eq minTgenSky1S3ClAct  = makeS3Client(minTgenSky1S3ClAddr, minioS3SrvAddr) .
+  eq minTgenSky1S3ClAct  = makeS3Client(minTgenSky1S3ClAddr, s3SrvAddr) .
   eq minTgenSky1UmAct    = mkTgenUMV2Actor(minTgenSky1UmAddr, "minio-tgen-fast", minTgenSky1TgAddr) .
   eq minTgenSky1NetClAct = makeNetClient(minTgenSky1NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenSky1S3ClAddr,
                                   true,
                                   corpSkyDnsAddr,
@@ -2373,10 +2358,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenSky2 (profile=fast, network=client_net_sky)
   ops minTgenSky2Act minTgenSky2UmAct minTgenSky2S3ClAct minTgenSky2NetClAct : -> Actor .
   eq minTgenSky2Act      = mkMinioTgenA(minTgenSky2TgAddr, minTgenSky2S3ClAddr, "tgen", "minio") .
-  eq minTgenSky2S3ClAct  = makeS3Client(minTgenSky2S3ClAddr, minioS3SrvAddr) .
+  eq minTgenSky2S3ClAct  = makeS3Client(minTgenSky2S3ClAddr, s3SrvAddr) .
   eq minTgenSky2UmAct    = mkTgenUMV2Actor(minTgenSky2UmAddr, "minio-tgen-fast", minTgenSky2TgAddr) .
   eq minTgenSky2NetClAct = makeNetClient(minTgenSky2NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenSky2S3ClAddr,
                                   true,
                                   corpSkyDnsAddr,
@@ -2385,10 +2370,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenSky3 (profile=medium, network=client_net_sky)
   ops minTgenSky3Act minTgenSky3UmAct minTgenSky3S3ClAct minTgenSky3NetClAct : -> Actor .
   eq minTgenSky3Act      = mkMinioTgenA(minTgenSky3TgAddr, minTgenSky3S3ClAddr, "tgen", "minio") .
-  eq minTgenSky3S3ClAct  = makeS3Client(minTgenSky3S3ClAddr, minioS3SrvAddr) .
+  eq minTgenSky3S3ClAct  = makeS3Client(minTgenSky3S3ClAddr, s3SrvAddr) .
   eq minTgenSky3UmAct    = mkTgenUMV2Actor(minTgenSky3UmAddr, "minio-tgen-medium", minTgenSky3TgAddr) .
   eq minTgenSky3NetClAct = makeNetClient(minTgenSky3NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenSky3S3ClAddr,
                                   true,
                                   corpSkyDnsAddr,
@@ -2397,10 +2382,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenSky4 (profile=slow, network=client_net_sky)
   ops minTgenSky4Act minTgenSky4UmAct minTgenSky4S3ClAct minTgenSky4NetClAct : -> Actor .
   eq minTgenSky4Act      = mkMinioTgenA(minTgenSky4TgAddr, minTgenSky4S3ClAddr, "tgen", "minio") .
-  eq minTgenSky4S3ClAct  = makeS3Client(minTgenSky4S3ClAddr, minioS3SrvAddr) .
+  eq minTgenSky4S3ClAct  = makeS3Client(minTgenSky4S3ClAddr, s3SrvAddr) .
   eq minTgenSky4UmAct    = mkTgenUMV2Actor(minTgenSky4UmAddr, "minio-tgen-slow", minTgenSky4TgAddr) .
   eq minTgenSky4NetClAct = makeNetClient(minTgenSky4NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenSky4S3ClAddr,
                                   true,
                                   corpSkyDnsAddr,
@@ -2409,10 +2394,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenSrv1 (profile=medium, network=server_net)
   ops minTgenSrv1Act minTgenSrv1UmAct minTgenSrv1S3ClAct minTgenSrv1NetClAct : -> Actor .
   eq minTgenSrv1Act      = mkMinioTgenA(minTgenSrv1TgAddr, minTgenSrv1S3ClAddr, "tgen", "minio") .
-  eq minTgenSrv1S3ClAct  = makeS3Client(minTgenSrv1S3ClAddr, minioS3SrvAddr) .
+  eq minTgenSrv1S3ClAct  = makeS3Client(minTgenSrv1S3ClAddr, s3SrvAddr) .
   eq minTgenSrv1UmAct    = mkTgenUMV2Actor(minTgenSrv1UmAddr, "minio-tgen-medium", minTgenSrv1TgAddr) .
   eq minTgenSrv1NetClAct = makeNetClient(minTgenSrv1NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenSrv1S3ClAddr,
                                   true,
                                   servDnsAddr,
@@ -2421,10 +2406,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenSrv2 (profile=medium, network=server_net)
   ops minTgenSrv2Act minTgenSrv2UmAct minTgenSrv2S3ClAct minTgenSrv2NetClAct : -> Actor .
   eq minTgenSrv2Act      = mkMinioTgenA(minTgenSrv2TgAddr, minTgenSrv2S3ClAddr, "tgen", "minio") .
-  eq minTgenSrv2S3ClAct  = makeS3Client(minTgenSrv2S3ClAddr, minioS3SrvAddr) .
+  eq minTgenSrv2S3ClAct  = makeS3Client(minTgenSrv2S3ClAddr, s3SrvAddr) .
   eq minTgenSrv2UmAct    = mkTgenUMV2Actor(minTgenSrv2UmAddr, "minio-tgen-medium", minTgenSrv2TgAddr) .
   eq minTgenSrv2NetClAct = makeNetClient(minTgenSrv2NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenSrv2S3ClAddr,
                                   true,
                                   servDnsAddr,
@@ -2433,10 +2418,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenSrv3 (profile=slow, network=server_net)
   ops minTgenSrv3Act minTgenSrv3UmAct minTgenSrv3S3ClAct minTgenSrv3NetClAct : -> Actor .
   eq minTgenSrv3Act      = mkMinioTgenA(minTgenSrv3TgAddr, minTgenSrv3S3ClAddr, "tgen", "minio") .
-  eq minTgenSrv3S3ClAct  = makeS3Client(minTgenSrv3S3ClAddr, minioS3SrvAddr) .
+  eq minTgenSrv3S3ClAct  = makeS3Client(minTgenSrv3S3ClAddr, s3SrvAddr) .
   eq minTgenSrv3UmAct    = mkTgenUMV2Actor(minTgenSrv3UmAddr, "minio-tgen-slow", minTgenSrv3TgAddr) .
   eq minTgenSrv3NetClAct = makeNetClient(minTgenSrv3NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenSrv3S3ClAddr,
                                   true,
                                   servDnsAddr,
@@ -2445,10 +2430,10 @@ mod HCS_TEST is
   --- MinIO TGEN: minTgenSrv4 (profile=slow, network=server_net)
   ops minTgenSrv4Act minTgenSrv4UmAct minTgenSrv4S3ClAct minTgenSrv4NetClAct : -> Actor .
   eq minTgenSrv4Act      = mkMinioTgenA(minTgenSrv4TgAddr, minTgenSrv4S3ClAddr, "tgen", "minio") .
-  eq minTgenSrv4S3ClAct  = makeS3Client(minTgenSrv4S3ClAddr, minioS3SrvAddr) .
+  eq minTgenSrv4S3ClAct  = makeS3Client(minTgenSrv4S3ClAddr, s3SrvAddr) .
   eq minTgenSrv4UmAct    = mkTgenUMV2Actor(minTgenSrv4UmAddr, "minio-tgen-slow", minTgenSrv4TgAddr) .
   eq minTgenSrv4NetClAct = makeNetClient(minTgenSrv4NetClAddr,
-                                  minioS3SrvAddr,
+                                  s3SrvAddr,
                                   minTgenSrv4S3ClAddr,
                                   true,
                                   servDnsAddr,
@@ -2957,7 +2942,6 @@ mod HCS_TEST is
     --- TGEN Shared Servers
     ftpSrvAct ftpNetSrvAct
     gorillaSrvAct gorillaNetSrvAct
-    minioS3SrvAct
     ircTgenSrvNet
 
     --- TGEN Instances
@@ -3274,7 +3258,6 @@ mod HCS_TEST is
   op allClientsAddr : -> AddrList .
   eq allClientsAddr = wtCl1IrcAddr ; wtCl2IrcAddr ; skyCl3IrcAddr ; skyCl4IrcAddr ; obfsCl5IrcAddr ; obfsCl6IrcAddr ; iodCl7IrcAddr ; iodCl8IrcAddr ; masCl9IrcAddr ; ircTgenMas1TgAddr ; ircTgenMas2TgAddr ; ircTgenMas3TgAddr ; ircTgenMas4TgAddr ; ircTgenRt1TgAddr ; ircTgenRt2TgAddr ; ircTgenRt3TgAddr ; ircTgenRt4TgAddr ; ircTgenIod1TgAddr ; ircTgenIod2TgAddr ; ircTgenIod3TgAddr ; ircTgenIod4TgAddr ; ircTgenObfs1TgAddr ; ircTgenObfs2TgAddr ; ircTgenObfs3TgAddr ; ircTgenObfs4TgAddr ; ircTgenSky1TgAddr ; ircTgenSky2TgAddr ; ircTgenSky3TgAddr ; ircTgenSky4TgAddr .
 endm
-eof
 set print attribute on .
 rew initConfig .
 q
