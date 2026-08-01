@@ -69,10 +69,57 @@ mod NETWORK_CONNECTION is
   
   vars dtgt dixp : Float .
   vars cnxMap : AddrAttrsList .
+  
+  sorts UdpAddress .
+  subsorts UdpAddress < Address .
+  op udp : Address -> UdpAddress .
 
   sort AttrsAttrsMsgsNat .
   op `{_`,_`,_`,_`} : AttributeSet AttributeSet Config Nat 
   -> AttrsAttrsMsgsNat [ctor] .
+
+*********************************************************
+**** Network Client Rules - udp
+***********************************************************
+
+ 
+  crl [net-client-req-udp]:
+  rCtr(j)
+  < netAddr : NetClient | netAttrs >
+  < advAddr : Adversary | advAttrs >
+    {T, (to udp(REMOTE_ADDR) from LOCAL_ADDR : content)}
+  =>
+  rCtr(j1)
+  < netAddr : NetClient | netAttrs1 >
+  < advAddr : Adversary | advAttrs1 >
+  smsgs
+  if netAttrs0, localIfaceAddr: LOCAL_ADDR
+                := netAttrs
+  /\  amsg := {T,(to REMOTE_ADDR from LOCAL_ADDR : content)}
+  /\ {netAttrs1,advAttrs1,smsgs,j1}   
+       := netClientUdpReq(netAttrs,advAttrs,netAddr,amsg,j) 
+[ print "(" T ") Net client udp " netAddr " processing request " content]        
+  .
+    
+  op netClientUdpReq : AttributeSet AttributeSet Address
+          ActiveMsg Nat -> AttrsAttrsMsgsNat .
+  eq netClientUdpReq(netAttrs,advAttrs,netAddr,amsg,j) =
+      {netAttrs,advAttrs,null,j}
+      [owise print "netClientUdpReq fails"] .
+      
+  ceq netClientUdpReq(netAttrs,advAttrs,netAddr,amsg,j) =
+    {netAttrs,advAttrs1,dmsg,s s j}  
+  if netAttrs0, localIfaceAddr: LOCAL_ADDR, 
+                ixpAddr: IXP_ADDR := netAttrs
+  /\ {T,msg} := amsg
+  /\ (to REMOTE_ADDR from LOCAL_ADDR : content) := msg
+  /\ msg_to_ixp := (to IXP_ADDR from LOCAL_ADDR : content)
+  /\ dixp := delayParamdX(j,msg_to_ixp)  
+  /\ dtgt := delayParamdX(s j,msg)  
+  /\ tmsg := tm(T,T + dixp, T + dtgt, msg)
+  /\ advAttrs1 := addTM2Dns(advAttrs,tmsg)
+  /\ dmsg := [dtgt,msg,0]
+ .  
 
  
 *********************************************************
@@ -238,7 +285,6 @@ if netAttrs0, w4: (msgs (to rsvAddr from netAddr : query))
 /\ netAttrs1 := netAttrs0, w4: msgs    
 .   
 
-***(
 op qrMatch : Query Response  -> Bool .
 
 eq qrMatch(query(id:Id,name:Name,r:RType),
@@ -247,7 +293,7 @@ eq qrMatch(query(id:Id,name:Name,r:RType),
    = true .             
 eq qrMatch(Q:Query,R:Response) = false [owise] .
 
-)
+
 
 -----------------------------------
   crl [net-client-resp]:
