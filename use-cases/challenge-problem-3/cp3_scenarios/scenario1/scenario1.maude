@@ -247,7 +247,7 @@ mod HCS_TEST is
   --- how much to delay the HCS and TGENs
   ops hcsDelay tgenDelay : -> Float .
   eq hcsDelay  = 60. [owise] .
-  eq tgenDelay = 300. [owise] .
+  eq tgenDelay = 30.0 [owise] .
 
   --- User Model Database (MAModelMap)
   eq MAModelMap =
@@ -773,17 +773,15 @@ mod HCS_TEST is
 
   --- UDP transport for DNS resolvers
   eq transport(publicDnsAddr) = udp(publicDnsAddr) .
-  eq transport(corpMasDnsAddr) = udp(corpMasDnsAddr) .
-  eq transport(corpRtDnsAddr) = udp(corpRtDnsAddr) .
-  eq transport(corpIodDnsAddr) = udp(corpIodDnsAddr) .
-  eq transport(corpObfsDnsAddr) = udp(corpObfsDnsAddr) .
-  eq transport(corpSkyDnsAddr) = udp(corpSkyDnsAddr) .
-  eq transport(servDnsAddr) = udp(servDnsAddr) .
+  eq transport(corpMasDnsAddr) = corpMasDnsAddr .
+  eq transport(corpRtDnsAddr) = corpRtDnsAddr .
+  eq transport(corpObfsDnsAddr) = corpObfsDnsAddr .
+  eq transport(corpSkyDnsAddr) = corpSkyDnsAddr .
+  eq transport(servDnsAddr) = servDnsAddr .
 
   eq transport(corpIodDnsAddr)    = corpIodDnsAddr .
   eq transport(iodCl7ServerAddr) = iodCl7ServerAddr .
   eq transport(iodCl7NetServerAddr) = iodCl7NetServerAddr .
-  eq transport(corpIodDnsAddr)    = corpIodDnsAddr .
   eq transport(iodCl8ServerAddr) = iodCl8ServerAddr .
   eq transport(iodCl8NetServerAddr) = iodCl8NetServerAddr .
 
@@ -910,6 +908,8 @@ mod HCS_TEST is
     aaa(IXP-DEFAULT-ADDR, publicDnsAddr, LinkType-Dns)
 
     --- TGEN IXP Links
+    aaa(minioS3SrvAddr, minTgenSky2S3ClAddr, LinkType-ClientNetSky)
+    aaa(minTgenSky2S3ClAddr, minioS3SrvAddr, LinkType-ClientNetSky)
     aaa(masTgenMas1McAddr, IXP-DEFAULT-ADDR, LinkType-Ixp)
     aaa(IXP-DEFAULT-ADDR, masTgenMas1McAddr, LinkType-Ixp)
     aaa(masTgenMas1TgAddr, IXP-DEFAULT-ADDR, LinkType-Ixp)
@@ -1525,6 +1525,7 @@ mod HCS_TEST is
   ops minioS3SrvAct : -> Actor .
   eq minioS3SrvAct =
     < minioS3SrvAddr : AwsS3HttpServer |
+        thisAddr: minioS3SrvAddr,
         s3DataMap: (
           ("/tgen/list-1" -> restToByteSeq("obj1.zip;obj2.zip;data/")) ;
           ("/tgen/stat-1" -> restToByteSeq("obj1.zip:1024:2025-01-01")) ;
@@ -3123,30 +3124,30 @@ mod HCS_TEST is
     [hcsDelay + 10.0 + genRandomX(j, 0.0, 0.0001), (to masCl9UmAddr from masCl9UmAddr : burstDelayTO), 0]
 
     --- TGEN User Model Burst Delay Timers (staggered)
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenMas1UmAddr from masTgenMas1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenMas2UmAddr from masTgenMas2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenMas3UmAddr from masTgenMas3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenMas4UmAddr from masTgenMas4UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenRt1UmAddr from masTgenRt1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenRt2UmAddr from masTgenRt2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenRt3UmAddr from masTgenRt3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenRt4UmAddr from masTgenRt4UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenIod1UmAddr from masTgenIod1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenIod2UmAddr from masTgenIod2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenIod3UmAddr from masTgenIod3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenIod4UmAddr from masTgenIod4UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenObfs1UmAddr from masTgenObfs1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenObfs2UmAddr from masTgenObfs2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenObfs3UmAddr from masTgenObfs3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenObfs4UmAddr from masTgenObfs4UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSky1UmAddr from masTgenSky1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSky2UmAddr from masTgenSky2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSky3UmAddr from masTgenSky3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSky4UmAddr from masTgenSky4UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSrv1UmAddr from masTgenSrv1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSrv2UmAddr from masTgenSrv2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSrv3UmAddr from masTgenSrv3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSrv4UmAddr from masTgenSrv4UmAddr : burstDelayTO), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenMas1UmAddr from masTgenMas1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenMas2UmAddr from masTgenMas2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenMas3UmAddr from masTgenMas3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenMas4UmAddr from masTgenMas4UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenRt1UmAddr from masTgenRt1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenRt2UmAddr from masTgenRt2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenRt3UmAddr from masTgenRt3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenRt4UmAddr from masTgenRt4UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenIod1UmAddr from masTgenIod1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenIod2UmAddr from masTgenIod2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenIod3UmAddr from masTgenIod3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenIod4UmAddr from masTgenIod4UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenObfs1UmAddr from masTgenObfs1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenObfs2UmAddr from masTgenObfs2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenObfs3UmAddr from masTgenObfs3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenObfs4UmAddr from masTgenObfs4UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSky1UmAddr from masTgenSky1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSky2UmAddr from masTgenSky2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSky3UmAddr from masTgenSky3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSky4UmAddr from masTgenSky4UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSrv1UmAddr from masTgenSrv1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSrv2UmAddr from masTgenSrv2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSrv3UmAddr from masTgenSrv3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to masTgenSrv4UmAddr from masTgenSrv4UmAddr : actionR("ok")), 0]
     [tgenDelay + genRandomX(j, 0.0, 0.0001), (to ftpTgenMas1UmAddr from ftpTgenMas1UmAddr : burstDelayTO), 0]
     [tgenDelay + genRandomX(j, 0.0, 0.0001), (to ftpTgenMas2UmAddr from ftpTgenMas2UmAddr : burstDelayTO), 0]
     [tgenDelay + genRandomX(j, 0.0, 0.0001), (to ftpTgenMas3UmAddr from ftpTgenMas3UmAddr : burstDelayTO), 0]
@@ -3167,30 +3168,30 @@ mod HCS_TEST is
     [tgenDelay + genRandomX(j, 0.0, 0.0001), (to ftpTgenSky2UmAddr from ftpTgenSky2UmAddr : burstDelayTO), 0]
     [tgenDelay + genRandomX(j, 0.0, 0.0001), (to ftpTgenSky3UmAddr from ftpTgenSky3UmAddr : burstDelayTO), 0]
     [tgenDelay + genRandomX(j, 0.0, 0.0001), (to ftpTgenSky4UmAddr from ftpTgenSky4UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenMas1UmAddr from dnsTgenMas1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenMas2UmAddr from dnsTgenMas2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenMas3UmAddr from dnsTgenMas3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenMas4UmAddr from dnsTgenMas4UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenRt1UmAddr from dnsTgenRt1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenRt2UmAddr from dnsTgenRt2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenRt3UmAddr from dnsTgenRt3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenRt4UmAddr from dnsTgenRt4UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenIod1UmAddr from dnsTgenIod1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenIod2UmAddr from dnsTgenIod2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenIod3UmAddr from dnsTgenIod3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenIod4UmAddr from dnsTgenIod4UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenObfs1UmAddr from dnsTgenObfs1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenObfs2UmAddr from dnsTgenObfs2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenObfs3UmAddr from dnsTgenObfs3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenObfs4UmAddr from dnsTgenObfs4UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSky1UmAddr from dnsTgenSky1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSky2UmAddr from dnsTgenSky2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSky3UmAddr from dnsTgenSky3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSky4UmAddr from dnsTgenSky4UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSrv1UmAddr from dnsTgenSrv1UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSrv2UmAddr from dnsTgenSrv2UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSrv3UmAddr from dnsTgenSrv3UmAddr : burstDelayTO), 0]
-    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSrv4UmAddr from dnsTgenSrv4UmAddr : burstDelayTO), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenMas1UmAddr from dnsTgenMas1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenMas2UmAddr from dnsTgenMas2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenMas3UmAddr from dnsTgenMas3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenMas4UmAddr from dnsTgenMas4UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenRt1UmAddr from dnsTgenRt1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenRt2UmAddr from dnsTgenRt2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenRt3UmAddr from dnsTgenRt3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenRt4UmAddr from dnsTgenRt4UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenIod1UmAddr from dnsTgenIod1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenIod2UmAddr from dnsTgenIod2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenIod3UmAddr from dnsTgenIod3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenIod4UmAddr from dnsTgenIod4UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenObfs1UmAddr from dnsTgenObfs1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenObfs2UmAddr from dnsTgenObfs2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenObfs3UmAddr from dnsTgenObfs3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenObfs4UmAddr from dnsTgenObfs4UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSky1UmAddr from dnsTgenSky1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSky2UmAddr from dnsTgenSky2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSky3UmAddr from dnsTgenSky3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSky4UmAddr from dnsTgenSky4UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSrv1UmAddr from dnsTgenSrv1UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSrv2UmAddr from dnsTgenSrv2UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSrv3UmAddr from dnsTgenSrv3UmAddr : actionR("ok")), 0]
+    [tgenDelay + genRandomX(j, 0.0, 0.0001), (to dnsTgenSrv4UmAddr from dnsTgenSrv4UmAddr : actionR("ok")), 0]
     [tgenDelay + genRandomX(j, 0.0, 0.0001), (to minTgenMas1UmAddr from minTgenMas1UmAddr : burstDelayTO), 0]
     [tgenDelay + genRandomX(j, 0.0, 0.0001), (to minTgenMas2UmAddr from minTgenMas2UmAddr : burstDelayTO), 0]
     [tgenDelay + genRandomX(j, 0.0, 0.0001), (to minTgenMas3UmAddr from minTgenMas3UmAddr : burstDelayTO), 0]
