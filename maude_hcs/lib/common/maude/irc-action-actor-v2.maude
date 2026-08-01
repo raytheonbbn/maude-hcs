@@ -44,9 +44,10 @@ mod IRC-USER-ACTION-ACTOR-V2 is
 vars mname str mstr mstr1 astr astr1 rstr 
      type room room0 : String .
 vars cmAddr umAddr addr C_ADDR : Address .
+vars ircSrvAddr ircClAddr ircSrvIfaceAddr : Address .
 vars attrs attrs0 attrs1 attrs2 : AttributeSet .
 vars nd nd1 nb  nb1  nj j j0 j1 j2  n : Nat .
-vars T Ts d  bd  bp fl flc flf : Float .
+vars T Ts d d0 bd  bp fl flc flf : Float .
 vars smsgs smsgs2 msgs : Config .
 vars msg : Msg .
 vars dmsg : ScheduleMsg .
@@ -67,11 +68,15 @@ eq strJn2natStrX(((str |-> jv),mj),ns) =
      strJn2natStrX(mj, ns) [owise] .     
 
 
-op mkIrcUMV2Actor : Address String Address -> Actor .
-eq mkIrcUMV2Actor(umAddr,mname,cmAddr) =
+ops ircSrvAddr:_ ircSrvIfaceAddr:_ : Address -> Attribute [ctor] .
+
+op mkIrcUMV2Actor : Address String Address Address Address -> Actor .
+eq mkIrcUMV2Actor(umAddr,mname,cmAddr,ircSrvAddr,ircSrvIfaceAddr) =
   < umAddr : UM-V2 | 
     v2mname:  mname,
-    cmAddr:  cmAddr, ---- (role of fnmap),
+    cmAddr:  cmAddr, ---- ircClAddr
+    ircSrvAddr: ircSrvAddr,
+    ircSrvIfaceAddr: ircSrvIfaceAddr,
     stopTime:  getModelTimeOut(getPars(mname)),
     modelSteps: getModelSteps(getPars(mname)),
     nextMode: getInitialState(mname), --- starting_state
@@ -86,6 +91,16 @@ eq mkIrcUMV2Actor(umAddr,mname,cmAddr) =
     w4: null
   >
   .        
+
+op getIrcSrvAddr : AttributeSet -> Address .
+eq getIrcSrvAddr((attrs,  ircSrvAddr: ircSrvAddr)) = ircSrvAddr .
+
+op getIrcSrvIfaceAddr : AttributeSet -> Address .
+eq getIrcSrvIfaceAddr((attrs, ircSrvIfaceAddr: ircSrvIfaceAddr))
+       = ircSrvIfaceAddr .
+
+op getIrcClientAddr : AttributeSet -> Address .
+eq getIrcClientAddr((attrs,  cmAddr: cmAddr)) = cmAddr .  
 
 ------------------------------------------
 eq exeActionIrc(attrs,umAddr,j) = {attrs,null,j} [owise] .
@@ -120,6 +135,7 @@ jo((("type" |-> js("set_room_numbers")),
 ("rooms" |-> jo((("#chat" |-> jn(0)), ("#general" |-> jn(1)), ("#random" |-> jn(2))))))),
 setRoomMap call rcvActRv2 (T == 0.0)
 )
+***(
   op SetRoomNumbersCmd : Address Map{Nat,String} -> Content [ctor] .
 
   vars N M : Nat .
@@ -144,17 +160,43 @@ setRoomMap call rcvActRv2 (T == 0.0)
   op getCmAddr : AttributeSet -> Address .
   eq getCmAddr((attrs0, cmAddr: cmAddr)) = cmAddr .
   eq getCmAddr(attrs0) = nullAddr [owise] .
+)
+
+
+  op addMsgToRes : AttributeSetMsgsNat Config -> AttributeSetMsgsNat .
+  eq addMsgToRes({attrs2, smsgs2, j2}, smsgs) = {attrs2, smsgs smsgs2, j2} .
 
   op setRoomMap : AttributeSet Map{Nat,String} -> AttributeSet .
   eq setRoomMap((attrs0, roomMap: ns0), ns) = (attrs0, roomMap: ns) .
   eq setRoomMap(attrs0, ns) = (attrs0, roomMap: ns) [owise] .
 
+op genJoinMsgs : Map{Nat,String} Address Address Address Float Nat Config -> ConfigNat .
+eq genJoinMsgs(empty, 
+               ircClAddr,ircSrvAddr,ircSrvIfaceAddr, 
+               d,j,smsgs) = {smsgs,j} .
+
+ceq genJoinMsgs((ns, (n |-> str)), 
+               ircClAddr,ircSrvAddr,ircSrvIfaceAddr, 
+               d,j,smsgs)
+  = genJoinMsgs(ns, 
+               ircClAddr,ircSrvAddr,ircSrvIfaceAddr, 
+               d0, s j,smsgs dmsg)
+if msg := (to ircSrvAddr from ircSrvIfaceAddr :
+   JoinChannel(makeIrcChannelName(str), ircClAddr))
+/\ d0 := d + genRandomX(j,0.0,0.000001)
+/\ dmsg := [d0,msg,0] 
+.
+
+
 ceq exeActionIrcType(attrs,umAddr,"set_room_numbers",aspec, j)
-  = addMsgToRes(rcvActRv2(setRoomMap(attrs, ns),umAddr,0.0,j), dmsg)
+  = addMsgToRes(rcvActRv2(setRoomMap(attrs, ns),umAddr,0.0,j), smsgs)
 if mj := getJOmap(aspec["rooms"])
-/\ ns := strJn2natStr(mj) 
-/\ cmAddr := getCmAddr(attrs)
-/\ dmsg := [0.0, (to a(srvN, srv, irc, srv, 0) from cmAddr : SetRoomNumbersCmd(cmAddr, ns)), 0]
+/\ ns := strJn2natStr(mj) ---- inverts map
+/\ ircSrvAddr := getIrcSrvAddr(attrs)
+/\ ircClAddr := getIrcClientAddr(attrs)
+/\ ircSrvIfaceAddr := getIrcSrvIfaceAddr(attrs)
+/\ {smsgs,j1} := genJoinMsgs(ns,ircClAddr,ircSrvAddr,ircSrvIfaceAddr,
+                             0.0,j,null)
 .
 
 ceq exeActionIrcType(attrs,umAddr,"select_room",aspec, j)
@@ -187,6 +229,7 @@ if attrs0, w4: null := attrs
 /\ {smsgs,j1} := delayMsgsX(j,msg,null)
 .
 
+ ***(
   crl [server-handle-set-room-numbers]:
   < IRC_SERVER_ADDR : IrcServer | attrsSrv >
     {T, (to IRC_SERVER_ADDR from ircClientAddr : SetRoomNumbersCmd(ircClientAddr, ns))}
@@ -196,7 +239,7 @@ if attrs0, w4: null := attrs
   /\ attrsSrv1 := registerClientRooms(refreshUser(attrsSrv, ircClientAddr, T), ns, ircClientAddr, srvIfaceAddr, T)
   [print "(" T ") IRC Server registered rooms for " ircClientAddr " from set_room_numbers." ]
   .
-
+)
 endm
 eof
 
