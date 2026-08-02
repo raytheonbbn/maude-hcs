@@ -1,0 +1,206 @@
+set show advisories off .
+
+sload ../../deps/dns_formalization/Maude/dns/common/prelim
+sload ../common/maude/cp2-interfaces.maude
+sload ../common/maude/delay-drop-x
+sload ../common/maude/adversary-cp3
+sload ../common/maude/dns-util
+
+mod NET-DNS is
+  pr CP2-COMMON .
+  inc MSG .
+  inc DELAY-X .
+  inc ADVERSARY-CP3 .
+  inc DNS-UTIL .
+  
+  vars addr myAddr pubDnsNetAddr  pubDnsAddr localDnsAddr 
+       ixpAddr netAddr advAddr  localAddr : Address .
+  vars msg msg_to_net msg_to_pub msg_to_ixp msg_to_loc : Msg .
+  vars dixp dtgt T : Float .
+  vars j j1 : Nat .
+  vars attrs netAttrs netAttrs0 netAttrs1  netAttrs2 
+       advAttrs advAttrs1  : AttributeSet .
+  vars tmsg : TimesMsg .
+  vars dmsg : ScheduleMsg .
+  vars amsg : ActiveMsg .
+  vars msgs smsgs msgs0 msgs1 : Config .
+  vars tml tml1 : TimesObsList .
+  vars query : Query .
+  vars response : Response .
+
+
+op addTM2Dns : AttributeSet TimesObsList -> AttributeSet .
+eq addTM2Dns((attrs, dns: tml),tml1) =
+                            attrs, dns: (tml ;; tml1) .
+eq addTM2Dns(attrs,tml1) = (attrs, dns: tml1 ).
+
+ops FwdDnsNetC PubDnsNetS : -> ActorType .
+
+****  attributes
+  op pubDnsNetAddr:_ : Address -> Attribute [ctor] .
+  op localDnsAddr:_ :  Address -> Attribute [ctor] .
+  op pubDnsAddr:_ : Address -> Attribute [ctor] .
+  op ixpAddr:_ : Address -> Attribute [ctor] .
+  op pending:_ : Config -> Attribute [ctor] .
+
+
+op mkFwdDnsNetC : Address Address Address Address  Address 
+                   -> Actor .
+eq mkFwdDnsNetC(myAddr,pubDnsNetAddr, pubDnsAddr, 
+                localDnsAddr, ixpAddr)  =
+    < myAddr : FwdDnsNetC | pubDnsNetAddr: pubDnsNetAddr, 
+                            pubDnsAddr: pubDnsAddr, 
+                            localDnsAddr: localDnsAddr,
+                            ixpAddr: ixpAddr
+                            >
+  .
+
+op mkPubDnsNetS : Address Address Address -> Actor .  
+eq mkPubDnsNetS(myAddr,pubDnsAddr,ixpAddr) =
+    < myAddr : PubDnsNetS | pubDnsAddr: pubDnsAddr, 
+                            ixpAddr: ixpAddr,
+                            pending: null >
+  .
+
+*********************************************************
+**** DNS Network Client Rule
+**** localDns sends to 
+***********************************************************
+ 
+ *** assuming only a forwarder Dns actor knows the net-dns-client
+ *** and only sends queries
+ 
+  crl [net-dns-client-rcvQ]:
+  rCtr(j)
+  < netAddr : FwdDnsNetC | netAttrs >
+  < advAddr : Adversary | advAttrs >
+    {T, (to netAddr from localAddr : query)}
+  =>
+  rCtr(j1)
+  < netAddr : FwdDnsNetC | netAttrs >
+  < advAddr : Adversary | advAttrs1 >
+  smsgs
+  if amsg := {T,(to netAddr from localAddr : query)}
+  /\ {advAttrs1,smsgs,j1}   
+       := dnsNnetClientReq(netAttrs,advAttrs,netAddr,amsg,j) 
+[print "(" T ") DnsNet client  " netAddr " processing query " query]        
+  .
+     
+  op dnsNnetClientReq : AttributeSet AttributeSet Address
+          ActiveMsg Nat -> AttributeSetMsgsNat .
+  eq dnsNnetClientReq(netAttrs,advAttrs,netAddr,amsg,j) =
+      {advAttrs,null,j}
+   [owise print "dnsNetClientReq fails " netAddr " amsg " amsg] .
+      
+  ceq dnsNnetClientReq(netAttrs,advAttrs,netAddr,amsg,j) =
+    {advAttrs1,dmsg,s s j}  
+  if netAttrs0, pubDnsNetAddr: pubDnsNetAddr, 
+                pubDnsAddr: pubDnsAddr,
+                localDnsAddr: localDnsAddr,
+                ixpAddr: ixpAddr := netAttrs
+  /\ {T,msg} := amsg
+  /\ (to netAddr from localDnsAddr : query )  := msg
+  /\ msg_to_net := (to pubDnsNetAddr from netAddr : query)
+  /\ msg_to_pub := (to pubDnsAddr from localDnsAddr : query)
+  /\ msg_to_ixp := (to ixpAddr from localDnsAddr  : query)
+  /\ dixp := delayParamdX(j,msg_to_ixp)  
+  /\ dtgt := delayParamdX(s j,msg_to_pub)  
+  /\ tmsg := tm(T,T + dixp, T + dtgt, msg_to_pub)
+  /\ advAttrs1 := addTM2Dns(advAttrs,tmsg)
+  /\ dmsg := [dtgt,msg_to_net,0]
+ .  
+
+  crl [net-dns-client-rcvR]:
+  rCtr(j)
+  < netAddr : FwdDnsNetC | netAttrs >
+  < advAddr : Adversary | advAttrs >
+    {T, (to netAddr from addr : response)}
+  =>
+  rCtr(j1)
+  < netAddr : FwdDnsNetC | netAttrs >
+  < advAddr : Adversary | advAttrs >
+  smsgs
+  if netAttrs0,  localDnsAddr: localDnsAddr := netAttrs
+  /\ msg := (to localDnsAddr from  netAddr : response)
+  /\ {smsgs,j1}  := delayMsgsX(j,msg,null) 
+[ print "(" T ") DnsNet client  " netAddr " processing response " response]        
+  .
+         
+
+ *********************************************************
+**** Public resolver network  Rules 
+***********************************************************
+*** assuming only a net-dns-client actor or the
+*** public resolver actor know the net-dns-server
+*** so the net-dns-server actor only receives queries and responses
+
+  crl [net-dns-server-query]:
+  rCtr(j)
+  < netAddr : PubDnsNetS | netAttrs >
+    {T, (to netAddr from localAddr : query)}
+  =>
+  rCtr(j1)
+  < netAddr : PubDnsNetS | netAttrs2 >
+  smsgs
+  if netAttrs0, pubDnsAddr: pubDnsAddr := netAttrs
+  /\ netAttrs1, pending: msgs := netAttrs                 
+  /\ msg := (to pubDnsAddr from netAddr : query)
+  /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+  /\ netAttrs2 := netAttrs1, 
+             pending: (msgs (to netAddr from localAddr : query))
+          
+**** [ print "(" T ") Net Dns client " netAddr " handling query, sending " smsgs ]
+.
+--------------------------------------
+
+  crl [net-dns-server-response]:
+  rCtr(j)
+  < netAddr : PubDnsNetS | netAttrs >
+  < advAddr : Adversary | advAttrs >
+    {T, (to netAddr from pubDnsAddr : response)}
+  =>
+  rCtr(j1)
+  < netAddr : PubDnsNetS | netAttrs2 >
+  < advAddr : Adversary | advAttrs1 >
+  smsgs
+  if amsg := {T, (to netAddr from pubDnsAddr : response)}
+  /\ {advAttrs1,smsgs,msgs1,j1} :=
+        netDnsSrvResponse(netAttrs,advAttrs,netAddr,amsg,j)
+  /\ netAttrs1, pending: msgs := netAttrs                 
+  /\ netAttrs2 := netAttrs1, pending: msgs1
+          
+**** [ print "(" T ") Net Dns server " netAddr " handling response, " response " sending " smsgs ]
+.
+
+op getPending : AttributeSet -> Config .
+eq getPending((attrs, pending: msgs)) = msgs .
+eq getPending(attrs) = null [owise] .
+
+op netDnsSrvResponse : AttributeSet AttributeSet Address 
+                       ActiveMsg Nat -> AttributeSetMsgsMsgsNat .
+eq [netDnsSrvResponse]:
+ netDnsSrvResponse(netAttrs,advAttrs,netAddr,amsg,j)
+    = {advAttrs,null,getPending(netAttrs),j}  
+  [owise print "netDnsSrvResponse " netAddr " failed"] .
+
+ceq  netDnsSrvResponse(netAttrs,advAttrs,netAddr,amsg,j)
+   = {advAttrs1,dmsg,msgs0,s s j} 
+  if {T, (to netAddr from pubDnsAddr : response)} := amsg
+  /\ msgs0 (to netAddr from localAddr : query)
+            := getPending(netAttrs)  
+  /\ qrMatch(query,response)
+  /\ netAttrs0, pubDnsAddr: pubDnsAddr,
+               ixpAddr: ixpAddr := netAttrs
+  /\ msg_to_loc := (to localAddr from pubDnsAddr : response)
+  /\ msg_to_ixp := (to ixpAddr from pubDnsAddr  : response)
+  /\ dixp := delayParamdX(j,msg_to_ixp)  
+  /\ dtgt := delayParamdX(s j,msg_to_loc)  
+  /\ tmsg := tm(T,T + dixp, T + dtgt, msg_to_loc)
+  /\ advAttrs1 := addTM2Dns(advAttrs,tmsg)
+  /\ dmsg := [dtgt,msg_to_loc,0]
+.   
+
+
+
+endm
+eof
