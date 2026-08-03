@@ -1,451 +1,189 @@
-from .common import Address, Node, Link, LinkType, Counter, TGenType, TGenConfig, Topology, indent, profile_to_maude
+from .common import Lines, indented_lines, LinkType, Counter, TGenType, TGenConfig, Cp3ConfigChunk, indent_all, profile_to_maude, Insert, InsertType, pairs_to_names_and_binds
 
-def insert_mastodon_tgens(
-    tgen_cfgs: list[TGenConfig],
-    topo: Topology,
-    mastodon_server: Node,
-    mastodon_server_linktypes: tuple[LinkType, LinkType],
-    subnet_idx: int):
+def mk_mastodon_tgen(
+    cfg: TGenConfig,
+    tgen_idx: int,
+    addr_ctr: Counter,
+    ixp_linktype: LinkType,
+) -> Cp3ConfigChunk:
 
-  for i, tgen_cfg in enumerate(tgen_cfgs):
-    mast_tgen_addr = Address(f"mast-tgen-addr-{i}", f"a(cl[{subnet_idx}],tgen,mas,app,1)") # TODO: what does this actually represent?
-    mast_tgen_usermodel_addr = Address(f"mast-tgen-usermodel-addr-{i}", f"a(cl[{subnet_idx}],tgen,mas,um,1)")
-    mast_client_addr = Address(f"mast-client-addr-{i}", f"a(cl[{subnet_idx}],tgen,mas,cl,1)")
-
-    maude_prof = profile_to_maude(tgen_cfg.profile)
-    mast_tgen = Node(
-      mast_tgen_addr,
-      f"mast-tgen-{i}",
-      f"mkMasTGenActor({mast_tgen_addr.name}, {mast_client_addr.name}, ed-images, {maude_prof})")
-    mast_tgen_usermodel = Node(
-      mast_tgen_usermodel_addr,
-      f"mast-tgen-usermodel-{i}",
-      f"mkUMactor({mast_tgen_usermodel_addr.name}, {maude_prof}, {mast_tgen_addr.name})")
-    mast_client = Node(
-      mast_client_addr,
-      f"mast-client-{i}",
-      f"makeMastodonClient({mast_client_addr.name}, {mastodon_server.addr.name}, {mast_tgen_addr.name})")
-
-    # TODO: fix this! this node doesn't use a predefined address for some reason idk
-    mast_tgen_netclient = Node(
-      Address("temp", f"a(cl[{subnet_idx}],tcp,mas,cl,1)"),
-      f"mast-tgen-netclient-{i}",
-      f"makeNetClient(a(cl[{subnet_idx}],tcp,mas,cl,1), {mastodon_server.addr.name}, {mast_client_addr.name}, true, nullAddr, nullName)")
-
-    client_uplink, client_downlink = tgen_cfg.uplink, tgen_cfg.downlink
-    mast_uplink, mast_downlink = mastodon_server_linktypes
-    print(mast_uplink)
-    print(mast_downlink)
-    tgen_uplink, tgen_downlink = client_uplink.combine(mast_downlink), mast_uplink.combine(client_downlink)
-    links = [
-      Link(mast_client, mastodon_server, tgen_uplink),
-      Link(mastodon_server, mast_client, tgen_downlink),
-      Link(mast_client, None, client_uplink),
-      Link(None, mast_client, client_downlink),
-    ]
-
-    topo.nodes.extend([mast_tgen, mast_tgen_usermodel, mast_client, mast_tgen_netclient])
-    topo.links.extend(links)
-
-def mk_mastodon_topo(
-    yml_subnets: dict, 
-    yml_nodes: dict,
-    subnet_linktypes: dict[str, LinkType],
-    irc_server: Node,
-    subnet_idx: int,
-) -> tuple[Topology, Node, list[Address]]:
-  """
-  Create the chunk of the final network topology corresponding to (most) Mastodon traffic.
-  This means the entire mastodon server subnet, the HCS actors in the client mastodon subnet, and the links between them and the IXP
-  DOES NOT INCLUDE TGENS, since those are spread throughout all the networks.
-  They are added to the final network topology in a separate step, using the returned mastodon server node.
-
-  Returns:
-    - the topology chunk for mastodon traffic
-    - the node for the mastodon server (for use in tgen step)
-    - a list of all client addresses in this chunk (for finale maude output)
-  """
-
-  nodes = []
-
-  # Create the static actor addresses (these are always basically the same, regardless of how many active hcs clients there are)
-  mast_server_iface_addr = Address("mast-server-iface-addr", f"a(srvN[{subnet_idx}],hcs,irc,if,1)") # No, this is for IRC side
-  # This should be irc_server_mast_iface
-
-  # These are all for IRC Side
-  mast_umas_addr = Address("mast-umas-addr", f"a(srvN[{subnet_idx}],hcs,mas,um,1)")
-  mast_cmas_addr = Address("mast-cmas-addr", f"a(srvN[{subnet_idx}],hcs,mas,cm,1)")
-  mast_mcas_addr = Address("mast-mcas-addr", f"a(srvN[{subnet_idx}],hcs,mas,mc,1)")
-  mast_edas_addr = Address("mast-edas-addr", f"a(srvN[{subnet_idx}],hcs,mas,ed,1)")
-  # Should be irc_server_mast_usermodel_addr
-  # irc_server_mast_cmgr_addr
-  # irc_server_mast_mastclient_addr
-  # irc_server_mast_destini_addr
-
-  # this is also on IRC side, can tell by fact is uses srvN
-  mast_server_netclient_addr = Address("mast-server-netclient-addr", f"a(srvN[{subnet_idx}],tcp,mas,cl,1)")
-
-
-  mast_server_addr = Address("mast-server-addr", f"a(masN,tcp,mas,srv,1)")
-  mast_subnet_router_addr = Address("mast-subnet-router-addr", f"a(masN,srv,mas,srv,1)")
-
-  # Create the actual static actors
-  mast_server_iface = Node(
-    mast_server_iface_addr, 
-    "mast-server-iface", 
-    f"mkIrcByteSeqIface({mast_server_iface_addr.name}, {irc_server.addr.name}, {mast_cmas_addr.name})")
-  mast_umas = Node(
-    mast_umas_addr,
-    "mast-umas",
-    f"mkUMactor({mast_umas_addr.name}, mastodon-client-config-mastodon-bidi-ma, {mast_cmas_addr.name})")
-  mast_cmas = Node(
-    mast_cmas_addr,
-    "mast-cmas",
-    f'mkCMSndRcvActor({mast_cmas_addr.name}, {mast_edas_addr.name}, {mast_mcas_addr.name}, {mast_server_iface_addr.name}, "server5", "client5")')
-  mast_mcas = Node(
-    mast_mcas_addr,
-    "mast-mcas",
-    f"makeMastodonClient({mast_mcas_addr.name}, {mast_subnet_router_addr.name}, {mast_cmas_addr.name})")
-  mast_edas = Node(
-    mast_edas_addr,
-    "mast-edas",
-    f"makeDestiniActor({mast_edas_addr.name}, ed-iamges)")
-  mast_server = Node(
-    mast_server_addr,
-    "mast-server",
-    f"makeNetServer({mast_server_addr.name}, {mast_subnet_router_addr.name})")
-  mast_server_netclient = Node(
-    mast_server_netclient_addr,
-    "mast-server-netclient",
-    f"makeNetClient({mast_server_netclient_addr.name}, {mast_subnet_router_addr.name}, {mast_mcas_addr.name}, true, nullAddr, nullName)")
-  mast_subnet_router = Node(
-    mast_subnet_router_addr,
-    "mast-subnet-router",
-    f"makeMastodonServer({mast_subnet_router_addr.name})")
-
-  nodes += [mast_server_iface, mast_umas, mast_cmas, mast_mcas, mast_edas, mast_server, mast_server_netclient, mast_subnet_router]
-
-  hcs_config = yml_nodes["node_type_mastodon"]
-  num_hcs_clients = hcs_config["client_per_network"]["client_net_mastodon"]["quantity"]
-
-  client_nodes: dict[str, Node] = {}
-  client_addrs: list[Address] = []
-
-  for i in range(num_hcs_clients):
-    mast_client_addr = Address(f"mast-client-addr-{i}", f"a(cl[{subnet_idx}],hcs,irc,cl,{i})")
-    mast_client_user_model_addr = Address(f"mast-client-user-model-addr-{i}", f"a(cl[{subnet_idx}],hcs,irc,um,{i})")
-    mast_client_iface_addr = Address(f"mast-client-iface-addr-{i}", f"a(cl[{subnet_idx}],hcs,irc,if,{i})")
-    mast_umac_addr = Address(f"mast-umac-addr-{i}", f"a(cl[{subnet_idx}],hcs,mas,um,{i})")
-    mast_cmac_addr = Address(f"mast-cmac-addr-{i}", f"a(cl[{subnet_idx}],hcs,mas,cm,{i})")
-    mast_mcac_addr = Address(f"mast-mcac-addr-{i}", f"a(cl[{subnet_idx}],hcs,mas,mc,{i})")
-    mast_edac_addr = Address(f"mast-edac-addr-{i}", f"a(cl[{subnet_idx}],hcs,mas,ed,{i})")
-    mast_client_netclient_addr = Address(f"mast-client-netclient-addr-{i}", f"a(cl[{subnet_idx}],tcp,mas,cl,{i})")
-    client_addrs.append(mast_client_addr)
-
-    named_nodes = {
-      f"mast-client-{i}": Node(
-        mast_client_addr, 
-        f"mast-client-{i}", 
-        f'mkIrcClient-v2({mast_client_addr.name}, {mast_client_iface_addr.name}, "Client{subnet_idx}")'),
-      
-      f"mast-client-user-model-{i}": Node(
-        mast_client_user_model_addr, 
-        f"mast-client-user-model-{i}", 
-        f'mkIrcUMV2Actor({mast_client_user_model_addr.name}, "irc-test", {mast_client_addr.name})'),
-
-      f"mast-client-iface-{i}": Node(
-        mast_client_iface_addr, 
-        f"mast-client-iface-{i}", 
-        f"mkIrcByteSeqIface({mast_client_iface_addr.name}, {mast_client_addr.name}, {mast_cmac_addr.name})"),
-
-      f"mast-umac-{i}": Node(
-        mast_umac_addr, 
-        f"mast-umac-{i}", 
-        f"mkUMactor({mast_umac_addr.name}, mastodon-client-config-mastodon-bidi-ma, {mast_cmac_addr.name})"),
-
-      f"mast-cmac-{i}": Node(
-        mast_cmac_addr, 
-        f"mast-cmac-{i}", 
-        f'mkCMSndRcvActor({mast_cmac_addr.name}, {mast_edac_addr.name}, {mast_mcac_addr.name}, {mast_client_iface_addr.name}, "mast-client-{i}", "mast-server")'),
-
-      f"mast-mcac-{i}": Node(
-        mast_mcac_addr, 
-        f"mast-mcac-{i}", 
-        f"makeMastodonClient({mast_mcac_addr.name}, {mast_subnet_router_addr.name}, {mast_cmac_addr.name})"),
-
-      f"mast-edac-{i}": Node(
-        mast_edac_addr, 
-        f"mast-edac-{i}", 
-        f"makeDestiniActor({mast_edac_addr.name}, ed-images)"),
-
-      f"mast-client-netclient-{i}": Node(
-        mast_client_netclient_addr, 
-        f"mast-client-netclient-{i}", 
-        f"makeNetClient({mast_client_netclient_addr.name}, {mast_subnet_router_addr.name}, {mast_mcac_addr.name}, true, nullAddr, nullName)"),
-    }
-
-    nodes += named_nodes.values()
-    client_nodes.update(named_nodes)
-
-  # server_subnet_config = yml_subnets["mastodon_net"]["params"]
-  
-  # server_up_latency = server_subnet_config["upstream"]["latency"]
-  # server_down_latency = server_subnet_config["downstream"]["latency"]
-
-  # server_up_loss = loss_specs[server_subnet_config["upstream"]["loss_profile"]]
-  # server_down_loss = loss_specs[server_subnet_config["downstream"]["loss_profile"]]
-
-  # TODO: give these the proper linktypes! Ask Christophe exactly how to combine probabilities
-  links = [
-    Link(mast_subnet_router, mast_mcas),
-    Link(mast_mcas, mast_subnet_router),
-    Link(mast_subnet_router, None),
-    Link(None, mast_subnet_router),
-    Link(mast_mcas, None),
-    Link(None, mast_mcas),
+  addr_pairs = [
+    Insert(InsertType.BIND, Lines(f"--- masTgen on client_net_mastodon #1 (cl[{cfg.client_subnet_idx}], profile={cfg.profile})")),
+    (f"mas-tgen{tgen_idx}-usermodel-addr", f"a(cl[{cfg.client_subnet_idx}], tgen, mas, um, {addr_ctr()})"),
+    (f"mas-tgen{tgen_idx}-addr", f"a(cl[{cfg.client_subnet_idx}], tgen, mas, cl, {addr_ctr()})"),
+    (f"mas-tgen{tgen_idx}-masclient-addr", f"a(cl[{cfg.client_subnet_idx}], tgen, mas, mc, {addr_ctr()})"),
+    (f"mas-tgen{tgen_idx}-netclient-addr", f"a(cl[{cfg.client_subnet_idx}], tcp, mas, cl, {addr_ctr()})"),
   ]
 
-  # client_subnet_config = yml_subnets["client_net_mastodon"]["params"]
+  addr_decls, addr_binds = pairs_to_names_and_binds(addr_pairs)
 
-  # client_up_latency = client_subnet_config["upstream"]["latency"]
-  # client_down_latency = client_subnet_config["downstream"]["latency"]
+  transports = Lines(
+    f"eq transport(mas-tgen{tgen_idx}-masclient-addr) = tcp(mas-tgen{tgen_idx}-masclient-addr)",
+    f"eq transport(mas-tgen{tgen_idx}-addr) = tcp(mas-tgen{tgen_idx}-addr)",
+  )
 
-  # client_up_loss = loss_specs[client_subnet_config["upstream"]["loss_profile"]]
-  # client_down_loss = loss_specs[client_subnet_config["downstream"]["loss_profile"]]
+  linkdata = Lines(
+    f"aaa(mas-tgen{tgen_idx}-masclient-addr, IXP-DEFAULT-ADDR, {ixp_linktype.name()})",
+    f"aaa(IXP-DEFAULT-ADDR, mas-tgen{tgen_idx}-masclient-addr, {ixp_linktype.name()})",
+    f"aaa(mas-tgen{tgen_idx}-addr, IXP-DEFAULT-ADDR, {ixp_linktype.name()})",
+    f"aaa(IXP-DEFAULT-ADDR, mas-tgen{tgen_idx}-addr, {ixp_linktype.name()})",
+  )
 
-  for i in range(num_hcs_clients):
-    links += [
-      Link(client_nodes[f"mast-mcac-{i}"], None),
-      Link(None, client_nodes[f"mast-mcac-{i}"]),
+  actor_pairs: list[tuple[str, str | Lines] | Insert] = [
+    (f"mas-tgen{tgen_idx}", f"mkMasTGenActor(mas-tgen{tgen_idx}-addr, mas-tgen{tgen_idx}-masclient-addr, ed-images, {cfg.profile})"),
+    (f"mas-tgen{tgen_idx}-masclient", f"makeMastodonClient(mas-tgen{tgen_idx}-masclient-addr, mas-server-addr, mas-tgen{tgen_idx}-addr)"),
+    (f"mas-tgen{tgen_idx}-usermodel", f"mkUMactor(mas-tgen{tgen_idx}-usermodel-addr, {cfg.profile}, mas-tgen{tgen_idx}-addr)"),
+  ]
 
-      Link(mast_subnet_router, client_nodes[f"mast-mcac-{i}"]),
-      Link(client_nodes[f"mast-mcac-{i}"], mast_subnet_router),
-    ]
+  mas_tgen_netclient_lines = Lines(
+    f"makeNetClient(mas-tgen{tgen_idx}-netclient-addr,",
+    indented_lines(
+      f"mas-server-addr,",
+      f"mas-tgen{tgen_idx}-masclient-addr,",
+      f"true,",
+      f"{cfg.client_subnet_dns},",
+      f"nullName)",),
+  )
 
-  return (Topology(True, nodes, links), mast_server, client_addrs)
+  actor_pairs.append((f"mas-tgen{tgen_idx}-netclient", mas_tgen_netclient_lines))
+  actor_decls, actor_binds = pairs_to_names_and_binds(actor_pairs)
 
-  # Addrs
-  # eq ircClient4Addr = a(cl[4],hcs,irc,cl,1) .
-  # eq ircClient4UserModelAddr = a(cl[4],hcs,irc,um,1) .
-  # eq client4IfaceAddr = a(cl[4],hcs,irc,if,1) .
-  # eq serverIface4Addr = a(srvN[4],hcs,irc,if,1) .
-  # eq sendApp4Addr = a(cl[4],hcs,iod,app,1) .
-  # eq iodineClient4Addr = a(cl[4],hcs,iod,cl,1) .
-  # eq rcvApp4Addr = a(srvN[4],hcs,iod,app,1) .
-  # eq serverIodineServer4Addr = a(srvN[4],hcs,iod,iodSrv,1) .
-  # eq iodineClient4NetClientAddr = a(cl[4],tcp,iod,cl,1) .
-  # eq iodineServer4NetServerAddr = a(srvN[4],tcp,iod,srv,1) .
+  init_actors = Lines(
+    f"mas-tgen{tgen_idx} mas-tgen{tgen_idx}-masclient mas-tgen{tgen_idx}-usermodel mas-tgen{tgen_idx}-netclient"
+  )
 
-  # Clients
-  # eq ircClient4          = mkIrcClient-v2(ircClient4Addr, client4IfaceAddr, "Client4") .
-  # eq ircClient4UserModel = mkIrcUMV2Actor(ircClient4UserModelAddr, "irc-test", ircClient4Addr) .
-  # eq client4Iface        = mkIrcByteSeqIface(client4IfaceAddr, ircClient4Addr, sendApp4Addr) .
-  # eq serverIface4        = mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr) .
-  # eq sendApp4            = mkSendApp(sendApp4Addr, rcvApp4Addr, client4IfaceAddr, iodineClient4Addr) .
-  # eq rcvApp4             = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .
-  # eq iodineClient4       = makeWClient(iodineClient4Addr, serverIodineServer4Addr, 'pwnd2 . 'com . root, a, 0.0) .
-  # eq serverIodineServer4 = makeWNameServer(serverIodineServer4Addr, 0.0, zonePwnd2Com4) .
-  # eq iodineClient4NetClient = makeNetClient(iodineClient4NetClientAddr, serverIodineServer4Addr, iodineClient4Addr, true, nullAddr, nullName) .
-  # eq iodineServer4NetServer = makeNetServer(iodineServer4NetServerAddr, serverIodineServer4Addr) .
-  # eq iodineMonitor       = mkWMonitor(iodineMonitorAddr) .
+  init_msgs = Lines(
+    f"[tgenDelay + genRandomX(j, 0.0, 0.0001), (to mas-tgen{tgen_idx}-usermodel from mas-tgen{tgen_idx}-usermodel : burstDelayTO), 0]"
+  )
 
-  # Links
-  # aaa(serverIodineServer4Addr, iodineClient4Addr, LinkType-TCP-4stateLoss)
-  # aaa(iodineClient4Addr, serverIodineServer4Addr, LinkType-TCP-4stateLoss) 
+  return Cp3ConfigChunk(
+    addr_decls=addr_decls,
+    addr_binds=addr_binds,
+    transports=transports,
+    linkdata=linkdata,
+    actor_decls=actor_decls,
+    actor_binds=actor_binds,
+    init_actors=init_actors,
+    init_msgs=init_msgs
+  )
 
-# def mk_iodine_topo(
-#     yml_subnets: Dict[Any, Any], 
-#     yml_nodes: Dict[Any, Any],
-#     subnet_linktypes: Dict[str, LinkType],
-#     irc_server: Node,
-#     subnet_idx: int,
-# ) -> tuple[Topology, Node, list[Address]]:
-#   """
-#   See mk_mastodon_topo.
-#   """
+def mk_mastodon_hcs_client(
+    client_subnet_idx: int,
+    client_idx: int,
+    mas_subnet_idx: int,
+    addr_ctr: Counter,
+    subnet_linktypes: tuple[LinkType, LinkType],
+    ixp_linktype: LinkType,
+    profile: str,
+) -> Cp3ConfigChunk:
 
-#   nodes = []
+  # TODO:
+  # These two lines appear in scenario1_addresses.maude, what the heck is the difference?
 
-#   # eq serverIface4Addr = a(srvN[4],hcs,irc,if,1) .
-#   # eq rcvApp4Addr = a(srvN[4],hcs,iod,app,1) .jj
-#   # eq serverIodineServer4Addr = a(srvN[4],hcs,iod,iodSrv,1) .
-#   # eq iodineServer4NetServerAddr = a(srvN[4],tcp,iod,srv,1) .
+  # seems like one is the user model for irc, and the other is user model for mas? alright, fine.
+  # Wait, but then why isn't there an irc usermodel on the server side as well?
+  #   eq masCl9UmAddr        = a(cl[1], hcs, irc, um, 1) .
+  #   eq masCl9UmacAddr      = a(cl[1], hcs, mas, um, 1) .
 
-#   # Create the static actor addresses (these are always basically the same, regardless of how many active hcs clients there are)
-#   iod_server_iface_addr = Address("iod_server_iface_addr", f"a(srvN[{subnet_idx}],hcs,irc,if,1)")
-#   iod_server_rcv_app_addr = Address("iod_server_rcv_app_addr", f"a(srvN[{subnet_idx}],hcs,iod,app,1)")
-#   iod_server_addr = Address("iod_server_addr", f"a(srvN[{subnet_idx}],hcs,iod,iodSrv,1)")
-#   iod_server_netserver_addr = Address("iod_server_netserver_addr", f"a(srvN[{subnet_idx}],tcp,iod,srv,1)")
+  #TODO
+  # Also, this line:
+  # eq masNetSrvAddr         = a(masN, tcp, mas, srv, 0) .
+  # Is this static or not? does it belogn to the client or not?
+  # It REALLY looks like a netserver for the primary mastodon server, in which case it's static, right?
+  # Also, why is it sometimes NetCl, and sometimes ClNet? this is why we need hyphenated names.
 
+  addr_pairs = [
+    Insert(InsertType.BIND, Lines("", "--- Why doesn't the server side have an irc usermodel, if it also has a mas usermodel?")),
+    (f"mas-client{client_idx}-irc-addr", f"a(cl[{client_subnet_idx}], hcs, irc, cl, {addr_ctr()})"),
+    (f"mas-client{client_idx}-irc-usermodel-addr", f"a(cl[{client_subnet_idx}], hcs, irc, um, {addr_ctr()})"),
 
-#   iod_server_iface = Node(iod_server_iface_addr, "iod_server_iface", f"mkIrcByteSeqIface({iod_server_iface_addr}, {iod_server_addr}, {iod_server_rcv_app_addr}) .")
-#   iod_server_rcv_app = Node(iod_server_rcv_app_addr, "iod_server_rcv_app", f"mkRcvApp({iod_server_rcv_app_addr}, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .")
-#   iod_server = Node(iod_server_addr, "iod_server", f"makeWNameServer(serverIodineServer4Addr, 0.0, zonePwnd2Com4) .")
-#   iod_server_netserver = Node(iod_server_netserver_addr, "iod_server_netserver", f"makeNetServer(iodineServer4NetServerAddr, serverIodineServer4Addr) .")
+    Insert(InsertType.BIND, Lines("", "--- When are netclients static, and when are they one-to-one with clients?")),
+    (f"mas-client{client_idx}-netclient-addr", f"a(cl[{client_subnet_idx}], tcp, mas, cl, {addr_ctr()})"),
+    (f"mas-client{client_idx}-iface-addr", f"a(cl[{client_subnet_idx}], hcs, irc, if, {addr_ctr()})"),
+    (f"mas-client{client_idx}-usermodel-addr", f"a(cl[{client_subnet_idx}], hcs, mas, um, {addr_ctr()})"),
+    (f"mas-client{client_idx}-cmgr-addr", f"a(cl[{client_subnet_idx}], hcs, mas, cm, {addr_ctr()})"),
+    (f"mas-client{client_idx}-masclient-addr", f"a(cl[{client_subnet_idx}], hcs, mas, mc, {addr_ctr()})"),
+    (f"mas-client{client_idx}-destini-addr", f"a(cl[{client_subnet_idx}], hcs, mas, ed, {addr_ctr()})"),
+    
+    Insert(InsertType.BIND, Lines("")),
+    (f"mas-server-client{client_idx}-netserver-addr", f"a(srvN[{mas_subnet_idx}], tcp, mas, cl, {addr_ctr()})"),
+    (f"mas-server-client{client_idx}-iface-addr", f"a(srvN[{mas_subnet_idx}], hcs, irc, if, {addr_ctr()})"),
+    (f"mas-server-client{client_idx}-usermodel-addr", f"a(srvN[{mas_subnet_idx}], hcs, mas, um, {addr_ctr()})"),
+    (f"mas-server-client{client_idx}-cmgr-addr", f"a(srvN[{mas_subnet_idx}], hcs, mas, cm, {addr_ctr()})"),
+    (f"mas-server-client{client_idx}-masclient-addr", f"a(srvN[{mas_subnet_idx}], hcs, mas, mc, {addr_ctr()})"),
+    (f"mas-server-client{client_idx}-destini-addr", f"a(srvN[{mas_subnet_idx}], hcs, mas, ed, {addr_ctr()})"),
 
-#   # eq serverIface4        = mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr) .
-#   # eq rcvApp4             = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, iodineClient4Addr) .
-#   # eq serverIodineServer4 = makeWNameServer(serverIodineServer4Addr, 0.0, zonePwnd2Com4) .
-#   # eq iodineServer4NetServer = makeNetServer(iodineServer4NetServerAddr, serverIodineServer4Addr) .
+    Insert(InsertType.BIND, Lines("", "--- This isn't labeled with a number like the other one-to-one actors. Should this be static? What does it represent?")),
+    (f"mas-server-netserver-addr", f"a(masN, tcp, mas, srv, {addr_ctr()})"),
+  ]
 
-#   # eq iodineMonitor       = mkWMonitor(iodineMonitorAddr) .
+  addr_decls, addr_binds = pairs_to_names_and_binds(addr_pairs)
 
+  transports = Lines( 
+    f"eq transport(mas-client{client_idx}-masclient-addr) = tcp(mas-client{client_idx}-masclient-addr) .",
+    f"eq transport(mas-server-client{client_idx}-masclient-addr) = tcp(mas-server-client{client_idx}-masclient-addr) .",
+  )
 
+  # OK, let's just assume that linktype;s have been precalculated for us. how do we access them?
+  # There's only one linktype we care about here, which is the on from client to mastodon net (and backwards!)
+  # TODO: whyb isn't the backwartds one here...
+  subnet_linktype = subnet_linktypes[0]
 
-#   # eq ircClient4Addr = a(cl[4],hcs,irc,cl,1) .
-#   # eq ircClient4UserModelAddr = a(cl[4],hcs,irc,um,1) .
-#   # eq client4IfaceAddr = a(cl[4],hcs,irc,if,1) .
-#   # eq sendApp4Addr = a(cl[4],hcs,iod,app,1) .
-#   # eq iodineClient4Addr = a(cl[4],hcs,iod,cl,1) .
-#   # eq iodineClient4NetClientAddr = a(cl[4],tcp,iod,cl,1) 
+  linkdata = Lines(
+    f'aaa(mas-server-addr, mas-client{client_idx}-masclient-addr, {subnet_linktype.name()})',
+    f'aaa(mas-client{client_idx}-masclient-addr, mas-server-addr, {subnet_linktype.name()})',
+    f'aaa(mas-server-addr, mas-server-client{client_idx}-masclient-addr, {subnet_linktype.name()})',
+    f'aaa(mas-server-client{client_idx}-masclient-addr, mas-server-addr, {subnet_linktype.name()})',
+    f'aaa(mas-server-addr, IXP-DEFAULT-ADDR, {ixp_linktype.name()})',
+    f'aaa(IXP-DEFAULT-ADDR, mas-server-addr, {ixp_linktype.name()})',
+    f'aaa(mas-client{client_idx}-masclient-addr, IXP-DEFAULT-ADDR, {ixp_linktype.name()})',
+    f'aaa(IXP-DEFAULT-ADDR, mas-client{client_idx}-masclient-addr, {ixp_linktype.name()})',
+    f'aaa(mas-server-client{client_idx}-masclient-addr, IXP-DEFAULT-ADDR, {ixp_linktype.name()})',
+    f'aaa(IXP-DEFAULT-ADDR, mas-server-client{client_idx}-masclient-addr, {ixp_linktype.name()})',
+  )
 
-#   # eq ircClient4          = mkIrcClient-v2(ircClient4Addr, client4IfaceAddr, "Client4") .
-#   # eq ircClient4UserModel = mkIrcUMV2Actor(ircClient4UserModelAddr, "irc-test", ircClient4Addr) .
-#   # eq client4Iface        = mkIrcByteSeqIface(client4IfaceAddr, ircClient4Addr, sendApp4Addr) .
-#   # eq sendApp4            = mkSendApp(sendApp4Addr, rcvApp4Addr, client4IfaceAddr, iodineClient4Addr) .
-#   # eq iodineClient4       = makeWClient(iodineClient4Addr, serverIodineServer4Addr, 'pwnd2 . 'com . root, a, 0.0) .
-#   # eq iodineClient4NetClient = makeNetClient(iodineClient4NetClientAddr, serverIodineServer4Addr, iodineClient4Addr, true, nullAddr, nullName) .
+  actor_pairs = [
+    (f"mas-client{client_idx}-irc", f'mkIrcClient-v2(mas-client{client_idx}-irc-addr, mas-client{client_idx}-iface-addr, "MasClient{client_idx}") '),
+    (f"mas-client{client_idx}-irc-usermodel", f'mkIrcUMV2Actor(mas-client{client_idx}-usermodel-addr, "{profile}", mas-client{client_idx}-irc-addr)'),
 
-#   # Create the actual static actors
-#   mast_server_iface = Node(
-#     mast_server_iface_addr, 
-#     "mast_server_iface", 
-#     f"mkIrcByteSeqIface({mast_server_iface_addr.name}, {irc_server.addr.name}, {mast_cmas_addr.name})")
-#   mast_umas = Node(
-#     mast_umas_addr,
-#     "mast_umas",
-#     f"mkUMactor({mast_umas_addr.name}, mastodon-client-config-mastodon-bidi-ma, {mast_cmas_addr.name})")
-#   mast_cmas = Node(
-#     mast_cmas_addr,
-#     "mast_cmas",
-#     f'mkCMSndRcvActor({mast_cmas_addr.name}, {mast_edas_addr.name}, {mast_mcas_addr.name}, {mast_server_iface_addr.name}, "server5", "client5")')
-#   mast_mcas = Node(
-#     mast_mcas_addr,
-#     "mast_mcas",
-#     f"makeMastodonClient({mast_mcas_addr.name}, {mast_subnet_router_addr.name}, {mast_cmas_addr.name})")
-#   mast_edas = Node(
-#     mast_edas_addr,
-#     "mast_edas",
-#     f"makeDestiniActor({mast_edas_addr.name}, ed-iamges)")
-#   mast_server = Node(
-#     mast_server_addr,
-#     "mast_server",
-#     f"makeNetServer({mast_server_addr.name}, {mast_subnet_router_addr.name})")
-#   mast_server_netclient = Node(
-#     mast_server_netclient_addr,
-#     "mast_server_netclient",
-#     f"makeNetClient({mast_server_netclient_addr.name}, {mast_subnet_router_addr.name}, {mast_mcas_addr.name}, true, nullAddr, nullName)")
-#   mast_subnet_router = Node(
-#     mast_subnet_router_addr,
-#     "mast_subnet_router",
-#     f"makeMastodonServer({mast_subnet_router_addr.name})")
+    (f"mas-client{client_idx}-netclient", f"makeNetClient(mas-client{client_idx}-netclient-addr, mas-server-addr, mas-client{client_idx}-masclient-addr, true, corp-mas-dns-addr, 'mastodon . 'pwnd . 'com . root)"),
+    (f"mas-client{client_idx}-iface", f'mkIrcByteSeqIface(mas-client{client_idx}-iface-addr, mas-client{client_idx}-irc-addr, mas-client{client_idx}-cmgr-addr)'),
+    (f"mas-client{client_idx}-usermodel", f'mkUMactor(mas-client{client_idx}-usermodel-addr, mastodon-client-config-mastodon-bidi-ma, mas-client{client_idx}-cmgr-addr)'),
+    (f"mas-client{client_idx}-cmgr", f'mkCMSndRcvActor(mas-client{client_idx}-cmgr-addr, mas-client{client_idx}-destini-addr, mas-client{client_idx}-masclient-addr, mas-client{client_idx}-iface-addr, "client{client_idx}", "server{client_idx}")'),
+    (f"mas-client{client_idx}-masclient", f'makeMastodonClient(mas-client{client_idx}-masclient-addr, mas-server-addr, mas-client{client_idx}-cmgr-addr)'),
+    (f"mas-client{client_idx}-destini", f'makeDestiniActor(mas-client{client_idx}-destini-addr, ed-images)'),
+    
+    (f"mas-server-client{client_idx}-netserver", f'makeNetClient(mas-server-client{client_idx}-netserver-addr, mas-server-addr, mas-server-client{client_idx}-masclient-addr, true, serv-dns-addr, nullName)'),
+    (f"mas-server-client{client_idx}-iface", f'mkIrcByteSeqIface(mas-server-client{client_idx}-iface-addr, irc-server-addr, mas-server-client{client_idx}-cmgr-addr)'),
+    (f"mas-server-client{client_idx}-usermodel", f'mkUMactor(mas-server-client{client_idx}-usermodel-addr, mastodon-server-config-mastodon-bidi-ma, mas-server-client{client_idx}-cmgr-addr)'),
+    (f"mas-server-client{client_idx}-cmgr", f'mkCMSndRcvActor(mas-server-client{client_idx}-cmgr-addr, mas-server-client{client_idx}-destini-addr, mas-server-client{client_idx}-masclient-addr, mas-server-client{client_idx}-iface-addr, "server{client_idx}", "client{client_idx}")'),
+    (f"mas-server-client{client_idx}-masclient", f'makeMastodonClient(mas-server-client{client_idx}-masclient-addr, mas-server-addr, mas-server-client{client_idx}-cmgr-addr)'),
+    (f"mas-server-client{client_idx}-destini", f'makeDestiniActor(mas-server-client{client_idx}-destini-addr, ed-images)'),
 
-#   nodes += [mast_server_iface, mast_umas, mast_cmas, mast_mcas, mast_edas, mast_server, mast_server_netclient, mast_subnet_router]
+    # TODO: is mas-net-server-addr (masNetSrvAddr) static or one-to-one?
+    (f"mas-server-netserver", f'makeNetServer(mas-net-server-addr, mas-server-addr)'),
+  ]
 
-#   hcs_config = yml_nodes["node_type_mastodon"]
-#   num_hcs_clients = hcs_config["client_per_network"]["client_net_mastodon"]["quantity"]
+  actor_decls, actor_binds = pairs_to_names_and_binds(actor_pairs)
 
-#   client_nodes: dict[str, Node] = {}
-#   client_addrs: list[Address] = []
+  init_actors = Lines(*map(lambda x: x[0], actor_pairs))
+  init_msgs = Lines( 
+    f'[hcsDelay + 1.0 + genRandomX(j, 0.0, 0.0001), (to mas-client{client_idx}-usermodel from mas-client{client_idx}-usermodel : actionR("ok")), 0]',
+    f'[hcsDelay + 1.0 + genRandomX(s s j, 0.0, 0.0001), (to mas-server-client{client_idx}-usermodel from mas-server-client{client_idx}-usermodel : actionR("ok")), 0]',
+  )
 
-#   for i in range(num_hcs_clients):
-#     mast_client_addr = Address(f"mast_client_addr_{i}", f"a(cl[{subnet_idx}],hcs,irc,cl,{i})")
-#     mast_client_user_model_addr = Address(f"mast_client_user_model_addr_{i}", f"a(cl[{subnet_idx}],hcs,irc,um,{i})")
-#     mast_client_iface_addr = Address(f"mast_client_iface_addr_{i}", f"a(cl[{subnet_idx}],hcs,irc,if,{i})")
-#     mast_umac_addr = Address(f"mast_umac_addr_{i}", f"a(cl[{subnet_idx}],hcs,mas,um,{i})")
-#     mast_cmac_addr = Address(f"mast_cmac_addr_{i}", f"a(cl[{subnet_idx}],hcs,mas,cm,{i})")
-#     mast_mcac_addr = Address(f"mast_mcac_addr_{i}", f"a(cl[{subnet_idx}],hcs,mas,mc,{i})")
-#     mast_edac_addr = Address(f"mast_edac_addr_{i}", f"a(cl[{subnet_idx}],hcs,mas,ed,{i})")
-#     mast_client_netclient_addr = Address(f"mast_client_netclient_addr_{i}", f"a(cl[{subnet_idx}],tcp,mas,cl,{i})")
-#     client_addrs.append(mast_client_addr)
+  client_addrs = Lines( 
+    f"mas-client{client_idx}-irc-addr"
+  )
 
-#     named_nodes = {
-#       f"mast_client_{i}": Node(
-#         mast_client_addr, 
-#         f"mast_client_{i}", 
-#         f'mkIrcClient-v2({mast_client_addr.name}, {mast_client_iface_addr.name}, "Client{subnet_idx}")'),
-      
-#       f"mast_client_user_model_{i}": Node(
-#         mast_client_user_model_addr, 
-#         f"mast_client_user_model_{i}", 
-#         f'mkIrcUMV2Actor({mast_client_user_model_addr.name}, "irc-test", {mast_client_addr.name})'),
-
-#       f"mast_client_iface_{i}": Node(
-#         mast_client_iface_addr, 
-#         f"mast_client_iface_{i}", 
-#         f"mkIrcByteSeqIface({mast_client_iface_addr.name}, {mast_client_addr.name}, {mast_cmac_addr.name})"),
-
-#       f"mast_umac_{i}": Node(
-#         mast_umac_addr, 
-#         f"mast_umac_{i}", 
-#         f"mkUMactor({mast_umac_addr.name}, mastodon-client-config-mastodon-bidi-ma, {mast_cmac_addr.name})"),
-
-#       f"mast_cmac_{i}": Node(
-#         mast_cmac_addr, 
-#         f"mast_cmac_{i}", 
-#         f'mkCMSndRcvActor({mast_cmac_addr.name}, {mast_edac_addr.name}, {mast_mcac_addr.name}, {mast_client_iface_addr.name}, "mast_client_{i}", "mast_server")'),
-
-#       f"mast_mcac_{i}": Node(
-#         mast_mcac_addr, 
-#         f"mast_mcac_{i}", 
-#         f"makeMastodonClient({mast_mcac_addr.name}, {mast_subnet_router_addr.name}, {mast_cmac_addr.name})"),
-
-#       f"mast_edac_{i}": Node(
-#         mast_edac_addr, 
-#         f"mast_edac_{i}", 
-#         f"makeDestiniActor({mast_edac_addr.name}, ed-images)"),
-
-#       f"mast_client_netclient_{i}": Node(
-#         mast_client_netclient_addr, 
-#         f"mast_client_netclient_{i}", 
-#         f"makeNetClient({mast_client_netclient_addr.name}, {mast_subnet_router_addr.name}, {mast_mcac_addr.name}, true, nullAddr, nullName)"),
-#     }
-
-#     nodes += named_nodes.values()
-#     client_nodes.update(named_nodes)
-
-#   # server_subnet_config = yml_subnets["mastodon_net"]["params"]
-  
-#   # server_up_latency = server_subnet_config["upstream"]["latency"]
-#   # server_down_latency = server_subnet_config["downstream"]["latency"]
-
-#   # server_up_loss = loss_specs[server_subnet_config["upstream"]["loss_profile"]]
-#   # server_down_loss = loss_specs[server_subnet_config["downstream"]["loss_profile"]]
-
-#   # TODO: give these the proper linktypes! Ask Christophe exactly how to combine probabilities
-#   links = [
-#     Link(mast_subnet_router, mast_mcas),
-#     Link(mast_mcas, mast_subnet_router),
-#     Link(mast_subnet_router, None),
-#     Link(None, mast_subnet_router),
-#     Link(mast_mcas, None),
-#     Link(None, mast_mcas),
-#   ]
-
-#   # client_subnet_config = yml_subnets["client_net_mastodon"]["params"]
-
-#   # client_up_latency = client_subnet_config["upstream"]["latency"]
-#   # client_down_latency = client_subnet_config["downstream"]["latency"]
-
-#   # client_up_loss = loss_specs[client_subnet_config["upstream"]["loss_profile"]]
-#   # client_down_loss = loss_specs[client_subnet_config["downstream"]["loss_profile"]]
-
-#   for i in range(num_hcs_clients):
-#     links += [
-#       Link(client_nodes[f"mast_mcac_{i}"], None),
-#       Link(None, client_nodes[f"mast_mcac_{i}"]),
-
-#       Link(mast_subnet_router, client_nodes[f"mast_mcac_{i}"]),
-#       Link(client_nodes[f"mast_mcac_{i}"], mast_subnet_router),
-#     ]
-
-#   return (Topology(True, nodes, links), mast_server, client_addrs)
-
-
-
-
-
-
-
-
-
+  return Cp3ConfigChunk(
+    addr_decls=addr_decls,
+    addr_binds=addr_binds,
+    transports=transports,
+    linkdata=linkdata,
+    actor_decls=actor_decls,
+    actor_binds=actor_binds,
+    init_actors=init_actors,
+    init_msgs=init_msgs,
+    client_addrs=client_addrs
+  )

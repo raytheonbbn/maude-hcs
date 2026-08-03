@@ -3,21 +3,109 @@
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
 from enum import auto, Enum
+from collections.abc import Sequence
 
 from typing import Any
 
 def default_loss() -> dict[str, float]:
   return {'p13': 0.0, 'p31': 0.0, 'p32': 0.0, 'p23': 0.0, 'p14': 0.0}
 
-def profile_to_maude(prof: str) -> str:
-  return "mastodon-config-influencer-4-ma" # TODO: fix this!!
+def profile_to_maude(profile: str) -> str:
+    mapping = {
+        "irc-irc-10": "irc-irc-10-ma-v2",
+        "irc-irc-11": "irc-irc-11-ma-v2",
+        "irc-irc-2": "irc-irc-2-ma-v2",
+        "irc-irc-3": "irc-irc-3-ma-v2",
+        "irc-irc-6": "irc-irc-6-ma-v2",
+        "irc-irc-7": "irc-irc-7-ma-v2",
+        "irc-tgen-irc-11": "irc-tgen-irc-11-ma-v2",
+        "irc-tgen-irc-12": "irc-tgen-irc-12-ma-v2",
+        "irc-tgen-irc-2": "irc-tgen-irc-2-ma-v2",
+        "irc-tgen-irc-4": "irc-tgen-irc-4-ma-v2",
+        "irc-tgen-irc-5": "irc-tgen-irc-5-ma-v2",
+        "irc-tgen-irc-6": "irc-tgen-irc-6-ma-v2",
+        "irc-tgen-irc-7": "irc-tgen-irc-7-ma-v2",
+        "irc-tgen-irc-8": "irc-tgen-irc-8-ma-v2",
+        "irc-tgen-irc-9": "irc-tgen-irc-9-ma-v2",
+        "ftp-tgen-fast": "ftp-tgen-fast-ma-v2",
+        "ftp-tgen-medium": "ftp-tgen-medium-ma-v2",
+        "ftp-tgen-slow": "ftp-tgen-slow-ma-v2",
+        "minio-tgen-fast": "minio-tgen-fast-ma-v2",
+        "minio-tgen-medium": "minio-tgen-medium-ma-v2",
+        "minio-tgen-slow": "minio-tgen-slow-ma-v2",
+        "gorilla-tgen-irc-1": "gorilla-tgen-irc-1-ma-v2",
+        "gorilla-tgen-irc-10": "gorilla-tgen-irc-10-ma-v2",
+        "gorilla-tgen-irc-11": "gorilla-tgen-irc-11-ma-v2",
+        "gorilla-tgen-irc-12": "gorilla-tgen-irc-12-ma-v2",
+        "gorilla-tgen-irc-2": "gorilla-tgen-irc-2-ma-v2",
+        "gorilla-tgen-irc-3": "gorilla-tgen-irc-3-ma-v2",
+        "gorilla-tgen-irc-4": "gorilla-tgen-irc-4-ma-v2",
+        "gorilla-tgen-irc-5": "gorilla-tgen-irc-5-ma-v2",
+        "gorilla-tgen-irc-6": "gorilla-tgen-irc-6-ma-v2",
+        "gorilla-tgen-irc-7": "gorilla-tgen-irc-7-ma-v2",
+        "gorilla-tgen-irc-8": "gorilla-tgen-irc-8-ma-v2",
+        "gorilla-tgen-irc-9": "gorilla-tgen-irc-9-ma-v2",
+    }
+    return mapping.get(profile, profile)
 
-def indent(i: int, lst: list[str]) -> list[str]:
-    return [(" " * (i*4)) + line for line in lst]
+def indent_all(lst: list[str], indent=1) -> list[str]:
+    return [(" " * (indent*4)) + line for line in lst]
+
+def indented_lines(*args):
+  return Lines(*args, indent=1)
 
 # Note: any dataclass below with a name represents a maude variable *binding*, not just
 # the maude value itself. In other words, it represents a maude object that should be bound
 # to 'name' in the resulting maude file. Sometimes these objects may be used like plain maude values, however
+
+class Lines:
+  def __init__(self, *args, indent=0):
+    lines = []
+    for arg in args:
+      if isinstance(arg, Lines):
+        lines += arg.lines
+      else:
+        lines += [str(arg)]
+    self.lines = indent_all(lines, indent=indent)
+
+  def join(self, other):
+    return Lines(*(self.lines + other.lines))
+
+  def indent(self, indent=1):
+    return Lines(*self.lines, indent=indent)
+
+class InsertType(Enum):
+  DECL = auto()
+  BIND = auto()
+
+@dataclass_json
+@dataclass(frozen=True, order=True)
+class Insert:
+  typ: InsertType
+  lines: Lines
+
+def pairs_to_names_and_binds(
+    tups: Sequence[tuple[str, str | Lines] | Insert],
+) -> tuple[Lines, Lines]:
+  
+  decl_lines = []
+  bind_lines = []
+
+  for x in tups:
+    if isinstance(x, Insert):
+      if x.typ == InsertType.DECL:
+        decl_lines.append(x.lines)
+      else:
+        bind_lines.append(x.lines)
+    else:
+      decl_lines.append(x[0])
+      if isinstance(x[1], Lines):
+        bind_lines.append(f"eq {x[0]}:")
+        bind_lines += x[1].indent().lines
+        bind_lines += "."
+      else:
+        bind_lines.append(f"eq {x[0]}: {x[1]} .")
+  return (Lines(*decl_lines), Lines(*bind_lines))
 
 class TGenType(Enum):
   MASTODON = "mas"
@@ -32,24 +120,10 @@ class TGenType(Enum):
   MINIO_MONITOR = auto()
 
 @dataclass_json
-@dataclass(frozen=True)
-class Address:
-    name: str   # Variable name for this address in Maude
-    maude: str  # Maude code to construct this address
-
-@dataclass_json
-@dataclass(frozen=True)
-class Node:
-  """Represents a Maude network actor"""
-  addr: Address
-  name: str
-  maude: str
-
-@dataclass_json
 @dataclass(frozen=True, order=True)
 class LinkType:
   """Represents qualities of a network link (loss transition probabilities and latency)"""
-  prof: str
+  profile: str
   p13: float = 0.0
   p31: float = 0.0
   p32: float = 0.0
@@ -62,24 +136,24 @@ class LinkType:
     return LinkType(prof, yml["p13"], yml["p31"], yml["p32"], yml["p23"], yml["p14"], latency)
 
   def name(self) -> str:
-    return f"LinkType-{self.prof}-{int(self.latency * 1000)}"
+    return f"LinkType-{self.profile}-{int(self.latency * 1000)}"
   
   def maude(self) -> str:
     return (
       "(4stateLoss:"
-      f"  (p13: {self.p13:.1f},"
-      f"  p31: {self.p31:.1f},"
-      f"  p32: {self.p32:.1f},"
-      f"  p23: {self.p23:.1f},"
-      f"  p14: {self.p14:.1f},"
-      f"  oneWayDelay: {self.latency:.1f})"
+      f" (p13: {self.p13:.1f},"
+      f" p31: {self.p31:.1f},"
+      f" p32: {self.p32:.1f},"
+      f" p23: {self.p23:.1f},"
+      f" p14: {self.p14:.1f},"
+      f" oneWayDelay: {self.latency:.1f})"
       ")"
     )
 
   def combine(self, other: "LinkType") -> "LinkType":
     """Represents a (very) rough approximation of the linktype that would result from self followed by other"""
     return LinkType(
-      prof=f"{self.prof}-{other.prof}",
+      profile=f"{self.profile}-{other.profile}",
       p13=max(self.p13, other.p13),
       p31=max(self.p31, other.p31),
       p32=max(self.p32, other.p32),
@@ -87,23 +161,6 @@ class LinkType:
       p14=max(self.p14, other.p14),
       latency=self.latency + other.latency,
     )
-
-@dataclass_json
-@dataclass(frozen=True)
-class Link: 
-  """Represents a network link between two Maude network actors"""
-  src: Node | None  # if src is None, assumed to be ixp
-  dst: Node | None  # ditto
-  type: LinkType = field(default_factory = lambda: LinkType("perfect"))
-
-  def has_same_endpoints(self, other: "Link") -> bool:
-    return self.src == other.src and self.dst == other.dst
-
-  def is_similar_to(self, other: "Link") -> bool:
-      return self.type == other.type
-
-  def maude(self) -> str:
-    return f"aaa({self.src.addr.name if self.src else "IXP-DEFAULT-ADDR"}, {self.dst.addr.name if self.dst else "IXP-DEFAULT-ADDR"}, {self.type.name()})"
 
 class Counter:
   """A counter that returns and increments the current count each time its called"""
@@ -119,57 +176,56 @@ class Counter:
 @dataclass(frozen=True)
 class TGenConfig:
   profile: str
+  client_subnet_name: str # Only used for comments
+  client_subnet_idx: int
+  client_subnet_dns: str
   uplink: LinkType
   downlink: LinkType
 
 @dataclass_json
-@dataclass
-class Topology:
-  isDirected: bool
+@dataclass(frozen=True, order=True)
+class Cp3ConfigChunk:
+  """A chunk of the final maude configuration that can be easily combined with other chunks from
+  e.g. protocol parsing functions.
+  """
 
-  # A list of ALL nodes in this topology, whether they appear in the declared links or not.
-  nodes: list[Node] = field(default_factory=list)
+  images: Lines = field(default_factory=Lines)
+  model_map: Lines = field(default_factory=Lines)
+  zones: Lines = field(default_factory=Lines)
+  resolver_cache: Lines = field(default_factory=Lines)
+  addr_decls: Lines = field(default_factory=Lines)
+  addr_binds: Lines = field(default_factory=Lines)
+  transports: Lines = field(default_factory=Lines)
+  linktype_decls: Lines = field(default_factory=Lines)
+  linktype_binds: Lines = field(default_factory=Lines)
+  linkdata: Lines = field(default_factory=Lines)
+  actor_decls: Lines = field(default_factory=Lines)
+  actor_binds: Lines = field(default_factory=Lines)
+  init_actors: Lines = field(default_factory=Lines)
+  init_msgs: Lines = field(default_factory=Lines)
+  client_addrs: Lines = field(default_factory=Lines)
 
-  # this is a list of DECLARED links, for the purpose of determining link types.
-  # Implicitly, any node can communicate with any other.
-  links: list[Link] = field(default_factory=list)
+  # def __post_init__(self):
+  #   assert set(self.addr_binds.keys()).issubset(self.addr_decls)
+  #   assert set(self.actor_binds.keys()).issubset(self.actor_decls)
+  #   assert set(self.linktype_binds.keys()).issubset(self.linktype_names)
 
-  def __post_init__(self):
-    self.validate()
+  def join(self, other: "Cp3ConfigChunk") -> "Cp3ConfigChunk":
 
-  def validate(self):
-    assert len(self.nodes) == len(set(self.nodes)), "Topology instance should not contain duplicate nodes"
-    assert len(self.links) == len(set(self.links)), "Topology instance should not contain duplicate links"
-
-    link_nodes = []
-    for link in self.links:
-      if link.src is not None: link_nodes.append(link.src)
-      if link.dst is not None: link_nodes.append(link.dst)
-
-    assert set(link_nodes).issubset(self.nodes), "every endpoint in self.links must also be in self.nodes"
-
-  def get_node_by_name(self, name: str):
-    for node in self.nodes:
-      if node.name == name:
-        return node
-
-  def get_link_types(self) -> list[LinkType]:
-    return sorted(list(set(map(lambda lnk: lnk.type, self.links))))
-
-  def merge(self, other: "Topology") -> "Topology":
-    assert set(self.nodes).intersection(set(other.nodes)) == {None}, "topologies to be merged should only have IXP node in common"
-    nodes = self.nodes + other.nodes
-
-    links = self.links + other.links
-    assert len(links) == len(self.links) + len(other.links), "topologies to be merged should not have links in common"
-    assert self.isDirected == other.isDirected, "topologies to be merged should have same directionality"
-
-    return Topology(self.isDirected, nodes, links) 
-
-  @staticmethod
-  def merge_all(topos: list["Topology"]) -> "Topology":
-    assert len(topos) > 0, "list of topologies to merge must be non-empty"
-    result = topos[0]
-    for topo in topos[1:]:
-      result = result.merge(topo)
-    return result
+    return Cp3ConfigChunk(
+      images=self.images.join(other.images),
+      model_map=self.model_map.join(other.model_map),
+      zones=self.zones.join(other.zones),
+      resolver_cache=self.resolver_cache.join(other.resolver_cache),
+      addr_decls=self.addr_decls.join(other.addr_decls),
+      addr_binds=self.addr_binds.join(other.addr_binds),
+      transports=self.transports.join(other.transports),
+      linktype_decls=self.linktype_decls.join(other.linktype_decls),
+      linktype_binds=self.linktype_binds.join(other.linktype_binds),
+      linkdata=self.linkdata.join(other.linkdata),
+      actor_decls=self.actor_decls.join(other.actor_decls),
+      actor_binds=self.actor_binds.join(other.actor_binds),
+      init_actors=self.init_actors.join(other.init_actors),
+      init_msgs=self.init_msgs.join(other.init_msgs),
+      client_addrs=self.client_addrs.join(other.client_addrs),
+    )

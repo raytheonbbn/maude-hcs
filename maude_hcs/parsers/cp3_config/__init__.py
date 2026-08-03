@@ -40,12 +40,26 @@ from typing import Any, Dict
 
 from maude_hcs.parsers import load_yaml_to_dict
 
-from .common import Address, Node, Link, LinkType, Counter, TGenType, TGenConfig, Topology, indent
-from .mastodon import *
-
-# Should be relative to maude_hcs/lib
+from .common import LinkType, Counter, TGenType, TGenConfig, Cp3ConfigChunk, indent_all, Lines, indented_lines, profile_to_maude
+from .mastodon import mk_mastodon_hcs_client, mk_mastodon_tgen
+from .iodine import mk_iodine_hcs_client
+from .webtunnel import mk_webtunnel_hcs_client
+from .skyhook import mk_skyhook_hcs_client
+from .obfs import mk_obfs_hcs_client
+from .static import mk_static_chunk, mk_static_sloads, mk_static_includes
+from .dns import mk_dns_tgen
+from .ftp import mk_ftp_tgen
+from .gorilla import mk_gorilla_tgen
+from .irc import mk_irc_tgen
+from .minio import mk_minio_tgen
 
 logger = logging.getLogger(__name__)
+
+def assign_subnet_idxs(yml_subnets: dict) -> dict:
+  result = {}
+  for i, subnet_name in enumerate(yml_subnets):
+    result[subnet_name] = i
+  return result
 
 def parse_profile_counts(total: int, profiles: dict[str, float]) -> dict[str, int]:
   """Return the number of tgens that should be assigned to each profile type"""
@@ -84,18 +98,18 @@ def parse_subnet_linktypes(yml_subnets: dict, linktype_templates: dict[str, Link
     up_latency = params["upstream"]["latency"]
     up_profile = params["upstream"]["loss_profile"]
     up_template = linktype_templates[up_profile]
-    up_link = replace(up_template, prof=up_profile, latency=up_latency)
+    up_link = replace(up_template, profile=up_profile, latency=up_latency)
 
     down_latency = params["downstream"]["latency"]
     down_profile = params["downstream"]["loss_profile"]
     down_template = linktype_templates[down_profile]
-    down_link = replace(down_template, prof=down_profile, latency=down_latency)
+    down_link = replace(down_template, profile=down_profile, latency=down_latency)
 
     result[subnet_name] = (up_link, down_link)
 
   return result
 
-def parse_tgen_cfgs(yml_tgens, subnet_linktypes) -> dict[TGenType, list[TGenConfig]]:
+def parse_tgen_cfgs(yml_tgens, subnet_linktypes, subnet_idxs) -> dict[TGenType, list[TGenConfig]]:
   """
   Returned list has one entry for each tgen required. So, in general, the list will contain duplicates, since
   any subnet can contain many tgens with identical characteristics.
@@ -122,17 +136,16 @@ def parse_tgen_cfgs(yml_tgens, subnet_linktypes) -> dict[TGenType, list[TGenConf
       linktypes = subnet_linktypes[subnet_name]
       profile_counts = parse_profile_counts(val["quantity"], val["profiles"])
 
-      for prof, count in profile_counts.items():
-        tgen_cfg = TGenConfig(prof, linktypes[0], linktypes[1])
+      for profile, count in profile_counts.items():
+        tgen_cfg = TGenConfig(profile_to_maude(profile), subnet_name, subnet_idxs[subnet_name], "nullAddr", linktypes[0], linktypes[1])
         result[tgen_type] += [tgen_cfg] * count
 
   return result
 
 class Cp3Config:
   """Simple class that stores everything we need to generate maude file"""
-  topo: Topology
-  undef_addrs: list[str]
-  client_addrs: list[Address]
+  # uniq_addrs: dict[str, str]
+  # uniq_actors: dict[str, str]
 
   def __init__(self, yml_path: str, loss_specs_dir: str, baseline_dir: str):
 
@@ -151,430 +164,316 @@ class Cp3Config:
         # these are basically "progenitor" or "template" linktypes, since they don't have names or latencies yet
         linktype_templates[ln] = LinkType.from_yml("TEMPLATE_SHOULD_NOT_APPEAR", loss_spec)
 
-    subnet_idx = Counter(0)
+    subnet_linktypes = parse_subnet_linktypes(yml["network"], linktype_templates)
+    subnet_idxs = assign_subnet_idxs(yml["network"])
+    tgen_cfgs = parse_tgen_cfgs(yml["tgen"], subnet_linktypes, subnet_idxs)
 
-    yml_subnets = yml["network"]
-    yml_nodes = yml["nodes"]
-    yml_tgens = yml["tgen"]
+    # TODO: why is there a separate ixp linktype? what does it signify?
+    # In general, what have we decided with regard to linktypes?
+    # The reference config seems to think that up/down linktypes are always the same...
+    addr_ctr = Counter(0)
+    ixp_linktype = LinkType("ixp", 0.0, 1.0, 0.0, 0.0, 0.0, 0.005)
+    chunk_so_far: Cp3ConfigChunk = mk_static_chunk(addr_ctr, ixp_linktype)
 
-    subnet_linktypes = parse_subnet_linktypes(yml_subnets, linktype_templates)
-    tgen_cfgs = parse_tgen_cfgs(yml_tgens, subnet_linktypes)
+    all_linktypes = {ixp_linktype}
+    for ltyp0, ltyp1 in subnet_linktypes.values():
+      all_linktypes.add(ltyp0)
+      all_linktypes.add(ltyp1)
 
-    irc_server_addr = Address("irc-server-addr", "a(srvN,srv,irc,srv,0)")
-    irc_server = Node(irc_server_addr, "irc-server", f"mkIrcServer({irc_server_addr.name})")
+    for cfgs in tgen_cfgs.values():
+      for cfg in cfgs:
+        all_linktypes.add(cfg.uplink)
+        all_linktypes.add(cfg.downlink)
 
-    # (racetunnel_topo = mk_racetunnel_topo(networks, nodes, tgen, loss_specs)
-    # sky_topo = mk_sky_topo(networks, nodes, tgen, loss_specs)
-    # obfs_topo = mk_obfs_topo(networks, nodes, tgen, loss_specs)
-    # (iodine_topo, iodine_server_addr, iodine_client_addrs) = mk_iodine_topo(yml_subnets, yml_nodes, linktype_templates, irc_server, subnet_idx())
-    (mastodon_topo, mastodon_server, mastodon_client_addrs) = mk_mastodon_topo(yml_subnets, yml_nodes, linktype_templates, irc_server, subnet_idx())
-    client_addrs = mastodon_client_addrs
-
-    # Figure this out soon, might be tricky
-    # We don't actually care where tgens come from, we just directly connect them to their server.
-    # So just figure out how many tgens of each type, and maybe have a function for each type?
-    # mastodon_tgens_topo = mk_mastodon_tgens_topo(give all )
-
-    combined_topo = Topology.merge_all([
-      # racetunnel_topo,
-      # sky_topo,
-      # obfs_topo,
-      # iodine_topo,
-      mastodon_topo
-    ])
-
-    combined_topo.nodes.insert(0, irc_server)
-    combined_topo.validate()
-
-  # MASTODON = auto()
-  # DNS = auto()
-  # FTP = auto()
-  # MINIO = auto()
-  # GORILLA = auto()
-  # IRC = auto()
-
-    insert_mastodon_tgens(
-      tgen_cfgs[TGenType.MASTODON],
-      combined_topo,
-      mastodon_server,
-      subnet_linktypes["mastodon_net"],
-      subnet_idx())
-
-    combined_topo.nodes.append(
-      Node(
-        Address("iod-server-addr", "a(srvN[4], hcs, iod, iodSrv, 1)"),
-        "iod-server",
-        "makeWNameServer(serverIodineServer4Addr, 0.0, zonePwndCom4)",
-      )
+    linktype_decls = Lines(
+      *map(lambda x: x.name(), all_linktypes)
     )
 
-    self.topo = combined_topo
-    self.undef_addrs = ["iod-monitor-addr", "irc-monitor-addr"]
-    self.client_addrs = client_addrs
+    linktype_binds = Lines(
+      *map(lambda x: f"eq {x.name()} = {x.maude()} .", all_linktypes)
+    )
 
-    # Need to bind: uniq_addrs, uniq_nodes (dicts)
+    chunk_so_far = chunk_so_far.join(Cp3ConfigChunk(linktype_decls=linktype_decls, linktype_binds=linktype_binds))
+
+    for nodetype, dct in yml["nodes"].items():
+      match nodetype:
+        case "node_type_racetunnel":
+          for subnet_name, subnet_params in dct["client_per_network"].items():
+            profiles = parse_profile_counts(subnet_params["quantity"], subnet_params["profiles"])
+            client_ctr = Counter(0)
+
+            for prof, count in profiles.items():
+              profile = profile_to_maude(prof)
+              client_subnet_idx = subnet_idxs[subnet_name]
+              subnet_linktype = subnet_linktypes[subnet_name]
+
+              for i in range(count):
+                chunk = mk_webtunnel_hcs_client(
+                  client_subnet_idx,
+                  client_ctr(),
+                  addr_ctr,
+                  subnet_linktype,
+                  ixp_linktype,
+                  profile
+                )
+                chunk_so_far = chunk_so_far.join(chunk)
+        case "node_type_sky":
+          for subnet_name, subnet_params in dct["client_per_network"].items():
+            profiles = parse_profile_counts(subnet_params["quantity"], subnet_params["profiles"])
+            client_ctr = Counter(0)
+
+            for prof, count in profiles.items():
+              profile = profile_to_maude(prof)
+              client_subnet_idx = subnet_idxs[subnet_name]
+              subnet_linktype = subnet_linktypes[subnet_name]
+
+              for i in range(count):
+                chunk = mk_skyhook_hcs_client(
+                  client_subnet_idx,
+                  client_ctr(),
+                  addr_ctr,
+                  subnet_linktype,
+                  ixp_linktype,
+                  profile
+                )
+                chunk_so_far = chunk_so_far.join(chunk)
+        case "node_type_obfs":
+          for subnet_name, subnet_params in dct["client_per_network"].items():
+            profiles = parse_profile_counts(subnet_params["quantity"], subnet_params["profiles"])
+            client_ctr = Counter(0)
+
+            for prof, count in profiles.items():
+              profile = profile_to_maude(prof)
+              client_subnet_idx = subnet_idxs[subnet_name]
+              subnet_linktype = subnet_linktypes[subnet_name]
+
+              for i in range(count):
+                chunk = mk_obfs_hcs_client(
+                  client_subnet_idx,
+                  client_ctr(),
+                  addr_ctr,
+                  subnet_linktype,
+                  ixp_linktype,
+                  profile
+                )
+                chunk_so_far = chunk_so_far.join(chunk)
+        case "node_type_iodine":
+          for subnet_name, subnet_params in dct["client_per_network"].items():
+            profiles = parse_profile_counts(subnet_params["quantity"], subnet_params["profiles"])
+            client_ctr = Counter(0)
+
+            for prof, count in profiles.items():
+              profile = profile_to_maude(prof)
+              client_subnet_idx = subnet_idxs[subnet_name]
+
+              # TODO: where do we actually get iod subnet idx?
+              iod_subnet_idx = 0
+              subnet_linktype = subnet_linktypes[subnet_name]
+
+              for i in range(count):
+                chunk = mk_iodine_hcs_client(
+                  client_subnet_idx,
+                  iod_subnet_idx,
+                  client_ctr(),
+                  addr_ctr,
+                  subnet_linktype,
+                  ixp_linktype,
+                  profile
+                )
+                chunk_so_far = chunk_so_far.join(chunk)
+
+        case "node_type_mastodon":
+          for subnet_name, subnet_params in dct["client_per_network"].items():
+            profiles = parse_profile_counts(subnet_params["quantity"], subnet_params["profiles"])
+            client_ctr = Counter(0)
+
+            for prof, count in profiles.items():
+              profile = profile_to_maude(prof)
+              client_subnet_idx = subnet_idxs[subnet_name]
+              mas_subnet_idx = subnet_idxs["mastodon_net"]
+              subnet_linktype = subnet_linktypes[subnet_name]
+
+              for i in range(count):
+                chunk = mk_mastodon_hcs_client(
+                  client_subnet_idx,
+                  client_ctr(),
+                  mas_subnet_idx,
+                  addr_ctr,
+                  subnet_linktype,
+                  ixp_linktype,
+                  profile
+                )
+                chunk_so_far = chunk_so_far.join(chunk)
+
+    for typ, cfgs in tgen_cfgs.items():
+      match typ:
+        case TGenType.IRC:
+          for idx, cfg in enumerate(cfgs):
+            chunk_so_far = chunk_so_far.join(mk_irc_tgen(cfg, idx, addr_ctr, ixp_linktype))
+        case TGenType.MINIO:
+          for idx, cfg in enumerate(cfgs):
+            chunk_so_far = chunk_so_far.join(mk_minio_tgen(cfg, idx, addr_ctr, ixp_linktype))
+        case TGenType.GORILLA:
+          for idx, cfg in enumerate(cfgs):
+            chunk_so_far = chunk_so_far.join(mk_gorilla_tgen(cfg, idx, addr_ctr, ixp_linktype))
+        case TGenType.MASTODON:
+          for idx, cfg in enumerate(cfgs):
+            chunk_so_far = chunk_so_far.join(mk_mastodon_tgen(cfg, idx, addr_ctr, ixp_linktype))
+        case TGenType.FTP:
+          for idx, cfg in enumerate(cfgs):
+            chunk_so_far = chunk_so_far.join(mk_ftp_tgen(cfg, idx, addr_ctr, ixp_linktype))
+        case TGenType.DNS:
+          for idx, cfg in enumerate(cfgs):
+            chunk_so_far = chunk_so_far.join(mk_dns_tgen(cfg, idx, addr_ctr, ixp_linktype))
+
+    # handle specvial cases (gorilla server, tgen netservers?)
+    # Single gorilla server has to be initialized with addresses of all gorilla tgens I think
+
+    # TODO: why do only IRC tgens appear in the client addrs at the end? There are other kidns of tgens.
+
+    self.images = chunk_so_far.images
+    self.model_map = chunk_so_far.model_map
+    self.zones = chunk_so_far.zones
+    self.resolver_caches = chunk_so_far.resolver_cache
+    self.addr_decls = chunk_so_far.addr_decls
+    self.addr_binds = chunk_so_far.addr_binds
+    self.transports = chunk_so_far.transports
+    self.linktype_decls = chunk_so_far.linktype_decls
+    self.linktype_binds = chunk_so_far.linktype_binds
+    self.linkdata = chunk_so_far.linkdata
+    self.actor_decls = chunk_so_far.actor_decls
+    self.actor_binds = chunk_so_far.actor_binds
+    self.init_actors = chunk_so_far.init_actors
+    self.init_msgs = chunk_so_far.init_msgs
+    self.client_addrs = chunk_so_far.client_addrs
 
   def to_init_maude(self) -> str:
-
-    thispath = pathlib.Path(__file__).resolve()
-    libpath = (thispath.parent.parent.parent / "lib").resolve()
-
-    preamble = [
-        "set clear rules off .",
-        "set print attribute off .",
-        "set show advisories off .",
-    ]
-
-    sloads = [
-        f"sload {libpath / "irc/irc-mamodel-v2.maude"}",
-        f"sload {libpath / "webtunnel/webtunnel_prob.maude"}",
-        f"sload {libpath / "irc/irc_prob-v2"}",
-        f"sload {libpath / "irc/ircMonitor"}",
-        f"sload {libpath / "irc/irc-byteseq-interface"}",
-        f"sload {libpath / "common/maude/irc-action-actor-v2.maude"}",
-        f"sload {libpath / "irc/common/irc_name"}",
-        f"sload {libpath / "irc/common/_aux"}",
-        f"sload {libpath / "irc/common/app_chat"}",
-        f"sload {libpath / "irc/_irc_aux"}",
-        f"sload {libpath / "../deps/dns_formalization/Maude/common/apmaude.maude"}",
-        f"sload {libpath / "obfs4/_obfs4_aux.maude"}",
-        f"sload {libpath / "obfs4/obfs4_prob.maude"}",
-        f"sload {libpath / "common/maude/user-action-actor"}",
-        f"sload {libpath / "raceboatMastodon/maude/enc-dec-actor"}",
-        f"sload {libpath / "raceboatMastodonBidir/maude/rb-cm-bidir-mas.maude"}",
-        f"sload {libpath / "mastodon/maude/probabilistic/mastodon"}",
-        f"sload {libpath / "raceboatMastodon/maude/user_models/client_config_mastodon_bidi"}",
-        f"sload {libpath / "raceboatMastodon/maude/user_models/server_config_mastodon_bidi"}",
-        f"sload {libpath / "common/maude/http-overhead.maude"}",
-        f"sload {libpath / "cp3-tests/skyhook/skyhook-um-mamodel-1"}",
-        f"sload {libpath / "irc/common/irc-msg-model"}",
-        f"sload {libpath / "raceboatSkyhook/maude/rb-cm-simple-bi"}",
-        f"sload {libpath / "skyhook/skyhook_prob"}",
-        f"sload {libpath / "s3/s3_protocol"}",
-        f"sload {libpath / "dns/maude/probabilistic/iodine_dns.maude"}",
-        f"sload {libpath / "dns/maude/common/_aux.maude"}",
-        f"sload {libpath / "network/net_prob.maude"}",
-        f"sload {libpath / "common/maude/structured-addresses.maude"}",
-
-        "--- TGEN Includes",
-        f"sload {libpath / "tgen/maude/ftp/profiles/ftp-medium-tgen-mamodel-v2.maude"}",
-        f"sload {libpath / "common/maude/tgen-action-actor-v2.maude"}",
-        f"sload {libpath / "tgen/maude/ftp/ftpTgen-actor.maude"}",
-        f"sload {libpath / "tgen/maude/ftp/ftpServer-actor.maude"}",
-
-        f"sload {libpath / "tgen/maude/gorillachat/profiles/gorilla-tgen-mamodel-v2.maude"}",
-        f"sload {libpath / "tgen/maude/gorillachat/gorilla-Tgen-actor.maude"}",
-
-        f"sload {libpath / "tgen/maude/minio/profiles/minio-medium-tgen-mamodel-v2.maude"}",
-        f"sload {libpath / "tgen/maude/minio/minioTgen-actor.maude"}",
-        f"sload {libpath / "s3/s3_protocol.maude"}",
-
-        f"sload {libpath / "tgen/maude/dnsTgen-actor.maude"}",
-        f"sload {libpath / "tgen/maude/dnsprofiles/markov/config_fast_1.maude"}",
-
-        f"sload {libpath / "tgen/maude/masTGen.maude"}",
-        f"sload {libpath / "tgen/maude/mastodonprofiles/markov/config_influencer_4.maude"}",
-
-        f"sload {libpath / "tgen/maude/irc/ircTgen-actor.maude"}",
-    ]
-
-    mod_start_and_includes = [
-        "mod HCS_TEST is",
-
-        *indent(1, [
-            "pr SCHEDULER .",
-            "pr USER-ACTION-ACTOR .",
-            "pr SKYHOOK-UM-MAMODEL-1 .",
-            "pr IRC-V2 .",
-            "pr IRC-MAMODEL-V2 .",
-            "pr IRC-USER-ACTION-ACTOR-V2 .",
-            "pr IRC-BYTESEQ-INTERFACE .",
-            "pr CONTENT-MANAGER-SIMPLE-BI .",
-            "inc ENC-DEC .",
-            "inc CONTENT-MANAGER-BIDIR .",
-            "inc MASTODON .",
-            "inc MASTODON-CLIENT-CONFIG-MASTODON-BIDI-MAMODEL .",
-            "inc MASTODON-SERVER-CONFIG-MASTODON-BIDI-MAMODEL .",
-            "pr SKYHOOK .",
-            "pr S3_PROTOCOL .",
-            "pr IRC_MONITOR .",
-            "pr OBFS4 .",
-            "pr APP_CHATS .",
-            "pr IRC_NODE .",
-            "pr WEBTUNNEL .",
-            "pr IRC_NAMES .",
-            "pr IODINE_NODE .",
-            "pr IODINE_DNS .",
-            "pr TCP_SOCKET .",
-            "pr NETWORK_NODE .",
-            "pr NETWORK_CONNECTION .",
-            "inc STRUCTURED-ADDRESSES .",
-
-            "--- TGEN Modules",
-            "inc FTP-MEDIUM-MAMODEL-V2 .",
-            "inc USER-ACTION-ACTOR-V2 .",
-            "inc FTP-TGEN .",
-            "inc FTP-SERVER .",
-
-            "inc GORILLA-GORILLA-MAMODEL-V2 .",
-            "inc GORILLACHAT-TGEN .",
-
-            "inc MINIO-MEDIUM-MAMODEL-V2 .",
-            "inc MINIO-TGEN .",
-
-            "inc DNS-TGEN .",
-            "inc DNS-CONFIG-FAST-1-MAMODEL .",
-
-            "inc MAS-TGEN .",
-            "inc MASTODON-CONFIG-INFLUENCER-4-MAMODEL .",
-            "inc IRC-TGEN .",])
-    ]
-
-    params = indent(1, [
+    lines = Lines(
+      '--- MAUDE_HCS: CP3 Scenario 1 Experiment ---',
+      '--- Autogenerated from scenario YAML ---',
+      '',
+      'set clear rules off .',
+      'set print attribute off .',
+      'set show advisories off .',
+      '',
+      mk_static_sloads(),
+      '',
+      'mod HCS_TEST is',
+      indented_lines(
+        mk_static_includes(),
         'vars j : Nat .',
-
+        '',
+        '---------------------------------------------------',
+        '--- Global Constants',
+        '---------------------------------------------------',
         'eq encOH(fsize:Nat,ksize:Nat) = 0 .',
-        'eq noiseMin(msg:Msg)          = 0.001 .',
-        '***** Global constants  ',
-        '**** the user model database',
-        'eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2, "irc-tgen" |-> irc-irc-ma-v2, "ftp" |-> ftp-medium-ma-v2, "gorilla" |-> gorilla-gorilla-ma-v2, "minio" |-> minio-medium-ma-v2) .',
-        '*** for the default case',
-        'eq noiseMax(msg:Msg)          = 0.00001 .',
-
+        'eq noiseMin(msg:Msg)          = 0.00001 .',
+        'eq noiseMax(msg:Msg)          = 0.001 .',
         'eq packetSize                 = 1000 .',
         'eq maxPacketSize              = 967 .',
-
+        '--- how much to delay the HCS and TGENs',
+        'ops hcsDelay tgenDelay : -> Float .',
+        'eq hcsDelay  = 60. [owise] .',
+        'eq tgenDelay = 300. [owise] .',
+        '',
+        '--- User Model Database (MAModelMap)',
+        'eq MAModelMap =',
+        self.model_map,
+        '.',
         'op ed-images : -> ByteSeqL .',
         'eq ed-images =',
-        *indent(1, [
-            'image(1, 3779, 500)',
-            ':: image(2, 2405, 1000)',
-            ':: image(3, 36861, 1000)',
-            ':: image(4, 25377, 500)',
-            ':: image(5, 2440, 300)',
-            ':: image(6, 1275, 300)',
-            ':: image(7, 7710, 1000)',
-            ':: image(8, 3577, 500)',
-            ':: image(9, 3415, 300)',
-            ':: image(10, 74123, 600)',]),
+          self.images.indent(),
         '.',
-    ])
-
-    nameservers = indent(1, [
-      "op zonePwndCom4 : -> List{Record} .",
-      "eq zonePwndCom4 =",
-      *indent(1, [
-          "< 'pwnd . 'com . root, soa, 360000.0, soaData(360000.0) >",
-          "< 'pwnd . 'com . root, ns, 360000.0, 'ns . 'pwnd . 'com . root >",
-          "< 'ns . 'pwnd . 'com . root, a, 360000.0, iod-server-addr >",
-          "< 'www0 . 'pwnd . 'com . root, a, 360000.0, 2 . 0 . 1 . 2 >",
-          "< 'www1 . 'pwnd . 'com . root, a, 360000.0, 2 . 1 . 1 . 2 >",
-          "< wildcard . 'pwnd . 'com . root, txt, 360000.0, nullAddr > .",]),
-      "--- \"SBELT\": fallback if there are no known name servers",
-      # "op sb : -> ZoneState .",
-      # "eq sb = < root ('a . 'root-servers . 'net . root |-> rootDnsAddr) >",
-      # ".",
-    ])
-
-    resolver_caches = indent(1, [
-      "--- Caches",
-      "op resolverCache : -> Cache .",
-      "eq resolverCache =",
-      "cacheEntry(< root, ns, 3600.0, 'a . 'root-servers . 'net . root >, 1)",
-      # "cacheEntry(< 'a . 'root-servers . 'net . root, a, 3600.0, rootDnsAddr >, 1)",
-      "cacheEntry(< 'com . root, ns, 3600.0, 'ns . 'com . root >, 1)",
-      # "cacheEntry(< 'ns . 'com . root, a, 3600.0, tldDnsAddr >, 1)",
-      "cacheEntry(< 'pwnd . 'com . root, ns, 3600.0, 'ns . 'pwnd . 'com . root >, 1)",
-      # "cacheEntry(< 'ns . 'pwnd . 'com . root, a, 3600.0, authDnsAddr >, 1)",
-      "cacheEntry(< 'internet . 'com . root, ns, 3600.0, 'ns . 'internet . 'com . root >, 1)",
-      # "cacheEntry(< 'ns . 'internet . 'com . root, a, 3600.0, authDnsAddr >, 1)",
-      "cacheEntry(< 't1 . 'pwnd . 'com . root, ns, 3600.0, 'ns . 't1 . 'pwnd . 'com . root >, 1)",
-      "cacheEntry(< 'ns . 't1 . 'pwnd . 'com . root, a, 3600.0, iod-server-addr >, 1)",
-      "cacheEntry(< 'corp1 . 'com . root, ns, 3600.0, 'ns . 'corp1 . 'com . root >, 1)",
-      # "cacheEntry(< 'ns . 'corp1 . 'com . root, a, 3600.0, corp1DnsAddr >, 1)",
-      "cacheEntry(< 'corp2 . 'com . root, ns, 3600.0, 'ns . 'corp2 . 'com . root >, 1)",
-      # "cacheEntry(< 'ns . 'corp2 . 'com . root, a, 3600.0, corp2DnsAddr >, 1)",
-      "cacheEntry(< 'corp3 . 'com . root, ns, 3600.0, 'ns . 'corp3 . 'com . root >, 1)",
-      # "cacheEntry(< 'ns . 'corp3 . 'com . root, a, 3600.0, corp3DnsAddr >, 1)",
-      "cacheEntry(< 'corp4 . 'com . root, ns, 3600.0, 'ns . 'corp4 . 'com . root >, 1)",
-      # "cacheEntry(< 'ns . 'corp4 . 'com . root, a, 3600.0, corp4DnsAddr >, 1)",
-      "cacheEntry(< 'corp5 . 'com . root, ns, 3600.0, 'ns . 'corp5 . 'com . root >, 1)",
-      # "cacheEntry(< 'ns . 'corp5 . 'com . root, a, 3600.0, corp5DnsAddr >, 1)",
-      "cacheEntry(< 'serv . 'com . root, ns, 3600.0, 'ns . 'serv . 'com . root >, 1)",
-      # "cacheEntry(< 'ns . 'serv . 'com . root, a, 3600.0, servDnsAddr >, 1)",
-      ".",
-    ])
-
-    address_names = list(map(lambda x: x.addr.name, self.topo.nodes))
-    address_decls = indent(1, [
-        "ops",
-        *indent(1, address_names),
-        ": -> Address .",
-    ])
-
-    def tempfunc(node):
-      print('wtfbro')
-      if node.name == "":
-        print(node)
-      return f"eq {node.addr.name} = {node.addr.maude} ."
-
-    address_defs = indent(1, 
-        list(map(
-            tempfunc,
-            # lambda node: f"eq {node.addr.name} = {node.addr.maude} .",
-            self.topo.nodes))
-    )
-
-    linktype_params = indent(1, [
-        'eq transport(any:Address) = tcp(any:Address) .',
         '',
-        'vars dt : Float .',
-        'vars icAddr isAddr ifsAddr : Address .',
-        'vars room : String .',
-        'op mkJoin : Float String Address Address Address -> ScheduleMsg .',
-        'eq mkJoin(dt,room,icAddr, isAddr, ifsAddr) =',
-        *indent(1, [
-            '[dt,',
-            '(to isAddr from ifsAddr :',
-            'JoinChannel(makeIrcChannelName(room), icAddr )),',
-            '0]',]),
+        '---------------------------------------------------',
+        '--- DNS Zone Configurations',
+        '---------------------------------------------------',
+        self.zones,
+        'op sb : -> ZoneState .',
+        "eq sb = < root ('a . 'root-servers . 'net . root |-> rootDnsAddr) > .",
+        '',
+        'op resolverCache : -> Cache .',
+        'eq resolverCache =',
+          self.resolver_caches.indent(),
         '.',
-    ])
+        '---------------------------------------------------',
+        '--- HCS Node Addresses',
+        '---------------------------------------------------',
+        'ops',
+          self.addr_decls.indent(),
+        ': -> Address .',
+        '',
+        '---------------------------------------------------',
+        '--- Address Equations',
+        '---------------------------------------------------',
+        self.addr_binds,
+        '',
+        '---------------------------------------------------',
+        '--- Link Model Parameters',
+        '---------------------------------------------------',
+        'ops',
+          self.linktype_decls.indent(),
+        ': -> AttributeSet .'
+        '',
+        self.linktype_binds,
+        '',
+        '---------------------------------------------------',
+        '--- Transport Equations (Readable Addresses Only)',
+        '---------------------------------------------------',
+        self.transports,
+        '',
+        '---------------------------------------------------',
+        '--- Link Data (Readable Addresses Only)',
+        '---------------------------------------------------',
+        'eq LinkData =',
+          self.linkdata.indent(),
+        '.',
+        '',
+        '---------------------------------------------------',
+        '--- Actor Declarations & Definitions',
+        '---------------------------------------------------',
+        '',
+        'ops',
+          self.actor_decls.indent(),
+        ': -> Actor .',
+        '',
+        self.actor_binds,
+        '',
+        '---------------------------------------------------',
+        '--- Initial State Configuration',
+        '---------------------------------------------------',
+        'op initState : Nat -> Config .',
+        'eq initState(j) =',
+        indented_lines(
+          'rCtr(j + 8)',
+          '',
+          self.init_actors,
 
-    linktypes = self.topo.get_link_types()
-    linktype_decls = indent(1, [
-        "ops",
-        *indent(1, list(map(lambda ltyp: ltyp.name(), linktypes))),
-        ": -> AttributeSet .",
-    ])
-
-    linktype_defs = indent(1,
-        list(map(
-            lambda ltyp: f"eq {ltyp.name()} = {ltyp.maude()} .",
-            linktypes
-        ))
+          self.init_msgs,),
+        '.',
+        '',
+        '---------------------------------------------------',
+        '--- Run Limits and Initial Configuration',
+        '---------------------------------------------------',
+        '***** suppressing irc server dropping clients',
+        'eq IRC-STALE-DURATION-S = 140000. [owise] .',
+        'eq IRC-PING-INTV-S = 1200000. [owise]  .',
+        '',
+        'op slimit : -> Float .',
+        'eq slimit = 11700.0 .',
+        '',
+        'op initConfig : -> Config .',
+        'rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .',
+        '',
+        'op allClientsAddr : -> AddrList .',
+        'eq allClientsAddr = ',
+          self.client_addrs.indent(),
+        '',),
+      'endm',
+      'eof',
+      '',
+      'set print attribute on .',
+      'rew initConfig .',
+      'q',
     )
-    
-    linkdata_defs = indent(1, [
-        "eq LinkData =",
-        *indent(1, list(map(
-            lambda lnk: lnk.maude(),
-            self.topo.links
-        ))),
-        "."
-    ])
-
-    actor_decls = indent(1, [
-        "ops",
-        *indent(1, list(map(
-            lambda node: node.name,
-            self.topo.nodes
-        ))),
-        ": -> Actor ."
-    ])
-
-    actor_defs = indent(1,
-        list(map(
-            lambda node: f"eq {node.name} = {node.maude} .",
-            self.topo.nodes
-        ))
-    )
-
-    adversary_def = indent(1, [
-        "op advAddr : -> Address .",
-        "op advActor : -> Actor .",
-        "eq advActor = mkAdversaryCp3(advAddr) .",
-    ])
-
-    init_state_start = indent(1, [
-        "op initState : Nat -> Config .",
-        "eq initState(j) =",
-        *indent(1, [
-            "rCtr(j + 8)",
-            *map(lambda node: node.name, self.topo.nodes),
-        ]),          
-    ])
-
-    # TODO: write these properly with loops for each subnet
-    trigger_msgs = indent(2, [
-        # '[0.001, (to aha3Addr from aha3Addr : SkyhookStartCmd), 0]',
-        # '[0.20, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]',
-        # '[1.0 + genRandomX(j, 0.0, 0.0001), (to umac3Addr from umac3Addr : actionR("ok")), 0]',
-        # '[1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas3Addr from umas3Addr : actionR("ok")), 0]',
-        # '[1.0 + genRandomX(j, 0.0, 0.0001), (to umac5Addr from umac5Addr : actionR("ok")), 0]',
-        # '[1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas5Addr from umas5Addr : actionR("ok")), 0]',
-        '--- TGEN Starts',
-        # '[30.0 + genRandomX(j, 0.0, 0.0001), (to ftpUMAddr from ftpUMAddr : burstDelayTO), 0]',
-        # '[30.0 + genRandomX(j, 0.0, 0.0001), (to gorillaUMAddr from gorillaUMAddr : burstDelayTO), 0]',
-        # '[30.0 + genRandomX(j, 0.0, 0.0001), (to minioUMAddr from minioUMAddr : burstDelayTO), 0]',
-        # '[30.0 + genRandomX(j, 0.0, 0.0001), (to dnsUMAddr from dnsUMAddr : actionR("")), 0]',
-        '[30.0 + genRandomX(j, 0.0, 0.0001), (to mast-tgen-usermodel-addr-0 from mast-tgen-usermodel-addr-0 : actionR("")), 0]',
-        # '[30.0 + genRandomX(j, 0.0, 0.0001), (to ircTgenUMAddr from ircTgenUMAddr : burstDelayTO), 0]',
-        # 'mkJoin(2.0, "#chat", ircClient1Addr, ircServerAddr, server1IfaceAddr)',
-        # 'mkJoin(2.1, "#general", ircClient1Addr, ircServerAddr, server1IfaceAddr)',
-        # 'mkJoin(2.2, "#random", ircClient1Addr, ircServerAddr, server1IfaceAddr)',
-        # 'mkJoin(2.3, "#chat", ircClient2Addr, ircServerAddr, server2IfaceAddr)',
-        # 'mkJoin(2.4, "#general", ircClient2Addr, ircServerAddr, server2IfaceAddr)',
-        # 'mkJoin(2.5, "#random", ircClient2Addr, ircServerAddr, server2IfaceAddr)',
-        # 'mkJoin(2.6, "#chat", ircClient3Addr, ircServerAddr, server3IfaceAddr)',
-        # 'mkJoin(2.7, "#general", ircClient3Addr, ircServerAddr, server3IfaceAddr)',
-        # 'mkJoin(2.8, "#random", ircClient3Addr, ircServerAddr, server3IfaceAddr)',
-        # 'mkJoin(2.9, "#chat", ircClient4Addr, ircServerAddr, serverIface4Addr)',
-        # 'mkJoin(3.0, "#general", ircClient4Addr, ircServerAddr, serverIface4Addr)',
-        # 'mkJoin(3.1, "#random", ircClient4Addr, ircServerAddr, serverIface4Addr)',
-        # 'mkJoin(3.2, "#chat", ircClient5Addr, ircServerAddr, server5IfaceAddr)',
-        # 'mkJoin(3.3, "#general", ircClient5Addr, ircServerAddr, server5IfaceAddr)',
-        # 'mkJoin(3.4, "#random", ircClient5Addr, ircServerAddr, server5IfaceAddr)',
-        # 'mkJoin(3.5, "#tgen_chat", ircTgenClientAddr, ircServerAddr, ircTgenClientAddr)',
-        # 'mkJoin(3.6, "#tgen_general", ircTgenClientAddr, ircServerAddr, ircTgenClientAddr)',
-        # 'mkJoin(3.7, "#tgen_random", ircTgenClientAddr, ircServerAddr, ircTgenClientAddr)',
-        # '[20.0, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]',
-        # '[21.0, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]',
-        # '[22.0, (to ircClient3UserModelAddr from ircClient3UserModelAddr : burstDelayTO), 0]',
-        # '[23.0, (to ircClient4UserModelAddr from ircClient4UserModelAddr : burstDelayTO), 0]',
-        # '[24.0, (to ircClient5UserModelAddr from ircClient5UserModelAddr : burstDelayTO), 0]',
-    ])
-
-    client_names = list(map(lambda x: x.name, self.client_addrs))
-    mod_finale = [
-        *indent(1, [
-            "op slimit : -> Float .",
-            "eq slimit = 1000.0 .",
-
-            "op initConfig : -> Config .",
-            "rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .",
-            "op allClientsAddr : -> AddrList .",
-            f"eq allClientsAddr = {" ; ".join(client_names)} .",]),
-
-        "endm",
-    ]
-
-    file_finale = [
-        "set print attribute on .",
-        "rew initConfig .",
-        "q",
-    ]
-
-    return '\n'.join([
-        *preamble, "",
-        *sloads, "",
-        *mod_start_and_includes, "",
-        *params, "",
-        *nameservers, "",
-        *address_decls, "",
-        *address_defs, "",
-        *linktype_params, "",
-        *linktype_decls, "",
-        *linktype_defs,
-        *linkdata_defs,
-        *actor_decls,
-        *actor_defs,
-        *adversary_def,
-        # tgen_decls,
-        # tgen_defs,
-        *init_state_start,
-        *trigger_msgs,
-        *indent(1, ["."]),
-        *mod_finale,"",
-        *file_finale,
-    ])
+    return '\n'.join(lines.lines)
