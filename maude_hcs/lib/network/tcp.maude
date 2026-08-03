@@ -883,6 +883,21 @@ mod TCP_NODE is
     [owise print "Time dispersion of segments from " j "B message on unspecd link 0.1ms." ]
   .
 
+  op getFirstHopSegmentDistribution : Nat Msg AttributeSet -> AttributeSet .
+  ceq getFirstHopSegmentDistribution(j, msg, attrs) =
+    (timePacketList: times:FloatList,
+     nextJ: j)
+    if content := getContent(msg)
+      /\ attrs =/= noneAS 
+      /\ msgSize := getSize(content)
+      /\ times:FloatList := tcpFirstHopTimes(msgSize, attrs)
+    [ print "First-hop time dispersion of segments from " msgSize "B message is " times:FloatList  "." ]
+  .
+  eq getFirstHopSegmentDistribution(j, msg, noneAS) =
+    (timePacketList: (1.0e-4 :: nilFL), nextJ: j)
+    [owise print "First-hop time dispersion of segments from " j "B message on unspecd link 0.1ms." ]
+  .
+
   op msgDelay : FloatList -> Float .
   eq msgDelay(nilFL) = 0. .
   eq msgDelay(times:FloatList) = maxFL(times:FloatList) .
