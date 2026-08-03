@@ -436,7 +436,7 @@ mod TCP-ANALYTICAL-MODEL is
   var  SGS SGE : Nat .
   var  SEGF : Float .
   var  ACC : FloatList .
-  var  SX : Bool .
+  vars SX ISNEW B : Bool .
 
   --- Buffer-path variables (ssLoopBuf / caLoopBuf)
   vars P0CH P0B PLB BDRP RTTB DTB : Float .
@@ -753,21 +753,37 @@ mod TCP-ANALYTICAL-MODEL is
   eq MTU-SIZE-BYTES   = 1500 [owise] .
   eq MSS-SIZE-BYTES   = MTU-SIZE-BYTES - IP-HEADER-BYTES - TCP-HEADER-BYTES .
 
-  --- buildTimeline(N, OW, CC) - Destination Server (Hop 2 Arrival)
+  op newCnx:_ : Bool -> Attribute [ctor] .
+
+  --- Extract newCnx flag (defaults to true if not present)
+  op getNewCnx : AttributeSet -> Bool .
+  eq getNewCnx((linkAttrs, newCnx: B)) = B .
+  eq getNewCnx(linkAttrs) = true [owise] .
+
+  --- buildTimeline(N, OW, CC, ISNEW) - Destination Server (Hop 2 Arrival)
   op buildTimeline : Nat Float ChannelCfg -> FloatList .
-  eq buildTimeline(N, OW, CC) = buildTimelineHop(N, OW, OW, serDly, CC) .
+  eq buildTimeline(N, OW, CC) = buildTimeline(N, OW, CC, true) .
 
-  --- buildTimelineFirstHop(N, OW, CC) - First Hop Router (Hop 1 Arrival)
+  op buildTimeline : Nat Float ChannelCfg Bool -> FloatList .
+  eq buildTimeline(N, OW, CC, ISNEW) = buildTimelineHop(N, OW, OW, serDly, CC, ISNEW) .
+
+  --- buildTimelineFirstHop(N, OW, CC, ISNEW) - First Hop Router (Hop 1 Arrival)
   op buildTimelineFirstHop : Nat Float ChannelCfg -> FloatList .
-  eq buildTimelineFirstHop(N, OW, CC) = buildTimelineHop(N, OW, OW / 2.0, serDly1, CC) .
+  eq buildTimelineFirstHop(N, OW, CC) = buildTimelineFirstHop(N, OW, CC, true) .
 
-  --- buildTimelineHop(N, OW, OW_offset, SR_hop, CC)
+  op buildTimelineFirstHop : Nat Float ChannelCfg Bool -> FloatList .
+  eq buildTimelineFirstHop(N, OW, CC, ISNEW) = buildTimelineHop(N, OW, OW / 2.0, serDly1, CC, ISNEW) .
+
+  --- buildTimelineHop(N, OW, OW_offset, SR_hop, CC, ISNEW)
   op buildTimelineHop : Nat Float Float Float ChannelCfg -> FloatList .
+  eq buildTimelineHop(N, OW, OWOFF, SRHOP, CC) = buildTimelineHop(N, OW, OWOFF, SRHOP, CC, true) .
+
+  op buildTimelineHop : Nat Float Float Float ChannelCfg Bool -> FloatList .
 
   --- Buffer-capacity path: when isNoneProfile(CC) is true
-  ceq buildTimelineHop(N, OW, OWOFF, SRHOP, CC) =
+  ceq buildTimelineHop(N, OW, OWOFF, SRHOP, CC, ISNEW) =
      caPhaseBuf(
-       ssLoopBuf(2.0 * OW,      --- t = RTT (handshake cost)
+       ssLoopBuf(if ISNEW then 2.0 * OW else 0.0 fi,      --- t = RTT if new cnx else 0.0
                  0,              --- seg = 0
                  1,              --- flt = 1
                  rvMul(rvMul(chPi(CC), chP(CC)), chP(CC)),  --- pi after HS
@@ -778,9 +794,9 @@ mod TCP-ANALYTICAL-MODEL is
   if isNoneProfile(CC) .
 
   --- No-buffer path: all other profiles
-  eq buildTimelineHop(N, OW, OWOFF, SRHOP, CC) =
+  eq buildTimelineHop(N, OW, OWOFF, SRHOP, CC, ISNEW) =
      caPhase(
-       ssLoop(2.0 * OW,       --- t = RTT (handshake cost)
+       ssLoop(if ISNEW then 2.0 * OW else 0.0 fi,       --- t = RTT if new cnx else 0.0
               0,               --- seg = 0
               1,               --- flt = 1
               rvMul(rvMul(chPi(CC), chP(CC)), chP(CC)),  --- pi after handshake
@@ -796,7 +812,7 @@ mod TCP-ANALYTICAL-MODEL is
                         -> FloatList .
   ceq tcpDeliveryTimes(MSZ:Nat, P13:Float, P31:Float, P32:Float,
                        P23:Float, P14:Float, OW) =
-     buildTimeline(NSeg:Nat, OW, CC0:ChannelCfg)
+     buildTimeline(NSeg:Nat, OW, CC0:ChannelCfg, true)
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
   /\ CC0:ChannelCfg := makeChannel(P13:Float, P31:Float, P32:Float,
                                     P23:Float, P14:Float)
@@ -804,7 +820,7 @@ mod TCP-ANALYTICAL-MODEL is
 
   op tcpDeliveryTimes : Nat AttributeSet -> FloatList .
   ceq tcpDeliveryTimes(MSZ:Nat, linkAttrs) =
-    buildTimeline(NSeg:Nat, getOneWayDelay(linkAttrs), CC0:ChannelCfg)
+    buildTimeline(NSeg:Nat, getOneWayDelay(linkAttrs), CC0:ChannelCfg, getNewCnx(linkAttrs))
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
     /\ CC0:ChannelCfg := makeChannel(linkAttrs)
   .
@@ -816,7 +832,7 @@ mod TCP-ANALYTICAL-MODEL is
                         -> FloatList .
   ceq tcpFirstHopTimes(MSZ:Nat, P13:Float, P31:Float, P32:Float,
                        P23:Float, P14:Float, OW) =
-     buildTimelineFirstHop(NSeg:Nat, OW, CC0:ChannelCfg)
+     buildTimelineFirstHop(NSeg:Nat, OW, CC0:ChannelCfg, true)
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
   /\ CC0:ChannelCfg := makeChannel(P13:Float, P31:Float, P32:Float,
                                     P23:Float, P14:Float)
@@ -824,7 +840,7 @@ mod TCP-ANALYTICAL-MODEL is
 
   op tcpFirstHopTimes : Nat AttributeSet -> FloatList .
   ceq tcpFirstHopTimes(MSZ:Nat, linkAttrs) =
-    buildTimelineFirstHop(NSeg:Nat, getOneWayDelay(linkAttrs), CC0:ChannelCfg)
+    buildTimelineFirstHop(NSeg:Nat, getOneWayDelay(linkAttrs), CC0:ChannelCfg, getNewCnx(linkAttrs))
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
     /\ CC0:ChannelCfg := makeChannel(linkAttrs)
   .
