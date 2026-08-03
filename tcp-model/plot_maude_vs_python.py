@@ -13,7 +13,7 @@ def get_python_times(profile, num_bytes):
     num_segments = num_bytes // 1448
     times = []
     for k in range(1, num_segments + 1):
-        t_k, _ = tcp_analytical_model.expected_time_k(k)
+        _, t_k, _ = tcp_analytical_model.expected_time_k(k)
         times.append(t_k)
     return times
 
@@ -29,7 +29,7 @@ def get_maude_times(profile, num_bytes):
     
     # Resolve the path to tcp.maude based on script location
     project_root = os.path.dirname(script_dir)
-    tcp_maude_path = os.path.join(project_root, 'maude_hcs', 'lib', 'tcp', 'tcp.maude')
+    tcp_maude_path = os.path.join(project_root, 'maude_hcs', 'lib', 'network', 'tcp.maude')
     
     maude_cmd = f"""
 load {tcp_maude_path}
@@ -37,17 +37,15 @@ red tcpDeliveryTimes({num_bytes}, {p13}, {p31}, {p32}, {p23}, {p14}, {O}) .
 quit
 """
     # Assuming maude is in PATH or we can find it
-    # First try `maude` directly
     maude_bin = 'maude'
     
-    # Fallback to absolute path we know worked in earlier tests if `maude` isn't in PATH
     try:
         subprocess.run([maude_bin, '-no-banner', '-batch'], input=maude_cmd, text=True, capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         maude_bin = '/Users/dcirimel/pwnd2/maude/maude'
 
     print(f"Using Maude binary: {maude_bin}")
-    result = subprocess.run([maude_bin, '-no-banner'], 
+    result = subprocess.run([maude_bin, '-no-banner', '-batch'], 
                             input=maude_cmd, text=True, capture_output=True)
     
     output = result.stdout
