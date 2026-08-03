@@ -33,6 +33,7 @@ sload ../../../../maude_hcs/lib/s3/s3_protocol
 sload ../../../../maude_hcs/lib/dns/maude/probabilistic/iodine_dns.maude
 sload ../../../../maude_hcs/lib/dns/maude/common/_aux.maude
 sload ../../../../maude_hcs/lib/network/net_prob.maude
+sload ../../../../maude_hcs/lib/network/net-dns_prob.maude
 sload ../../../../maude_hcs/lib/common/maude/structured-addresses.maude
 
 --- TGEN Actor Infrastructure
@@ -147,6 +148,7 @@ mod HCS_TEST is
   pr IODINE_NODE .
   pr IODINE_DNS .
   pr TCP_SOCKET .
+  pr NET-DNS .
   pr NETWORK_NODE .
   pr NETWORK_CONNECTION .
   inc STRUCTURED-ADDRESSES .
@@ -342,9 +344,9 @@ mod HCS_TEST is
     < 'ns . 'internet . 'com . root, a, 360000.0, authDnsAddr >
     < 'tmp0 . 'internet . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >
     < 't1 . 'pwnd . 'com . root, ns, 360000.0, 'ns . 't1 . 'pwnd . 'com . root >
-    < 'ns . 't1 . 'pwnd . 'com . root, a, 360000.0, iodCl7ServerAddr >
+    < 'ns . 't1 . 'pwnd . 'com . root, a, 360000.0, iodCl7SrvNetClAddr >
     < 't2 . 'pwnd . 'com . root, ns, 360000.0, 'ns . 't2 . 'pwnd . 'com . root >
-    < 'ns . 't2 . 'pwnd . 'com . root, a, 360000.0, iodCl8ServerAddr >
+    < 'ns . 't2 . 'pwnd . 'com . root, a, 360000.0, iodCl8SrvNetClAddr >
     < 'mastodon . 'pwnd . 'com . root, a, 0.0, masSrvAddr >
     < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1 . 1 . 2 >
   .
@@ -353,7 +355,7 @@ mod HCS_TEST is
   eq zonePwndCom7 =
     < 'pwnd . 'com . root, soa, 360000.0, soaData(360000.0) >
     < 'pwnd . 'com . root, ns, 360000.0, 'ns . 'pwnd . 'com . root >
-    < 'ns . 'pwnd . 'com . root, a, 360000.0, iodCl7ServerAddr >
+    < 'ns . 'pwnd . 'com . root, a, 360000.0, iodCl7SrvNetClAddr >
     < 'www0 . 'pwnd . 'com . root, a, 360000.0, 2 . 0 . 1 . 2 >
     < 'www1 . 'pwnd . 'com . root, a, 360000.0, 2 . 1 . 1 . 2 >
     < wildcard . 'pwnd . 'com . root, txt, 360000.0, nullAddr > .
@@ -362,7 +364,7 @@ mod HCS_TEST is
   eq zonePwndCom8 =
     < 'pwnd . 'com . root, soa, 360000.0, soaData(360000.0) >
     < 'pwnd . 'com . root, ns, 360000.0, 'ns . 'pwnd . 'com . root >
-    < 'ns . 'pwnd . 'com . root, a, 360000.0, iodCl8ServerAddr >
+    < 'ns . 'pwnd . 'com . root, a, 360000.0, iodCl8SrvNetClAddr >
     < 'www0 . 'pwnd . 'com . root, a, 360000.0, 2 . 0 . 1 . 2 >
     < 'www1 . 'pwnd . 'com . root, a, 360000.0, 2 . 1 . 1 . 2 >
     < wildcard . 'pwnd . 'com . root, txt, 360000.0, nullAddr > .
@@ -435,9 +437,9 @@ mod HCS_TEST is
     cacheEntry(< 'internet . 'com . root, ns, 360000.0, 'ns . 'internet . 'com . root >, 1)
     cacheEntry(< 'ns . 'internet . 'com . root, a, 360000.0, authDnsAddr >, 1)
     cacheEntry(< 't1 . 'pwnd . 'com . root, ns, 360000.0, 'ns . 't1 . 'pwnd . 'com . root >, 1)
-    cacheEntry(< 'ns . 't1 . 'pwnd . 'com . root, a, 360000.0, iodCl7ServerAddr >, 1)
+    cacheEntry(< 'ns . 't1 . 'pwnd . 'com . root, a, 360000.0, iodCl7SrvNetClAddr >, 1)
     cacheEntry(< 't2 . 'pwnd . 'com . root, ns, 360000.0, 'ns . 't2 . 'pwnd . 'com . root >, 1)
-    cacheEntry(< 'ns . 't2 . 'pwnd . 'com . root, a, 360000.0, iodCl8ServerAddr >, 1)
+    cacheEntry(< 'ns . 't2 . 'pwnd . 'com . root, a, 360000.0, iodCl8SrvNetClAddr >, 1)
     cacheEntry(< 'mas . 'com . root, ns, 360000.0, 'ns . 'mas . 'com . root >, 1)
     cacheEntry(< 'ns . 'mas . 'com . root, a, 360000.0, corpMasDnsAddr >, 1)
     cacheEntry(< 'rt . 'com . root, ns, 360000.0, 'ns . 'rt . 'com . root >, 1)
@@ -775,7 +777,7 @@ mod HCS_TEST is
   eq transport(ircServerAddr) = tcp(ircServerAddr) .
 
   --- UDP transport for DNS resolvers
-  eq transport(publicDnsAddr) = udp(publicDnsAddr) .
+  eq transport(publicDnsAddr) = publicDnsAddr .
   eq transport(corpMasDnsAddr) = corpMasDnsAddr .
   eq transport(corpRtDnsAddr) = corpRtDnsAddr .
   eq transport(corpObfsDnsAddr) = corpObfsDnsAddr .
@@ -1684,7 +1686,7 @@ mod HCS_TEST is
   --- Iodine Client 7 (IRC profile: irc_2)
   ops iodCl7Irc iodCl7Um iodCl7Iface iodCl7SrvIface : -> Actor .
   ops iodCl7SendApp iodCl7RcvApp iodCl7Cl iodCl7Srv : -> Actor .
-  ops iodCl7NetSrv : -> Actor .
+  ops iodCl7NetSrv iodCl7SrvNetCl iodCl7SrvNetSrv : -> Actor .
   eq iodCl7Irc       = mkIrcClient-v2(iodCl7IrcAddr, iodCl7IfaceAddr, "IodClient7") .
   eq iodCl7Um        = mkIrcUMV2Actor(iodCl7UmAddr, "irc-irc-2", iodCl7IrcAddr, ircServerAddr, iodCl7SrvIfaceAddr) .
   eq iodCl7Iface     = mkIrcByteSeqIface(iodCl7IfaceAddr, iodCl7IrcAddr, iodCl7SendAppAddr) .
@@ -1693,17 +1695,22 @@ mod HCS_TEST is
   eq iodCl7RcvApp    = mkRcvApp(iodCl7RcvAppAddr, iodCl7SendAppAddr, iodCl7SrvIfaceAddr, iodCl7ServerAddr) .
   eq iodCl7Cl        = makeWClient(iodCl7ClientAddr, corpIodDnsAddr, 't1 . 'pwnd . 'com . root, a, 0.0) .
   eq iodCl7Srv       = makeWNameServer(iodCl7ServerAddr, 0.0, zonePwndCom7) .
-  eq iodCl7NetSrv    = makeNetClient(iodCl7NetServerAddr,
-                                       publicDnsAddr,
-                                       iodCl7ServerAddr,
-                                       true,
-                                       nullAddr,
-                                       nullName) .
+  eq iodCl7SrvNetSrv = mkPubDnsNetS(iodCl7SrvNetSrvAddr,
+                                    iodCl7ServerAddr,
+                                    IXP-DEFAULT-ADDR)
+  .
+  **** pubDns as client side 
+  eq iodCl7SrvNetCl = mkFwdDnsNetC(iodCl7SrvNetClAddr,
+                                   iodCl7SrvNetSrvAddr,
+                                   iodCl7ServerAddr, 
+                                   publicDnsAddr,
+                                   IXP-DEFAULT-ADDR)
+  .
 
   --- Iodine Client 8 (IRC profile: irc_7)
   ops iodCl8Irc iodCl8Um iodCl8Iface iodCl8SrvIface : -> Actor .
   ops iodCl8SendApp iodCl8RcvApp iodCl8Cl iodCl8Srv : -> Actor .
-  ops iodCl8NetSrv : -> Actor .
+  ops iodCl8NetSrv iodCl8SrvNetCl iodCl8SrvNetSrv : -> Actor .
   eq iodCl8Irc       = mkIrcClient-v2(iodCl8IrcAddr, iodCl8IfaceAddr, "IodClient8") .
   eq iodCl8Um        = mkIrcUMV2Actor(iodCl8UmAddr, "irc-irc-7", iodCl8IrcAddr, ircServerAddr, iodCl8SrvIfaceAddr) .
   eq iodCl8Iface     = mkIrcByteSeqIface(iodCl8IfaceAddr, iodCl8IrcAddr, iodCl8SendAppAddr) .
@@ -1712,12 +1719,17 @@ mod HCS_TEST is
   eq iodCl8RcvApp    = mkRcvApp(iodCl8RcvAppAddr, iodCl8SendAppAddr, iodCl8SrvIfaceAddr, iodCl8ServerAddr) .
   eq iodCl8Cl        = makeWClient(iodCl8ClientAddr, corpIodDnsAddr, 't2 . 'pwnd . 'com . root, a, 0.0) .
   eq iodCl8Srv       = makeWNameServer(iodCl8ServerAddr, 0.0, zonePwndCom8) .
-  eq iodCl8NetSrv    = makeNetClient(iodCl8NetServerAddr,
-                                       publicDnsAddr,
-                                       iodCl8ServerAddr,
-                                       true,
-                                       nullAddr,
-                                       nullName) .
+  eq iodCl8SrvNetSrv = mkPubDnsNetS(iodCl8SrvNetSrvAddr,
+                                    iodCl8ServerAddr,
+                                    IXP-DEFAULT-ADDR)
+  .
+  **** pubDns as client side 
+  eq iodCl8SrvNetCl = mkFwdDnsNetC(iodCl8SrvNetClAddr,
+                                   iodCl8SrvNetSrvAddr,
+                                   iodCl8ServerAddr,
+                                   publicDnsAddr,
+                                   IXP-DEFAULT-ADDR)
+  .
 
   --- Mastodon HCS Client 9 (IRC profile: irc_6)
   ops masCl9Irc masCl9Um masCl9Iface masCl9SrvIface : -> Actor .
@@ -1774,45 +1786,57 @@ mod HCS_TEST is
   ops corpMasNetCl corpRtNetCl corpIodNetCl corpObfsNetCl corpSkyNetCl servNetCl : -> Actor .
   ops publicResolverNetCl : -> Actor .
 
-  eq corpMasDns   = mkNameServer(corpMasDnsAddr, (zoneMasCom), publicDnsAddr) .
-  eq corpRtDns    = mkNameServer(corpRtDnsAddr, (zoneRtCom), publicDnsAddr) .
-  eq corpIodDns   = mkNameServer(corpIodDnsAddr, (zoneIodCom), publicDnsAddr) .
-  eq corpObfsDns  = mkNameServer(corpObfsDnsAddr, (zoneObfsCom), publicDnsAddr) .
-  eq corpSkyDns   = mkNameServer(corpSkyDnsAddr, (zoneSkyCom), publicDnsAddr) .
-  eq servDns       = mkNameServer(servDnsAddr, (zoneServCom), publicDnsAddr) .
+  eq corpMasDns   = mkNameServer(corpMasDnsAddr, (zoneMasCom), corpMasNetClAddr) .
+  eq corpRtDns    = mkNameServer(corpRtDnsAddr, (zoneRtCom), corpRtNetClAddr) .
+  eq corpIodDns   = mkNameServer(corpIodDnsAddr, (zoneIodCom), corpIodNetClAddr) .
+  eq corpObfsDns  = mkNameServer(corpObfsDnsAddr, (zoneObfsCom), corpObfsNetClAddr) .
+  eq corpSkyDns   = mkNameServer(corpSkyDnsAddr, (zoneSkyCom), corpSkyNetClAddr) .
+  eq servDns      = mkNameServer(servDnsAddr, (zoneServCom), servNetClAddr) .
   eq publicResolver = mkResolver(publicDnsAddr, resolverCache, sb) .
   eq rootDns       = mkNameServer(rootDnsAddr, (zone), nullAddr) .
   eq tldDns        = mkNameServer(tldDnsAddr, (zoneCom), nullAddr) .
   eq authDns       = mkNameServer(authDnsAddr, (zoneInternetCom), nullAddr) .
 
-  eq corpMasNetCl = makeNetClient(corpMasNetClAddr,
-                            publicDnsAddr,
-                            corpMasDnsAddr,
-                            true) .
-  eq corpRtNetCl = makeNetClient(corpRtNetClAddr,
-                            publicDnsAddr,
-                            corpRtDnsAddr,
-                            true) .
-  eq corpIodNetCl = makeNetClient(corpIodNetClAddr,
-                            publicDnsAddr,
-                            corpIodDnsAddr,
-                            true) .
-  eq corpObfsNetCl = makeNetClient(corpObfsNetClAddr,
-                            publicDnsAddr,
-                            corpObfsDnsAddr,
-                            true) .
-  eq corpSkyNetCl = makeNetClient(corpSkyNetClAddr,
-                            publicDnsAddr,
-                            corpSkyDnsAddr,
-                            true) .
-  eq servNetCl = makeNetClient(servNetClAddr,
-                            publicDnsAddr,
-                            servDnsAddr,
-                            true) .
-  eq publicResolverNetCl = makeNetClient(publicResolverNetClAddr,
-                                        publicDnsAddr,
-                                        publicDnsAddr,
-                                        true) .
+  eq corpMasNetCl = mkFwdDnsNetC(corpMasNetClAddr,
+                                 publicResolverNetClAddr,
+                                 publicDnsAddr,
+                                 corpMasDnsAddr,
+                                 IXP-DEFAULT-ADDR)
+  .
+  eq corpRtNetCl  = mkFwdDnsNetC(corpRtNetClAddr,
+                                 publicResolverNetClAddr,
+                                 publicDnsAddr,
+                                 corpRtDnsAddr,
+                                 IXP-DEFAULT-ADDR)
+  .
+  eq corpIodNetCl = mkFwdDnsNetC(corpIodNetClAddr,
+                                 publicResolverNetClAddr,
+                                 publicDnsAddr,
+                                 corpIodDnsAddr,
+                                 IXP-DEFAULT-ADDR)
+  .
+  eq corpObfsNetCl  = mkFwdDnsNetC(corpObfsNetClAddr,
+                                   publicResolverNetClAddr,
+                                   publicDnsAddr,
+                                   corpObfsDnsAddr,
+                                   IXP-DEFAULT-ADDR)
+  .
+  eq corpSkyNetCl = mkFwdDnsNetC(corpSkyNetClAddr,
+                                 publicResolverNetClAddr,
+                                 publicDnsAddr, 
+                                 corpSkyDnsAddr,
+                                 IXP-DEFAULT-ADDR)
+  .
+  eq servNetCl  = mkFwdDnsNetC(servNetClAddr,
+                               publicResolverNetClAddr,
+                               publicDnsAddr,
+                               servDnsAddr,
+                               IXP-DEFAULT-ADDR)
+  .
+  eq publicResolverNetCl  = mkPubDnsNetS(publicResolverNetClAddr,
+                                         publicDnsAddr,
+                                         IXP-DEFAULT-ADDR)
+  .
 
   ---------------------------------------------------
   --- TGEN Actor Definitions
