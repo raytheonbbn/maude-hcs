@@ -760,19 +760,19 @@ mod TCP-ANALYTICAL-MODEL is
   eq getNewCnx((linkAttrs, newCnx: B)) = B .
   eq getNewCnx(linkAttrs) = true [owise] .
 
-  --- buildTimeline(N, OW, CC, ISNEW) - Destination Server (Hop 2 Arrival)
-  op buildTimeline : Nat Float ChannelCfg -> FloatList .
-  eq buildTimeline(N, OW, CC) = buildTimeline(N, OW, CC, true) .
+  --- buildFinalDestTimeline(N, OW, CC, ISNEW) - Destination Server (Hop 2 Arrival)
+  op buildFinalDestTimeline : Nat Float ChannelCfg -> FloatList .
+  eq buildFinalDestTimeline(N, OW, CC) = buildFinalDestTimeline(N, OW, CC, true) .
 
-  op buildTimeline : Nat Float ChannelCfg Bool -> FloatList .
-  eq buildTimeline(N, OW, CC, ISNEW) = buildTimelineHop(N, OW, OW, serDly, CC, ISNEW) .
+  op buildFinalDestTimeline : Nat Float ChannelCfg Bool -> FloatList .
+  eq buildFinalDestTimeline(N, OW, CC, ISNEW) = buildTimelineHop(N, OW, OW, serDly, CC, ISNEW) .
 
-  --- buildTimelineFirstHop(N, OW, CC, ISNEW) - First Hop Router (Hop 1 Arrival)
-  op buildTimelineFirstHop : Nat Float ChannelCfg -> FloatList .
-  eq buildTimelineFirstHop(N, OW, CC) = buildTimelineFirstHop(N, OW, CC, true) .
+  --- buildFirstHopTimeline(N, OW, CC, ISNEW) - First Hop Router (Hop 1 Arrival)
+  op buildFirstHopTimeline : Nat Float ChannelCfg -> FloatList .
+  eq buildFirstHopTimeline(N, OW, CC) = buildFirstHopTimeline(N, OW, CC, true) .
 
-  op buildTimelineFirstHop : Nat Float ChannelCfg Bool -> FloatList .
-  eq buildTimelineFirstHop(N, OW, CC, ISNEW) = buildTimelineHop(N, OW, OW / 2.0, serDly1, CC, ISNEW) .
+  op buildFirstHopTimeline : Nat Float ChannelCfg Bool -> FloatList .
+  eq buildFirstHopTimeline(N, OW, CC, ISNEW) = buildTimelineHop(N, OW, OW / 2.0, serDly1, CC, ISNEW) .
 
   --- buildTimelineHop(N, OW, OW_offset, SR_hop, CC, ISNEW)
   op buildTimelineHop : Nat Float Float Float ChannelCfg -> FloatList .
@@ -805,22 +805,22 @@ mod TCP-ANALYTICAL-MODEL is
               nilFL),
        N, OW, OWOFF, SRHOP, CC) [owise] .
 
-  --- tcpDeliveryTimes(msgSizeBytes, p13, p31, p32, p23, p14, O)
+  --- tcpFinalDestTimes(msgSizeBytes, p13, p31, p32, p23, p14, O)
   ---   Returns a FloatList of delivery times (seconds) for each
   ---   TCP data segment at final destination server. Index 0 is segment 1, etc.
-  op tcpDeliveryTimes : Nat Float Float Float Float Float Float
+  op tcpFinalDestTimes : Nat Float Float Float Float Float Float
                         -> FloatList .
-  ceq tcpDeliveryTimes(MSZ:Nat, P13:Float, P31:Float, P32:Float,
+  ceq tcpFinalDestTimes(MSZ:Nat, P13:Float, P31:Float, P32:Float,
                        P23:Float, P14:Float, OW) =
-     buildTimeline(NSeg:Nat, OW, CC0:ChannelCfg, true)
+     buildFinalDestTimeline(NSeg:Nat, OW, CC0:ChannelCfg, true)
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
   /\ CC0:ChannelCfg := makeChannel(P13:Float, P31:Float, P32:Float,
                                     P23:Float, P14:Float)
   .
 
-  op tcpDeliveryTimes : Nat AttributeSet -> FloatList .
-  ceq tcpDeliveryTimes(MSZ:Nat, linkAttrs) =
-    buildTimeline(NSeg:Nat, getOneWayDelay(linkAttrs), CC0:ChannelCfg, getNewCnx(linkAttrs))
+  op tcpFinalDestTimes : Nat AttributeSet -> FloatList .
+  ceq tcpFinalDestTimes(MSZ:Nat, linkAttrs) =
+    buildFinalDestTimeline(NSeg:Nat, getOneWayDelay(linkAttrs), CC0:ChannelCfg, getNewCnx(linkAttrs))
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
     /\ CC0:ChannelCfg := makeChannel(linkAttrs)
   .
@@ -832,7 +832,7 @@ mod TCP-ANALYTICAL-MODEL is
                         -> FloatList .
   ceq tcpFirstHopTimes(MSZ:Nat, P13:Float, P31:Float, P32:Float,
                        P23:Float, P14:Float, OW) =
-     buildTimelineFirstHop(NSeg:Nat, OW, CC0:ChannelCfg, true)
+     buildFirstHopTimeline(NSeg:Nat, OW, CC0:ChannelCfg, true)
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
   /\ CC0:ChannelCfg := makeChannel(P13:Float, P31:Float, P32:Float,
                                     P23:Float, P14:Float)
@@ -840,7 +840,7 @@ mod TCP-ANALYTICAL-MODEL is
 
   op tcpFirstHopTimes : Nat AttributeSet -> FloatList .
   ceq tcpFirstHopTimes(MSZ:Nat, linkAttrs) =
-    buildTimelineFirstHop(NSeg:Nat, getOneWayDelay(linkAttrs), CC0:ChannelCfg, getNewCnx(linkAttrs))
+    buildFirstHopTimeline(NSeg:Nat, getOneWayDelay(linkAttrs), CC0:ChannelCfg, getNewCnx(linkAttrs))
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
     /\ CC0:ChannelCfg := makeChannel(linkAttrs)
   .
@@ -884,17 +884,17 @@ mod TCP_NODE is
   op nextJ:_          : Nat             -> Attribute [ctor] .
 
   ---                         Seed  Msg LinkAttrs
-  op getSegmentDistribution : Nat   Msg AttributeSet -> AttributeSet .
-  ceq getSegmentDistribution(j, msg, attrs) =
+  op getFinalDestSegmentDistribution : Nat   Msg AttributeSet -> AttributeSet .
+  ceq getFinalDestSegmentDistribution(j, msg, attrs) =
     (timePacketList: times:FloatList,
      nextJ: j)
     if content := getContent(msg)
       /\ attrs =/= noneAS 
       /\ msgSize := getSize(content)
-      /\ times:FloatList := tcpDeliveryTimes(msgSize, attrs)
+      /\ times:FloatList := tcpFinalDestTimes(msgSize, attrs)
     [ print "Final-destination time dispersion of segments from " msgSize "B message is " times:FloatList  "." ]
   .
-  eq getSegmentDistribution(j, msg, noneAS) =
+  eq getFinalDestSegmentDistribution(j, msg, noneAS) =
     (timePacketList: (1.0e-4 :: nilFL), nextJ: j)
     [owise print "Final-destination time dispersion of segments from " j "B message on unspecd link 0.1ms." ]
   .

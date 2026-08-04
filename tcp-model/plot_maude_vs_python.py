@@ -33,7 +33,7 @@ def get_maude_times(profile, num_bytes):
     
     maude_cmd = f"""
 load {tcp_maude_path}
-red tcpDeliveryTimes({num_bytes}, {p13}, {p31}, {p32}, {p23}, {p14}, {O}) .
+red tcpFinalDestTimes({num_bytes}, {p13}, {p31}, {p32}, {p23}, {p14}, {O}) .
 quit
 """
     # Assuming maude is in PATH or we can find it
