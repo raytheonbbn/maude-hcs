@@ -431,6 +431,7 @@ mod TCP-ANALYTICAL-MODEL is
 
   vars T OW OWOFF SRHOP RTT0 DT PA PP EDel EDT WM0 TSC0 WR WNO CNX PLOSS OWD1 OWD2 : Float .
   vars CC1 CC2 : ChannelCfg .
+  vars isNew ISNEW : Bool .
   vars CWND CWND0 : Float .
   vars CW0 CW1 CW2 WMX PLL CWF WMF TSCF TSCF0 EDT0 : Float .
   vars SG SG2 N W FLT WSS WNXT IT : Nat .
@@ -785,6 +786,7 @@ mod TCP-ANALYTICAL-MODEL is
 
   --- Buffer-capacity path: when both links are "none" profile
   ceq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, ISNEW) =
+     (if ISNEW then OWOFF :: nilFL else nilFL fi) ::
      caPhaseBuf(
        ssLoopBuf(if ISNEW then 2.0 * (OWD1 + OWD2) else 0.0 fi,      --- t = RTT (2 * total OWD)
                  0,              --- seg = 0
@@ -798,6 +800,7 @@ mod TCP-ANALYTICAL-MODEL is
 
   --- No-buffer path: all other profiles
   eq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, ISNEW) =
+     (if ISNEW then OWOFF :: nilFL else nilFL fi) ::
      caPhase(
        ssLoop(if ISNEW then 2.0 * (OWD1 + OWD2) else 0.0 fi,       --- t = RTT (2 * total OWD)
               0,               --- seg = 0
@@ -845,14 +848,21 @@ mod TCP-ANALYTICAL-MODEL is
   eq $makeDeliverySizes(0, msgSize, deliverySizes) = deliverySizes .
 
   --- Get the TCP delivery sizes on the wire (in Bytes, including 52B headers)
-  ---                   TotalMsgSize  DeliveryTimes
-  op tcpDeliverySizes : Nat           FloatList -> NatList .
-  ceq tcpDeliverySizes(msgSize, deliveryTimes) = deliverySizes
+  ---                   TotalMsgSize  DeliveryTimes  ISNEW
+  op tcpDeliverySizes : Nat           FloatList      Bool -> NatList .
+  ceq tcpDeliverySizes(msgSize, deliveryTimes, ISNEW) =
+    (if ISNEW then (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: nilNatList else nilNatList fi) :: deliverySizes
     if numOriginalSegments := ceilDiv(msgSize, MSS-SIZE-BYTES)
       /\ lastPayloadBytes := sd(msgSize, (numOriginalSegments - 1) * MSS-SIZE-BYTES)
       /\ lastPktSizeBytes := lastPayloadBytes + IP-HEADER-BYTES + TCP-HEADER-BYTES
       /\ deliverySizes := $makeDeliverySizes(sd(numOriginalSegments, 1), MTU-SIZE-BYTES, nilNatList) :: lastPktSizeBytes
   .
+
+  op tcpDeliverySizes : Nat FloatList -> NatList .
+  ceq tcpDeliverySizes(msgSize, deliveryTimes) =
+    tcpDeliverySizes(msgSize, deliveryTimes, isNew)
+  if numOriginalSegments := ceilDiv(msgSize, MSS-SIZE-BYTES)
+    /\ isNew := lenFL(deliveryTimes) > numOriginalSegments .
 endm
 
 mod TCP_NODE is
