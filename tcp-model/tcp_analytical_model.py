@@ -172,8 +172,8 @@ def _build_timeline(max_k=2000):
     times_dest[0]  = 0.0
     total_el = 0.0
 
-    # Phase 1: Handshake (SYN exchange completes at t = RTT)
-    t = RTT
+    # Phase 1: Handshake (TCP 3-way HS + TLS HS completes at t = 2 * RTT)
+    t = 2.0 * RTT
     pi1 = _link1.pi_stat @ _link1.P @ _link1.P
     pi2 = _link2.pi_stat @ _link2.P @ _link2.P
     seg = 0

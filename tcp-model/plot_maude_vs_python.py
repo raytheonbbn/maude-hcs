@@ -25,7 +25,7 @@ def get_maude_times(profile, num_bytes):
     else:
         raise ValueError(f"Unknown profile {profile}")
         
-    O = 0.02
+    O = 0.01
     
     # Resolve the path to tcp.maude based on script location
     project_root = os.path.dirname(script_dir)
@@ -33,7 +33,7 @@ def get_maude_times(profile, num_bytes):
     
     maude_cmd = f"""
 load {tcp_maude_path}
-red tcpFinalDestTimes({num_bytes}, {p13}, {p31}, {p32}, {p23}, {p14}, {O}) .
+red tcpFinalDestTimes({num_bytes}, (p13: {p13}, p31: {p31}, p32: {p32}, p23: {p23}, p14: {p14}, oneWayDelay: {O})) .
 quit
 """
     # Assuming maude is in PATH or we can find it
@@ -54,17 +54,21 @@ quit
     # Find the LAST result FloatList since loading tcp.maude outputs hardcoded test results first
     last_idx = output.rfind('result FloatList:')
     if last_idx != -1:
-        list_str = output[last_idx + len('result FloatList:'):]
-        end_idx = list_str.find('nilFL')
-        if end_idx != -1:
-            list_str = list_str[:end_idx]
-            
-        elements = [e.strip() for e in list_str.replace('\n', ' ').split('::') if e.strip()]
-        for e in elements:
-            try:
-                times.append(float(e))
-            except ValueError:
-                pass
+        res_text = output[last_idx:]
+        res_text = res_text.split('result FloatList:')[1].split('\nBye.')[0]
+        # Clean up string
+        res_text = res_text.replace('\n', ' ').replace('::', ' ').replace('nilFL', ' ')
+        tokens = res_text.split()
+        all_times = []
+        for t in tokens:
+            t = t.strip()
+            if t:
+                try:
+                    all_times.append(float(t))
+                except ValueError:
+                    pass
+        # Skip the 5 prepended handshake timestamps for new connections
+        times = all_times[5:] if len(all_times) > 5 else all_times
             
     return times
 

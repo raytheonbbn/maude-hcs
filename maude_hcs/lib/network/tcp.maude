@@ -800,12 +800,19 @@ mod TCP-ANALYTICAL-MODEL is
 
   op buildTimelineHop : Nat Float Float Float Float ChannelCfg ChannelCfg Bool -> FloatList .
 
+  --- Helper for prepending 5 TCP+TLS handshake timestamps (SYN, ACK, Client Hello, ACK, Change Cipher Spec)
+  op hsTimes : Float Float Float Bool -> FloatList .
+  eq hsTimes(OWD1, OWD2, OWOFF, true) =
+    OWOFF ::
+    (2.0 * (OWD1 + OWD2) + OWOFF) ::
+    (2.0 * (OWD1 + OWD2) + OWOFF) ::
+    (4.0 * (OWD1 + OWD2) + OWOFF) ::
+    (4.0 * (OWD1 + OWD2) + OWOFF) :: nilFL .
+  eq hsTimes(OWD1, OWD2, OWOFF, false) = nilFL .
+
   --- Buffer-capacity path: when both links are "none" profile
   ceq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, ISNEW) =
-     (if ISNEW
-      then (OWOFF :: (2.0 * (OWD1 + OWD2) + OWOFF) :: (2.0 * (OWD1 + OWD2) + OWOFF) :: (4.0 * (OWD1 + OWD2) + OWOFF) :: (4.0 * (OWD1 + OWD2) + OWOFF) :: nilFL)
-      else nilFL
-      fi) ::
+     hsTimes(OWD1, OWD2, OWOFF, ISNEW) ++
      caPhaseBuf(
        ssLoopBuf(if ISNEW then 4.0 * (OWD1 + OWD2) else 0.0 fi,      --- t = 2 * RTT (4 * total OWD) if new cnx else 0.0
                  0,              --- seg = 0
@@ -819,10 +826,7 @@ mod TCP-ANALYTICAL-MODEL is
 
   --- No-buffer path: all other profiles
   eq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, ISNEW) =
-     (if ISNEW
-      then (OWOFF :: (2.0 * (OWD1 + OWD2) + OWOFF) :: (2.0 * (OWD1 + OWD2) + OWOFF) :: (4.0 * (OWD1 + OWD2) + OWOFF) :: (4.0 * (OWD1 + OWD2) + OWOFF) :: nilFL)
-      else nilFL
-      fi) ::
+     hsTimes(OWD1, OWD2, OWOFF, ISNEW) ++
      caPhase(
        ssLoop(if ISNEW then 4.0 * (OWD1 + OWD2) else 0.0 fi,       --- t = 2 * RTT (4 * total OWD) if new cnx else 0.0
               0,               --- seg = 0
@@ -869,6 +873,16 @@ mod TCP-ANALYTICAL-MODEL is
   .
   eq $makeDeliverySizes(0, msgSize, deliverySizes) = deliverySizes .
 
+  --- Helper for prepending 5 TCP+TLS handshake delivery sizes (52B SYN, 52B ACK, 1500B Client Hello, 52B ACK, 1500B Change Cipher Spec)
+  op hsSizes : Bool -> NatList .
+  eq hsSizes(true) =
+    (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
+    (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
+    MTU-SIZE-BYTES ::
+    (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
+    MTU-SIZE-BYTES :: nilNatList .
+  eq hsSizes(false) = nilNatList .
+
   --- Get the TCP delivery sizes on the wire (in Bytes, including 52B headers)
   ---                   TotalMsgSize  DeliveryTimes  ISNEW
   ---
@@ -876,10 +890,7 @@ mod TCP-ANALYTICAL-MODEL is
   ---   (52B SYN :: 52B ACK :: 1500B TLS Client Hello :: 52B ACK :: 1500B TLS Change Cipher Spec)
   op tcpDeliverySizes : Nat           FloatList      Bool -> NatList .
   ceq tcpDeliverySizes(msgSize, deliveryTimes, ISNEW) =
-    (if ISNEW
-     then (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: MTU-SIZE-BYTES :: (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: MTU-SIZE-BYTES :: nilNatList
-     else nilNatList
-     fi) :: deliverySizes
+    hsSizes(ISNEW) :: deliverySizes
     if numOriginalSegments := ceilDiv(msgSize, MSS-SIZE-BYTES)
       /\ lastPayloadBytes := sd(msgSize, (numOriginalSegments - 1) * MSS-SIZE-BYTES)
       /\ lastPktSizeBytes := lastPayloadBytes + IP-HEADER-BYTES + TCP-HEADER-BYTES
@@ -887,10 +898,8 @@ mod TCP-ANALYTICAL-MODEL is
   .
 
   op tcpDeliverySizes : Nat FloatList -> NatList .
-  ceq tcpDeliverySizes(msgSize, deliveryTimes) =
-    tcpDeliverySizes(msgSize, deliveryTimes, isNew)
-  if numOriginalSegments := ceilDiv(msgSize, MSS-SIZE-BYTES)
-    /\ isNew := lenFL(deliveryTimes) > numOriginalSegments .
+  eq tcpDeliverySizes(msgSize, deliveryTimes) =
+    tcpDeliverySizes(msgSize, deliveryTimes, lenFL(deliveryTimes) > ceilDiv(msgSize, MSS-SIZE-BYTES)) .
 endm
 
 mod TCP_NODE is
