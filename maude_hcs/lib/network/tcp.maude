@@ -779,6 +779,22 @@ mod TCP-ANALYTICAL-MODEL is
      buildTimelineHop(N, OWD1, OWD2, OWD1, serDly1, CC1, CC2, ISNEW) .
 
   --- buildTimelineHop(N, OWD1, OWD2, OW_offset, SR_hop, CC1, CC2, ISNEW)
+  ---
+  --- Connection Setup Modeling:
+  ---   - ISNEW == true  (New Connection):
+  ---       Counts BOTH the TCP 3-Way Handshake (1 RTT) and the TLS Handshake (1 RTT),
+  ---       totaling 2 RTT (4.0 * (OWD1 + OWD2)) setup delay before application data transmission.
+  ---       Prepends 5 handshake packet timestamps to the output timeline:
+  ---         1. SYN                   at t = 0.0 + OWOFF
+  ---         2. ACK (TCP 3-way HS)   at t = 1.0 * RTT + OWOFF
+  ---         3. TLS Client Hello      at t = 1.0 * RTT + OWOFF
+  ---         4. ACK (TLS HS)         at t = 2.0 * RTT + OWOFF
+  ---         5. TLS Change Cipher     at t = 2.0 * RTT + OWOFF
+  ---       First application data segment(s) start transmitting at t = 2.0 * RTT (4.0 * (OWD1 + OWD2)).
+  ---
+  ---   - ISNEW == false (Reused Connection):
+  ---       Bypasses all TCP and TLS handshakes. Application data transmission starts
+  ---       immediately at t = 0.0 + OWOFF without prepended handshake packets.
   op buildTimelineHop : Nat Float Float Float Float ChannelCfg ChannelCfg -> FloatList .
   eq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2) = buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, true) .
 
@@ -786,9 +802,12 @@ mod TCP-ANALYTICAL-MODEL is
 
   --- Buffer-capacity path: when both links are "none" profile
   ceq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, ISNEW) =
-     (if ISNEW then OWOFF :: nilFL else nilFL fi) ::
+     (if ISNEW
+      then (OWOFF :: (2.0 * (OWD1 + OWD2) + OWOFF) :: (2.0 * (OWD1 + OWD2) + OWOFF) :: (4.0 * (OWD1 + OWD2) + OWOFF) :: (4.0 * (OWD1 + OWD2) + OWOFF) :: nilFL)
+      else nilFL
+      fi) ::
      caPhaseBuf(
-       ssLoopBuf(if ISNEW then 2.0 * (OWD1 + OWD2) else 0.0 fi,      --- t = RTT (2 * total OWD)
+       ssLoopBuf(if ISNEW then 4.0 * (OWD1 + OWD2) else 0.0 fi,      --- t = 2 * RTT (4 * total OWD) if new cnx else 0.0
                  0,              --- seg = 0
                  1,              --- flt = 1
                  rvMul(rvMul(chPi(CC1), chP(CC1)), chP(CC2)),  --- pi after 2-hop HS
@@ -800,9 +819,12 @@ mod TCP-ANALYTICAL-MODEL is
 
   --- No-buffer path: all other profiles
   eq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, ISNEW) =
-     (if ISNEW then OWOFF :: nilFL else nilFL fi) ::
+     (if ISNEW
+      then (OWOFF :: (2.0 * (OWD1 + OWD2) + OWOFF) :: (2.0 * (OWD1 + OWD2) + OWOFF) :: (4.0 * (OWD1 + OWD2) + OWOFF) :: (4.0 * (OWD1 + OWD2) + OWOFF) :: nilFL)
+      else nilFL
+      fi) ::
      caPhase(
-       ssLoop(if ISNEW then 2.0 * (OWD1 + OWD2) else 0.0 fi,       --- t = RTT (2 * total OWD)
+       ssLoop(if ISNEW then 4.0 * (OWD1 + OWD2) else 0.0 fi,       --- t = 2 * RTT (4 * total OWD) if new cnx else 0.0
               0,               --- seg = 0
               1,               --- flt = 1
               rvMul(rvMul(chPi(CC1), chP(CC1)), chP(CC2)),  --- pi after 2-hop HS
@@ -849,9 +871,15 @@ mod TCP-ANALYTICAL-MODEL is
 
   --- Get the TCP delivery sizes on the wire (in Bytes, including 52B headers)
   ---                   TotalMsgSize  DeliveryTimes  ISNEW
+  ---
+  --- For new connections (ISNEW == true), prepends the 5 handshake packet sizes on the wire:
+  ---   (52B SYN :: 52B ACK :: 1500B TLS Client Hello :: 52B ACK :: 1500B TLS Change Cipher Spec)
   op tcpDeliverySizes : Nat           FloatList      Bool -> NatList .
   ceq tcpDeliverySizes(msgSize, deliveryTimes, ISNEW) =
-    (if ISNEW then (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: nilNatList else nilNatList fi) :: deliverySizes
+    (if ISNEW
+     then (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: MTU-SIZE-BYTES :: (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: MTU-SIZE-BYTES :: nilNatList
+     else nilNatList
+     fi) :: deliverySizes
     if numOriginalSegments := ceilDiv(msgSize, MSS-SIZE-BYTES)
       /\ lastPayloadBytes := sd(msgSize, (numOriginalSegments - 1) * MSS-SIZE-BYTES)
       /\ lastPktSizeBytes := lastPayloadBytes + IP-HEADER-BYTES + TCP-HEADER-BYTES
