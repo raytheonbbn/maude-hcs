@@ -132,7 +132,8 @@ mod TCP-ANALYTICAL-MODEL is
   op nilNatList : -> NatList [ctor] .
   op _::_ : NatList NatList -> NatList [ctor assoc id: nilNatList] .
   op nilFL : -> FloatList [ctor] .
-  op _::_ : Float FloatList -> FloatList [ctor] .
+  subsort Float < FloatList .
+  op _::_ : FloatList FloatList -> FloatList [ctor assoc id: nilFL] .
 
   vars F G : Float .
   vars L L1 L2 : FloatList .
@@ -438,7 +439,7 @@ mod TCP-ANALYTICAL-MODEL is
   var  SGS SGE : Nat .
   var  SEGF : Float .
   var  ACC : FloatList .
-  vars SX ISNEW B : Bool .
+  vars SX  B : Bool .
 
   --- Buffer-path variables (ssLoopBuf / caLoopBuf)
   vars P0CH P0B PLB BDRP RTTB DTB : Float .
@@ -838,28 +839,28 @@ mod TCP-ANALYTICAL-MODEL is
        N, OWD1 + OWD2, OWOFF, SRHOP, CC1) [owise] .
 
   --- tcpFinalDestTimes(msgSizeBytes, OWD1, OWD2, CC1, CC2)
-  op tcpFinalDestTimes : Nat AttributeSet AttributeSet -> FloatList .
-  ceq tcpFinalDestTimes(MSZ:Nat, linkAttrs1, linkAttrs2) =
-    buildFinalDestTimeline(NSeg:Nat, getOneWayDelay(linkAttrs1), getOneWayDelay(linkAttrs2), CC1:ChannelCfg, CC2:ChannelCfg, getNewCnx(linkAttrs1))
+  op tcpFinalDestTimes : Nat AttributeSet AttributeSet  Bool -> FloatList .
+  ceq tcpFinalDestTimes(MSZ:Nat, linkAttrs1, linkAttrs2, B) =
+    buildFinalDestTimeline(NSeg:Nat, getOneWayDelay(linkAttrs1), getOneWayDelay(linkAttrs2), CC1:ChannelCfg, CC2:ChannelCfg, B)
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
     /\ CC1:ChannelCfg := makeChannel(linkAttrs1)
     /\ CC2:ChannelCfg := makeChannel(linkAttrs2)
   .
 
   op tcpFinalDestTimes : Nat AttributeSet -> FloatList .
-  eq tcpFinalDestTimes(MSZ:Nat, linkAttrs1) = tcpFinalDestTimes(MSZ:Nat, linkAttrs1, linkAttrs1) .
+  eq tcpFinalDestTimes(MSZ:Nat, linkAttrs1) = tcpFinalDestTimes(MSZ:Nat, linkAttrs1, linkAttrs1,true) .
 
   --- tcpFirstHopTimes(msgSizeBytes, linkAttrs1, linkAttrs2)
-  op tcpFirstHopTimes : Nat AttributeSet AttributeSet -> FloatList .
-  ceq tcpFirstHopTimes(MSZ:Nat, linkAttrs1, linkAttrs2) =
-    buildFirstHopTimeline(NSeg:Nat, getOneWayDelay(linkAttrs1), getOneWayDelay(linkAttrs2), CC1:ChannelCfg, CC2:ChannelCfg, getNewCnx(linkAttrs1))
+  op tcpFirstHopTimes : Nat AttributeSet AttributeSet Bool -> FloatList .
+  ceq tcpFirstHopTimes(MSZ:Nat, linkAttrs1, linkAttrs2,B) =
+    buildFirstHopTimeline(NSeg:Nat, getOneWayDelay(linkAttrs1), getOneWayDelay(linkAttrs2), CC1:ChannelCfg, CC2:ChannelCfg, B)
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
     /\ CC1:ChannelCfg := makeChannel(linkAttrs1)
     /\ CC2:ChannelCfg := makeChannel(linkAttrs2)
   .
 
   op tcpFirstHopTimes : Nat AttributeSet -> FloatList .
-  eq tcpFirstHopTimes(MSZ:Nat, linkAttrs1) = tcpFirstHopTimes(MSZ:Nat, linkAttrs1, linkAttrs1) .
+  eq tcpFirstHopTimes(MSZ:Nat, linkAttrs1) = tcpFirstHopTimes(MSZ:Nat, linkAttrs1, linkAttrs1,true) .
 
   vars deliveryTimes : FloatList .
   vars msgSize lastPayloadBytes lastPktSizeBytes numOriginalSegments n : Nat .
@@ -913,6 +914,7 @@ mod TCP_NODE is
   vars content : Content .
   vars msg : Msg .
   vars j msgSize  : Nat .
+  vars b : Bool .
 
   op timePacketList:_ : FloatList -> Attribute [ctor] .
   op nextJ:_          : Nat             -> Attribute [ctor] .
@@ -920,27 +922,28 @@ mod TCP_NODE is
   vars attrs1 attrs2 : AttributeSet .
 
   ---                         Seed  Msg Link1Attrs Link2Attrs
-  op getFinalDestSegmentDistribution : Nat   Msg AttributeSet AttributeSet -> AttributeSet .
-  ceq getFinalDestSegmentDistribution(j, msg, attrs1, attrs2) =
+  op getFinalDestSegmentDistribution : Nat   Msg AttributeSet AttributeSet Bool -> AttributeSet .
+  ceq getFinalDestSegmentDistribution(j, msg, attrs1, attrs2,b) =
     (timePacketList: times:FloatList,
      nextJ: j)
     if content := getContent(msg)
       /\ attrs1 =/= noneAS 
       /\ attrs2 =/= noneAS 
       /\ msgSize := getSize(content)
-      /\ times:FloatList := tcpFinalDestTimes(msgSize, attrs1, attrs2)
+      /\ times:FloatList := tcpFinalDestTimes(msgSize, attrs1, attrs2,b)
     [ print "Final-destination time dispersion of segments from " msgSize "B message is " times:FloatList  "." ]
   .
 
-  op getFirstHopSegmentDistribution : Nat Msg AttributeSet AttributeSet -> AttributeSet .
-  ceq getFirstHopSegmentDistribution(j, msg, attrs1, attrs2) =
+  op getFirstHopSegmentDistribution : Nat Msg AttributeSet AttributeSet 
+                     Bool -> AttributeSet .
+  ceq getFirstHopSegmentDistribution(j, msg, attrs1, attrs2,b) =
     (timePacketList: times:FloatList,
      nextJ: j)
     if content := getContent(msg)
       /\ attrs1 =/= noneAS 
       /\ attrs2 =/= noneAS 
       /\ msgSize := getSize(content)
-      /\ times:FloatList := tcpFirstHopTimes(msgSize, attrs1, attrs2)
+      /\ times:FloatList := tcpFirstHopTimes(msgSize, attrs1, attrs2, b)
     [ print "First-hop time dispersion of segments from " msgSize "B message is " times:FloatList  "." ]
   .
 
