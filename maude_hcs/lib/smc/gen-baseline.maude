@@ -1,0 +1,109 @@
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+sload smc-baseline-shared
+**** for smc
+**** sload visibility
+
+
+mod GEN-BASELINE is
+ inc SMC-BASELINE-SHARED .
+  
+  vars vp nid : NetId .
+  vars vpts : NetIdList .
+  vars obsF : Feature .
+  vars obsFs : FeatureList .
+  vars TOL F0Z GtZ mTOL pTOL : TimesObsList .
+  vars bcdf : List{Float} .
+  vars Tstart Tend winSize binSize  k : Float .
+  vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+  vars blist : BaseLineList .
+  vars conf conf0 : Config .
+  vars b : Bool .
+  vars blAct : Actor .
+  vars aAddr : Address .
+  
+**** defined in SMC_CP3
+op getBaselineCDFObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
+op expectedKObsFeature : NetId Feature List{Float} TimesObsList Float Float Float Float Float Nat -> Float .
+
+
+
+op genBaseLine : Config NetIdList FeatureList 
+                Float Float Float Float Bool -> Config .
+ceq genBaseLine(conf,vpts,obsFs, 
+                Tstart,Tend,winSize,binSize,b)
+   =  blAct (if b then conf else null fi)
+if attrs := mkBaseLineAttrs(vpts,obsFs, 
+                      Tstart,Tend,winSize,binSize)
+/\ conf0 < aAddr : Adversary | attrs0, 
+                               dns: mTOL, tcp: pTOL >
+     := conf
+/\ attrs1 := genBaseLineX(attrs,vpts, obsFs,
+                  Tstart,Tend,winSize,binSize,
+                  mTOL,pTOL)  
+/\ blAct := <  baseLineAddr : BaseLineMonitor | attrs1 >
+.
+                         
+eq genBaseLine(conf,vpts,obsFs,
+                Tstart,Tend,winSize,binSize,b) = 
+    (if b then conf else null  fi) [owise]  .
+
+
+op genBaseLineX : AttributeSet NetIdList FeatureList
+                  Float Float Float Float 
+                  TimesObsList TimesObsList
+                  -> AttributeSet .
+
+op genBaseLineXX : AttributeSet NetId FeatureList
+                  Float Float Float Float 
+                  TimesObsList TimesObsList
+                  -> AttributeSet .
+
+eq  genBaseLineX(attrs, nilNetId, obsFs,
+                  Tstart,Tend,winSize,binSize,
+                   mTOL, pTOL)  
+          = attrs .                     
+
+ceq  genBaseLineX(attrs, (vp :; vpts), obsFs,
+                  Tstart,Tend,winSize,binSize,
+                   mTOL, pTOL)  
+          =  
+      genBaseLineX(attrs1, vpts, obsFs,  
+                Tstart,Tend,winSize,binSize, mTOL,pTOL)  
+
+if attrs1 := genBaseLineXX(attrs,vp,obsFs, 
+               Tstart,Tend,winSize,binSize,mTOL,pTOL)
+.
+
+eq  genBaseLineXX(attrs, vp, nilFeature,
+                  Tstart,Tend,winSize,binSize,
+                   mTOL, pTOL)  
+          = attrs .                     
+
+ceq  genBaseLineXX(attrs, vp, (obsF :; obsFs),
+                  Tstart,Tend,winSize,binSize,
+                   mTOL, pTOL)  
+          =  
+      genBaseLineXX(attrs1, vp, obsFs,  
+              Tstart,Tend,winSize,binSize, mTOL, pTOL)  
+if F0Z := (if isDnsFeature(obsF) then mTOL else pTOL fi)
+/\ bcdf := getBaselineCDFObsFeature (vp, obsF, F0Z,
+                             Tstart, Tend, binSize) 
+/\ k := getKObsFeatureB (vp, obsF, bcdf, F0Z, Tstart, Tend, winSize, binSize) 
+/\ attrs1 := addToBaseLine(attrs,vp,obsF,k,bcdf)
+.
+
+  op getKObsFeatureB : NetId Feature 
+                       List{Float} TimesObsList 
+                       Float Float Float Float -> Float .
+  eq getKObsFeatureB (vp, obsF, bcdf, TOL, Tstart, Tend, winSize, binSize) = 
+  expectedKObsFeature(vp, obsF,bcdf,TOL, 
+             Tstart, Tend, winSize, binSize, 0.0, 0) .
+  
+endm
+
+
+eof
+
