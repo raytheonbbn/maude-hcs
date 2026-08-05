@@ -125,8 +125,8 @@ SER1 = 1514 * 8 / 1e9            # Per-packet serialization delay on Link 1 (1 G
 SER2 = 1514 * 8 / 1e9            # Per-packet serialization delay on Link 2 (1 Gbps)
 SER  = SER1 + SER2               # Aggregate per-packet serialization delay
 
-MAX_CWND = 60                    # Physical ceiling for the network path
-BUFFER_CAPACITY = 55             # Physical limit where tail-drop loss occurs
+MAX_CWND = 1000                   # Physical ceiling for the network path
+BUFFER_CAPACITY = 1000            # Physical limit where tail-drop loss occurs
 
 # ─────────────────────── TCP Parameters ───────────────────────
 
@@ -172,7 +172,7 @@ def _build_timeline(max_k=2000):
     times_dest[0]  = 0.0
     total_el = 0.0
 
-    # Phase 1: Handshake (TCP 3-way HS + TLS HS completes at t = 2 * RTT)
+    # Phase 1: Handshake (TCP 3-way HS + TLS HS completes at t = 2 * RTT; App Data starts at t = 2 * RTT)
     t = 2.0 * RTT
     pi1 = _link1.pi_stat @ _link1.P @ _link1.P
     pi2 = _link2.pi_stat @ _link2.P @ _link2.P
@@ -180,7 +180,7 @@ def _build_timeline(max_k=2000):
     flt = 1
 
     # Phase 2: Slow Start
-    LOCAL_MAX_CWND = 50 if _ACTIVE_PROFILE_NAME != "none" else MAX_CWND
+    LOCAL_MAX_CWND = 1000
     W_ss = IW
     last_p0 = 1.0
 
@@ -216,7 +216,7 @@ def _build_timeline(max_k=2000):
         W_next_ss = min(W_ss * 2, LOCAL_MAX_CWND)
         p0_next, _, el_fwd_next, _, _, _, _ = _path.flight_stats_path(W_next_ss, pi1, pi2)
 
-        if el_fwd_next > 0.5 or p_l > 0.0 or current_flight_size >= LOCAL_MAX_CWND:
+        if el_fwd_next >= 0.5 or (seg + W_ss > BUFFER_CAPACITY) or current_flight_size >= LOCAL_MAX_CWND:
             last_p0 = p0_next if p_l == 0.0 else p0
             break
         W_ss = W_next_ss
@@ -245,13 +245,13 @@ def _build_timeline(max_k=2000):
             total_el += el_fwd
 
         pp = max(0.0, 1.0 - p0 - pa)
-        E_del = W * (LOCAL_MAX_CWND / max(1.0, cwnd))
+        E_del = float(W)
 
         seg_start = int(np.floor(seg))
         seg_end   = int(np.floor(seg + E_del))
 
         E_dt_nominal = p0 * RTT + pp * (2 * RTT + RTT * RACK_FRAC) + pa * RTO_MIN
-        E_dt = max(E_del * SER, E_dt_nominal * (E_del / LOCAL_MAX_CWND))
+        E_dt = max(E_del * SER, E_dt_nominal)
 
         for k_idx in range(seg_start + 1, seg_end + 1):
             if k_idx <= max_k:
