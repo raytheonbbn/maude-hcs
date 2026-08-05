@@ -1,0 +1,1076 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload smc-baseline-shared
+sload visibility .
+
+*** query/response/nm
+sload ../../deps/dns_formalization/Maude/dns/common/prelim
+sload ../dns/maude/common/_aux
+
+sload ../irc/ircMonitor
+sload ../irc/common/_aux
+
+***(
+replace use of IRC Server
+)
+
+mod SMC_CP3 is
+  inc SMC-BASELINE-SHARED .
+  inc VISIBILITY .
+  inc MSG .
+  inc IODINE_SORTS .
+  inc IRC_MONITOR .
+  inc IRC_NODE .
+  
+***  pr BOOL .
+***  pr FLOAT .
+***  pr LIST{Float} .
+
+  var C : Config .
+  vars attrs attrs' : AttributeSet .
+  vars T T' Tsent Trcvd Tstart Tend Tdeadline Tn : Float .
+  vars ADDR ADDR' ircAddr ircAddrFrom ircAddrFrom' ircAddrTo ircAddrTo' : Address .
+  vars Ts Tx Tr : Float .
+  var tpkt : TimesPkt .
+  var pkt : Pkt .
+  vars fromAddr toAddr : Address .
+  var new? : Bool .
+  var cnx : Nat .
+  var psize : Nat . 
+  var CO : Content .
+
+  vars ircMTL ircMTL' :  MessageTimestampList .
+  vars ircRoom ircRoom' : IrcName .
+  vars ircMsgId ircMsgId' : Nat .
+  vars ircMsgSize ircMsgSize' : Nat . 
+  var cList : IrcChannelNameList .
+  var uList : IrcUserNameList .
+  var aList : AddrList .
+  var ircUserName : IrcUserName .
+  var cMap : NameClientsMap .
+
+  vars F F' D : Float .
+  var FL FL' : List{Float} .
+  vars N N' N'' I J : Nat .
+
+  op sum : List{Float} -> Float .
+  eq sum(nil) = 0.0 .
+  eq sum(F FL) = F + sum(FL) .
+
+  op len : List{Float} -> Nat .
+  eq len(nil) = 0 .
+  eq len(F FL) = 1 + len(FL) .
+
+  op avg : List{Float} -> Float .
+  eq avg(nil) = 0.0 .
+  eq avg(FL) = if len(FL) == 0 then 0.0 else sum(FL) / float(len(FL)) fi .
+
+  op min : List{Float} -> Float .
+  eq min(nil) = 0.0 .
+  eq min(F nil) = F .
+  eq min(F F' FL) = if F <= F' then min(F FL) else min(F' FL) fi .
+
+  op max : List{Float} -> Float .
+  eq max(nil) = 0.0 .
+  eq max(F nil) = F .
+  eq max(F F' FL) = if F <= F' then max(F' FL) else max(F FL) fi .
+
+  op insert : Float List{Float} -> List{Float} .
+  eq insert(F, nil) = F . 
+  eq insert(F, F' FL) = if F <= F' then F F' FL else F' insert(F, FL) fi .
+
+  op sort : List{Float} -> List{Float} .
+  eq sort(nil) = nil .
+  eq sort(F FL) = insert(F, sort(FL)) .
+
+  op removeZero : List{Float} -> List{Float} .
+  eq removeZero(nil) = nil .
+  eq removeZero(F FL) = if F == 0.0 then removeZero(FL) else F removeZero(FL) fi .
+
+  op nth : List{Float} Nat -> Float .
+  eq nth(nil, N) = 0.0 .
+  eq nth(F FL, 1) = F .
+  eq nth(F FL, s N) = nth(FL, N) . 
+
+  op ceil : Nat Nat -> Nat .
+  eq ceil (N, N') = if N rem N' == 0 then N quo N' else (N quo N') + 1 fi .
+
+  op percentile : List{Float} Nat -> Float .
+  eq percentile(FL, N) = nth(sort(FL), ceil(N * len(FL), 100)) . 
+
+  op min2 : Nat Nat -> Nat .
+  eq min2(N, N') = if N <= N' then N else N' fi .
+  op min3 : Nat Nat Nat -> Nat .
+  eq min3(N, N', N'') = min2(N, min2(N', N'')) . 
+
+  op max2 : Float Float -> Float .
+  eq max2(F, F') = if (F <= F') then F' else F fi .
+
+  op sumDiff : List{Float} -> Float .
+  eq sumDiff(nil) = 0.0 .
+  eq sumDiff(F nil) = 0.0 .
+  eq sumDiff(F F' FL) = (F' - F) + sumDiff(F' FL) .
+
+  op avgDiff : List{Float} -> Float .
+  eq avgDiff(nil) = 0.0 .
+  eq avgDiff(F nil) = 0.0 .
+  eq avgDiff(FL) = if(len(FL) == 1) then 0.0 else sumDiff(FL) / float(len(FL) - 1) fi . 
+
+  op sumSquaredDiff : List{Float} Float -> Float .
+  eq sumSquaredDiff(nil, F') = 0.0 .
+  eq sumSquaredDiff(F nil, F') = 0.0 .
+  eq sumSquaredDiff(F FL, F') = (F - F') * (F - F') + sumSquaredDiff(FL, F') . 
+
+  op countChange : List{Float} -> Nat .
+  eq countChange(nil) = 0 .
+  eq countChange(F nil) = 0 .
+  eq countChange(F F' FL) = (if F =/= F' then 1 else 0 fi) + countChange(F' FL) .
+
+  op getMonitor : Config -> Actor .
+  eq getMonitor (C < ADDR : IrcMonitor | attrs >) = < ADDR : IrcMonitor | attrs > .
+
+  op getAdversary : Config -> Actor .
+  eq getAdversary (C < ADDR : Adversary | attrs >) = < ADDR : Adversary | attrs > .
+
+  op getIrcSrv : Config -> Actor .
+  eq getIrcSrv (C < ADDR : IrcServer | attrs >) = < ADDR : IrcServer | attrs > .
+
+
+  op isIrcServerAddr : Address -> Bool .
+  eq isIrcServerAddr (ADDR) = (ADDR == ircServerAddr) . 
+
+  op makeIrcUserNameList : AddrList -> IrcUserNameList .
+  eq makeIrcUserNameList (nil) = emptyIrcUserNameList .
+  eq makeIrcUserNameList (ADDR ; aList) = makeIrcUserName (ADDR) : makeIrcUserNameList(aList) . 
+
+  op allClientsUserName : -> IrcUserNameList . 
+  eq allClientsUserName = makeIrcUserNameList(allClientsAddr) .
+
+  op inAddrList : Address AddrList -> Bool .
+  eq inAddrList (ADDR, nil) = false . 
+  eq inAddrList (ADDR, ADDR' ; aList) = if (ADDR == ADDR') then true else inAddrList(ADDR, aList) fi .
+
+  op isIrcClientAddr : Address -> Bool .
+  eq isIrcClientAddr (ADDR) = inAddrList(ADDR, allClientsAddr) .
+
+  op countMsgs : MessageTimestampList -> Nat .
+  eq countMsgs (nilMessageTimestampList) = 0 .
+  eq countMsgs (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL) = if isIrcClientAddr(ircAddrFrom) then 1 + countMsgs(ircMTL) else countMsgs(ircMTL) fi .
+ 
+  op getSentMsgNum : Actor -> Nat .
+  eq getSentMsgNum (< ADDR : IrcMonitor | msgSent: ircMTL, attrs >) = countMsgs(ircMTL) .
+
+  op getRcvdMsgNum : Actor -> Nat .
+  eq getRcvdMsgNum (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >) = countMsgs(ircMTL) .
+
+  op collectTimestamp : MessageTimestampList -> List{Float} .
+  eq collectTimestamp (nilMessageTimestampList) = nil .
+  eq collectTimestamp (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL) = T collectTimestamp(ircMTL) .
+
+  op getSentMsgTime : Actor -> List{Float} .
+  eq getSentMsgTime (< ADDR : IrcMonitor | msgSent: ircMTL, attrs >) = collectTimestamp(ircMTL) .
+
+  op getRcvdMsgTime : Actor -> List{Float} .
+  eq getRcvdMsgTime (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >) = collectTimestamp(ircMTL) .
+
+  -------------------------------------------------------------------------------------------------
+  --- Latency
+  -------------------------------------------------------------------------------------------------
+
+  op compLatency : Float Float -> Float .
+  eq compLatency (Tsent, Trcvd) = Trcvd - Tsent .
+
+  op collectMsgLatency : Nat Float MessageTimestampList Float Float -> List{Float} .
+  eq collectMsgLatency (ircMsgId, Tsent, nilMessageTimestampList, Tstart, Tend) = nil .
+  eq collectMsgLatency (ircMsgId, Tsent, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend) = 
+    if (ircMsgId == ircMsgId') and (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) 
+    then compLatency(Tsent, T) collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) 
+    else collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) fi . 
+
+  op collectLatency : MessageTimestampList MessageTimestampList Float Float -> List{Float} .
+  eq collectLatency (nilMessageTimestampList, ircMTL, Tstart, Tend) = nil .
+  eq collectLatency (ircMTL, nilMessageTimestampList, Tstart, Tend) = nil .
+  eq collectLatency (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tstart, Tend) = 
+    if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrFrom) 
+    then collectMsgLatency(ircMsgId, T, ircMTL', Tstart, Tend) collectLatency(ircMTL, ircMTL', Tstart, Tend) 
+    else collectLatency(ircMTL, ircMTL', Tstart, Tend) fi .
+
+  op getLatencyDistribution : Actor Float Float -> List{Float} .
+  eq getLatencyDistribution (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = collectLatency(ircMTL, ircMTL', Tstart, Tend) . 
+
+  op getAvgLatency : Actor Float Float -> Float .
+  eq getAvgLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = avg(collectLatency(ircMTL, ircMTL', Tstart, Tend)) . 
+
+  op getMinLatency : Actor Float Float -> Float .
+  eq getMinLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = min(collectLatency(ircMTL, ircMTL', Tstart, Tend)) . 
+
+  op getMaxLatency : Actor Float Float -> Float .
+  eq getMaxLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = max(collectLatency(ircMTL, ircMTL', Tstart, Tend)) . 
+
+  op getPercentileLatency : Actor Float Float Nat -> Float .
+  eq getPercentileLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend, N) = percentile(collectLatency(ircMTL, ircMTL', Tstart, Tend), N) . 
+
+  -------------------------------------------------------------------------------------------------
+  --- Goodput
+  -------------------------------------------------------------------------------------------------
+  
+  op collectGoodput : MessageTimestampList Float Float -> List{Float} .
+  eq collectGoodput (nilMessageTimestampList, Tstart, Tend) = nil .
+  eq collectGoodput (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tstart, Tend) = 
+    if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) 
+    then float(ircMsgSize) collectGoodput(ircMTL, Tstart, Tend) 
+    else collectGoodput(ircMTL, Tstart, Tend) fi .
+
+  op getGoodputDistribution : Actor Float Float -> List{Float} .
+  eq getGoodputDistribution (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = collectGoodput(ircMTL, Tstart, Tend) .
+
+  op getGoodput : Actor Float Float -> Float .
+  eq getGoodput (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = sum(collectGoodput(ircMTL, Tstart, Tend)) * 8.0 / (Tend - Tstart) . 
+
+  -------------------------------------------------------------------------------------------------
+  --- Integrity (MED)
+  -------------------------------------------------------------------------------------------------
+
+  sort MsgIdList .
+  subsort Nat < MsgIdList .
+  vars NL NL' : MsgIdList .
+
+  op nilMsgIdList : -> MsgIdList [ctor] .
+  op _:::_ : MsgIdList MsgIdList -> MsgIdList [ctor assoc id: nilMsgIdList] .
+
+  op lenMsgIdList : MsgIdList -> Nat .
+  eq lenMsgIdList (nilMsgIdList) = 0 .
+  eq lenMsgIdList (N ::: NL) = 1 + lenMsgIdList(NL) .
+
+  op collectGlobalView : IrcName MessageTimestampList Float Float -> MsgIdList . 
+  eq collectGlobalView (ircRoom, nilMessageTimestampList, Tstart, Tend) = nilMsgIdList .
+  eq collectGlobalView (ircRoom, messageTimestamp(Tsent, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; ircMTL, Tstart, Tend) = 
+    if (Tstart <= Tsent) and (Tsent <= Tend) and isIrcClientAddr(ircAddrFrom) and (ircRoom == ircRoom')
+    then ircMsgId ::: collectGlobalView(ircRoom, ircMTL, Tstart, Tend)
+    else collectGlobalView(ircRoom, ircMTL, Tstart, Tend) fi . 
+
+  op getGlobalMsgOrder : Actor IrcName Float Float -> MsgIdList .
+  eq getGlobalMsgOrder (< ADDR : IrcMonitor | msgSent: ircMTL, attrs >, ircRoom, Tstart, Tend) = collectGlobalView(ircRoom, ircMTL, Tstart, Tend) .
+
+  op collectSentMsg : Address IrcName MessageTimestampList Float Float -> MessageTimestampList .  
+  eq collectSentMsg (ircAddr, ircRoom, nilMessageTimestampList, Tstart, Tend) = nilMessageTimestampList . 
+  eq collectSentMsg (ircAddr, ircRoom, messageTimestamp(Tsent, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; ircMTL, Tstart, Tend) = 
+    if (Tstart <= Tsent) and (Tsent <= Tend) and (ircAddr == ircAddrFrom) and (ircRoom == ircRoom')
+    then messageTimestamp(Tsent, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; collectSentMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend)
+    else collectSentMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend) fi . 
+
+  op collectRcvdMsg : Address IrcName MessageTimestampList Float Float -> MessageTimestampList .  
+  eq collectRcvdMsg (ircAddr, ircRoom, nilMessageTimestampList, Tstart, Tend) = nilMessageTimestampList .
+  eq collectRcvdMsg (ircAddr, ircRoom, messageTimestamp(Trcvd, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; ircMTL, Tstart, Tend) = 
+    if (Tstart <= Trcvd) and (Trcvd <= Tend) and (ircAddr == ircAddrTo) and (ircRoom == ircRoom')
+    then messageTimestamp(Trcvd, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom', ircMsgId) ; collectRcvdMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend)
+    else collectRcvdMsg(ircAddr, ircRoom, ircMTL, Tstart, Tend) fi . 
+
+  op merge : MessageTimestampList MessageTimestampList -> MessageTimestampList .
+  eq merge (ircMTL, nilMessageTimestampList) = ircMTL .
+  eq merge (nilMessageTimestampList, ircMTL) = ircMTL .
+  eq merge (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, messageTimestamp(T', ircAddrFrom', ircAddrTo', ircMsgSize', ircRoom', ircMsgId') ; ircMTL') =
+    if T <= T' 
+    then messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; merge(ircMTL, messageTimestamp(T', ircAddrFrom', ircAddrTo', ircMsgSize', ircRoom', ircMsgId') ; ircMTL') 
+    else messageTimestamp(T', ircAddrFrom', ircAddrTo', ircMsgSize', ircRoom', ircMsgId') ; merge(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL') fi .
+ 
+  op extractMsgIdList : MessageTimestampList -> MsgIdList .
+  eq extractMsgIdList (nilMessageTimestampList) = nilMsgIdList .
+  eq extractMsgIdList (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL) = ircMsgId ::: extractMsgIdList(ircMTL) .
+
+  op collectLocalView : Address IrcName MessageTimestampList MessageTimestampList Float Float -> MsgIdList . 
+  eq collectLocalView (ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) = extractMsgIdList(merge(collectSentMsg (ircAddr, ircRoom, ircMTL, Tstart, Tend), collectRcvdMsg (ircAddr, ircRoom, ircMTL', Tstart, Tend))) . 
+
+  op getClientMsgOrder : Actor Address IrcName Float Float -> MsgIdList .
+  eq getClientMsgOrder(< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, ircAddr, ircRoom, Tstart, Tend) =  collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) .
+
+  op med : MsgIdList MsgIdList -> Nat .
+  eq med (nilMsgIdList, NL) = lenMsgIdList(NL) .
+  eq med (NL, nilMsgIdList) = lenMsgIdList(NL) .
+  eq med (N ::: NL, N' ::: NL') = if N == N' then med(NL, NL') else 1 + min3(med(NL, N' ::: NL'), med(N ::: NL, NL'), med(NL, NL')) fi .
+
+  op getNormMED : Address IrcName MessageTimestampList MessageTimestampList Float Float -> Float .
+  eq getNormMED (ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) = 
+    if (max(lenMsgIdList(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend)), lenMsgIdList(collectGlobalView(ircRoom, ircMTL, Tstart, Tend))) == 0) 
+    then 1.0
+    else 1.0 - (float(med(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend), collectGlobalView(ircRoom, ircMTL, Tstart, Tend))) 
+                / 
+                float(max(lenMsgIdList(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend)), lenMsgIdList(collectGlobalView(ircRoom, ircMTL, Tstart, Tend))))) fi . 
+
+  op lenChannelNameList : IrcChannelNameList -> Nat .
+  eq lenChannelNameList (nilIrcChannelName) = 0 .
+  eq lenChannelNameList (emptyIrcChannelNameList) = 0 .
+  eq lenChannelNameList (ircRoom :: cList) = if (ircRoom == nilIrcChannelName) then lenChannelNameList(cList) else 1 + lenChannelNameList(cList) fi .
+
+  op sumNormMED : Address IrcChannelNameList MessageTimestampList MessageTimestampList Float Float -> Float .
+  eq sumNormMED (ircAddr, nilIrcChannelName, ircMTL, ircMTL', Tstart, Tend) = 0.0 .
+  eq sumNormMED (ircAddr, emptyIrcChannelNameList, ircMTL, ircMTL', Tstart, Tend) = 0.0 .
+  eq sumNormMED (ircAddr, ircRoom :: cList, ircMTL, ircMTL', Tstart, Tend) = 
+    if (ircRoom == nilIrcChannelName) 
+    then sumNormMED (ircAddr, cList, ircMTL, ircMTL', Tstart, Tend)
+    else getNormMED(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) + sumNormMED (ircAddr, cList, ircMTL, ircMTL', Tstart, Tend) fi . 
+
+  op getChannelMap : Actor -> NameClientsMap .  
+  eq getChannelMap (< ADDR' : IrcServer | channelMap: cMap, attrs' >) = cMap .
+
+  op individualClientIntegrity : Address IrcChannelNameList MessageTimestampList MessageTimestampList Float Float -> Float .
+  eq individualClientIntegrity (ircAddr, cList, ircMTL, ircMTL', Tstart, Tend) = 
+    if (lenChannelNameList(cList) == 0)
+    then 1.0 
+    else sumNormMED(ircAddr, cList, ircMTL, ircMTL', Tstart, Tend) / float(lenChannelNameList(cList)) fi . 
+
+  op getClientIntegrity : Actor Actor Address Float Float -> Float .
+ eq getClientIntegrity (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, < ADDR' : IrcServer | channelMap: cMap, attrs' >, ircAddr, Tstart, Tend) =
+    individualClientIntegrity (ircAddr, getChannels(cMap, ircAddr), ircMTL, ircMTL', Tstart, Tend) .
+
+  op lenUserNameList : IrcUserNameList -> Nat .
+  eq lenUserNameList (nilIrcUserName) = 0 .
+  eq lenUserNameList (emptyIrcUserNameList) = 0 .
+  eq lenUserNameList (ircUserName : uList) = if (uList == nilIrcUserName) then lenUserNameList(uList) else 1 + lenUserNameList(uList) fi .
+
+  op sumClientIntegrity : AddrList NameClientsMap MessageTimestampList MessageTimestampList Float Float -> Float .
+  eq sumClientIntegrity (nil, cMap, ircMTL, ircMTL', Tstart, Tend) = 0.0 .
+  eq sumClientIntegrity (ircAddr ; aList, cMap, ircMTL, ircMTL', Tstart, Tend) =
+    individualClientIntegrity(ircAddr, getChannels(cMap, ircAddr), ircMTL, ircMTL', Tstart, Tend) + sumClientIntegrity(aList, cMap, ircMTL, ircMTL', Tstart, Tend) . 
+
+
+  op getSystemIntegrity : Actor Actor Float Float -> Float .
+  eq getSystemIntegrity (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, < ADDR' : IrcServer | channelMap: cMap, attrs' >, Tstart, Tend) = 
+    if (lenUserNameList(allClientsUserName) == 0)
+    then 1.0
+    else sumClientIntegrity(allClientsAddr, cMap, ircMTL, ircMTL', Tstart, Tend) / float(lenUserNameList(allClientsUserName)) fi . 
+
+  -------------------------------------------------------------------------------------------------
+  --- Availability (MTBF)
+  -------------------------------------------------------------------------------------------------
+
+  op collectIngestionFailureTime : Nat Float MessageTimestampList -> List{Float} .
+  eq collectIngestionFailureTime (ircMsgId, Tdeadline, nilMessageTimestampList) = nil .
+  eq collectIngestionFailureTime (ircMsgId, Tdeadline, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
+    if (ircMsgId == ircMsgId') and isIrcServerAddr(ircAddrTo) and (T > Tdeadline)
+    then Tdeadline collectIngestionFailureTime(ircMsgId, Tdeadline, ircMTL)
+    else collectIngestionFailureTime(ircMsgId, Tdeadline, ircMTL) fi .
+
+  op collectIngestionFailure : MessageTimestampList MessageTimestampList Float Float Float -> List{Float} .
+  eq collectIngestionFailure (nilMessageTimestampList, ircMTL, Tn, Tstart, Tend) = nil .
+  eq collectIngestionFailure (ircMTL, nilMessageTimestampList, Tn, Tstart, Tend) = nil .
+  eq collectIngestionFailure (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tn, Tstart, Tend) = 
+    if (Tstart <= T + Tn) and (T + Tn <= Tend) and isIrcClientAddr(ircAddrFrom)  
+    then collectIngestionFailureTime(ircMsgId, T + Tn, ircMTL') collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) 
+    else collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) fi .
+
+  op getIngestionFailureDistribution : Actor Float Float Float -> List{Float} .
+  eq getIngestionFailureDistribution (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) .
+
+  op collectDeliveryFailureTime : Nat Float MessageTimestampList -> List{Float} .
+  eq collectDeliveryFailureTime (ircMsgId, Tdeadline, nilMessageTimestampList) = nil .
+  eq collectDeliveryFailureTime (ircMsgId, Tdeadline, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
+    if (ircMsgId == ircMsgId') and isIrcClientAddr(ircAddrTo) and (T > Tdeadline)
+    then Tdeadline collectDeliveryFailureTime(ircMsgId, Tdeadline, ircMTL)
+    else collectDeliveryFailureTime(ircMsgId, Tdeadline, ircMTL) fi .
+
+  op collectDeliveryFailure : MessageTimestampList Float Float Float -> List{Float} .
+  eq collectDeliveryFailure (nilMessageTimestampList, Tn, Tstart, Tend) = nil .
+  eq collectDeliveryFailure (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tn, Tstart, Tend) = 
+    if (Tstart <= T + Tn) and (T + Tn <= Tend) and isIrcServerAddr(ircAddrTo)  
+    then collectDeliveryFailureTime(ircMsgId, T + Tn, ircMTL) collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) 
+    else collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) fi .
+
+  op getDeliveryFailureDistribution : Actor Float Float Float -> List{Float} .
+  eq getDeliveryFailureDistribution (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tn, Tstart, Tend) = collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) .
+
+  op getFailureDistribution : Actor Float Float Float -> List{Float} .
+  eq getFailureDistribution (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = sort(collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) collectDeliveryFailure(ircMTL', Tn, Tstart, Tend)) .
+
+  op getMTBF : Actor Float Float Float -> List{Float} .
+  eq getMTBF (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = avgDiff(sort(collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) collectDeliveryFailure(ircMTL', Tn, Tstart, Tend))) .
+
+  -------------------------------------------------------------------------------------------------
+  --- Confidentiality (KS Statistic + CUSUM)
+  -------------------------------------------------------------------------------------------------
+
+  --- to be mv initConfig
+  op baselineTstart : -> Float .
+  eq baselineTstart = 0.0 .
+
+  op baselineTend : -> Float .
+  eq baselineTend = 100.0 .
+
+  var baselineCDF : List{Float} .
+
+  sort TimedFloat .
+  sort TimedFloatList .
+  subsort TimedFloat < TimedFloatList .
+  
+  var TFL : TimedFloatList .
+  vars winSize binSize : Float .
+  vars S Z H : Float .
+
+  var M : Msg .
+  var QUERY : Query .
+  var RESP : Response .
+  vars K Ksum : Float .
+
+  op timedFloat : Float Float -> TimedFloat .
+  op nilTimedFloatList : -> TimedFloatList [ctor] .
+  op __ : TimedFloatList TimedFloatList -> TimedFloatList [ctor assoc id: nilTimedFloatList] .
+
+  op countEqPrefix : Float List{Float} -> Nat .
+  eq countEqPrefix (F, nil) = 0 .
+  eq countEqPrefix (F, F' FL) = if F == F' then 1 + countEqPrefix(F, FL) else 0 fi .  
+
+  op rmEqPrefix : Float List{Float} -> List{Float} .
+  eq rmEqPrefix (F, nil) = nil .
+  eq rmEqPrefix (F, F' FL) = if F == F' then rmEqPrefix(F, FL) else F' FL fi .
+
+  op KsDistanceX : List{Float} List{Float} Nat Nat Nat Nat Float -> Float .
+  eq KsDistanceX (nil, nil, I, J, N, N', D) = D .
+  eq KsDistanceX (F FL, nil, I, J, N, N', D) = 
+    KsDistanceX(FL, nil, I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float (N'))))) .
+  eq KsDistanceX (nil, F' FL', I, J, N, N', D) = 
+    KsDistanceX(nil, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float (N'))))) .  
+  eq KsDistanceX (F FL, F' FL', I, J, N, N', D) = 
+    if F == F' 
+    then KsDistanceX(rmEqPrefix(F, F FL), rmEqPrefix(F', F' FL'), 
+      I + countEqPrefix(F, F FL), J + countEqPrefix(F', F' FL'), N, N', 
+      max2(D, abs((float(I + countEqPrefix(F, F FL)) / float(N)) - (float(J + countEqPrefix(F', F' FL')) / float(N'))))) 
+    else if F < F' 
+    then KsDistanceX(FL, F' FL', I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float (N')))))
+    else  
+    KsDistanceX(F FL, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float (N'))))) fi fi .  
+
+  op KsDistance : List{Float} List{Float} -> Float .
+  eq KsDistance (nil, FL) = -1.0 .
+  eq KsDistance (FL, nil) = -1.0 .
+  eq KsDistance (FL, FL') = KsDistanceX(FL, FL', 0, 0, len(FL), len(FL'), 0.0) .
+
+  op KsStatisticZ : List{Float} List{Float} Float -> Float .
+  eq KsStatisticZ (FL, FL', K) = KsDistance(FL, FL') - K .
+
+  sort FlowList .
+  subsort Flow < FlowList .
+
+  op nilFlow : -> FlowList [ctor] .
+  op _::_ : FlowList FlowList -> FlowList [ctor assoc id: nilFlow] .
+
+  vars Fid Fid' : Flow .
+  var FidList : FlowList .
+
+  op inFlowList : Flow FlowList -> Bool .
+  eq inFlowList (Fid, nilFlow) = false .
+  eq inFlowList (Fid, Fid' :: FidList) = if (Fid == Fid') then true else inFlowList(Fid, FidList) fi .
+
+  op addFlowList : Flow FlowList -> FlowList . 
+  eq addFlowList (Fid, FidList) = if inFlowList(Fid, FidList) then FidList else Fid :: FidList fi .
+
+  op len : FlowList -> Nat .
+  eq len(nilFlow) = 0 .
+  eq len(Fid :: FidList) = 1 + len(FidList) .
+
+  op getCUSUM : TimedFloatList Float -> Float . 
+  eq getCUSUM (nilTimedFloatList, S) = S .
+  eq getCUSUM (timedFloat(T, Z) TFL, S) = getCUSUM(TFL, max2(0.0, S + Z)) . 
+
+  op getCUSUM : TimedFloatList Float Float Float -> Float . 
+  eq getCUSUM (nilTimedFloatList, Tstart, Tend, S) = S .
+  eq getCUSUM (timedFloat(T, Z) TFL, Tstart, Tend, S) = 
+    if (Tstart <= T) and (T <= Tend)
+    then getCUSUM(TFL, Tstart, Tend, max2(0.0, S + Z)) 
+    else getCUSUM(TFL, Tstart, Tend, max2(0.0, S)) fi .
+
+  op alarmCUSUM : Float Float -> Bool .
+  eq alarmCUSUM (S, H) = S >= H .
+
+  op alarmTimeCUSUM : TimedFloatList Float Float -> Float .
+  eq alarmTimeCUSUM (nilTimedFloatList, H, S) = 0.0 .
+  eq alarmTimeCUSUM (timedFloat(T, Z) TFL, H, S) = 
+    if max2(0.0, S + Z) >= H
+    then T
+    else alarmTimeCUSUM (TFL, H, max2(0.0, S + Z)) fi .
+
+  op Tesp : -> Float .
+  eq Tesp = 1.0e-9 .
+
+**** CLT
+***(
+  sort Feature .
+  ops dnsQueryRate dnsQuerySize dnsRespSize : -> Feature .
+  ops tcpUpRate tcpDownRate tcpUpToDownRate tcpOutPktRate tcpInPktRate tcpOutToInPktRate tcpPktSizeStdDev tcpPktSize tcpPktInterarrival tcpDirectionChange tcpActiveFlow tcpNewCnx : -> Feature .
+)
+  var obsF : Feature . 
+
+  var vp : NetId .
+
+  var TOL : TimesObsList .
+  vars F0Z GtZ : TimesObsList .
+  var TsML : TimesObsList .
+  var TsPL : TimesObsList .
+
+  op collectObsFlow : TimesObsList -> FlowList .
+  eq collectObsFlow (nilTO) = nilFlow .
+  eq collectObsFlow (tm(Ts, Tx, Tr, to ADDR from ADDR' : QUERY) ;; TsML) = addFlowList(flow(ADDR', ADDR, 0), collectObsFlow(TsML)) .
+  eq collectObsFlow (tm(Ts, Tx, Tr, to ADDR from ADDR' : RESP) ;; TsML) = addFlowList(flow(ADDR', ADDR, 0), collectObsFlow(TsML)) .
+  eq collectObsFlow (tm(Ts, Tx, Tr, M) ;; TsML) = collectObsFlow(TsML) [owise] .
+  eq collectObsFlow (tpkt ;; TsPL) = addFlowList(getFlow(tpkt), collectObsFlow(TsPL)) .
+
+  op filterFlow : Flow TimesObsList -> TimesObsList .
+  eq filterFlow (Fid, nilTO) = nilTO .
+  eq filterFlow (Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL) = 
+    if Fid == getFlow(pkt) 
+    then tp(Ts, Tx, Tr, pkt) ;; filterFlow(Fid, TsPL) 
+    else filterFlow(Fid, TsPL) fi . 
+  eq filterFlow (Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML) = 
+    if Fid == flow(fromAddr, toAddr, 0) 
+    then tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; filterFlow(Fid, TsML) 
+    else filterFlow(Fid, TsML) fi . 
+
+  op filterWindow : TimesObsList Float Float -> TimesObsList .
+  eq filterWindow (nilTO, Tstart, Tend) = nilTO .
+  eq filterWindow (tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if (Tr < Tstart) or (Ts > Tend) 
+    then filterWindow(TsPL, Tstart, Tend) 
+    else tp(Ts, Tx, Tr, pkt) ;; filterWindow(TsPL, Tstart, Tend) fi . 
+  eq filterWindow (tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
+    if (Tr < Tstart) or (Ts > Tend) 
+    then filterWindow(TsML, Tstart, Tend)  
+    else tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; filterWindow(TsML, Tstart, Tend) fi .
+
+  op compObsFeatureX : NetId Feature Flow TimesObsList Float Float -> Float .
+  eq compObsFeatureX (vp, obsF, Fid, nilTO, Tstart, Tend) = 0.0 . 
+  eq compObsFeatureX (vp, dnsQueryRate, Fid, TOL, Tstart, Tend) = 
+    float(countDNSQuery(vp, Fid, TOL, Tstart, Tend)) / (Tend - Tstart) .
+  eq compObsFeatureX (vp, dnsQuerySize, Fid, TOL, Tstart, Tend) = 
+    if countDNSQuery(vp, Fid, TOL, Tstart, Tend) == 0
+    then 0.0
+    else float(sizeDNSQuery(vp, Fid, TOL, Tstart, Tend)) / float(countDNSQuery(vp, Fid, TOL, Tstart, Tend)) fi .
+  eq compObsFeatureX (vp, dnsRespSize, Fid, TOL, Tstart, Tend) = 
+    if countDNSResp(vp, Fid, TOL, Tstart, Tend) == 0
+    then 0.0
+    else float(sizeDNSResp(vp, Fid, TOL, Tstart, Tend)) / float(countDNSResp(vp, Fid, TOL, Tstart, Tend)) fi .
+  eq compObsFeatureX (vp, tcpUpRate, Fid, TOL, Tstart, Tend) =
+    float(sizeTCPUpload(vp, Fid, TOL, Tstart, Tend)) / (Tend - Tstart) .
+  eq compObsFeatureX (vp, tcpDownRate, Fid, TOL, Tstart, Tend) =
+    float(sizeTCPDownload(vp, Fid, TOL, Tstart, Tend)) / (Tend - Tstart) .
+  eq compObsFeatureX (vp, tcpUpToDownRate, Fid, TOL, Tstart, Tend) =
+    if sizeTCPDownload(vp, Fid, TOL, Tstart, Tend) == 0
+    then 0.0
+    else float(sizeTCPUpload(vp, Fid, TOL, Tstart, Tend)) / float(sizeTCPDownload(vp, Fid, TOL, Tstart, Tend)) fi .
+  eq compObsFeatureX (vp, tcpOutPktRate, Fid, TOL, Tstart, Tend) =
+    float(countTCPOutPkt(vp, Fid, TOL, Tstart, Tend)) / (Tend - Tstart) .
+  eq compObsFeatureX (vp, tcpInPktRate, Fid, TOL, Tstart, Tend) =
+    float(countTCPInPkt(vp, Fid, TOL, Tstart, Tend)) / (Tend - Tstart) .
+  eq compObsFeatureX (vp, tcpOutToInPktRate, Fid, TOL, Tstart, Tend) =
+    if countTCPInPkt(vp, Fid, TOL, Tstart, Tend) == 0
+    then 0.0 
+    else float(countTCPOutPkt(vp, Fid, TOL, Tstart, Tend)) / float(countTCPInPkt(vp, Fid, TOL, Tstart, Tend)) fi .
+  eq compObsFeatureX (vp, tcpPktSizeStdDev, Fid, TOL, Tstart, Tend) =
+    stdDevPktSize(vp, Fid, TOL, Tstart, Tend) .  
+  eq compObsFeatureX (vp, tcpPktSize, Fid, TOL, Tstart, Tend) =
+    meanPktSize(vp, Fid, TOL, Tstart, Tend) .  
+  eq compObsFeatureX (vp, tcpPktInterarrival, Fid, TOL, Tstart, Tend) =
+    avgDiff(sort(collectPktTime(vp, Fid, TOL, Tstart, Tend))) .
+  eq compObsFeatureX (vp, tcpDirectionChange, Fid, TOL, Tstart, Tend) =
+    float(countPktDirectionChange(vp, Fid, TOL, Tstart, Tend)) .
+
+  op compObsFeatureX : NetId Feature TimesObsList Float Float -> Float .
+  eq compObsFeatureX (vp, obsF, nilTO, Tstart, Tend) = 0.0 . 
+  eq compObsFeatureX (vp, tcpActiveFlow, TOL, Tstart, Tend) =
+    float(countActiveFlow(vp, TOL, Tstart, Tend)) .
+  eq compObsFeatureX (vp, tcpNewCnx, TOL, Tstart, Tend) = 
+    float(countNewCnx(vp, TOL, Tstart, Tend)) .
+
+  op compObsFeature : NetId Feature TimesObsList Float Float -> Float .
+  eq compObsFeature (vp, obsF, nilTO, Tstart, Tend) = 0.0 . 
+  eq compObsFeature (vp, obsF, TOL, Tstart, Tend) = 
+    if Tend <= Tstart
+    then 0.0
+    else compObsFeatureX (vp, obsF, TOL, Tstart, Tend) fi .
+
+  op compObsFeature : NetId Feature Flow TimesObsList Float Float -> Float .
+  eq compObsFeature (vp, obsF, Fid, nilTO, Tstart, Tend) = 0.0 . 
+  eq compObsFeature (vp, obsF, Fid, TOL, Tstart, Tend) = 
+    if Tend <= Tstart
+    then 0.0
+    else compObsFeatureX (vp, obsF, Fid, TOL, Tstart, Tend) fi .
+
+  op collectObsFeatureX : NetId Feature TimesObsList Float Float Float -> List{Float} .
+  eq collectObsFeatureX (vp, obsF, TOL, T, Tend, binSize) =
+    if (T + binSize) <= (Tend + Tesp)
+    then compObsFeature(vp, obsF, TOL, T, T + binSize) collectObsFeatureX (vp, obsF, TOL, T + binSize, Tend, binSize)
+    else nil fi .
+
+  op collectObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
+  eq collectObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = collectObsFeatureX(vp, obsF, TOL, Tstart, Tstart + winSize, binSize) .
+
+  op collectObsFeatureX : NetId Feature Flow TimesObsList Float Float Float -> List{Float} .
+  eq collectObsFeatureX (vp, obsF, Fid, TOL, T, Tend, binSize) =
+    if (T + binSize) <= (Tend + Tesp)
+    then compObsFeature(vp, obsF, Fid, TOL, T, T + binSize) collectObsFeatureX (vp, obsF, Fid, TOL, T + binSize, Tend, binSize)
+    else nil fi .
+
+  op collectObsFeature : NetId Feature Flow TimesObsList Float Float Float -> List{Float} .
+  eq collectObsFeature (vp, obsF, Fid, TOL, Tstart, winSize, binSize) = collectObsFeatureX(vp, obsF, Fid, filterWindow(filterFlow(Fid, TOL), Tstart, Tstart + winSize), Tstart, Tstart + winSize, binSize) .
+
+  op collectObsFeatureFlow : NetId Feature FlowList TimesObsList Float Float Float -> List{Float} .
+  eq collectObsFeatureFlow (vp, obsF, nilFlow, TOL, Tstart, winSize, binSize) = nil .
+  eq collectObsFeatureFlow (vp, obsF, Fid :: FidList, TOL, Tstart, winSize, binSize) = collectObsFeature(vp, obsF, Fid, TOL, Tstart, winSize, binSize) collectObsFeatureFlow(vp, obsF, FidList, TOL, Tstart, winSize, binSize) .
+
+  op getECDFObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} . 
+  eq getECDFObsFeature (vp, tcpActiveFlow, TOL, Tstart, winSize, binSize) = removeZero(sort(collectObsFeature(vp, tcpActiveFlow, TOL, Tstart, winSize, binSize))) .
+  eq getECDFObsFeature (vp, tcpNewCnx, TOL, Tstart, winSize, binSize) = removeZero(sort(collectObsFeature(vp, tcpNewCnx, TOL, Tstart, winSize, binSize))) . 
+  eq getECDFObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = removeZero(sort(collectObsFeatureFlow(vp, obsF, collectObsFlow(TOL), TOL, Tstart, winSize, binSize))) [owise] .
+
+  op getBaselineCDFObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
+  eq getBaselineCDFObsFeature (vp, obsF, F0Z, Tstart, Tend, binSize) = getECDFObsFeature(vp, obsF, F0Z, Tstart, Tend, binSize) . 
+
+***(
+  op getBaseline : Config -> Actor .
+  eq getBaseline (C < ADDR : BaseLineMonitor | attrs >) = < ADDR : BaseLineMonitor | attrs > .
+
+  var blElmt : BaseLineElement .
+  var blList : BaseLineList .
+
+  op extractCDF : BaselineElmt NetId Feature -> List{Float} . 
+  eq extractCDF (bl(vp, obsF, K, baselineCDF)) = baselineCDF .  
+  eq extractCDF (blElmt) = nil [owise] .  
+
+  op extractK : BaselineElmt NetId Feature  -> Float . 
+  eq extractK (bl(vp, obsF, K, baselineCDF), vp, obsF) = K .  
+  eq extractK (blElmt) = 0.0 [owise] .  
+
+  op getBaselineCDF : Actor NetId Feature Float Float Float -> List{Float} .
+  eq getBaselineCDF (< ADDR : BaseLineMonitor | baseline: bl(vp, obsF, K, baselineCDF) ;; blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) = 
+    baselineCDF . 
+  eq getBaselineCDF (< ADDR : BaseLineMonitor | baseline: bl(vp, obsF, K, baselineCDF) ;; blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) = 
+    getBaselineCDF(< ADDR : BaseLineMonitor | baseline: blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) [owise] . 
+      
+  op getBaselineK : Actor NetId Feature Float Float Float -> Float .
+  eq getBaselineK (< ADDR : BaseLineMonitor | baseline: bl(vp, obsF, K, baselineCDF) ;; blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) = 
+    K . 
+  eq getBaselineK (< ADDR : BaseLineMonitor | baseline: bl(vp, obsF, K, baselineCDF) ;; blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) = 
+    getBaselineK(< ADDR : BaseLineMonitor | baseline: blList, tStart : Tstart, tEnd : Tend, binSize : binSize, attrx >, vp, obsF, Tstart, Tend, binSize) [owise] . 
+)
+
+  op expectedKObsFeature : NetId Feature List{Float} TimesObsList Float Float Float Float Float Nat -> Float .
+  eq expectedKObsFeature (vp, obsF, FL, GtZ, T, Tend, winSize, binSize, Ksum, N) =
+    if (T + winSize) <= (Tend + Tesp) 
+    then if KsDistance(FL, getECDFObsFeature(vp, obsF, GtZ, T, winSize, binSize)) >= 0.0 
+      then expectedKObsFeature(vp, obsF, FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum + KsDistance(FL, getECDFObsFeature(vp, obsF, GtZ, T, winSize, binSize)), N + 1) 
+      else expectedKObsFeature(vp, obsF, FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum, N) 
+      fi 
+    else if N == 0 then 0.0 else Ksum / float(N) fi fi .
+
+  op getKObsFeature : NetId Feature TimesObsList Float Float Float Float -> Float .
+  eq getKObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = expectedKObsFeature(vp, obsF, getBaselineCDFObsFeature(vp, obsF, TOL, Tstart, Tend, binSize), TOL, Tstart, Tend, winSize, binSize, 0.0, 0) .
+
+  op getKObsFeature : NetId Feature TimesObsList Float Float Float Float List{Float} -> Float .
+  eq getKObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF) = expectedKObsFeature(vp, obsF, baselineCDF, TOL, Tstart, Tend, winSize, binSize, 0.0, 0) .
+
+  op collectZObsFeature : NetId Feature List{Float} TimesObsList Float Float Float Float Float -> List{Float} .
+  eq collectZObsFeature (vp, obsF, FL, GtZ, T, Tend, winSize, binSize, K) =
+    if (T + winSize) <= (Tend + Tesp) 
+    then if KsDistance(FL, getECDFObsFeature(vp, obsF, GtZ, T, winSize, binSize)) >= 0.0 
+      then KsStatisticZ(FL, getECDFObsFeature(vp, obsF, GtZ, T, winSize, binSize), K) collectZObsFeature(vp, obsF, FL, GtZ, T + binSize, Tend, winSize, binSize, K)
+      else collectZObsFeature(vp, obsF, FL, GtZ, T + binSize, Tend, winSize, binSize, K) fi 
+    else nil fi .
+
+  op getZObsFeature : NetId Feature TimesObsList Float Float Float Float -> List{Float} .
+  eq getZObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = collectZObsFeature(vp, obsF, getBaselineCDFObsFeature(vp, obsF, TOL, baselineTstart, baselineTend, binSize), TOL, Tstart, Tend, winSize, binSize, getKObsFeature(vp, obsF, TOL, baselineTstart, baselineTend, winSize, binSize)) .
+
+  op getZObsFeature : NetId Feature TimesObsList Float Float Float Float List{Float} Float -> List{Float} .
+  eq getZObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF, K) = collectZObsFeature(vp, obsF, baselineCDF, TOL, Tstart, Tend, winSize, binSize, K) .
+
+  op collectTimedZObsFeature : NetId Feature List{Float} TimesObsList Float Float Float Float Float -> TimedFloatList .
+  eq collectTimedZObsFeature (vp, obsF, FL, GtZ, T, Tend, winSize, binSize, K) =
+    if (T + winSize) <= (Tend + Tesp) 
+    then if KsDistance(FL, getECDFObsFeature(vp, obsF, GtZ, T, winSize, binSize)) >= 0.0 
+      then timedFloat(T + winSize, KsStatisticZ(FL, getECDFObsFeature(vp, obsF, GtZ, T, winSize, binSize), K)) collectTimedZObsFeature(vp, obsF, FL, GtZ, T + binSize, Tend, winSize, binSize, K)
+      else collectTimedZObsFeature(vp, obsF, FL, GtZ, T + binSize, Tend, winSize, binSize, K) fi
+    else nilTimedFloatList fi .
+
+  op getTimedZObsFeature : NetId Feature TimesObsList Float Float Float Float -> TimedFloatList .
+  eq getTimedZObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = collectTimedZObsFeature(vp, obsF, getBaselineCDFObsFeature(vp, obsF, TOL, 0.0, Tstart, binSize), TOL, Tstart, Tend, winSize, binSize, getKObsFeature(vp, obsF, TOL, baselineTstart, baselineTend, winSize, binSize)) .
+
+  op getTimedZObsFeature : NetId Feature TimesObsList Float Float Float Float List{Float} Float -> TimedFloatList .
+  eq getTimedZObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF, K) = collectTimedZObsFeature(vp, obsF, baselineCDF, TOL, Tstart, Tend, winSize, binSize, K) .
+
+  op getToDObsFeature : NetId Feature TimesObsList Float Float Float Float Float -> Float .
+  eq getToDObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, H) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TOL, Tstart, Tend, winSize, binSize), H, 0.0) .
+
+  op getToDObsFeature : NetId Feature TimesObsList Float Float Float Float Float List{Float} Float -> Float .
+  eq getToDObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, H, baselineCDF, K) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF, K), H, 0.0) .
+
+  op getToDDnsFeature : Actor NetId Feature Float Float Float Float Float -> Float .
+  eq getToDDnsFeature (< ADDR : Adversary | dns: TsML, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, H) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TsML, Tstart, Tend, winSize, binSize), H, 0.0) .
+
+  op getToDDnsFeature : Actor NetId Feature Float Float Float Float Float List{Float} Float -> Float .
+  eq getToDDnsFeature (< ADDR : Adversary | dns: TsML, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, H, baselineCDF, K) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TsML, Tstart, Tend, winSize, binSize, baselineCDF, K), H, 0.0) .
+
+  op getToDTcpFeature : Actor NetId Feature Float Float Float Float Float -> Float .
+  eq getToDTcpFeature (< ADDR : Adversary | tcp: TsPL, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, H) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TsPL, Tstart, Tend, winSize, binSize), H, 0.0) .
+
+  op getToDTcpFeature : Actor NetId Feature Float Float Float Float Float List{Float} Float -> Float .
+  eq getToDTcpFeature (< ADDR : Adversary | tcp: TsPL, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, H, baselineCDF, K) = alarmTimeCUSUM(getTimedZObsFeature(vp, obsF, TsPL, Tstart, Tend, winSize, binSize, baselineCDF, K), H, 0.0) .
+
+  op getCUSUMObsFeature : NetId Feature TimesObsList Float Float Float Float -> Float .
+  eq getCUSUMObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = getCUSUM(getTimedZObsFeature(vp, obsF, TOL, Tstart, Tend, winSize, binSize), Tstart, Tend, 0.0) .
+
+  op getCUSUMObsFeature : NetId Feature TimesObsList Float Float Float Float List{Float} Float -> Float .
+  eq getCUSUMObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF, K) = getCUSUM(getTimedZObsFeature(vp, obsF, TOL, Tstart, Tend, winSize, binSize, baselineCDF, K), Tstart, Tend, 0.0) .
+
+  op getCUSUMDnsFeature : Actor NetId Feature Float Float Float Float -> Float .
+  eq getCUSUMDnsFeature (< ADDR : Adversary | dns: TsML, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) = getCUSUM(getTimedZObsFeature(vp, obsF, TsML, Tstart, Tend, winSize, binSize), Tstart, Tend, 0.0) .
+
+  op getCUSUMDnsFeature : Actor NetId Feature Float Float Float Float List{Float} Float -> Float .
+  eq getCUSUMDnsFeature (< ADDR : Adversary | dns: TsML, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, baselineCDF, K) = getCUSUM(getTimedZObsFeature(vp, obsF, TsML, Tstart, Tend, winSize, binSize, baselineCDF, K), Tstart, Tend, 0.0) .
+
+  op getCUSUMTcpFeature : Actor NetId Feature Float Float Float Float -> Float .
+  eq getCUSUMTcpFeature (< ADDR : Adversary | tcp: TsPL, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) = getCUSUM(getTimedZObsFeature(vp, obsF, TsPL, Tstart, Tend, winSize, binSize), Tstart, Tend, 0.0) .
+
+  op getCUSUMTcpFeature : Actor NetId Feature Float Float Float Float List{Float} Float -> Float .
+  eq getCUSUMTcpFeature (< ADDR : Adversary | tcp: TsPL, attrs >, vp, obsF, Tstart, Tend, winSize, binSize, baselineCDF, K) = getCUSUM(getTimedZObsFeature(vp, obsF, TsPL, Tstart, Tend, winSize, binSize, baselineCDF, K), Tstart, Tend, 0.0) .
+
+  op isDnsFeature : Feature -> Bool .
+  eq isDnsFeature (dnsQueryRate) = true .
+  eq isDnsFeature (dnsQuerySize) = true .
+  eq isDnsFeature (dnsRespSize) = true .
+  eq isDnsFeature (obsF) = false [owise] . 
+
+  op isTcpFeature : Feature -> Bool .
+  eq isTcpFeature (tcpUpRate) = true .
+  eq isTcpFeature (tcpDownRate) = true .
+  eq isTcpFeature (tcpUpToDownRate) = true .
+  eq isTcpFeature (tcpOutPktRate) = true .
+  eq isTcpFeature (tcpInPktRate) = true .
+  eq isTcpFeature (tcpOutToInPktRate) = true .
+  eq isTcpFeature (tcpPktSizeStdDev) = true .
+  eq isTcpFeature (tcpPktSize) = true .
+  eq isTcpFeature (tcpPktInterarrival) = true .
+  eq isTcpFeature (tcpDirectionChange) = true .
+  eq isTcpFeature (tcpActiveFlow) = true .
+  eq isTcpFeature (tcpNewCnx) = true .
+  eq isTcpFeature (obsF) = false [owise] . 
+
+  op getToD : Actor NetId Feature Float Float Float Float Float -> Float .
+  eq getToD (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H) = 
+    if isDnsFeature(obsF) 
+    then getToDDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H, getBaselineCDFObsFeature (vp, obsF, TsML, baselineTstart, baselineTend, binSize), getKObsFeature (vp, obsF, TsML, baselineTstart, baselineTend, winSize, binSize)) 
+    else 
+      if isTcpFeature(obsF) 
+      then getToDTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H, getBaselineCDFObsFeature (vp, obsF, TsPL, baselineTstart, baselineTend, binSize), getKObsFeature (vp, obsF, TsPL, baselineTstart, baselineTend, winSize, binSize)) 
+      else 0.0 fi fi .
+
+  op getToD : Actor NetId Feature Float Float Float Float Float List{Float} Float -> Float .
+  eq getToD (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H, baselineCDF, K) = 
+    if isDnsFeature(obsF) 
+    then getToDDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H, baselineCDF, K) 
+    else 
+      if isTcpFeature(obsF) 
+      then getToDTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, H, baselineCDF, K) 
+      else 0.0 fi fi .
+
+  op getCUSUM : Actor NetId Feature Float Float Float Float -> Float .
+  eq getCUSUM (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize) = 
+    if isDnsFeature(obsF) 
+    then getCUSUMDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, getBaselineCDFObsFeature (vp, obsF, TsML, baselineTstart, baselineTend, binSize), getKObsFeature (vp, obsF, TsML, baselineTstart, baselineTend, winSize, binSize)) 
+    --- then getCUSUMDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize)
+    --- both work, to be tested for scalability 
+    else 
+      if isTcpFeature(obsF) 
+      then getCUSUMTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, getBaselineCDFObsFeature (vp, obsF, TsPL, baselineTstart, baselineTend, binSize), getKObsFeature (vp, obsF, TsPL, baselineTstart, baselineTend, winSize, binSize)) 
+      --- then getCUSUMTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize)
+      --- both work, to be tested for scalability 
+      else 0.0 fi fi .
+
+  op getCUSUM : Actor NetId Feature Float Float Float Float List{Float} Float -> Float .
+  eq getCUSUM (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, baselineCDF, K) = 
+    if isDnsFeature(obsF) 
+    then getCUSUMDnsFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, baselineCDF, K) 
+    else 
+      if isTcpFeature(obsF) 
+      then getCUSUMTcpFeature (< ADDR : Adversary | dns: TsML, tcp: TsPL >, vp, obsF, Tstart, Tend, winSize, binSize, baselineCDF, K) 
+      else 0.0 fi fi .
+
+  op getTsML : Actor -> TimesObsList .
+  eq getTsML (< ADDR : Adversary | dns: TsML, attrs >) = TsML .
+
+  op getTsPL : Actor -> TimesObsList .
+  eq getTsPL (< ADDR : Adversary | tcp: TsPL, attrs >) = TsPL .
+
+***(
+#  Feature                          Description
+01 dns_query_rate                   Number of DNS query messages per second (queries/s)
+02 dns_query_size_mean              Mean DNS query message size (bytes)
+03 dns_response_size_mean           Mean DNS response message size (bytes)
+04 tcp_upload_rate                  Number of outbound TCP bytes per second (bytes/s)
+05 tcp_download_rate                Number of inbound TCP bytes per second (bytes/s)
+06 tcp_upload_download_ratio        Ratio of outbound TCP bytes to inbound TCP bytes [1]
+07 tcp_outgoing_packet_rate         Number of outgoing TCP packets per second (packets/s) [2]
+08 tcp_incoming_packet_rate         Number of incoming TCP packets per second (packets/s) [2]
+09 tcp_packet_upload_download_ratio Ratio of outgoing TCP packets to incoming TCP packets
+10 packet_size_std_dev              Standard deviation of packet sizes (bytes) [3]
+11 packet_size_mean                 Mean packet size (bytes) [3]
+12 packet_interarrival_mean         Mean time between successive packets
+13 direction_change_count           Number of times packet direction switches between incoming and outgoing [3]
+14 active_flow_count                Number of active TCP flows in the bin*
+15 tcp_new_conn_count               Number of new TCP connections initiated in the bin*
+)
+
+  -------------------------------------------------------------------------------------------------
+  --- 01 dns_query_rate                   Number of DNS query messages per second (queries/s)
+  -------------------------------------------------------------------------------------------------
+
+  op isDNSQuery : Msg -> Bool .
+  eq isDNSQuery (to ADDR from ADDR' : QUERY) = true .
+  eq isDNSQuery (M) = false [owise] .
+
+  op isDNSQuery : Content -> Bool .
+  eq isDNSQuery (QUERY) = true .
+  eq isDNSQuery (CO) = false [owise] .
+
+  op countDNSQuery : NetId Flow TimesObsList Float Float -> Nat .
+  eq countDNSQuery (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq countDNSQuery (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) --- and Fid == flow(fromAddr, toAddr, 0) 
+    then 1 + countDNSQuery(vp, Fid, TsML, Tstart, Tend) 
+    else countDNSQuery(vp, Fid, TsML, Tstart, Tend) fi .
+  eq countDNSQuery (vp, Fid, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSQuery(vp, Fid, TsML, Tstart, Tend) [owise] .
+
+  -------------------------------------------------------------------------------------------------
+  --- 02 dns_query_size_mean              Mean DNS query message size (bytes)
+  -------------------------------------------------------------------------------------------------
+
+  var ID : Id .
+  var NAME : Name .
+  var RTYPE : RType .
+  vars B1 B2 : Bool .
+  vars ALICE BOB : Address .
+  vars N1 N2 N3 N4 N5 : Nat .
+  var bytes : ByteSeq .
+
+  op DNSQueryOverhead : -> Nat .
+  eq DNSQueryOverhead = 29 .
+
+  op size : Name -> Nat .
+  eq size (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) + DNSQueryOverhead .
+  eq size (NAME) = nameLength(NAME) + DNSQueryOverhead [owise] .
+
+  op size : Query -> Nat .
+  eq size (query(ID, NAME, RTYPE)) = size(NAME) .
+
+  op sizeDNSQuery : NetId Flow TimesObsList Float Float -> Nat .
+  eq sizeDNSQuery (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq sizeDNSQuery (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) and Fid == flow(fromAddr, toAddr, 0) 
+    then size(CO) + sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) 
+    else sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) fi .
+  eq sizeDNSQuery (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) [owise] .
+
+  -------------------------------------------------------------------------------------------------
+  --- 03 dns_response_size_mean           Mean DNS response message size (bytes)
+  -------------------------------------------------------------------------------------------------
+
+  vars LR LR1 LR2 : List{Record} .
+
+  op isDNSResp : Content -> Bool .
+  eq isDNSResp (RESP) = true .
+  eq isDNSResp (CO) = false [owise] .
+
+  op size : Response -> Nat .
+  eq size (response(ID, NAME, LR, LR1, LR2, N)) = size(NAME) .
+
+  op countDNSResp : NetId Flow TimesObsList Float Float -> Nat .
+  eq countDNSResp (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq countDNSResp (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) and Fid == flow(fromAddr, toAddr, 0) 
+    then 1 + countDNSResp(vp, Fid, TsML, Tstart, Tend) 
+    else countDNSResp(vp, Fid, TsML, Tstart, Tend) fi .
+  eq countDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
+
+  op sizeDNSResp : NetId Flow TimesObsList Float Float -> Nat .
+  eq sizeDNSResp (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) and Fid == flow(fromAddr, toAddr, 0) 
+    then size(CO) + sizeDNSResp(vp, Fid, TsML, Tstart, Tend) 
+    else sizeDNSResp(vp, Fid, TsML, Tstart, Tend) fi .
+  eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
+
+  -------------------------------------------------------------------------------------------------
+  --- 04 tcp_upload_rate                  Number of outbound TCP bytes per second (bytes/s)
+  --- 05 tcp_download_rate                Number of inbound TCP bytes per second (bytes/s)
+  --- 06 tcp_upload_download_ratio        Ratio of outbound TCP bytes to inbound TCP bytes [1]
+  -------------------------------------------------------------------------------------------------
+
+  op size : Pkt -> Nat .
+  eq size (pkt) = getSize(pkt) .
+
+  op size : TimesPkt -> Nat .
+  eq size (tpkt) = getSize(tpkt) .
+
+  op sizeTCPUpload : NetId Flow TimesObsList Float Float -> Nat .
+  eq sizeTCPUpload (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq sizeTCPUpload (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) --- and Fid == getFlow(pkt)  
+    then size(pkt) + sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) 
+    else sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq sizeTCPUpload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  op sizeTCPDownload : NetId Flow TimesObsList Float Float -> Nat .
+  eq sizeTCPDownload (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq sizeTCPDownload (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming) --- and Fid == getFlow(pkt) 
+    then size(pkt) + sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) 
+    else sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq sizeTCPDownload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  -------------------------------------------------------------------------------------------------
+  --- 07 tcp_outgoing_packet_rate         Number of outgoing TCP packets per second (packets/s) [2]
+  --- 08 tcp_incoming_packet_rate         Number of incoming TCP packets per second (packets/s) [2]
+  --- 09 tcp_packet_upload_download_ratio Ratio of outgoing TCP packets to incoming TCP packets
+  -------------------------------------------------------------------------------------------------
+
+  op countTCPOutPkt : NetId Flow TimesObsList Float Float -> Nat .
+  eq countTCPOutPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq countTCPOutPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) --- and Fid == getFlow(pkt) 
+    then 1 + countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) 
+    else countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq countTCPOutPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  op countTCPInPkt : NetId Flow TimesObsList Float Float -> Nat .
+  eq countTCPInPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq countTCPInPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming) --- and Fid == getFlow(pkt) 
+    then 1 + countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) 
+    else countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq countTCPInPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  -------------------------------------------------------------------------------------------------
+  --- 10 packet_size_std_dev              Standard deviation of packet sizes (bytes) [3]
+  --- 11 packet_size_mean                 Mean packet size (bytes) [3]
+  -------------------------------------------------------------------------------------------------
+
+  op countTCPPkt : NetId Flow TimesObsList Float Float -> Nat .
+  eq countTCPPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq countTCPPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
+    then 1 + countTCPPkt(vp, Fid, TsPL, Tstart, Tend) 
+    else countTCPPkt(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq countTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  op sizeTCPPkt : NetId Flow TimesObsList Float Float -> Nat .
+  eq sizeTCPPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq sizeTCPPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
+    then size(pkt) + sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) 
+    else sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq sizeTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  op collectPktSize : NetId Flow TimesObsList Float Float -> List{Float} .
+  eq collectPktSize (vp, Fid, nilTO, Tstart, Tend) = nil .
+  eq collectPktSize (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
+    then float(size(pkt)) collectPktSize(vp, Fid, TsPL, Tstart, Tend) 
+    else collectPktSize(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq collectPktSize (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = collectPktSize(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  op meanPktSize : NetId Flow TimesObsList Float Float -> Float .
+  eq meanPktSize (vp, Fid, TsPL, Tstart, Tend) =  
+    if countTCPPkt(vp, Fid, TsPL, Tstart, Tend) == 0
+    then 0.0
+    else float(sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend)) / float(countTCPPkt(vp, Fid, TsPL, Tstart, Tend)) fi .
+
+  op stdDevPktSize : NetId Flow TimesObsList Float Float -> Float .
+  eq stdDevPktSize (vp, Fid, TsPL, Tstart, Tend) = 
+    if countTCPPkt(vp, Fid, TsPL, Tstart, Tend) == 0
+    then 0.0
+    else sqrt(sumSquaredDiff(collectPktSize(vp, Fid, TsPL, Tstart, Tend), meanPktSize(vp, Fid, TsPL, Tstart, Tend))) fi .  
+
+  -------------------------------------------------------------------------------------------------
+  --- 12 packet_interarrival_mean         Mean time between successive packets
+  -------------------------------------------------------------------------------------------------
+
+  op collectPktTime : NetId Flow TimesObsList Float Float -> List{Float} .
+  eq collectPktTime (vp, Fid, nilTO, Tstart, Tend) = nil .
+  eq collectPktTime (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
+    then Tx collectPktTime(vp, Fid, TsPL, Tstart, Tend) 
+    else collectPktTime(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq collectPktTime (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = collectPktTime(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  -------------------------------------------------------------------------------------------------
+  --- 13 direction_change_count           Number of times packet direction switches between incoming and outgoing [3]
+  -------------------------------------------------------------------------------------------------
+
+  op collectPktDirection : NetId Flow TimesObsList Float Float -> List{Float} .
+  eq collectPktDirection (vp, Fid, nilTO, Tstart, Tend) = nil .
+  eq collectPktDirection (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if Tx >= Tstart and Tx < Tend --- and Fid == getFlow(pkt) 
+    then 
+      if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
+      then 1.0 collectPktDirection(vp, Fid, TsPL, Tstart, Tend) 
+      else 
+        if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing)
+        then 0.0 collectPktDirection(vp, Fid, TsPL, Tstart, Tend) 
+        else collectPktDirection(vp, Fid, TsPL, Tstart, Tend) fi fi 
+    else collectPktDirection(vp, Fid, TsPL, Tstart, Tend) fi .    
+  eq collectPktDirection (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = collectPktDirection(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  op countPktDirectionChange : NetId Flow TimesObsList Float Float -> Nat . 
+  eq countPktDirectionChange(vp, Fid, TsPL, Tstart, Tend) = countChange(collectPktDirection(vp, Fid, TsPL, Tstart, Tend)) .
+
+  -------------------------------------------------------------------------------------------------
+  --- 14 active_flow_count                Number of active TCP flows in the bin*
+  -------------------------------------------------------------------------------------------------
+
+  op countActiveFlow : NetId TimesObsList Float Float -> Nat .
+  eq countActiveFlow (vp, nilTO, Tstart, Tend) = 0 .
+  eq countActiveFlow (vp, TsPL, Tstart, Tend) = len(collectObsFlow(TsPL)) .
+
+  -------------------------------------------------------------------------------------------------
+  --- 15 tcp_new_conn_count               Number of new TCP connections initiated in the bin*
+  -------------------------------------------------------------------------------------------------
+
+  op newCnx : Pkt -> Bool .
+  eq newCnx (pkt(toAddr, fromAddr, new?, cnx, psize)) = new? .
+
+  op newCnx : TimesPkt -> Bool .
+  eq newCnx (tp(Ts, Tx, Tr, pkt(toAddr, fromAddr, new?, cnx, psize))) = new? .
+
+  op countNewCnx : NetId TimesObsList Float Float -> Nat .
+  eq countNewCnx (vp, nilTO, Tstart, Tend) = 0 .
+  eq countNewCnx (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) =
+    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) and newCnx(pkt) 
+    then 1 + countNewCnx(vp, TsPL, Tstart, Tend) 
+    else countNewCnx(vp, TsPL, Tstart, Tend) fi .
+  eq countNewCnx (vp, tpkt ;; TsPL, Tstart, Tend) = countNewCnx(vp, TsPL, Tstart, Tend) [owise] .
+
+endm
