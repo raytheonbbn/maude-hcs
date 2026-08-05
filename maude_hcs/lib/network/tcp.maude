@@ -464,7 +464,7 @@ mod TCP-ANALYTICAL-MODEL is
                  N, OW, OWOFF, SRHOP, CC, ACC ++ NSEGS)
      fi
   if SG < N
-  /\ CWND_SS := min(float(WSS), 50.0)
+  /\ CWND_SS := min(float(WSS), 1000.0)
   /\ FR := flightStats(WSS, PI, CC)
   /\ P0 := frP0(FR)
   /\ PL := 1.0 - P0
@@ -472,9 +472,9 @@ mod TCP-ANALYTICAL-MODEL is
   /\ RTT0 := 2.0 * OW
   /\ DT := P0 * RTT0 + PL * (2.0 * RTT0 + RTT0 * rackF)
   /\ NSEGS := genSSSegs(0, f2n(CWND_SS), N, SG, T + OWOFF, SRHOP)
-  /\ WNXT := min(WSS + WSS, 50)
+  /\ WNXT := min(WSS + WSS, 1000)
   /\ FR2 := flightStats(WNXT, PINX, CC)
-  /\ SX := (frEl(FR2) > 5.0e-1 or PL > 1.0e-15 or float(WSS) >= 50.0)
+  /\ SX := (frEl(FR2) >= 5.0e-1 or float(WSS) >= 1000.0)
   .
 
 
@@ -484,8 +484,8 @@ mod TCP-ANALYTICAL-MODEL is
   ---
   --- Used when isNoneProfile is true (p31 ~= 1.0).
   --- Key differences from ssLoop:
-  ---   - MAX_CWND = 60 (instead of LOCAL_MAX_CWND = 50)
-  ---   - Buffer overflow when seg + Wss > BUFFER_CAPACITY (55)
+  ---   - MAX_CWND = 1000 (instead of LOCAL_MAX_CWND = 50)
+  ---   - Buffer overflow when seg + Wss > BUFFER_CAPACITY (1000)
   ---   - dt uses LOCAL_RECOVERY_FACTOR = 0.5
   ---   - pi is NOT updated between iterations
   ---   - Exit includes p_l > 0.0 check (buffer overflow)
@@ -515,9 +515,9 @@ mod TCP-ANALYTICAL-MODEL is
   --- Flight stats from channel
   /\ FRB := flightStats(WSS, PI, CC)
   /\ P0CH := frP0(FRB)
-  --- Buffer overflow: if seg + Wss > 55, compute dropped packets
-  /\ BDRP := if float(SG + WSS) > 55.0
-              then float(SG + WSS) - 55.0
+  --- Buffer overflow: if seg + Wss > 1000, compute dropped packets
+  /\ BDRP := if float(SG + WSS) > 1000.0
+              then float(SG + WSS) - 1000.0
               else 0.0 fi
   --- Loss probability (buffer overflow overrides channel loss)
   /\ PLB := if BDRP > 1.0e-15
@@ -531,13 +531,13 @@ mod TCP-ANALYTICAL-MODEL is
                        * 5.0e-1)
   --- Segments
   /\ NSEGB := genSSSegs(0, WSS, N, SG, T + OWOFF, SRHOP)
-  --- Next flight for exit check (uses PI unchanged; cap at 60)
-  /\ WNXTB := if WSS + WSS > 60 then 60 else WSS + WSS fi
+  --- Next flight for exit check (uses PI unchanged; cap at 1000)
+  /\ WNXTB := if WSS + WSS > 1000 then 1000 else WSS + WSS fi
   /\ FRB2 := flightStats(WNXTB, PI, CC)
   --- Exit: el > 0.5 or buffer overflow happened or at max cwnd
-  /\ SXB := (frEl(FRB2) > 5.0e-1
-             or PLB > 1.0e-15
-             or WSS >= 60)
+  /\ SXB := (frEl(FRB2) >= 5.0e-1
+             or BDRP > 0.0
+             or WSS >= 1000)
   .
 
 
@@ -546,7 +546,7 @@ mod TCP-ANALYTICAL-MODEL is
   --- ============================================================
 
   --- caPhase: transition from SS result to CA, then run CA loop
-  --- (LOCAL_MAX_CWND = 50)
+  --- (LOCAL_MAX_CWND = 1000)
   op caPhase : SSResult Nat Float Float Float ChannelCfg -> FloatList .
 
   ceq caPhase(ssR(T, SG, FLT, PI, ACC, LP, WSS), N, OW, OWOFF, SRHOP, CC) =
@@ -559,14 +559,14 @@ mod TCP-ANALYTICAL-MODEL is
   /\ CW0 := LP * float(WSS + WSS)
                    + PLL * max(float(WSS) * cubicB, 2.0)
   /\ CW1 := max(2.0, CW0)
-  /\ CW2 := max(2.0, min(CW1, 50.0))
-  /\ WMX := min(CW2 / cubicB, 50.0)
+  /\ CW2 := max(2.0, min(CW1, 1000.0))
+  /\ WMX := min(CW2 / cubicB, 1000.0)
   .
 
   --- caLoop(iter, t, segF, flt, pi, cwnd, wMax, tSince,
   ---        N, O, OWOFF, SRHOP, CC, acc)
   --- Implements the congestion-avoidance for-loop from _build_timeline.
-  --- (LOCAL_MAX_CWND = 50)
+  --- (LOCAL_MAX_CWND = 1000)
 
   op caLoop : Nat Float Float Nat Vec4 Float Float Float
               Nat Float Float Float ChannelCfg FloatList -> FloatList .
@@ -596,8 +596,8 @@ mod TCP-ANALYTICAL-MODEL is
   /\ PP  := max(0.0, 1.0 - P0 - PA)
   --- RTT
   /\ RTT0 := 2.0 * OW
-  --- Expected delivery step size (LOCAL_MAX_CWND = 50)
-  /\ EDel := float(W) * (50.0 / max(1.0, CWND))
+  --- Expected delivery step size (W segments)
+  /\ EDel := float(W)
   --- Integer segment boundaries
   /\ SGS := f2n(floor(SEGF))
   /\ SGE := f2n(floor(SEGF + EDel))
@@ -605,7 +605,7 @@ mod TCP-ANALYTICAL-MODEL is
   /\ EDT0 := P0 * RTT0
                     + PP * (2.0 * RTT0 + RTT0 * rackF)
                     + PA * rtoMinC
-  /\ EDT := max(EDel * serDly, EDT0 * (EDel / 50.0))
+  /\ EDT := max(EDel * serDly, EDT0)
   --- Generate segment times
   /\ NS := genCASegs(s(SGS), SGE, N, SGS, EDel,
                                W, T, OWOFF, SRHOP)
@@ -624,7 +624,7 @@ mod TCP-ANALYTICAL-MODEL is
   /\ WR  := CWND + (1.0 / max(1.0, CWND))
   /\ WNO := max(cubicW(TSCF0, WMF), WR)
   /\ CNX := P0 * WNO + PP * (CWND * cubicB) + PA * 1.0
-  /\ CWF := max(2.0, min(CNX, 50.0))
+  /\ CWF := max(2.0, min(CNX, 1000.0))
   /\ TSCF := TSCF0
   .
 
@@ -639,8 +639,8 @@ mod TCP-ANALYTICAL-MODEL is
   ---
   --- Used when isNoneProfile is true (p31 ~= 1.0).
   --- Key differences from caPhase/caLoop:
-  ---   - MAX_CWND = 60 (instead of LOCAL_MAX_CWND = 50)
-  ---   - Buffer overflow when W > 55 and W > round(w_max)
+  ---   - MAX_CWND = 1000 (instead of LOCAL_MAX_CWND = 50)
+  ---   - Buffer overflow when W > 1000 and W > round(w_max)
   ---     overrides p0 and sets pa = 0.0
 
   --- caPhaseBuf: transition from SS result to buffer CA loop
@@ -656,13 +656,13 @@ mod TCP-ANALYTICAL-MODEL is
   /\ CWB0 := LP * float(WSS + WSS)
               + PLLB * max(float(WSS) * cubicB, 2.0)
   /\ CWB1 := max(2.0, CWB0)
-  /\ CWB2 := max(2.0, min(CWB1, 60.0))
-  /\ WMXB := min(CWB2 / cubicB, 60.0)
+  /\ CWB2 := max(2.0, min(CWB1, 1000.0))
+  /\ WMXB := min(CWB2 / cubicB, 1000.0)
   .
 
   --- caLoopBuf(iter, t, segF, flt, pi, cwnd, wMax, tSince,
   ---           N, O, OWOFF, SRHOP, CC, acc)
-  --- Buffer-capacity CA loop (MAX_CWND = 60, BUFFER_CAPACITY = 55).
+  --- Buffer-capacity CA loop (MAX_CWND = 1000, BUFFER_CAPACITY = 1000).
 
   op caLoopBuf : Nat Float Float Nat Vec4 Float Float Float
                  Nat Float Float Float ChannelCfg FloatList -> FloatList .
@@ -690,10 +690,10 @@ mod TCP-ANALYTICAL-MODEL is
   /\ P0CH2 := frP0(FR)
   /\ PACH2 := frPa(FR)
   /\ PINX := frPi(FR)
-  --- Buffer overflow in CA: W > 55 and W > round(w_max)
+  --- Buffer overflow in CA: W > 1000 and W > round(w_max)
   /\ WMR := max(1, f2n(roundF(WM0)))
-  /\ CADRP := if W > 55 and W > WMR
-               then float(sd(W, 55))
+  /\ CADRP := if W > 1000 and W > WMR
+               then float(sd(W, 1000))
                else 0.0 fi
   --- Override p0/pa if buffer overflow
   /\ P0 := if CADRP > 1.0e-15
@@ -705,21 +705,20 @@ mod TCP-ANALYTICAL-MODEL is
   /\ PP := max(0.0, 1.0 - P0 - PA)
   --- RTT
   /\ RTT0 := 2.0 * OW
-  --- Expected delivery step size (MAX_CWND = 60)
-  /\ EDelB := float(W) * (60.0 / max(1.0, CWND))
+  --- Expected delivery step size (W segments)
+  /\ EDelB := float(W)
   --- Integer segment boundaries
   /\ SGS := f2n(floor(SEGF))
   /\ SGE := f2n(floor(SEGF + EDelB))
-  --- Expected time step (MAX_CWND = 60)
+  --- Expected time step (MAX_CWND = 1000)
   /\ EDT0B := P0 * RTT0
                + PP * (2.0 * RTT0 + RTT0 * rackF)
                + PA * rtoMinC
-  /\ EDTB := max(EDelB * serDly,
-                  EDT0B * (EDelB / 60.0))
+  /\ EDTB := max(EDelB * serDly, EDT0B)
   --- Generate segment times
   /\ NSB := genCASegs(s(SGS), SGE, N, SGS, EDelB,
                        W, T, OWOFF, SRHOP)
-  --- Window dynamics (same structure, MAX_CWND = 60)
+  --- Window dynamics (same structure, MAX_CWND = 1000)
   /\ PLOSS := PP + PA
   /\ WMFB :=
        if PLOSS > 1.0e-15
@@ -734,7 +733,7 @@ mod TCP-ANALYTICAL-MODEL is
   /\ WR  := CWND + (1.0 / max(1.0, CWND))
   /\ WNO := max(cubicW(TSCF0B, WMFB), WR)
   /\ CNX := P0 * WNO + PP * (CWND * cubicB) + PA * 1.0
-  /\ CWFB := max(2.0, min(CNX, 60.0))
+  /\ CWFB := max(2.0, min(CNX, 1000.0))
   /\ TSCFB := TSCF0B
   .
 

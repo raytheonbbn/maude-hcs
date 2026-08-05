@@ -7,6 +7,7 @@ import os
 import matplotlib.pyplot as plt
 import concurrent.futures
 import argparse
+import warnings
 
 # Ensure stdout is unbuffered so main process prints interleave correctly with subprocesses
 sys.stdout.reconfigure(line_buffering=True)
@@ -110,8 +111,19 @@ def teardown_environment():
 # 3. Traffic Generation and Packet Sniffing
 # ==============================================================================
 
+import ssl
+
+def generate_ssl_certs():
+    cert_file = "server.crt"
+    key_file = "server.key"
+    if not (os.path.exists(cert_file) and os.path.exists(key_file)):
+        subprocess.run(
+            f"openssl req -x509 -newkey rsa:2048 -keyout {key_file} -out {cert_file} -days 365 -nodes -subj '/CN=10.0.2.2'",
+            shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+
 def run_server(port):
-    print(f"[SERVER] Starting on port {port}")
+    print(f"[SERVER] Starting plain TCP server on port {port}")
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(("10.0.2.2", port))
@@ -129,7 +141,7 @@ def run_server(port):
     s.close()
 
 def run_client(ip, port, num_bytes):
-    print(f"[CLIENT] Connecting to {ip}:{port} and sending {num_bytes} bytes")
+    print(f"[CLIENT] Connecting via plain TCP to {ip}:{port} and sending {num_bytes} bytes")
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     s.connect((ip, port))
@@ -140,7 +152,7 @@ def run_client(ip, port, num_bytes):
         to_send = min(chunk_size, num_bytes - sent)
         s.sendall(b'a' * to_send)
         sent += to_send
-    print(f"[CLIENT] Finished sending {sent} bytes.")
+    print(f"[CLIENT] Finished sending {sent} bytes via plain TCP.")
     s.close()
 
 def process_pcap_arrivals(packets, isn, t0, num_segments):
@@ -154,7 +166,7 @@ def process_pcap_arrivals(packets, isn, t0, num_segments):
                         seq = pkt[TCP].seq
                         relative_seq = (seq - (isn + 1)) % 4294967296
                         start_k = relative_seq // 1448 + 1
-                        num_segs = int(np.ceil(payload_len / 1448))
+                        num_segs = max(1, int(np.ceil(payload_len / 1448)))
                         
                         for offset in range(num_segs):
                             k_val = start_k + offset
@@ -292,11 +304,17 @@ if __name__ == "__main__":
     # Shape: (num_trials, 2 [hop1, dest], num_segments)
     trials_matrix = np.array(all_trials_data, dtype=float)
     
-    emp_first_mean   = np.nanmean(trials_matrix[:, 0, :], axis=0)
-    emp_first_median = np.nanmedian(trials_matrix[:, 0, :], axis=0)
-    
-    emp_dest_mean    = np.nanmean(trials_matrix[:, 1, :], axis=0)
-    emp_dest_median  = np.nanmedian(trials_matrix[:, 1, :], axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        emp_first_mean   = np.nanmean(trials_matrix[:, 0, :], axis=0)
+        emp_first_median = np.nanmedian(trials_matrix[:, 0, :], axis=0)
+        emp_first_p25    = np.nanpercentile(trials_matrix[:, 0, :], 25, axis=0)
+        emp_first_p75    = np.nanpercentile(trials_matrix[:, 0, :], 75, axis=0)
+        
+        emp_dest_mean    = np.nanmean(trials_matrix[:, 1, :], axis=0)
+        emp_dest_median  = np.nanmedian(trials_matrix[:, 1, :], axis=0)
+        emp_dest_p25     = np.nanpercentile(trials_matrix[:, 1, :], 25, axis=0)
+        emp_dest_p75     = np.nanpercentile(trials_matrix[:, 1, :], 75, axis=0)
 
     N = num_segments
     model_first, model_dest = [], []
@@ -328,6 +346,7 @@ if __name__ == "__main__":
     ax1.plot(k_vals, model_first, label='Model First-Hop ($E[T_{k, first}]$)', color='blue', linewidth=2)
     ax1.plot(k_vals, emp_first_mean + (OWD_ms / 2.0), label='Empirical First-Hop (Mean)', color='red', linewidth=2)
     ax1.plot(k_vals, emp_first_median + (OWD_ms / 2.0), label='Empirical First-Hop (Median)', color='darkred', linestyle='--', linewidth=1.5)
+    ax1.fill_between(k_vals, emp_first_p25 + (OWD_ms / 2.0), emp_first_p75 + (OWD_ms / 2.0), color='red', alpha=0.2, label='Empirical 25th-75th %ile')
     
     add_flight_spans(ax1)
     ax1.set_ylabel('Relative Arrival Time (ms)', fontsize=11)
@@ -344,6 +363,7 @@ if __name__ == "__main__":
     ax2.plot(k_vals, model_dest, label='Model Dest Arrival ($E[T_{k, dest}]$)', color='blue', linewidth=2)
     ax2.plot(k_vals, emp_dest_mean + OWD_ms, label='Empirical Dest (Mean)', color='red', linewidth=2)
     ax2.plot(k_vals, emp_dest_median + OWD_ms, label='Empirical Dest (Median)', color='darkred', linestyle='--', linewidth=1.5)
+    ax2.fill_between(k_vals, emp_dest_p25 + OWD_ms, emp_dest_p75 + OWD_ms, color='red', alpha=0.2, label='Empirical 25th-75th %ile')
     
     add_flight_spans(ax2)
     ax2.set_xlabel('Segment Index ($k$)', fontsize=12)
