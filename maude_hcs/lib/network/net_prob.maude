@@ -51,16 +51,18 @@ mod NETWORK_CONNECTION is
   vars content : Content .
   vars T T0 : Float .
   vars TIME_LIST TIME_LIST_TO_IXP : FloatList .
-  vars msg msg0 msg_to_ixp transportMsg : Msg .
+  vars msg msg0 msg_to_ixp transportMsg
+        msg_src_to_ixp msg_ixp_to_tgt  : Msg .
   vars j j1 jTrans jNext n ctr : Nat .
   vars amsg  amsg0 : ActiveMsg .
   vars dmsg : ScheduleMsg .
   
-  vars k : Nat .
+  vars k msgSize : Nat .
   vars b b0 : Bool .
   vars advAddr  rsvAddr : Address .
   vars advAttrs advAttrs0 advAttrs1 attrs0 attrs1 attrs
-       netAttrs0  netAttrs1 netAttrs2 flowAttrs0 netAttrsNext0 
+       netAttrs0 netAttrs1 netAttrs2 flowAttrs0
+       netAttrsNext0 linkAttrs1 linkAttrs2 
        : AttributeSet .  
   vars tpl tml : TimesObsList .
   vars tmsg : TimesMsg .
@@ -68,6 +70,7 @@ mod NETWORK_CONNECTION is
   vars name : Name .
   vars query : Query .
   vars response : Response .
+  vars size_list : NatList .
   
   vars dtgt dixp : Float .
   vars cnxMap : AddrAttrsList .
@@ -163,27 +166,37 @@ ceq [netClientGenTcp]:
     /\ (rest: amsgs0, earliest: amsg) := selectEarliest(amsgs) 
     /\ {T,msg} := amsg
     /\ (to REMOTE_ADDR from LOCAL_ADDR : content ) := msg
+    /\ msg_src_to_ixp := 
+         (to IXP_ADDR from LOCAL_ADDR : content)
+    /\ msg_ixp_to_tgt :=
+         (to REMOTE_ADDR from IXP_ADDR : content)
+    /\ msgSize := getSize(content)         
     /\ {netAttrsNext , flowAttrs} :=
                 getFlowInfo(netAttrs, msg) ---sets new
-    /\ linkAttrs := getLinkData(msg)
+    /\ flowAttrs0, newCnx: b := flowAttrs
+    /\ linkAttrs1 := 
+           get4stateLoss(getLinkData(msg_src_to_ixp))
+    /\ linkAttrs2 := 
+           get4stateLoss(getLinkData(msg_ixp_to_tgt))
     /\ (pktAttrs, nextJ: jTrans) :=
          getFinalDestSegmentDistribution(j, msg,
-                                (get4stateLoss(linkAttrs), flowAttrs))
+               linkAttrs1, linkAttrs2,b)  
     /\ (timePacketList: TIME_LIST,attrs) := pktAttrs
     /\ delay:Float := msgDelay(TIME_LIST)
     /\ transportMsg := 
      (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
+**** get the pkt size list     
+     /\ size_list := tcpDeliverySizes(msgSize, TIME_LIST) 
     *** Now do to IXP router only.
-    /\ msg_to_ixp := (to IXP_ADDR from LOCAL_ADDR : content)
-    /\ linkToIxpAttrs := getLinkData(msg_to_ixp)
     /\ (pktAttrsAtIxp, nextJ: jNext) := 
-        getFirstHopSegmentDistribution(jTrans, msg_to_ixp, 
-        (get4stateLoss(linkToIxpAttrs), flowAttrs))
+        getFirstHopSegmentDistribution(jTrans,
+           msg_src_to_ixp, 
+           linkAttrs1, linkAttrs2,b)
     /\ (timePacketList: TIME_LIST_TO_IXP) := pktAttrsAtIxp
 **** log the packets 
     /\ netAttrs1, connectionCount: ctr, newCnx: b := netAttrs
     /\ tpl := genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, 
-                       ctr, b) 
+                        size_list, ctr, b) 
     /\ advAttrs1 := addTPL2tcp(advAttrs,tpl)  
     /\ netAttrsNext0, pending: amsgs := netAttrsNext
     
@@ -299,25 +312,35 @@ eq qrMatch(Q:Query,R:Response) = false [owise] .
    if attrs0, localIfaceAddr: LOCAL_ADDR, ixpAddr: IXP_ADDR
       := netAttrs
     /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : content)
-    /\ flowAttrs := getCurrentConnection(netAttrs,REMOTE_ADDR)
-    /\ linkAttrs := getLinkData(msg)
-    /\ (pktAttrs, nextJ: jTrans) 
-    := getFinalDestSegmentDistribution(j, msg, (get4stateLoss(linkAttrs), flowAttrs))
+    /\ msg_src_to_ixp := 
+          (to IXP_ADDR from LOCAL_ADDR : content)
+    /\ msg_ixp_to_tgt :=
+          (to REMOTE_ADDR from IXP_ADDR : content)
+    /\ msgSize := getSize(content)         
+     /\ flowAttrs := getCurrentConnection(netAttrs,REMOTE_ADDR)
+****    /\ flowAttrs0, newCnx: b := flowAttrs
+    /\ linkAttrs1 := 
+           get4stateLoss(getLinkData(msg_src_to_ixp))
+    /\ linkAttrs2 := 
+           get4stateLoss(getLinkData(msg_ixp_to_tgt))
+    /\ (pktAttrs, nextJ: jTrans) :=
+         getFinalDestSegmentDistribution(j, msg,
+               linkAttrs1, linkAttrs2,false)  
     /\ (timePacketList: TIME_LIST,attrs) := pktAttrs
     /\ delay:Float := msgDelay(TIME_LIST)
     /\ transportMsg := 
        (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
+**** get the pkt size list     
+     /\ size_list := tcpDeliverySizes(msgSize, TIME_LIST) 
     *** Now do to IXP router only.
-    /\ msg_to_ixp := (to IXP_ADDR from LOCAL_ADDR : content)
-    /\ linkToIxpAttrs := getLinkData(msg_to_ixp)
     /\ (pktAttrsAtIxp, nextJ: jNext) := 
-         getFirstHopSegmentDistribution(jTrans, msg_to_ixp, 
-                           (get4stateLoss(linkToIxpAttrs), flowAttrs))
-    /\ (timePacketList: TIME_LIST_TO_IXP,attrs) 
-       := pktAttrsAtIxp
+        getFirstHopSegmentDistribution(jTrans,
+           msg_src_to_ixp, 
+           linkAttrs1, linkAttrs2,false)
+    /\ (timePacketList: TIME_LIST_TO_IXP) := pktAttrsAtIxp
 ****      /\ something to log the packets
    /\ flowAttrs0, flowId: ctr  := flowAttrs
-   /\ tpl := genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, 
+   /\ tpl := genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, size_list,
                        ctr,false) 
     /\ advAttrs0 := addTPL2tcp(advAttrs,tpl)   
 **** I thought this was removed?    
