@@ -20,6 +20,8 @@ eval E[Goodput()] with delta = 2 ;
 // Integrity 
 ///////////////
 
+// getSystemIntegrity (monitor, irc_server, Tstart, Tend)
+
 Integrity() = s.rval("getSystemIntegrity(getMonitor(C), getIrcSrv(C), 0.0, 1000.0)");
 
 eval E[Integrity()] ;
@@ -27,6 +29,8 @@ eval E[Integrity()] ;
 ///////////////
 // Availabolity
 ///////////////
+
+// getMTBF (monitor, irc_server, Tn, Tstart, Tend)
 
 MTBF() = s.rval("getMTBF(getMonitor(C), 16.0, 0.0, 1000.0)");
 
@@ -36,11 +40,12 @@ eval E[MTBF()] with delta = 2 ;
 // Confidentiality 
 //////////////////
 
-// getCUSUM (adversary, vantage_point, feature, Tstart, Tend, window_size (seconds), bin_size (seconds)) 
 // getCUSUM (adversary, vantage_point, feature, Tstart, Tend, window_size (seconds), bin_size (seconds), baselineCDF, K) 
+// getBaselineCDF(baseline, vantage_point, feature, baseline Tstart, baseline Tend, bin_size) 
+// getBaselineK(baseline, vantage_point, feature, baseline Tstart, baseline Tend, window_size, bin_size) 
 
-// Cumulative t0_15 : Tstart = 0.0, Tend = 900.0, offset by baselineTend 
-// Cumulative t0_30 : Tstart = 0.0, Tend = 1800.0, offset by baselineTend  
+// Cumulative t0_15 : Tstart = 0.0, Tend = 900.0, offset by hcsDelay 
+// Cumulative t0_30 : Tstart = 0.0, Tend = 1800.0, offset by hcsDelay  
 
 CumulativeCUSUMDnsQueryRate() = s.rval("getCUSUM (getAdversary(C), ixpN, dnsQueryRate, 100.0, 300.0, 60.0, 10.0)");
 CumulativeCUSUMDnsQuerySize() = s.rval("getCUSUM (getAdversary(C), ixpN, dnsQuerySize, 100.0, 300.0, 60.0, 10.0)");
@@ -48,10 +53,10 @@ CumulativeCUSUMDnsRespSize() = s.rval("getCUSUM (getAdversary(C), ixpN, dnsRespS
 CumulativeCUSUMTcpUpRate() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpUpRate, 100.0, 300.0, 60.0, 10.0)");
 CumulativeCUSUMTcpDownRate() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpDownRate, 100.0, 300.0, 60.0, 10.0)");
 CumulativeCUSUMTcpUpToDownRate() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpUpToDownRate, 100.0, 300.0, 60.0, 10.0)");
-CumulativeCUSUMTcpOutPktRate() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpOutPktRate, 100.0, 300.0, 60.0, 10.0)");
-// CumulativeCUSUMTcpOutPktRate() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpOutPktRate, 100.0, 300.0, 60.0, 10.0, 
-//                                          getBaselineCDF(getBaseline(C), ixpN, tcpOutPktRate, 0.0, 100.0, 10.0), 
-//                                          getBaselineK(getBaseline(C), ixpN, tcpOutPktRate, 0.0, 100.0, 10.0))");
+// CumulativeCUSUMTcpOutPktRate() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpOutPktRate, 100.0, 300.0, 60.0, 10.0)");
+CumulativeCUSUMTcpOutPktRate() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpOutPktRate, 100.0, 300.0, 60.0, 10.0, 
+                                     getBaselineCDF(getBaseline(C), ixpN, tcpOutPktRate, 0.0, 100.0, 10.0), 
+                                       getBaselineK(getBaseline(C), ixpN, tcpOutPktRate, 0.0, 100.0, 60.0, 10.0))");
 CumulativeCUSUMTcpInPktRate() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpInPktRate, 100.0, 300.0, 60.0, 10.0)");
 CumulativeCUSUMTcpOutToInPktRate() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpOutToInPktRate, 100.0, 300.0, 60.0, 10.0)");
 CumulativeCUSUMTcpPktSizeStdDev() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpPktSizeStdDev, 100.0, 300.0, 60.0, 10.0)");
@@ -61,8 +66,8 @@ CumulativeCUSUMTcpDirectionChange() = s.rval("getCUSUM (getAdversary(C), ixpN, t
 CumulativeCUSUMTcpActiveFlow() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpActiveFlow, 100.0, 300.0, 60.0, 10.0)");
 CumulativeCUSUMTcpNewCnx() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpNewCnx, 100.0, 300.0, 60.0, 10.0)");
 
-// Independent t0_15 : Tstart = 0.0, Tend = 900.0, offset by baselineTend
-// Independent t15_30 : Tstart = 900.0, Tend = 1800.0, offset by baselineTend 
+// Independent t0_15 : Tstart = 0.0, Tend = 900.0, offset by hcsDelay 
+// Independent t15_30 : Tstart = 900.0, Tend = 1800.0, offset by hcsDelay 
 
 IndependentCUSUMDnsQueryRate() = s.rval("getCUSUM (getAdversary(C), ixpN, dnsQueryRate, 100.0, 300.0, 60.0, 10.0)");
 IndependentCUSUMDnsQuerySize() = s.rval("getCUSUM (getAdversary(C), ixpN, dnsQuerySize, 100.0, 300.0, 60.0, 10.0)");

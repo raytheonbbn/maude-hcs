@@ -163,7 +163,6 @@ mod SMC_CP3 is
   op getIrcSrv : Config -> Actor .
   eq getIrcSrv (C < ADDR : IrcServer | attrs >) = < ADDR : IrcServer | attrs > .
 
-
   op isIrcServerAddr : Address -> Bool .
   eq isIrcServerAddr (ADDR) = (ADDR == ircServerAddr) . 
 
@@ -317,6 +316,18 @@ mod SMC_CP3 is
   eq med (NL, nilMsgIdList) = lenMsgIdList(NL) .
   eq med (N ::: NL, N' ::: NL') = if N == N' then med(NL, NL') else 1 + min3(med(NL, N' ::: NL'), med(N ::: NL, NL'), med(NL, NL')) fi .
 
+  op normMED : MsgIdList MsgIdList -> Float .
+
+  eq normMED(NL, NL') = 
+    if max(lenMsgIdList(NL), lenMsgIdList(NL')) == 0 
+    then 1.0 
+    else 1.0 - ( float(med(NL, NL')) / float(max( lenMsgIdList(NL), lenMsgIdList(NL')))) fi .
+
+  op getNormMED : Address IrcName MessageTimestampList MessageTimestampList Float Float -> Float .
+  eq getNormMED (ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) =
+    normMED( collectLocalView( ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend), collectGlobalView( ircRoom, ircMTL, Tstart, Tend)) .
+
+***(
   op getNormMED : Address IrcName MessageTimestampList MessageTimestampList Float Float -> Float .
   eq getNormMED (ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) = 
     if (max(lenMsgIdList(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend)), lenMsgIdList(collectGlobalView(ircRoom, ircMTL, Tstart, Tend))) == 0) 
@@ -324,6 +335,7 @@ mod SMC_CP3 is
     else 1.0 - (float(med(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend), collectGlobalView(ircRoom, ircMTL, Tstart, Tend))) 
                 / 
                 float(max(lenMsgIdList(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend)), lenMsgIdList(collectGlobalView(ircRoom, ircMTL, Tstart, Tend))))) fi . 
+)
 
   op lenChannelNameList : IrcChannelNameList -> Nat .
   eq lenChannelNameList (nilIrcChannelName) = 0 .
@@ -422,7 +434,7 @@ mod SMC_CP3 is
   eq baselineTstart = 0.0 .
 
   op baselineTend : -> Float .
-  eq baselineTend = 100.0 .
+  eq baselineTend = 2.0 .
 
   var baselineCDF : List{Float} .
 
@@ -555,13 +567,17 @@ mod SMC_CP3 is
   op filterWindow : TimesObsList Float Float -> TimesObsList .
   eq filterWindow (nilTO, Tstart, Tend) = nilTO .
   eq filterWindow (tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if (Tr < Tstart) or (Ts > Tend) 
+    if (Ts > Tend) 
+    then nilTO
+    else if (Tr < Tstart)  
     then filterWindow(TsPL, Tstart, Tend) 
-    else tp(Ts, Tx, Tr, pkt) ;; filterWindow(TsPL, Tstart, Tend) fi . 
+    else tp(Ts, Tx, Tr, pkt) ;; filterWindow(TsPL, Tstart, Tend) fi fi . 
   eq filterWindow (tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if (Tr < Tstart) or (Ts > Tend) 
+    if (Ts > Tend)
+    then nilTO
+    else if (Tr < Tstart) 
     then filterWindow(TsML, Tstart, Tend)  
-    else tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; filterWindow(TsML, Tstart, Tend) fi .
+    else tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; filterWindow(TsML, Tstart, Tend) fi fi .
 
   op compObsFeatureX : NetId Feature Flow TimesObsList Float Float -> Float .
   eq compObsFeatureX (vp, obsF, Fid, nilTO, Tstart, Tend) = 0.0 . 
@@ -671,11 +687,11 @@ mod SMC_CP3 is
   eq getBaselineCDF (< ADDR : BaseLineMonitor | baseLine: (bl(vp', obsF', K, baselineCDF) :; blList), tStart: Tstart, tEnd: Tend, binSize: binSize, attrs >, vp, obsF, Tstart, Tend, binSize) = 
     getBaselineCDF(< ADDR : BaseLineMonitor | baseLine: blList, tStart: Tstart, tEnd: Tend, binSize: binSize, attrs >, vp, obsF, Tstart, Tend, binSize) [owise] . 
       
-  op getBaselineK : Actor NetId Feature Float Float Float -> Float .
-  eq getBaselineK (< ADDR : BaseLineMonitor | baseLine: (bl(vp, obsF, K, baselineCDF) :; blList), tStart: Tstart, tEnd: Tend, binSize: binSize, attrs >, vp, obsF, Tstart, Tend, binSize) = 
+  op getBaselineK : Actor NetId Feature Float Float Float Float -> Float .
+  eq getBaselineK (< ADDR : BaseLineMonitor | baseLine: (bl(vp, obsF, K, baselineCDF) :; blList), tStart: Tstart, tEnd: Tend, winSize: winSize, binSize: binSize, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) = 
     K . 
-  eq getBaselineK (< ADDR : BaseLineMonitor | baseLine: (bl(vp', obsF', K, baselineCDF) :; blList), tStart: Tstart, tEnd: Tend, binSize: binSize, attrs >, vp, obsF, Tstart, Tend, binSize) = 
-    getBaselineK(< ADDR : BaseLineMonitor | baseLine: blList, tStart: Tstart, tEnd: Tend, binSize: binSize, attrs >, vp, obsF, Tstart, Tend, binSize) [owise] . 
+  eq getBaselineK (< ADDR : BaseLineMonitor | baseLine: (bl(vp', obsF', K, baselineCDF) :; blList), tStart: Tstart, tEnd: Tend, winSize: winSize, binSize: binSize, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) = 
+    getBaselineK(< ADDR : BaseLineMonitor | baseLine: blList, tStart: Tstart, tEnd: Tend, winSize: winSize, binSize: binSize, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) [owise] . 
 
   op expectedKObsFeature : NetId Feature List{Float} TimesObsList Float Float Float Float Float Nat -> Float .
   eq expectedKObsFeature (vp, obsF, FL, GtZ, T, Tend, winSize, binSize, Ksum, N) =
