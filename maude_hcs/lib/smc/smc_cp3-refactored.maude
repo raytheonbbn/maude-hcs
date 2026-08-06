@@ -693,7 +693,24 @@ mod SMC_CP3 is
   eq getBaselineK (< ADDR : BaseLineMonitor | baseLine: (bl(vp', obsF', K, baselineCDF) :; blList), tStart: Tstart, tEnd: Tend, winSize: winSize, binSize: binSize, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) = 
     getBaselineK(< ADDR : BaseLineMonitor | baseLine: blList, tStart: Tstart, tEnd: Tend, winSize: winSize, binSize: binSize, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) [owise] . 
 
+  var ECDF : List{Float} .
+  var KD : Float .
+
   op expectedKObsFeature : NetId Feature List{Float} TimesObsList Float Float Float Float Float Nat -> Float .
+  ceq expectedKObsFeature (vp, obsF, FL, GtZ, T, Tend, winSize, binSize, Ksum, N) =
+    if KD >= 0.0
+    then expectedKObsFeature(vp, obsF, FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum + KD, N + 1)
+    else expectedKObsFeature(vp, obsF, FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum, N) fi
+    if (T + winSize) <= (Tend + Tesp) 
+      /\ ECDF := getECDFObsFeature(vp, obsF, GtZ, T, winSize, binSize)
+      /\ KD := KsDistance(FL, ECDF) .
+  ceq expectedKObsFeature (vp, obsF, FL, GtZ, T, Tend, winSize, binSize, Ksum, N) =
+    if N == 0
+    then 0.0
+    else Ksum / float(N)
+    fi
+    if (T + winSize) > (Tend + Tesp) .
+***(
   eq expectedKObsFeature (vp, obsF, FL, GtZ, T, Tend, winSize, binSize, Ksum, N) =
     if (T + winSize) <= (Tend + Tesp) 
     then if KsDistance(FL, getECDFObsFeature(vp, obsF, GtZ, T, winSize, binSize)) >= 0.0 
@@ -701,6 +718,7 @@ mod SMC_CP3 is
       else expectedKObsFeature(vp, obsF, FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum, N) 
       fi 
     else if N == 0 then 0.0 else Ksum / float(N) fi fi .
+)
 
   op getKObsFeature : NetId Feature TimesObsList Float Float Float Float -> Float .
   eq getKObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = expectedKObsFeature(vp, obsF, getBaselineCDFObsFeature(vp, obsF, TOL, Tstart, Tend, binSize), TOL, Tstart, Tend, winSize, binSize, 0.0, 0) .
