@@ -273,7 +273,7 @@ def gen_addresses_file(tgen_instances, net_id_map):
     L("  ops corpMasDnsAddr corpRtDnsAddr corpIodDnsAddr corpObfsDnsAddr corpSkyDnsAddr : -> Address .")
     L("  ops servDnsAddr : -> Address .")
     L("  ops corpMasNetClAddr corpRtNetClAddr corpIodNetClAddr corpObfsNetClAddr corpSkyNetClAddr : -> Address .")
-    L("  ops servNetClAddr publicResolverNetClAddr : -> Address .")
+    L("  ops servNetClAddr publicResolverNetSrvAddr : -> Address .")
     L("")
     
     L("  ---------------------------------------------------")
@@ -306,153 +306,6 @@ def gen_addresses_file(tgen_instances, net_id_map):
     L("  ops gorillaSrvAddr gorillaNetSrvAddr : -> Address .")
     L("  ops ircTgenSrvNetAddr : -> Address .")
     L("")
-    
-    # L("  ---------------------------------------------------")
-    # L("  --- Address Equations")
-    # L("  ---------------------------------------------------")
-    # L("")
-    
-    # L("  eq ircServerAddr     = a(srvN, srv, irc, srv, 0) .")
-    # L("  eq s3SrvAddr         = a(minN, srv, min, srv, 0) .")
-    # L("  eq ircMonitorAddr    = a(srvN, srv, irc, cl, 99) .")
-    # L("  eq iodineMonitorAddr = a(srvN, srv, iod, cl, 99) .")
-    # L("  eq masSrvAddr        = a(masN, srv, mas, srv, 0) .")
-    # L("  eq advAddr           = a(ixpN, srv, irc, cl, 0) .")
-    # L("")
-    
-    # L("  eq publicDnsAddr     = a(dnsN, dns, dns, srv, 0) .")
-    # L("  eq rootDnsAddr       = a(dnsN, dns, dns, srv, 1) .")
-    # L("  eq tldDnsAddr        = a(dnsN, dns, dns, srv, 2) .")
-    # L("  eq authDnsAddr       = a(dnsN, dns, dns, srv, 3) .")
-    # L(f"  eq corpMasDnsAddr    = a({mas_net}, dns, dns, cl, 0) .")
-    # L(f"  eq corpRtDnsAddr     = a({rt_net}, dns, dns, cl, 0) .")
-    # L(f"  eq corpIodDnsAddr    = a({iod_net}, dns, dns, cl, 0) .")
-    # L(f"  eq corpObfsDnsAddr   = a({obfs_net}, dns, dns, cl, 0) .")
-    # L(f"  eq corpSkyDnsAddr    = a({sky_net}, dns, dns, cl, 0) .")
-    # L("  eq servDnsAddr       = a(srvN, dns, dns, cl, 0) .")
-    # L("")
-    
-    # L(f"  eq corpMasNetClAddr        = a({mas_net}, udp, dns, cl, 0) .")
-    # L(f"  eq corpRtNetClAddr         = a({rt_net}, udp, dns, cl, 0) .")
-    # L(f"  eq corpIodNetClAddr        = a({iod_net}, udp, dns, cl, 0) .")
-    # L(f"  eq corpObfsNetClAddr       = a({obfs_net}, udp, dns, cl, 0) .")
-    # L(f"  eq corpSkyNetClAddr        = a({sky_net}, udp, dns, cl, 0) .")
-    # L("  eq servNetClAddr           = a(srvN, udp, dns, cl, 0) .")
-    # L("  eq publicResolverNetClAddr = a(dnsN, udp, dns, cl, 0) .")
-    # L("")
-    
-    # for i, idx in [(1, 1), (2, 2)]:
-    #     L(f"  --- Webtunnel Client {i}")
-    #     L(f"  eq wtCl{i}IrcAddr        = a({rt_net}, hcs, irc, cl, {idx}) .")
-    #     L(f"  eq wtCl{i}UmAddr         = a({rt_net}, hcs, irc, um, {idx}) .")
-    #     L(f"  eq wtCl{i}IfaceAddr      = a({rt_net}, hcs, irc, if, {idx}) .")
-    #     L(f"  eq wtCl{i}SrvIfaceAddr   = a(srvN[{i}], hcs, irc, if, {idx}) .")
-    #     L(f"  eq wtCl{i}ClientAddr     = a({rt_net}, hcs, wt, cl, {idx}) .")
-    #     L(f"  eq wtCl{i}ProxyAddr      = a(srvN[{i}], hcs, wt, srv, {idx}) .")
-    #     L(f"  eq wtCl{i}NetClientAddr  = a({rt_net}, tcp, wt, cl, {idx}) .")
-    #     L(f"  eq wtCl{i}NetServerAddr  = a(srvN[{i}], tcp, wt, srv, {idx}) .")
-    #     L("")
-        
-    # for i, idx in [(3, 1), (4, 2)]:
-    #     L(f"  --- Skyhook Client {i}")
-    #     L(f"  eq skyCl{i}IrcAddr       = a({sky_net}, hcs, irc, cl, {idx}) .")
-    #     L(f"  eq skyCl{i}UmAddr        = a({sky_net}, hcs, irc, um, {idx}) .")
-    #     L(f"  eq skyCl{i}IfaceAddr     = a({sky_net}, hcs, irc, if, {idx}) .")
-    #     L(f"  eq skyCl{i}SrvIfaceAddr  = a(srvN[{i}], hcs, irc, if, {idx}) .")
-    #     L(f"  eq skyCl{i}UmacAddr      = a({sky_net}, hcs, sky, um, {idx}) .")
-    #     L(f"  eq skyCl{i}CmacAddr      = a({sky_net}, hcs, sky, cm, {idx}) .")
-    #     L(f"  eq skyCl{i}PuaAddr       = a({sky_net}, hcs, sky, pu, {idx}) .")
-    #     L(f"  eq skyCl{i}SdkacAddr     = a({sky_net}, hcs, sky, dl, {idx}) .")
-    #     L(f"  eq skyCl{i}UmasAddr      = a(srvN[{i}], hcs, sky, um, {idx}) .")
-    #     L(f"  eq skyCl{i}CmasAddr      = a(srvN[{i}], hcs, sky, cm, {idx}) .")
-    #     L(f"  eq skyCl{i}AhaAddr       = a(srvN[{i}], hcs, sky, ah, {idx}) .")
-    #     L(f"  eq skyCl{i}SdkasAddr     = a(srvN[{i}], hcs, sky, dl, {idx}) .")
-    #     L(f"  eq skyCl{i}ClNetAddr     = a({sky_net}, tcp, sky, cl, {idx}) .")
-    #     L(f"  eq skyCl{i}SrvNetClAddr  = a(srvN[{i}], tcp, sky, cl, {idx}) .")
-    #     L(f"  eq skyCl{i}NetSrvAddr    = a(srvN[{i}], tcp, sky, srv, 0) .")
-    #     L("")
-        
-    # for i, idx in [(5, 1), (6, 2)]:
-    #     L(f"  --- OBFS4 Client {i}")
-    #     L(f"  eq obfsCl{i}IrcAddr       = a({obfs_net}, hcs, irc, cl, {idx}) .")
-    #     L(f"  eq obfsCl{i}UmAddr        = a({obfs_net}, hcs, irc, um, {idx}) .")
-    #     L(f"  eq obfsCl{i}IfaceAddr     = a({obfs_net}, hcs, irc, if, {idx}) .")
-    #     L(f"  eq obfsCl{i}SrvIfaceAddr  = a(srvN[{i}], hcs, irc, if, {idx}) .")
-    #     L(f"  eq obfsCl{i}ClientAddr    = a({obfs_net}, hcs, obfs, cl, {idx}) .")
-    #     L(f"  eq obfsCl{i}ServerAddr    = a(srvN[{i}], hcs, obfs, srv, {idx}) .")
-    #     L(f"  eq obfsCl{i}NetClientAddr = a({obfs_net}, tcp, obfs, cl, {idx}) .")
-    #     L(f"  eq obfsCl{i}NetServerAddr = a(srvN[{i}], tcp, obfs, srv, {idx}) .")
-    #     L("")
-        
-    # for i, idx in [(7, 1), (8, 2)]:
-    #     L(f"  --- Iodine Client {i}")
-    #     L(f"  eq iodCl{i}IrcAddr       = a({iod_net}, hcs, irc, cl, {idx}) .")
-    #     L(f"  eq iodCl{i}UmAddr        = a({iod_net}, hcs, irc, um, {idx}) .")
-    #     L(f"  eq iodCl{i}IfaceAddr     = a({iod_net}, hcs, irc, if, {idx}) .")
-    #     L(f"  eq iodCl{i}SrvIfaceAddr  = a(srvN[{i}], hcs, irc, if, {idx}) .")
-    #     L(f"  eq iodCl{i}SendAppAddr   = a({iod_net}, hcs, iod, app, {idx}) .")
-    #     L(f"  eq iodCl{i}RcvAppAddr    = a(srvN[{i}], hcs, iod, app, {idx}) .")
-    #     L(f"  eq iodCl{i}ClientAddr    = a({iod_net}, hcs, iod, cl, {idx}) .")
-    #     L(f"  eq iodCl{i}ServerAddr    = a(srvN[{i}], hcs, iod, iodSrv, {idx}) .")
-    #     L(f"  eq iodCl{i}NetServerAddr = a(srvN[{i}], tcp, iod, srv, {idx}) .")
-    #     L("")
-        
-    # i = 9
-    # idx = 1
-    # L(f"  --- Mastodon HCS Client {i}")
-    # L(f"  eq masCl{i}IrcAddr       = a({mas_net}, hcs, irc, cl, {idx}) .")
-    # L(f"  eq masCl{i}UmAddr        = a({mas_net}, hcs, irc, um, {idx}) .")
-    # L(f"  eq masCl{i}IfaceAddr     = a({mas_net}, hcs, irc, if, {idx}) .")
-    # L(f"  eq masCl{i}SrvIfaceAddr  = a(srvN[{i}], hcs, irc, if, {idx}) .")
-    # L(f"  eq masCl{i}UmacAddr      = a({mas_net}, hcs, mas, um, {idx}) .")
-    # L(f"  eq masCl{i}CmacAddr      = a({mas_net}, hcs, mas, cm, {idx}) .")
-    # L(f"  eq masCl{i}McacAddr      = a({mas_net}, hcs, mas, mc, {idx}) .")
-    # L(f"  eq masCl{i}EdacAddr      = a({mas_net}, hcs, mas, ed, {idx}) .")
-    # L(f"  eq masCl{i}UmasAddr      = a(srvN[{i}], hcs, mas, um, {idx}) .")
-    # L(f"  eq masCl{i}CmasAddr      = a(srvN[{i}], hcs, mas, cm, {idx}) .")
-    # L(f"  eq masCl{i}McasAddr      = a(srvN[{i}], hcs, mas, mc, {idx}) .")
-    # L(f"  eq masCl{i}EdasAddr      = a(srvN[{i}], hcs, mas, ed, {idx}) .")
-    # L(f"  eq masCl{i}ClNetAddr     = a({mas_net}, tcp, mas, cl, {idx}) .")
-    # L(f"  eq masCl{i}SrvNetClAddr  = a(srvN[{i}], tcp, mas, cl, {idx}) .")
-    # L(f"  eq masNetSrvAddr         = a(masN, tcp, mas, srv, 0) .")
-    # L("")
-    
-    # tgen_proto_map = {
-    #     "masTgen": "mas", "ftpTgen": "ftp", "dnsTgen": "dns",
-    #     "minTgen": "min", "gorTgen": "gor", "ircTgen": "irc",
-    # }
-    
-    # for inst in tgen_instances:
-    #     bn = inst.base_name
-    #     net_id = inst.net_id
-    #     idx = inst.idx
-    #     proto = tgen_proto_map.get(inst.tgen_type, "tgen")
-        
-    #     L(f"  --- {inst.tgen_type} on {inst.network} #{idx} ({net_id}, profile={inst.profile})")
-    #     L(f"  eq {bn}UmAddr  = a({net_id}, tgen, {proto}, um, {idx}) .")
-    #     L(f"  eq {bn}TgAddr  = a({net_id}, tgen, {proto}, cl, {idx}) .")
-        
-    #     if inst.tgen_type == "masTgen":
-    #         L(f"  eq {bn}McAddr    = a({net_id}, tgen, {proto}, mc, {idx}) .")
-    #         L(f"  eq {bn}NetClAddr = a({net_id}, tcp, {proto}, cl, {idx}) .")
-    #     elif inst.tgen_type == "ftpTgen":
-    #         L(f"  eq {bn}NetClAddr = a({net_id}, tcp, {proto}, cl, {idx}) .")
-    #     elif inst.tgen_type == "minTgen":
-    #         L(f"  eq {bn}S3ClAddr  = a({net_id}, tgen, {proto}, if, {idx}) .")
-    #         L(f"  eq {bn}NetClAddr = a({net_id}, tcp, {proto}, cl, {idx}) .")
-    #     elif inst.tgen_type == "gorTgen":
-    #         L(f"  eq {bn}NetClAddr = a({net_id}, tcp, {proto}, cl, {idx}) .")
-    #     elif inst.tgen_type == "ircTgen":
-    #         L(f"  eq {bn}NetClAddr = a({net_id}, tcp, {proto}, cl, {idx}) .")
-
-    # L("")
-    # L("  --- Shared TGEN Server Addresses")
-    # L("  eq ftpSrvAddr       = a(srvN, tgen, ftp, srv, 0) .")
-    # L("  eq ftpNetSrvAddr    = a(srvN, tcp, ftp, srv, 0) .")
-    # L("  eq gorillaSrvAddr   = a(srvN, tgen, gor, srv, 0) .")
-    # L("  eq gorillaNetSrvAddr = a(srvN, tcp, gor, srv, 0) .")
-    # L("  eq ircTgenSrvNetAddr = a(srvN, tcp, irc, srv, 0) .")
-    # L("")
     
     L("endm")
     
@@ -885,7 +738,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  eq LinkType-Dns =")
     L("  (delayStd:  0.0),")
     L("  (delayType: \"Constant\"),")
-    L("  (delayMean: 0.),")
+    L("  (delayMean: 0.01),")
     L("  (delayConst: 0.001),")
     L("  (noiseMin: 0.),")
     L("  (noiseMax: 0.00001),")
@@ -898,6 +751,27 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("      p23: 0.0,")
     L("      p14: 0.0,")
     L("      oneWayDelay: 0.01)")
+    L("  )")
+    L("  .")
+    L("")
+    
+    L("  op LinkType-DnsComposed : -> AttributeSet .")
+    L("  eq LinkType-DnsComposed =")
+    L("  (delayStd:  0.0),")
+    L("  (delayType: \"Constant\"),")
+    L("  (delayMean: 0.),")
+    L("  (delayConst: 0.001),")
+    L("  (noiseMin: 0.02),")
+    L("  (noiseMax: 0.00001),")
+    L("  (dropP: 0.),")
+    L("  (canDrop: false),")
+    L("  (4stateLoss:")
+    L("     (p13: 0.0,")
+    L("      p31: 1.0,")
+    L("      p32: 0.0,")
+    L("      p23: 0.0,")
+    L("      p14: 0.0,")
+    L("      oneWayDelay: 0.02)")
     L("  )")
     L("  .")
     L("")
@@ -967,131 +841,140 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         link_entries.append(f"    aaa({addr1}, {addr2}, {link_type})")
         link_entries.append(f"    aaa({addr2}, {addr1}, {link_type})")
         
-    def add_bidir_ixp(addr1, ixp_link):
-        link_entries.append(f"    aaa({addr1}, IXP-DEFAULT-ADDR, {ixp_link})")
-        link_entries.append(f"    aaa(IXP-DEFAULT-ADDR, {addr1}, {ixp_link})")
+    def add_bidir_ixp(addr1, link_type):
+        link_entries.append(f"    aaa({addr1}, IXP-DEFAULT-ADDR, {link_type})")
+        link_entries.append(f"    aaa(IXP-DEFAULT-ADDR, {addr1}, {link_type})")
         
-    ixp = ixp_link_param_name()
-    
     wt_link = link_param_name("client_net_racetunnel")
     for i in [1, 2]:
         link_entries.append(f"    --- Webtunnel Client {i}")
-        add_bidir_link(f"wtCl{i}ClientAddr", f"wtCl{i}ProxyAddr", wt_link)
-        add_bidir_ixp(f"wtCl{i}ClientAddr", ixp)
-        add_bidir_ixp(f"wtCl{i}ProxyAddr", ixp)
+        add_bidir_ixp(f"wtCl{i}ClientAddr", wt_link)
+        add_bidir_ixp(f"wtCl{i}ProxyAddr", wt_link)
     link_entries.append("")
     
     obfs_link = link_param_name("client_net_obfs")
     for i in [5, 6]:
         link_entries.append(f"    --- OBFS4 Client {i}")
-        add_bidir_link(f"obfsCl{i}ClientAddr", f"obfsCl{i}ServerAddr", obfs_link)
-        add_bidir_ixp(f"obfsCl{i}ClientAddr", ixp)
-        add_bidir_ixp(f"obfsCl{i}ServerAddr", ixp)
+        add_bidir_ixp(f"obfsCl{i}ClientAddr", obfs_link)
+        add_bidir_ixp(f"obfsCl{i}ServerAddr", obfs_link)
     link_entries.append("")
     
     sky_link = link_param_name("client_net_sky")
     for i in [3, 4]:
         link_entries.append(f"    --- Skyhook Client {i}")
-        add_bidir_link("s3SrvAddr", f"skyCl{i}SdkacAddr", sky_link)
-        add_bidir_link("s3SrvAddr", f"skyCl{i}SdkasAddr", sky_link)
-        add_bidir_link(f"skyCl{i}AhaAddr", f"skyCl{i}SdkasAddr", "LinkType-ServerNet")
-        add_bidir_ixp(f"skyCl{i}SdkacAddr", ixp)
-        add_bidir_ixp(f"skyCl{i}SdkasAddr", ixp)
-        if i == 4:
-            add_bidir_ixp("s3SrvAddr", ixp)
+        add_bidir_ixp(f"skyCl{i}SdkacAddr", sky_link)
+        add_bidir_ixp(f"skyCl{i}SdkasAddr", sky_link)
+        add_bidir_ixp(f"skyCl{i}AhaAddr", "LinkType-ServerNet")
     link_entries.append("")
     
-    iod_link = link_param_name("client_net_iodine")
+    add_bidir_ixp("s3SrvAddr", sky_link)
+    link_entries.append("")
+    
+    iod_link = "LinkType-Dns"
     for i in [7, 8]:
         link_entries.append(f"    --- Iodine Client {i}")
-        add_bidir_link(f"iodCl{i}ServerAddr", f"iodCl{i}ClientAddr", iod_link)
-        add_bidir_link(f"iodCl{i}ClientAddr", "corpIodDnsAddr", iod_link)
-        add_bidir_link("publicDnsAddr", f"iodCl{i}ServerAddr", iod_link)
-        add_bidir_link(f"iodCl{i}SendAppAddr", f"iodCl{i}ClientAddr", iod_link)
-        add_bidir_link(f"iodCl{i}RcvAppAddr", f"iodCl{i}ServerAddr", iod_link)
-        add_bidir_link("corpIodDnsAddr", "publicDnsAddr", iod_link)
-        add_bidir_ixp(f"iodCl{i}ServerAddr", ixp)
-        add_bidir_ixp(f"iodCl{i}ClientAddr", ixp)
-        if i == 8:
-            add_bidir_ixp("corpIodDnsAddr", ixp)
-            add_bidir_ixp("publicDnsAddr", ixp)
-            srv_link = link_param_name("server_net")
-            add_bidir_link("servDnsAddr", "publicDnsAddr", srv_link)
-            add_bidir_ixp("servDnsAddr", ixp)
+        add_bidir_ixp(f"iodCl{i}ServerAddr", iod_link)
+        add_bidir_ixp(f"iodCl{i}ClientAddr", iod_link)
+        add_bidir_ixp(f"iodCl{i}SendAppAddr", iod_link)
+        add_bidir_ixp(f"iodCl{i}RcvAppAddr", iod_link)
+    link_entries.append("")
+    
+    add_bidir_ixp("corpIodDnsAddr", iod_link)
     link_entries.append("")
     
     mas_link = link_param_name("client_net_mastodon")
     i = 9
     link_entries.append(f"    --- Mastodon HCS Client {i}")
-    add_bidir_link("masSrvAddr", f"masCl{i}McacAddr", mas_link)
-    add_bidir_link("masSrvAddr", f"masCl{i}McasAddr", mas_link)
-    add_bidir_ixp("masSrvAddr", ixp)
-    add_bidir_ixp(f"masCl{i}McacAddr", ixp)
-    add_bidir_ixp(f"masCl{i}McasAddr", ixp)
+    add_bidir_ixp(f"masCl{i}McacAddr", mas_link)
+    add_bidir_ixp(f"masCl{i}McasAddr", mas_link)
+    add_bidir_ixp("masSrvAddr", mas_link)
     link_entries.append("")
     
     link_entries.append("    --- UDP DNS Links")
-    for dns_name in [
-        "corpMasDnsAddr", "corpRtDnsAddr", "corpIodDnsAddr",
-        "corpObfsDnsAddr", "corpSkyDnsAddr", "servDnsAddr",
-    ]:
-        link_entries.append(f"    aaa(publicDnsAddr, {dns_name}, LinkType-Dns)")
-        link_entries.append(f"    aaa({dns_name}, publicDnsAddr, LinkType-Dns)")
-        link_entries.append(f"    aaa(IXP-DEFAULT-ADDR, {dns_name}, LinkType-Dns)")
-        link_entries.append(f"    aaa({dns_name}, IXP-DEFAULT-ADDR, LinkType-Dns)")
-    link_entries.append(f"    aaa(publicDnsAddr, IXP-DEFAULT-ADDR, LinkType-Dns)")
-    link_entries.append(f"    aaa(IXP-DEFAULT-ADDR, publicDnsAddr, LinkType-Dns)")
+    link_entries.append("    *** Reminder: UDP has no loss.")
+    
+    dns_ixp_addrs = [
+        "iodCl7SrvNetClAddr", "iodCl8SrvNetClAddr", "servNetClAddr",
+        "corpRtNetClAddr", "corpSkyNetClAddr", "corpObfsNetClAddr",
+        "corpIodNetClAddr", "corpMasNetClAddr",
+        "publicDnsAddr", "publicResolverNetSrvAddr"
+    ]
+    for addr in dns_ixp_addrs:
+        add_bidir_ixp(addr, "LinkType-Dns")
+    link_entries.append("")
+
+    dns_enclaves = [
+        ("IRC Server", "serv"),
+        ("Mastodon IRC Client", "corpMas"),
+        ("WebTunnel IRC Client", "corpRt"),
+        ("Obfs4 IRC Client", "corpObfs"),
+        ("Skyhook IRC Client", "corpSky"),
+    ]
+    for desc, prefix in dns_enclaves:
+        dns_addr = f"{prefix}DnsAddr"
+        netcl_addr = f"{prefix}NetClAddr"
+        
+        link_entries.append(f"    *** {desc} enclave DNS server ***")
+        link_entries.append("    **** Local DNS addr to PublicDNS resolver net server ****")
+        add_bidir_link(dns_addr, "publicResolverNetSrvAddr", "LinkType-DnsComposed")
+        add_bidir_ixp(dns_addr, "LinkType-Dns")
+        link_entries.append("    **** Local DNS Net Cl addr to PublicDNS resolver net server ****")
+        add_bidir_link(netcl_addr, "publicResolverNetSrvAddr", "LinkType-DnsComposed")
+        add_bidir_ixp(netcl_addr, "LinkType-Dns")
+        
+    link_entries.append("")
+    link_entries.append("    *** TODO: Do we need the same, but instead of publicResolver, it is the Iodine net servers?")
     link_entries.append("")
 
     link_entries.append("    --- TGEN Direct Links")
+    
+    # masTgen Mc
     for inst in tgen_instances:
-        bn = inst.base_name
-        net = inst.network
-        link_type = link_param_name(net)
         if inst.tgen_type == "masTgen":
-            add_bidir_link(f"{bn}McAddr", "masSrvAddr", link_type)
-        elif inst.tgen_type == "ftpTgen":
-            add_bidir_link(f"{bn}TgAddr", "ftpSrvAddr", link_type)
-        elif inst.tgen_type == "minTgen":
-            add_bidir_link(f"{bn}S3ClAddr", "s3SrvAddr", link_type)
-        elif inst.tgen_type == "gorTgen":
-            add_bidir_link(f"{bn}TgAddr", "gorillaSrvAddr", link_type)
-        elif inst.tgen_type == "ircTgen":
-            add_bidir_link(f"{bn}TgAddr", "ircServerAddr", link_type)
-        elif inst.tgen_type == "dnsTgen":
-            dns_rsv = get_corp_dns_addr_name(net)
-            if net == "client_net_iodine":
-                dns_rsv = "iodCl7ServerAddr"
-            add_bidir_link(f"{bn}TgAddr", dns_rsv, "LinkType-Dns")
+            add_bidir_ixp(f"{inst.base_name}McAddr", link_param_name(inst.network))
+    # masTgen Tg
+    for inst in tgen_instances:
+        if inst.tgen_type == "masTgen":
+            add_bidir_ixp(f"{inst.base_name}TgAddr", link_param_name(inst.network))
+    link_entries.append("")
+    
+    # ftpTgen Tg
+    for inst in tgen_instances:
+        if inst.tgen_type == "ftpTgen":
+            add_bidir_ixp(f"{inst.base_name}TgAddr", link_param_name(inst.network))
+    link_entries.append("")
+    
+    # minTgen S3
+    for inst in tgen_instances:
+        if inst.tgen_type == "minTgen":
+            add_bidir_ixp(f"{inst.base_name}S3ClAddr", link_param_name(inst.network))
+    # minTgen Tg
+    for inst in tgen_instances:
+        if inst.tgen_type == "minTgen":
+            add_bidir_ixp(f"{inst.base_name}TgAddr", link_param_name(inst.network))
+    link_entries.append("")
+    
+    # gorTgen Tg
+    for inst in tgen_instances:
+        if inst.tgen_type == "gorTgen":
+            add_bidir_ixp(f"{inst.base_name}TgAddr", link_param_name(inst.network))
+    link_entries.append("")
+    
+    # ircTgen Tg
+    for inst in tgen_instances:
+        if inst.tgen_type == "ircTgen":
+            add_bidir_ixp(f"{inst.base_name}TgAddr", link_param_name(inst.network))
+    link_entries.append("")
+    
+    # dnsTgen Tg
+    for inst in tgen_instances:
+        if inst.tgen_type == "dnsTgen":
+            add_bidir_ixp(f"{inst.base_name}TgAddr", "LinkType-Dns")
+    link_entries.append("")
     
     link_entries.append("    --- TGEN IXP Links")
-    link_entries.append(f"    aaa(s3SrvAddr, minTgenSky2S3ClAddr, LinkType-ClientNetSky)")
-    link_entries.append(f"    aaa(minTgenSky2S3ClAddr, s3SrvAddr, LinkType-ClientNetSky)")
-    
-    tgen_ixp_addrs = set()
-    for inst in tgen_instances:
-        bn = inst.base_name
-        if inst.tgen_type in ["masTgen", "ftpTgen", "minTgen", "gorTgen", "ircTgen"]:
-            if inst.tgen_type == "masTgen":
-                mc_name = f"{bn}McAddr"
-                if mc_name not in tgen_ixp_addrs:
-                    tgen_ixp_addrs.add(mc_name)
-                    link_entries.append(f"    aaa({mc_name}, IXP-DEFAULT-ADDR, {ixp})")
-                    link_entries.append(f"    aaa(IXP-DEFAULT-ADDR, {mc_name}, {ixp})")
-            elif inst.tgen_type == "minTgen":
-                s3_name = f"{bn}S3ClAddr"
-                if s3_name not in tgen_ixp_addrs:
-                    tgen_ixp_addrs.add(s3_name)
-                    link_entries.append(f"    aaa({s3_name}, IXP-DEFAULT-ADDR, {ixp})")
-                    link_entries.append(f"    aaa(IXP-DEFAULT-ADDR, {s3_name}, {ixp})")
-            tg_name = f"{bn}TgAddr"
-            if tg_name not in tgen_ixp_addrs:
-                tgen_ixp_addrs.add(tg_name)
-                link_entries.append(f"    aaa({tg_name}, IXP-DEFAULT-ADDR, {ixp})")
-                link_entries.append(f"    aaa(IXP-DEFAULT-ADDR, {tg_name}, {ixp})")
-    for srv_name in ["ftpSrvAddr", "gorillaSrvAddr"]:
-        link_entries.append(f"    aaa({srv_name}, IXP-DEFAULT-ADDR, {ixp})")
-        link_entries.append(f"    aaa(IXP-DEFAULT-ADDR, {srv_name}, {ixp})")
+    add_bidir_ixp("ftpSrvAddr", "LinkType-ServerNet")
+    add_bidir_ixp("gorillaSrvAddr", "LinkType-ServerNet")
         
     for idx_line, entry in enumerate(link_entries):
         if entry == "":
@@ -1289,7 +1172,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  ops corpMasDns corpRtDns corpIodDns corpObfsDns corpSkyDns servDns : -> Actor .")
     L("  ops publicResolver rootDns tldDns authDns : -> Actor .")
     L("  ops corpMasNetCl corpRtNetCl corpIodNetCl corpObfsNetCl corpSkyNetCl servNetCl : -> Actor .")
-    L("  ops publicResolverNetCl : -> Actor .")
+    L("  ops publicResolverNetSrv : -> Actor .")
     
     L("  eq corpMasDns   = mkNameServer(corpMasDnsAddr, (zoneMasCom), corpMasNetClAddr) .")
     L("  eq corpRtDns    = mkNameServer(corpRtDnsAddr, (zoneRtCom), corpRtNetClAddr) .")
@@ -1303,36 +1186,36 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  eq authDns       = mkNameServer(authDnsAddr, (zoneInternetCom), nullAddr) .")
     
     L("  eq corpMasNetCl = mkFwdDnsNetC(corpMasNetClAddr,")
-    L("                                 publicResolverNetClAddr,")
+    L("                                 publicResolverNetSrvAddr,")
     L("                                 publicDnsAddr,")
     L("                                 corpMasDnsAddr,")
     L("                                 IXP-DEFAULT-ADDR) .")
     L("  eq corpRtNetCl  = mkFwdDnsNetC(corpRtNetClAddr,")
-    L("                                 publicResolverNetClAddr,")
+    L("                                 publicResolverNetSrvAddr,")
     L("                                 publicDnsAddr,")
     L("                                 corpRtDnsAddr,")
     L("                                 IXP-DEFAULT-ADDR) .")
     L("  eq corpIodNetCl = mkFwdDnsNetC(corpIodNetClAddr,")
-    L("                                 publicResolverNetClAddr,")
+    L("                                 publicResolverNetSrvAddr,")
     L("                                 publicDnsAddr,")
     L("                                 corpIodDnsAddr,")
     L("                                 IXP-DEFAULT-ADDR) .")
     L("  eq corpObfsNetCl  = mkFwdDnsNetC(corpObfsNetClAddr,")
-    L("                                   publicResolverNetClAddr,")
+    L("                                   publicResolverNetSrvAddr,")
     L("                                   publicDnsAddr,")
     L("                                   corpObfsDnsAddr,")
     L("                                   IXP-DEFAULT-ADDR) .")
     L("  eq corpSkyNetCl = mkFwdDnsNetC(corpSkyNetClAddr,")
-    L("                                 publicResolverNetClAddr,")
+    L("                                 publicResolverNetSrvAddr,")
     L("                                 publicDnsAddr,")
     L("                                  corpSkyDnsAddr,")
     L("                                 IXP-DEFAULT-ADDR) .")
     L("  eq servNetCl  = mkFwdDnsNetC(servNetClAddr,")
-    L("                               publicResolverNetClAddr,")
+    L("                               publicResolverNetSrvAddr,")
     L("                               publicDnsAddr,")
     L("                               servDnsAddr,")
     L("                               IXP-DEFAULT-ADDR) .")
-    L("  eq publicResolverNetCl  = mkPubDnsNetS(publicResolverNetClAddr,")
+    L("  eq publicResolverNetSrv  = mkPubDnsNetS(publicResolverNetSrvAddr,")
     L("                                         publicDnsAddr,")
     L("                                         IXP-DEFAULT-ADDR) .")
     
@@ -1394,7 +1277,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
             L(f"  eq {bn}NetClAct = makeNetClient({bn}NetClAddr,")
             L(f"                                  s3SrvAddr,")
             L(f"                                  {bn}S3ClAddr,")
-            L(f"                                  true,")
+            L(f"                                  false,")
             L(f"                                  {corp_dns},")
             L(f"                                  nullName) .")
             
@@ -1487,7 +1370,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("    masCl9ClNet masNetSrv masCl9SrvNetCl")
     L("    corpMasDns corpMasNetCl")
     L("    --- DNS Infrastructure")
-    L("    publicResolver publicResolverNetCl")
+    L("    publicResolver publicResolverNetSrv")
     L("    rootDns tldDns authDns")
     L("    --- TGEN Shared Servers")
     L("    ftpSrvAct ftpNetSrvAct")
@@ -1567,9 +1450,6 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     for i in [5, 6]: all_clients.append(f"obfsCl{i}IrcAddr")
     for i in [7, 8]: all_clients.append(f"iodCl{i}IrcAddr")
     all_clients.append("masCl9IrcAddr")
-    for inst in tgen_instances:
-        if inst.tgen_type == "ircTgen":
-            all_clients.append(f"{inst.base_name}TgAddr")
             
     L(f"  eq allClientsAddr = {' ; '.join(all_clients)} .")
     L("endm")
