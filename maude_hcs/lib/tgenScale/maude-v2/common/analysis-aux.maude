@@ -1,0 +1,390 @@
+set show advisories off .
+
+sload ../../../../deps/dns_formalization/Maude/common/actor.maude
+sload ../../../../deps/dns_formalization/Maude/dns/common/prelim
+**** mod MSG   sort Query, Nat < Id, op Label ...
+sload ../../../common/maude/adversary
+
+***(
+  sorts Id IdList .
+  subsort Nat < Id .
+  subsort Id < IdList .
+
+  op clientId : Address Nat -> Id [ctor] .
+
+  op nilIdL : -> IdList [ctor] .
+  op _,_ : IdList IdList -> IdList [ctor assoc id: nilIdL format (d d s d)] .
+)
+
+mod ANALYSIS-AUX is
+  inc ACTOR-MODEL .
+  inc ADVERSARY .   --- TimeMsg  nilTML
+  inc MSG .
+
+vars tmsg : TimeMsg .
+vars tml  tml0 tml1 dnsQ dnsQ-w dnsQ-tg : TimeMsgList .
+vars j n  n0 bc nbins len-all len-w len-tg : Nat .
+vars idl : IdList .
+vars id : Id .
+vars t t0 t1 dt T startT stopT : Float .
+vars bins binl binl-w binl-tg natl0 natl : NatList .
+vars msg msg0 msg1 : Msg .
+vars body : Content .
+vars addr0 addr1 addr : Address .
+vars name : Name .
+vars rtype : RType .
+vars recs0 recs1 recs2 : List{Record} .
+
+vars attrs  attrs1 : AttributeSet .
+vars atype : ActorType .
+
+
+**** filter relevant msgs from log
+op toBin : TimeMsg -> Bool .
+eq toBin(tmsg) = true [owise] .
+
+
+*******  accessing TimeMsg logs
+  
+op tgenSent:_ : TimeMsgList -> Attribute [ctor] .
+op tgenRcvd:_ : TimeMsgList -> Attribute [ctor] .
+
+op getSent : Actor -> TimeMsgList .  
+eq getSent(< addr : atype | attrs > ) = getSent(attrs) .
+op getSent : AttributeSet -> TimeMsgList .  
+eq getSent((attrs,sent: tml)) = tml .
+eq getSent(attrs) = nilTML [owise] .
+
+op getRcvd : Actor -> TimeMsgList .  
+eq getRcvd(< addr : atype | attrs >)  = getRcvd(attrs) .
+op getRcvd : AttributeSet -> TimeMsgList .  
+eq getRcvd((attrs,rcvd: tml)) = tml .
+eq getRcvd(attrs) = nilTML [owise] .
+
+op getTGenSent : Actor -> TimeMsgList .  
+eq getTGenSent(< addr : atype | attrs >) 
+          = getTGenSent(attrs) .
+op getTGenSent : AttributeSet -> TimeMsgList .  
+eq getTGenSent((attrs,tgenSent: tml)) = tml .
+eq getTGenSent(attrs) = nilTML [owise] .
+
+op getTGenRcvd : Actor -> TimeMsgList .  
+eq getTGenRcvd(< addr : atype | attrs >)
+            = getTGenRcvd(attrs) .
+op getTGenRcvd : AttributeSet -> TimeMsgList .  
+eq getTGenRcvd((attrs, tgenRcvd: tml)) = tml .
+eq getTGenRcvd(attrs) = nilTML [owise] .
+
+***********************************************
+**********  Natlist ops  for binning
+sort NatList .
+subsort NatList < IdList .
+subsort Nat < NatList .
+op _,_ : NatList NatList -> NatList 
+       [ctor assoc id: nilIdL format (d d s d)] .
+
+op len : IdList -> Nat .
+op lenX : IdList Nat -> Nat .
+eq len(idl) = lenX(idl,0) .
+eq lenX((id , idl),n) = lenX(idl,s n) .
+eq lenX(nilIdL,n) = n .
+
+op idlTail : IdList -> IdList .
+eq idlTail(nilIdL) = nilIdL .
+eq idlTail(id) = nilIdL .
+eq idlTail(id , idl) = idl .
+
+op tmlLen : TimeMsgList -> Nat .
+op tmlLenX : TimeMsgList Nat -> Nat .
+eq tmlLen(tml) = tmlLenX(tml,0) .
+eq tmlLenX(nilTML,n) = n .
+eq tmlLenX(tm(t,msg) ; tml, n) = tmlLenX(tml, s n) .
+
+**********proceccing TimeMsg lists ***************************
+*********** remove pre/post nat dups  *************
+op deDupTime : TimeMsgList TimeMsgList 
+                   -> TimeMsgList .
+eq deDupTime(nilTML,tml) = tml .
+eq deDupTime(tm(t,msg),tml) = tml ; tm(t,msg) .
+eq deDupTime((tm(t,msg0) ; tm(t,msg1) ; tml0),tml)
+    = deDupTime((tm(t,msg0) ; tml0), tml) .
+eq deDupTime((tm(t0,msg0) ; tm(t1,msg1) ; tml0),tml)
+    = deDupTime((tm(t1,msg1) ; tml0),
+                (tml ; tm(t0,msg0))) [owise] .
+
+******** filter out non query messages
+op filterForQuery : TimeMsgList TimeMsgList
+                    -> TimeMsgList .
+eq filterForQuery(nilTML,tml) = tml .
+ceq filterForQuery(tm(t,msg) ; tml0,tml) = 
+   (if (body :: Query)
+   then filterForQuery(tml0,tml ; tm(t,msg)) 
+   else filterForQuery(tml0,tml) 
+   fi)
+if (to addr0 from addr1 : body) := msg
+.
+
+******** filter out non response messages
+op filterForResponse : TimeMsgList TimeMsgList
+                    -> TimeMsgList .
+eq filterForResponse(nilTML,tml) = tml .
+ceq filterForResponse(tm(t,msg) ; tml0,tml) = 
+   (if (body :: Response)
+   then filterForResponse(tml0,tml ; tm(t,msg)) 
+   else filterForResponse(tml0,tml) 
+   fi)
+if (to addr0 from addr1 : body) := msg
+.
+
+*************  HCS vs TGEN traffic
+****  op query : Id Name RType -> Query .
+****  op response : Id Name List{Record} List{Record} List{Record} Nat -> Response .
+
+op noId : -> Id .
+op getId : Msg ~> Id .
+eq getId(to addr0 from addr1 : query(id,name,rtype)) = id .
+eq getId(to addr0 from addr1 : 
+         response(id,name,recs0, recs1, recs2 ,n)) = id .
+eq getId(msg) = noId [owise] .
+
+op filterDnsHCS : TimeMsgList  TimeMsgList -> TimeMsgList .
+eq filterDnsHCS(nilTML,tml) = tml .
+ceq filterDnsHCS((tm(T,msg) ; tml0), tml) = 
+     filterDnsHCS(tml0,tml ; tml1)
+if tml1 := (if getId(msg) :: Nat
+            then tm(T,msg)
+            else nilTML
+            fi)
+    .
+
+op filterDnsTGen : TimeMsgList  TimeMsgList -> TimeMsgList .
+eq filterDnsTGen(nilTML,tml) = tml .
+ceq filterDnsTGen((tm(T,msg) ; tml0), tml) = 
+     filterDnsTGen(tml0,tml ; tm(T,msg))
+if clientId(addr, j) := getId(msg)
+  .
+eq filterDnsTGen((tm(T,msg) ; tml0), tml) 
+       = filterDnsTGen(tml0,tml ) [owise] .
+
+
+***************** binning  *************************
+ 
+ops StartTime StopTime : -> Float .
+
+op dt10 : -> Float .
+op dt20 : -> Float .
+eq dt10 = _-_(StopTime , StartTime) / float(10) .
+eq dt20 = _-_(StopTime , StartTime) / float(20) .
+
+***** basic binning uses fake 0 as seed.  Need to remove
+op tmlToBinl : Float TimeMsgList Float -> NatList .
+eq tmlToBinl(dt,tml,t1) =
+     idlTail(tml2bins(dt,tml,t1,0,0)) .
+
+op dtmlToBinl : Float TimeMsgList TimeMsgList Float
+                 -> NatList .
+eq dtmlToBinl(dt,tml0,tml,t1) =
+     idlTail(dtml2bins(dt,tml0,tml,t1,0,0)) .
+
+**********************************************
+**** binning from one TML
+****        binwidth           bin mx  bc  bins  
+op tml2bins : Float TimeMsgList  Float Nat NatList 
+              -> NatList .
+**** assume tmml time sorted lo to hi
+eq tml2bins(dt,nilTML,t1,bc,natl) = (natl , bc) .
+ceq tml2bins(dt,tm(t,msg) ; tml,t1,bc,natl) =
+   
+   (if t < t1
+   then tml2bins(dt,tml,t1,s bc,natl)
+   else tml2bins(dt,tm(t,msg) ; tml,t1 + dt, 0, 
+                 (natl, bc))
+   fi) 
+if toBin(tm(t,msg))
+.
+
+eq tml2bins(dt,tm(t,msg) ; tml,t1,bc,natl) =
+        tml2bins(dt,tml,t1,bc,natl) [owise] .
+
+*********************************************
+**** binning from a pair of TMLs (w and tgen)        
+****        binwidth  wtml         tg tml       
+op dtml2bins : Float TimeMsgList TimeMsgList Float
+               Nat NatList -> NatList .
+
+eq dtml2bins(dt,nilTML,nilTML,t1,bc,natl) 
+              = (natl, bc) .
+ceq dtml2bins(dt,tm(t,msg) ; tml0,nilTML,t1,bc,natl) 
+      = 
+  (if t < t1
+  then dtml2bins(dt,tml0,nilTML,t1,s bc,natl) 
+  else dtml2bins(dt,tml0,nilTML,t1 + dt,0,(natl,bc)) 
+  fi)
+if toBin(tm(t,msg))
+.
+eq dtml2bins(dt,tm(t,msg) ; tml0,nilTML,t1,bc,natl) =
+      dtml2bins(dt,tml0,nilTML,t1,bc,natl) [owise] .
+
+ceq dtml2bins(dt,nilTML,tm(t,msg) ; tml0,t1,bc,natl) 
+      = 
+  (if t < t1
+  then dtml2bins(dt,nilTML,tml0,t1,s bc,natl) 
+  else dtml2bins(dt,nilTML,tml0,t1 + dt,0,(natl,bc)) 
+  fi)
+if toBin(tm(t,msg))
+.
+
+eq dtml2bins(dt,nilTML,tm(t,msg) ; tml0,t1,bc,natl) =
+      dtml2bins(dt,nilTML,tml0,t1,bc,natl) [owise] .
+
+
+eq dtml2bins(dt,(tm(t0,msg0) ; tml0), 
+                (tm(t,msg) ; tml), t1,bc,natl) 
+      = 
+  (if t0 < t
+  then (if toBin(tm(t0,msg0))
+    then (if t0 < t1 
+          then dtml2bins(dt,tml0, (tm(t,msg) ; tml), 
+                         t1,s bc,natl) 
+          else dtml2bins(dt,tml0,(tm(t,msg) ; tml),
+                         t1 + dt,1,(natl,bc)) 
+         fi)
+     else ---- just drop t0,msg0
+       dtml2bins(dt,tml0,(tm(t,msg) ; tml),
+                 t1, bc,natl)
+     fi)
+     --- t is earlier
+  else (if toBin(tm(t,msg))   
+    then (if t < t1
+          then dtml2bins(dt,(tm(t0,msg0) ; tml0),
+                         tml,t1,s bc,natl) 
+          else dtml2bins(dt,(tm(t0,msg0) ; tml0),
+                         tml,t1 + dt,1,(natl,bc)) 
+          fi)
+     else  --- drop tm(t,msg)
+        dtml2bins(dt,(tm(t0,msg0) ; tml0), tml,
+                   t1, bc,natl)     
+     fi)      
+  fi)
+.
+
+ops dnsBin:_ dnsBin-w:_ dnsBin-tg:_ : NatList 
+              -> Attribute [ctor] .
+ops dnsNum:_ dnsNum-w:_ dnsNum-tg:_ : 
+           Nat -> Attribute [ctor] .
+
+op getDnsBin : AttributeSet  -> NatList .
+eq getDnsBin((attrs, dnsBin: natl)) = natl .
+eq getDnsBin(attrs) = nilIdL [owise] .
+op getDnsBin-w : AttributeSet  -> NatList .
+eq getDnsBin-w((attrs, dnsBin-w: natl)) = natl .
+eq getDnsBin-w(attrs) = nilIdL [owise] .
+op getDnsBin-tg : AttributeSet  -> NatList .
+eq getDnsBin-tg((attrs, dnsBin-tg: natl)) = natl .
+eq getDnsBin-tg(attrs) = nilIdL [owise] .
+
+op getDnsNum : AttributeSet  -> Nat .
+eq getDnsNum((attrs, dnsNum: n)) = n .
+eq getDnsNum(attrs) = 0 [owise] .
+op getDnsNum-w : AttributeSet  -> Nat .
+eq getDnsNum-w((attrs, dnsNum-w: n)) = n .
+eq getDnsNum-w(attrs) = 0 [owise] .
+op getDnsNum-tg : AttributeSet  -> Nat .
+eq getDnsNum-tg((attrs, dnsNum-tg: n)) = n .
+eq getDnsNum-tg(attrs) = 0 [owise] .
+
+op setDnsBin : AttributeSet NatList -> AttributeSet .
+eq setDnsBin((attrs, dnsBin: natl0), natl) 
+      = (attrs, dnsBin: natl) .
+eq setDnsBin(attrs, natl) = (attrs, dnsBin: natl) [owise] .
+
+op setDnsBin-w : AttributeSet NatList -> AttributeSet .
+eq setDnsBin-w((attrs, dnsBin-w: natl0), natl) 
+      = (attrs, dnsBin-w: natl) .
+eq setDnsBin-w(attrs, natl) = (attrs, dnsBin-w: natl) [owise] .
+
+op setDnsBin-tg : AttributeSet NatList -> AttributeSet .
+eq setDnsBin-tg((attrs, dnsBin-tg: natl0), natl) 
+      = (attrs, dnsBin-tg: natl) .
+eq setDnsBin-tg(attrs,natl) = (attrs, dnsBin-tg: natl) [owise] .
+
+op setDnsNum : AttributeSet Nat -> AttributeSet .
+eq setDnsNum((attrs, dnsNum: n0), n) = (attrs, dnsNum: n) .
+eq setDnsNum(attrs, n) = (attrs, dnsNum: n) [owise] .
+
+op setDnsNum-w : AttributeSet Nat -> AttributeSet .
+eq setDnsNum-w((attrs, dnsNum-w: n0), n) 
+      = (attrs, dnsNum-w: n) .
+eq setDnsNum-w(attrs, n) = (attrs, dnsNum-w: n) [owise] .
+
+op setDnsNum-tg : AttributeSet Nat -> AttributeSet .
+eq setDnsNum-tg((attrs, dnsNum-tg: n0), n) 
+      = (attrs, dnsNum-tg: n) .
+eq setDnsNum-tg(attrs,n) = (attrs, dnsNum-tg: n) [owise] .
+
+op addBin-orig : Actor Float Float Nat -> AttributeSet .
+eq addBin-orig(< addr : atype | attrs >, startT,stopT, nbins)
+  = addBin-orig(attrs,startT,stopT,nbins) .
+op addBin-orig : AttributeSet Float Float Nat
+                  -> AttributeSet .
+ceq addBin-orig(attrs,startT,stopT,nbins) = 
+        setDnsNum-tg(setDnsNum-w(setDnsNum(attrs1,len-all),
+                                 len-w),
+                     len-tg)
+if dnsQ := 
+      filterForQuery(deDupTime(getSent(attrs),nilTML),nilTML)
+/\ dnsQ-w :=  filterDnsHCS(dnsQ,nilTML)
+/\ dnsQ-tg := filterDnsTGen(dnsQ,nilTML)
+/\ len-all := tmlLen(dnsQ)
+/\ len-w := tmlLen(dnsQ-w)
+/\ len-tg := tmlLen(dnsQ-tg)
+/\ dt := _-_(stopT,startT) / float(nbins)
+/\ binl := tmlToBinl(dt,dnsQ,startT + dt) 
+/\ binl-w := tmlToBinl(dt,dnsQ-w,startT + dt) 
+/\ binl-tg := tmlToBinl(dt,dnsQ-tg,startT + dt) 
+/\ attrs1 := setDnsBin-tg(setDnsBin-w(setDnsBin(attrs,binl),
+                                 binl-w), binl-tg)
+.
+
+op addBin-eq : Actor Float Float Nat -> AttributeSet .
+eq addBin-eq(< addr : atype | attrs >, startT,stopT,nbins)
+  = addBin-eq(attrs,startT,stopT,nbins) .
+op addBin-eq : AttributeSet Float Float Nat -> AttributeSet .
+ceq addBin-eq(attrs,startT,stopT,nbins) =
+        setDnsNum-tg(setDnsNum-w(setDnsNum(attrs1,len-all),
+                                 len-w),
+                     len-tg)
+if dnsQ-w := 
+      filterForQuery(deDupTime(getSent(attrs),nilTML),nilTML)
+/\ dnsQ-tg := 
+  filterForQuery(deDupTime(getTGenSent(attrs),nilTML),nilTML)
+/\ len-w := tmlLen(dnsQ-w)
+/\ len-tg := tmlLen(dnsQ-tg)
+/\ len-all := len-w + len-tg
+/\ dt := _-_(stopT,startT) / float(nbins)
+/\ binl := dtmlToBinl(dt,dnsQ-w,dnsQ-tg,startT + dt) 
+/\ binl-w := tmlToBinl(dt,dnsQ-w,startT + dt) 
+/\ binl-tg := tmlToBinl(dt,dnsQ-tg,startT + dt) 
+/\ attrs1 := setDnsBin-tg(setDnsBin-w(setDnsBin(attrs,binl),
+                                 binl-w),binl-tg)
+.
+
+
+
+endm  
+eof
+
+op setDnsNum : AttributeSet Nat -> AttributeSet .
+eq setDnsNum((attrs, dnsBin: n0), n) = (attrs, dnsBin: n) .
+eq setDnsNum(attrs, n) = (attrs, dnsBin: n) [owise] .
+
+op setDnsNum-w : AttributeSet NatList -> AttributeSet .
+eq setDnsNum-w((attrs, dnsBin-w: n0), n) 
+      = (attrs, dnsBin-w: n) .
+eq setDnsNum-w(attrs, n) = (attrs, dnsBin-w: n) [owise] .
+
+op setDnsNum-tg : AttributeSet NatList -> AttributeSet .
+eq setDnsNjm-tg((attrs, dnsBin-tg: n0), n) 
+      = (attrs, dnsBin-tg: n) .
+eq setDnsNum-tg(attrs,n) = (attrs, dnsBin-tg: n) [owise] .
+

@@ -1,0 +1,71 @@
+***(
+um -> tg-eq -> cl -obs> server
+   <-        <-      <-    <-
+ )  
+
+sload ../../../../deps/dns_formalization/Maude/dns/common/prelim.maude
+
+sload ../../../common/maude/cp2-interfaces
+sload ../../../common/maude/adversary
+sload ../../../common/maude/sampler-x
+sload ../../../common/maude/delay-drop-x
+
+mod DNS-OBS-EQ is
+  inc CP2-COMMON .
+  inc MSG .   ---- prelim dns content sorts
+  inc SAMPLER-X .  
+  inc DELAY-X .
+  inc ADVERSARY .
+  
+vars addr adv caddr rsvaddr : Address .
+vars httpReq  httpRsp : Content .
+vars T : Float .
+vars attrs aattrs : AttributeSet .
+vars tml : TimeMsgList .
+vars j j1 : Nat .
+vars smsgs : Config .
+
+op DNSObsEq : -> ActorType .
+op clientAddr:_ : Address -> Attribute [ctor] .
+op resolverAddr:_ : Address -> Attribute [ctor] .
+op tgenSent:_ : TimeMsgList -> Attribute [ctor] .
+op tgenRcvd:_ : TimeMsgList -> Attribute [ctor] .
+
+op mkDnsObsEqAct : Address Address Address -> Actor .
+eq mkDnsObsEqAct(addr,caddr,rsvaddr) =
+  < addr : DNSObsEq | clientAddr: caddr, resolverAddr: rsvaddr >
+ .  
+
+eq [obsLogReq]:
+rCtr(j)
+< addr : DNSObsEq | clientAddr: caddr, resolverAddr:  rsvaddr, attrs >
+< adv : Adversary | tgenSent: tml, aattrs >
+{T, (to addr from caddr : q:Query) }
+=
+rCtr(s j)
+< addr : DNSObsEq | clientAddr: caddr, resolverAddr:  rsvaddr, attrs >
+< adv : Adversary | 
+   tgenSent: (tml ; tm(T,to rsvaddr from  caddr :   
+                         q:Query)), aattrs >
+[genRandomX(j,0.0,0.00001),
+ to rsvaddr from  addr : q:Query,0]
+.
+
+eq [obsFwdRsp]:
+rCtr(j)
+< addr : DNSObsEq | clientAddr: caddr, resolverAddr:  rsvaddr, attrs >
+< adv : Adversary | tgenRcvd: tml, aattrs >
+{T, (to addr from rsvaddr : r:Response) }
+=
+rCtr(s j)
+< addr : DNSObsEq | clientAddr: caddr, 
+                    resolverAddr:  rsvaddr, attrs >
+< adv : Adversary | tgenRcvd: (tml ; 
+                tm(T,to caddr from  rsvaddr : r:Response)),
+                aattrs >
+[genRandomX(j,0.0,0.00001),
+ to caddr from  addr : r:Response,0]
+.
+
+endm
+        

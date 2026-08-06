@@ -1,0 +1,42 @@
+Converting base DNS network model to equational form
+
+dns/probablistic/_aux
+ sendQueries
+ sendFailureResponses
+   message sending-
+ copy _aux to local file _aux-eq defining module AUX-EQ
+     --- change the delays/drops to delayX/dropX
+     --- takes additional counter arg,j 
+     --- returns {smsgs,j1} :: ConfigNat
+     --- add ctr arg to sendQueries/failures
+     -- convert send functions to use explicit counter value
+_aux loads ../../common/parameters which defines delays  
+and other param files that are non statistical
+
+dns/probablistic/dns >> dns-eq   defining DNS-EQ
+Resolver >> ResolverEq
+replace delayParamd,dropParamd by x versions
+move delayDropMsgsX to condition which return {smsgs,j1} 
+
+Add rCtr to rules
+rl >> eq
+=> >> =
+
+DNS actor construction
+copied from dns/maude/common/_aux
+
+  mkResolver(public-dns, resolverCache, sb)
+  --- Nameservers
+  mkNameServer(root-dns, (zone), nullAddr)
+  mkNameServer(tld-dns, (zoneCom), nullAddr)
+  mkNameServer(auth-dns, (zoneInternetCom), nullAddr)
+  mkNameServer(corporate-dns, (zoneCorporateCom), X(public-dns))
+
+rename actor type
+remove CLIENT defn
+add rCtr and delays and sendMsgs/sendFailure calls
+
+----------------------------------------
+dnsnet-eq.maude defines a test DNS network configuration 
+
+

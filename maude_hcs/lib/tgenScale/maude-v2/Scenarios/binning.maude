@@ -1,0 +1,234 @@
+set show advisories off .
+
+sload ../common/analysis-aux
+sload ooo1-adversary
+sload qqq1-adversary
+
+mod BINNING-OOO is
+  inc ANALYSIS-AUX .
+**** scenario 1 orig 
+  inc CP2-1-ORIG-ADVERSARY .  
+
+eq StartTime = 300.0 .
+eq StopTime = 560.8 .
+
+**** extracting various tml's  
+**** all msgs logged
+op oTMLsent : -> TimeMsgList .
+eq oTMLsent = getSent(cp2-1-orig-adversary) .
+*** red tmlLen(oTMLsent) . 980
+
+op oTMLrcvd : -> TimeMsgList .
+eq oTMLrcvd = getRcvd(cp2-1-orig-adversary) .
+*** red tmlLen(oTMLrcvd) . 836
+
+*** red tmlLen(filterForQuery(oTMLsent,nilTML)) . 838
+*** red tmlLen(filterDnsHCS(oTMLsent,nilTML)) . 636
+*** red tmlLen(filterDnsTGen(oTMLsent,nilTML)) .  202
+
+
+**** remove sent duplicates
+op oTMLsentU : -> TimeMsgList .
+eq oTMLsentU = deDupTime(oTMLsent,nilTML) .
+*** red tmlLen(oTMLsentU) . 419
+
+**** keep only content:Query
+op oTMLsentUdnsq : -> TimeMsgList .
+eq oTMLsentUdnsq = filterForQuery(oTMLsentU,nilTML) .
+*** red tmlLen(oTMLsentUdnsq) . 348
+
+**** remove rcvd duplicates
+op oTMLrcvdU : -> TimeMsgList .
+eq oTMLrcvdU = deDupTime(oTMLrcvd,nilTML) .
+*** red tmlLen(oTMLrcvdU) .  418
+
+**** keep only content:Response
+op oTMLrcvdUdnsr : -> TimeMsgList .
+eq oTMLrcvdUdnsr = filterForResponse(oTMLrcvdU,nilTML) .
+*** red tmlLen(oTMLrcvdUdnsr) . 347
+
+**** select only weird traffic sent
+op oTMLdnsq-w : -> TimeMsgList .
+eq oTMLdnsq-w = filterDnsHCS(oTMLsentUdnsq,nilTML) .
+*** red tmlLen(oTMLdnsq-w) . 247
+
+**** select only tgen traffic sent
+op oTMLdnsq-tg : -> TimeMsgList .
+eq oTMLdnsq-tg = filterDnsTGen(oTMLsentUdnsq,nilTML) .
+*** red tmlLen(oTMLdnsq-tg) . 101
+
+**** select only weird traffic rcvd
+op oTMLdnsr-w : -> TimeMsgList .
+eq oTMLdnsr-w = filterDnsHCS(oTMLrcvdUdnsr,nilTML) .
+*** red tmlLen(oTMLdnsr-w) . 247
+
+**** select only tgen traffic rcvd
+op oTMLdnsr-tg : -> TimeMsgList .
+eq oTMLdnsr-tg = filterDnsTGen(oTMLrcvdUdnsr,nilTML) .
+*** red tmlLen(oTMLdnsr-tg) .  100
+
+
+op bin10DNSq  : -> NatList .
+eq bin10DNSq =
+     tmlToBinl(dt10,oTMLsentUdnsq,StartTime + dt10) .
+***  31, 31, 40, 41, 32, 33, 49, 39, 27, 25
+
+op bin10DNSq-w  : -> NatList .
+eq bin10DNSq-w = 
+      tmlToBinl(dt10,oTMLdnsq-w,StartTime + dt10) .
+***  27, 26, 27, 26, 26, 26, 27, 26, 25, 11
+
+op bin10DNSq-tg  : -> NatList .
+eq bin10DNSq-tg =
+      tmlToBinl(dt10,oTMLdnsq-tg,StartTime + dt10) .
+***  4, 5, 13, 15, 6, 7, 22, 13, 2, 14
+
+op bin10DNSr : -> NatList .
+eq bin10DNSr = 
+      tmlToBinl(dt10,oTMLrcvdUdnsr,StartTime + dt10) .
+***  31, 31, 40, 41, 32, 33, 49, 39, 27, 24
+
+op bin10DNSr-w  : -> NatList .
+eq bin10DNSr-w = 
+     tmlToBinl(dt10,oTMLdnsr-w,StartTime + dt10) .
+***  27, 26, 27, 26, 26, 26, 27, 26, 25, 11
+
+op bin10DNSr-tg  : -> NatList .
+eq bin10DNSr-tg = 
+     tmlToBinl(dt10,oTMLdnsr-tg,StartTime + dt10) .
+***  4, 5, 13, 15, 6, 7, 22, 13, 2, 13
+
+op adv-bin-orig : -> AttributeSet .
+eq adv-bin-orig =
+   addBin-orig(cp2-1-orig-adversary,StartTime,StopTime,10) .
+   
+*** red getDnsNum(adv-bin-orig) .
+*** red getDnsBin(adv-bin-orig) .
+
+endm  
+
+
+mod BINNING-EQ is
+  inc ANALYSIS-AUX .
+  inc CP2-1-EQ-ADVERSARY .  
+
+eq StartTime = 300.0 .
+eq StopTime = 560.0 .
+
+**** scenario 1 eq -- extracting various tml's  
+
+**** weird traffic sent/rcvd
+ops qTMLsent-w qTMLrcvd-w : -> TimeMsgList .
+eq qTMLsent-w = getSent(cp2-1-eq-adversary) .
+*** red tmlLen(qTMLsent-w) . 863
+eq qTMLrcvd-w = getRcvd(cp2-1-eq-adversary) .
+*** red tmlLen(qTMLrcvd-w) .  650
+
+*** red tmlLen(filterForQuery(qTMLsent-w,nilTML)) . 721
+*** red tmlLen(filterForResponse(qTMLrcvd-w,nilTML)) . 508
+
+**** tgen traffic sent/rcvd
+ops qTMLsent-tg qTMLrcvd-tg : -> TimeMsgList .
+eq qTMLsent-tg = getTGenSent(cp2-1-eq-adversary) .
+*** red tmlLen(qTMLsent-tg) . 159
+eq qTMLrcvd-tg = getTGenRcvd(cp2-1-eq-adversary) .
+*** red tmlLen(qTMLrcvd-tg) . 159
+
+
+******************************
+
+**** weird traffic sent/rcvd deduped
+ops qTMLsentU-w qTMLrcvdU-w : -> TimeMsgList .
+eq qTMLsentU-w = deDupTime(qTMLsent-w,nilTML) .
+*** red tmlLen(qTMLsentU-w) . 325
+eq qTMLrcvdU-w = deDupTime(qTMLrcvd-w,nilTML) .
+*** red tmlLen(qTMLrcvdU-w) . 325
+
+
+**** weird traffic u dns q/r only
+ops qTMLdnsq-w qTMLdnsr-w : -> TimeMsgList .
+eq qTMLdnsq-w = filterForQuery(qTMLsentU-w,nilTML) .
+*** red tmlLen(qTMLdnsq-w) . 254
+eq qTMLdnsr-w = filterForResponse(qTMLrcvdU-w,nilTML) .
+*** red tmlLen(qTMLdnsr-w) .  254
+
+**** tgen traffic sent/rcvd deduped
+ops qTMLsentU-tg qTMLrcvdU-tg : -> TimeMsgList .
+eq qTMLsentU-tg = deDupTime(qTMLsent-tg,nilTML) .
+*** red tmlLen(qTMLsentU-tg) . 159
+eq qTMLrcvdU-tg = deDupTime(qTMLrcvd-tg,nilTML) .
+*** red tmlLen(qTMLrcvdU-tg) .  159
+
+**** tgen traffic u dns q/r only
+ops qTMLdnsq-tg qTMLdnsr-tg : -> TimeMsgList .
+eq qTMLdnsq-tg = filterForQuery(qTMLsent-tg,nilTML) .
+*** red tmlLen(qTMLdnsq-tg) . 159
+eq qTMLdnsr-tg = filterForResponse(qTMLrcvd-tg,nilTML) .
+*** red tmlLen(qTMLdnsr-tg) . 159
+
+*******************************
+
+op bin10DNSq-w  : -> NatList .
+eq bin10DNSq-w = 
+      tmlToBinl(dt10,qTMLdnsq-w,StartTime + dt10) .
+*** 27, 26, 26, 26, 26, 28, 26, 26, 25, 18
+
+op bin10DNSq-tg  : -> NatList .
+eq bin10DNSq-tg = 
+      tmlToBinl(dt10,qTMLdnsq-tg,StartTime + dt10) .
+**** 3, 16, 11, 33, 22, 28, 12, 15, 11, 8
+
+
+op bin10DNSq  : -> NatList .
+eq bin10DNSq =
+   dtmlToBinl(dt10,qTMLdnsq-w,qTMLdnsq-tg,StartTime + dt10) .
+**** 30, 42, 37, 59, 48, 56, 38, 41, 36, 26   
+
+op bin10DNSr-w  : -> NatList .
+eq bin10DNSr-w =
+       tmlToBinl(dt10,qTMLdnsr-w,StartTime + dt10) .
+**** 27, 26, 26, 26, 26, 27, 27, 26, 25, 18
+
+op bin10DNSr-tg  : -> NatList .
+eq bin10DNSr-tg = 
+      tmlToBinl(dt10,qTMLdnsr-tg,StartTime + dt10) .
+**** 3, 16, 11, 33, 22, 28, 12, 14, 12, 8
+
+op bin10DNSr  : -> NatList .
+eq bin10DNSr =
+  dtmlToBinl(dt10,qTMLdnsr-w,qTMLdnsr-tg,StartTime + dt10) .
+**** 30, 42, 37, 59, 48, 55, 39, 40, 37, 26
+
+op adv-bin-eq : -> AttributeSet .
+eq adv-bin-eq =
+   addBin-eq(cp2-1-eq-adversary,StartTime,StopTime,10) .
+
+endm
+eof
+
+*** red getDnsNum(adv-bin-eq) .
+*** red getDnsBin(adv-bin-eq) .
+
+red getDnsBin(adv-bin-eq) .
+**** 30, 42, 37, 59, 48, 54, 39, 32, 45, 27
+red getDnsBin-w(adv-bin-eq) .
+**** 27, 26, 26, 26, 26, 26, 27, 26, 25, 19
+red getDnsBin-tg(adv-bin-eq) .
+**** 3, 16, 11, 33, 22, 28, 12, 6, 20, 8
+
+select BINNING-OOO .
+
+red getDnsBin(adv-bin-orig) .
+**** 31, 31, 40, 41, 32, 33, 49, 39, 27, 25
+red getDnsBin-w(adv-bin-orig) .
+**** 27, 26, 27, 26, 26, 26, 27, 26, 25, 11
+red getDnsBin-tg(adv-bin-orig) .
+**** 4, 5, 13, 15, 6, 7, 22, 13, 2, 14
+
+red tmlLen(oTMLsent) .  --- 980
+red tmlLen(oTMLsentU) .  --- 419
+red tmlLen(oTMLsentUdnsq) . --- 348
+
+red tmlLen(oTMLrcvd) .   --- 896
+red tmlLen(oTMLrcvdU) .  --- 418
+red tmlLen(oTMLrcvdUdnsr) .  --- 347
