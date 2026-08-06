@@ -1,0 +1,79 @@
+set show advisories off .
+sload ../../Scenarios/cp2_scenario_1-dnstgen-orig
+sload ../../test-aux
+
+---- maude-v1/TestDNS/ooo1dns.txt
+---- 892 query start 300.0 end 545.0 
+---- 218 label
+
+
+mod OOO1DNS is
+  inc HCS_TEST .
+  inc TEST-AUX .
+  
+op ooo1dnsSentD : -> TimeMsgList . 
+--- duplicates removed
+op ooo1dnsSent : -> TimeMsgList  [memo] .   
+--- non query msgs removed
+op ooo1dnsSentQ : -> TimeMsgList [memo] .
+
+eq ooo1dnsSentD = 
+
+tm(3.0000198673482004e+2, to X(public-dns) from corporate-dns : query(7727, nm(fragment(alice-iodine-snd-app, user-bob-iodine-rcv-app, ccFile(key(0, 4), hash(file(1, 2552), 4), hashTag( "whatsup1")), 0, 1, 0, 0, 43, true, true)) . 't1 . 'pwnd . 'com . root, a)) ; 
+
+tm(3.0000198673482004e+2, to public-dns from Z(0, corporate-dns) : query( 7727, nm(fragment(alice-iodine-snd-app, user-bob-iodine-rcv-app, ccFile( key(0, 4), hash(file(1, 2552), 4), hashTag("whatsup1")), 0, 1, 0, 0, 43, true, true)) . 't1 . 'pwnd . 'com . root, a)) ;
+
+tm(3.0105617351908882e+2, to X(public-dns) from corporate-dns : query(15454, nm(fragment( alice-iodine-snd-app, user-bob-iodine-rcv-app, file(0, 0), 0, 0, 0, 0, 0, false, false)) . 't1 . 'pwnd . 'com . root, a)) ; 
+tm(3.0105617351908882e+2, to public-dns from Z(1, corporate-dns) : query(15454, nm(fragment( alice-iodine-snd-app, user-bob-iodine-rcv-app, file(0, 0), 0, 0, 0, 0, 0, false, false)) . 't1 . 'pwnd . 'com . root, a)) ; 
+tm(3.0209015962999695e+2, to X(public-dns) from corporate-dns : query(23181, nm(fragment( alice-iodine-snd-app, user-bob-iodine-rcv-app, file(0, 0), 0, 0, 0, 0, 0, false, false)) . 't1 . 'pwnd . 'com . root, a)) ; 
+tm(3.0209015962999695e+2, to public-dns from Z(2, corporate-dns) : query(23181, nm(fragment( alice-iodine-snd-app, user-bob-iodine-rcv-app, file(0, 0), 0, 0, 0, 0, 0, false, false)) . 't1 . 'pwnd . 'com . root, a)) ;
+
+tm(3.1796444446636173e+2, to X(public-dns) from corporate-dns : query(clientId(tgen-dns-4, 0), label( 0) . 'internet . 'com . root, a)) ; 
+
+tm(3.1796444446636173e+2, to public-dns from Z(22, corporate-dns) : query(clientId(tgen-dns-4, 0), label(0) . 'internet . 'com . root, a)) ; 
+    
+tm(3.1863395044685592e+2, to X(public-dns) from corporate-dns : query(146813, nm(fragment(alice-iodine-snd-app, user-bob-iodine-rcv-app, file(0, 0), 0, 0, 0, 0, 0, false, false)) . 't1 . 'pwnd . 'com . root, a)) ; 
+
+tm(3.1863395044685592e+2, to public-dns from Z( 23,
+corporate-dns) : query(146813,
+nm(fragment(alice-iodine-snd-app,
+user-bob-iodine-rcv-app, file(0, 0), 0, 0, 0, 0, 0,
+false, false)) . 't1 . 'pwnd . 'com . root, a)) ;
+    
+tm(3.214661830629297e+2, to X(public-dns) from corporate-dns : query(clientId(tgen-dns-5, 0), label(0) . 'internet . 'com . root, a)) ;
+
+tm(3.214661830629297e+2, to public-dns from Z(28, corporate-dns) : query(clientId(tgen-dns-5, 0), label(0) . 'internet . 'com . root, a)) ;
+
+tm( 3.2672504133901737e+2, to X(mastodon-proxy) from alice-raceboat-client-mas-client : makeHttpRequest(postRequest, makeMediaFile("eimage:I-4-253774-3000:EF-10:FR-767-0-767", 253774, encode( image(4, 253774, 3000), efrag(efile(10, 767, 1, 4), 767, 0, 767), 1, 1, 1/6)))) ;
+
+tm(5.4549521623718954e+2, to X(public-dns) from corporate-dns : query(1908569, nm(fragment(alice-iodine-snd-app, user-bob-iodine-rcv-app, file(0, 0), 0, 0, 9, 1, 0, false, false)) . 't1 . 'pwnd . 'com . root, a)) ; 
+
+tm(5.4549521623718954e+2, to public-dns from Z( 417, corporate-dns) : query(1908569, nm(fragment(alice-iodine-snd-app, user-bob-iodine-rcv-app, file(0, 0), 0, 0, 9, 1, 0, false, false)) . 't1 . 'pwnd . 'com . root, a)) ; 
+
+tm(5.4551274731962303e+2, to X(public-dns) from corporate-dns : query(clientId(tgen-dns-4, 16), label(16) . 'internet . 'com . root, a)) ; 
+
+tm(5.4551274731962303e+2, to public-dns from Z(418, corporate-dns) : query(clientId(tgen-dns-4, 16), label(16) . 'internet . 'com . root, a))
+
+.
+      
+eq ooo1dnsSentQ = filterNonQuery(ooo1dnsSentD,nilTML) .
+
+eq ooo1dnsSent = deDupTime(ooo1dnsSentQ,nilTML) .
+       
+endm
+eof
+
+red tmlLen(ooo1dnsSentD) .
+--- 17 
+red tmlLen(ooo1dnsSent) .
+---- 9
+red tmlLen(ooo1dnsSentQ) .
+--- 8
+
+---- 560 300, dt = 26
+
+red tml2bins(26.0,ooo1dnsSent,326.0,0,0) .
+---- drop leading 0
+----  6, 0, 0, 0, 0, 0, 0, 0, 0, 2
+
+red tmlToBinl(26.0,ooo1dnsSent,326.0) .

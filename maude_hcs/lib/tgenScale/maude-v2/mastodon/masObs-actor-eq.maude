@@ -1,0 +1,67 @@
+***(
+um -> mtg-eq -> cl -ond> server
+   <-        <-      <-    <-
+
+delays um - masTGen -client- masTgenObs  are 0 delay
+need linkdata for obs-proxy
+
+ )  
+
+
+sload ../../common/maude/cp2-interfaces
+sload ../../common/maude/adversary
+sload ../../common/maude/sampler-x
+sload delay-x.maude
+
+mod MAS-OBS-EQ is
+  inc CP2-COMMON .
+  inc MC-INTERFACE  .
+  inc SAMPLER-X .  
+  inc DELAY-X .
+  inc ADVERSARY .
+  
+vars addr adv caddr saddr : Address .
+vars httpReq  httpRsp : Content .
+vars T : Float .
+vars attrs aattrs : AttributeSet .
+vars tml : TimeMsgList .
+vars j : Nat .
+
+op MasObs : -> ActorType .
+op clientAddr:_ : Address -> Attribute [ctor] .
+op serverAddr:_ : Address -> Attribute [ctor] .
+op masSent:_ : TimeMsgList -> Attribute [ctor] .
+
+op mkMasObsAct : Address Address Address -> Actor .
+eq mkMasObsAct(addr,caddr,saddr) =
+  < addr : MasObs | clientAddr: caddr, serverAddr: saddr >
+ .  
+
+eq [obsLogReq]:
+rCtr(j)
+< addr : MasObs | clientAddr: caddr, serverAddr: saddr, attrs >
+< adv : Adversary | masSent: tml, aattrs >
+{T, (to addr from caddr : httpReq) }
+=
+rCtr(s j)
+< addr : MasObs | clientAddr: caddr, serverAddr: saddr, attrs >
+< adv : Adversary | 
+   masSent: (tml ; tm(T,to saddr from  caddr : httpReq)), aattrs >
+delayMsgsX(j, to saddr from  addr : httpReq,null) 
+.
+**** Add dns query as appropriate
+
+eq [obsFwdRsp]:
+rCtr(j)
+< addr : MasObs | clientAddr: caddr, serverAddr: saddr, attrs >
+{T, (to addr from saddr : httpRsp) }
+=
+rCtr(s j)
+< addr : MasObs | clientAddr: caddr, serverAddr: saddr, attrs >
+delayMsgsX(j,to caddr from  addr : httpRsp,null) 
+.
+
+
+
+endm
+        
