@@ -13,7 +13,7 @@ def get_python_times(profile, num_bytes):
     num_segments = num_bytes // 1448
     times = []
     for k in range(1, num_segments + 1):
-        t_k, _ = tcp_analytical_model.expected_time_k(k)
+        _, t_k, _ = tcp_analytical_model.expected_time_k(k)
         times.append(t_k)
     return times
 
@@ -25,29 +25,27 @@ def get_maude_times(profile, num_bytes):
     else:
         raise ValueError(f"Unknown profile {profile}")
         
-    O = 0.02
+    O = 0.01
     
     # Resolve the path to tcp.maude based on script location
     project_root = os.path.dirname(script_dir)
-    tcp_maude_path = os.path.join(project_root, 'maude_hcs', 'lib', 'tcp', 'tcp.maude')
+    tcp_maude_path = os.path.join(project_root, 'maude_hcs', 'lib', 'network', 'tcp.maude')
     
     maude_cmd = f"""
 load {tcp_maude_path}
-red tcpDeliveryTimes({num_bytes}, {p13}, {p31}, {p32}, {p23}, {p14}, {O}) .
+red tcpFinalDestTimes({num_bytes}, (p13: {p13}, p31: {p31}, p32: {p32}, p23: {p23}, p14: {p14}, oneWayDelay: {O})) .
 quit
 """
     # Assuming maude is in PATH or we can find it
-    # First try `maude` directly
     maude_bin = 'maude'
     
-    # Fallback to absolute path we know worked in earlier tests if `maude` isn't in PATH
     try:
         subprocess.run([maude_bin, '-no-banner', '-batch'], input=maude_cmd, text=True, capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         maude_bin = '/Users/dcirimel/pwnd2/maude/maude'
 
     print(f"Using Maude binary: {maude_bin}")
-    result = subprocess.run([maude_bin, '-no-banner'], 
+    result = subprocess.run([maude_bin, '-no-banner', '-batch'], 
                             input=maude_cmd, text=True, capture_output=True)
     
     output = result.stdout
@@ -56,17 +54,21 @@ quit
     # Find the LAST result FloatList since loading tcp.maude outputs hardcoded test results first
     last_idx = output.rfind('result FloatList:')
     if last_idx != -1:
-        list_str = output[last_idx + len('result FloatList:'):]
-        end_idx = list_str.find('nilFL')
-        if end_idx != -1:
-            list_str = list_str[:end_idx]
-            
-        elements = [e.strip() for e in list_str.replace('\n', ' ').split('::') if e.strip()]
-        for e in elements:
-            try:
-                times.append(float(e))
-            except ValueError:
-                pass
+        res_text = output[last_idx:]
+        res_text = res_text.split('result FloatList:')[1].split('\nBye.')[0]
+        # Clean up string
+        res_text = res_text.replace('\n', ' ').replace('::', ' ').replace('nilFL', ' ')
+        tokens = res_text.split()
+        all_times = []
+        for t in tokens:
+            t = t.strip()
+            if t:
+                try:
+                    all_times.append(float(t))
+                except ValueError:
+                    pass
+        # Skip the 5 prepended handshake timestamps for new connections
+        times = all_times[5:] if len(all_times) > 5 else all_times
             
     return times
 
