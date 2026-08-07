@@ -1,4 +1,5 @@
 import sys
+import json
 from datetime import datetime
 
 # For all of these, we need separate values for separate windows!
@@ -53,13 +54,15 @@ def mean_stddev_rad(line: str) -> tuple[float, float, float]:
     return (float(toks[2]), float(toks[5]), float(toks[8]))
 
 if __name__ == "__main__":
-    file = sys.argv[1]
-    scenario = file.removesuffix(".txt")
+    input_file = sys.argv[1]
+    perf_output_file = sys.argv[2]
+    adv_output_file = sys.argv[3]
+    scenario = input_file.removesuffix(".txt")
     generated_at = str(datetime.now().isoformat())
     perf_result = {}
     adv_result = {"metadata": {"scenario": scenario, "generated_at": generated_at}}
 
-    with open(file, "r") as f:
+    with open(input_file, "r") as f:
         lines = [ln.strip() for ln in f.readlines() if ln.strip().startswith("μ")]
         for line in lines:
             print(line)
@@ -74,15 +77,25 @@ if __name__ == "__main__":
         perf_latency_stats, perf_other_stats, adv_cum_stats, adv_ind_stats = tuple(
             mk_windows(lines, [len_perf_latencies, len_perf_other, len_adv, len_adv])
         )
-
+        perf_result["latency"] = {}
         for line, key in zip(perf_latency_stats, perf_latency_keys):
-            bloh()
+            stats = mean_stddev_rad(line)
+            perf_result["latency"][key] = stats[0]
 
         for line, key in zip(perf_other_stats, perf_other_keys):
-            bleh()
+            stats = mean_stddev_rad(line)
+            perf_result[key] = stats[0]
 
         for line, key in zip(adv_cum_stats, adv_keys):
-            bluh()
+            stats = mean_stddev_rad(line)
+            adv_result[key] = {"cumulative": stats[0]}
 
         for line, key in zip(adv_ind_stats, adv_keys):
-            blih()
+            stats = mean_stddev_rad(line)
+            adv_result[key] = {"independent": stats[0]}
+
+        with open(perf_output_file, "w") as g:
+            json.dump(perf_result, g, indent=4)
+
+        with open(adv_output_file, "w") as h:
+            json.dump(adv_result, h, indent=4)
