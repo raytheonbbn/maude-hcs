@@ -129,14 +129,14 @@ rl [rbc-rcv-file] :
                        sndrcvAddress: aAddr,
                        cachedTag: cachedhashtagl,
                        pendingFiles: efilel,
-                       weirdFileRcvTime: rcvTime:Float >
+                       weirdFileRcvTimes: rcvTimes:FloatList >
 =>
 < cmcAddr : CMSndRcv | cmcAtts, 
        sndrcvAddress: aAddr,
-       pendingFiles: (efilel :: bytes ),
+       pendingFiles: (efilel :: bytes),
        cachedTag: getWHashtag(getSndHashTagAttrs(cmcAtts)),
-       weirdFileRcvTime: T >
-[print "(" T ") Raceboat client " cmcAddr " got " bytes " from " aAddr " adding to pending, setting weirdFileRcvTime."]
+       weirdFileRcvTimes: (rcvTimes:FloatList :: T) >
+[print "(" T ") Raceboat client " cmcAddr " got " bytes " from " aAddr " adding to pending " efilel ", setting weirdFileRcvTime if pending was empty."]
 .
 
 
@@ -167,12 +167,14 @@ eq cmRcvActionQ(attrs, "media",T, msg) = {attrs,null} [owise] .
 
 ceq cmRcvActionQ(attrs, "media", T, msg)
    =  crcvActionQ(attrsTrans,"media",msg)       
-if attrs0, weirdFileRcvTime: rcvTime:Float,
-           postingWeird: b:Bool, pendingFiles: efilel
+if attrs0, weirdFileRcvTimes: rcvTimes:FloatList,
+           postingWeird: b:Bool,
+           pendingFiles: efilel
            := attrs
+/\ rcvTime:Float := getEarliestRcvTime(rcvTimes:FloatList)
 /\ b0:Bool :=  rcvTime:Float + 5.0 <= T and efilel =/= nilBS  --- no file ready
 /\ attrsTrans := attrs0,
-                 (weirdFileRcvTime: rcvTime:Float),
+                 (weirdFileRcvTimes: (rcvTime:Float :: rcvTimes:FloatList)),
                  postingWeird: b0:Bool,
                  pendingFiles: efilel
  .

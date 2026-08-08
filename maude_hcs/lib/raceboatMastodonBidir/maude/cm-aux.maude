@@ -38,12 +38,15 @@ sload ../../../deps/dns_formalization/Maude/common/actor.maude
 sload ../../common/maude/_aux.maude  ---- AttributeSetMsgs
 sload ../../common/maude/cp2-interfaces
 sload cp3-hashtag-manager
+sload ../../network/tcp.maude
 
 ---- {attrs,conf} defined in lib/.../common/_aux.maude
 mod CONTENT-MANAGER is
   inc BYTESEQ .
   inc ACTOR-MODEL .
   inc HASHTAG-MANAGER .
+  --- Add TCP-ANALYTICAL-MODEL for FloatLists. (Do not want to redefine)
+  pr TCP-ANALYTICAL-MODEL .
 
 
 vars cmcAddr cmsAddr edAddr mcAddr senderAddr receiverAddr
@@ -85,7 +88,7 @@ op cachedTag:_ : ByteSeqL -> Attribute [ctor] .
 op postingWeird:_ : Bool -> Attribute [ctor] .
 --- The time the last exfil file (contract) was received in Raceboat.
 --- It must be at least 5s before the next POST opportunity.
-op weirdFileRcvTime:_ : Float -> Attribute [ctor] .
+op weirdFileRcvTimes:_ : FloatList -> Attribute [ctor] .
 
 
 **********  CM BIDIR
@@ -104,7 +107,7 @@ eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr,
    numPendingImages: 0,
    encodedImages: nilBS,
    postingWeird: false, 
-   weirdFileRcvTime: 0.0 ,
+   weirdFileRcvTimes: nilFL, 
    cachedTag: nilBS,
    --- receiving attributes   
    rcvHashTagAtts: initHashtagAttrs(hashRcv), 
@@ -134,8 +137,9 @@ eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr,
  eq getRcvHashTagAttrs((attrs, rcvHashTagAtts: hattrs))
      = hattrs .
  eq getRcvHashTagAttrs(attrs)  = noneAS [owise] .     
-     
-
+ op getEarliestRcvTime : FloatList -> Float .
+ eq getEarliestRcvTime(nilFL) = 0. .
+ eq getEarliestRcvTime(rcvTime:Float :: rcvTimes::FloatList) = rcvTime:Float .
 
  op setSndHashTagAttrs : AttributeSet  AttributeSet 
                        -> AttributeSet .
