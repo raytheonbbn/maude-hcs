@@ -470,12 +470,27 @@ mod SMC_CP3 is
   eq rmEqPrefix (F, nil) = nil .
   eq rmEqPrefix (F, F' FL) = if F == F' then rmEqPrefix(F, FL) else F' FL fi .
 
+  vars FL1 FL2 : List{Float} .
+  vars C1 C2 : Nat .
+
+  sort PrefixInfo .
+  op prefix : Nat List{Float} -> PrefixInfo [ctor] .
+
+  op skipEqPrefix : Float List{Float} -> PrefixInfo .
+  eq skipEqPrefix (F, nil) = prefix(0, nil) .
+  eq skipEqPrefix (F, F FL) = incPrefix(skipEqPrefix(F, FL)) .
+  ceq skipEqPrefix (F, F' FL) = prefix(0, F' FL) if F =/= F' .
+
+  op incPrefix : PrefixInfo -> PrefixInfo .
+  eq incPrefix (prefix(N, FL)) = prefix(N + 1, FL) .
+
   op KsDistanceX : List{Float} List{Float} Nat Nat Nat Nat Float -> Float .
   eq KsDistanceX (nil, nil, I, J, N, N', D) = D .
   eq KsDistanceX (F FL, nil, I, J, N, N', D) = 
     KsDistanceX(FL, nil, I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float (N'))))) .
   eq KsDistanceX (nil, F' FL', I, J, N, N', D) = 
     KsDistanceX(nil, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float (N'))))) .  
+***(
   eq KsDistanceX (F FL, F' FL', I, J, N, N', D) = 
     if F == F' 
     then KsDistanceX(rmEqPrefix(F, F FL), rmEqPrefix(F', F' FL'), 
@@ -485,6 +500,18 @@ mod SMC_CP3 is
     then KsDistanceX(FL, F' FL', I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float (N')))))
     else  
     KsDistanceX(F FL, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float (N'))))) fi fi .  
+)
+  ceq KsDistanceX(F FL, F' FL', I, J, N, N', D) =
+    KsDistanceX( FL1, FL2, I + C1, J + C2, N, N', max2(D, abs((float(I + C1) / float(N)) - (float(J + C2) / float(N')))))
+    if F == F'
+      /\ prefix(C1, FL1) := skipEqPrefix(F, F FL)
+      /\ prefix(C2, FL2) := skipEqPrefix(F', F' FL') .
+  ceq KsDistanceX(F FL, F' FL', I, J, N, N', D) =
+    KsDistanceX( FL, F' FL', I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float(N'))))) 
+    if F < F' .
+  ceq KsDistanceX(F FL, F' FL', I, J, N, N', D) = 
+    KsDistanceX( F FL, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float(N')))))
+    if F > F' .
 
   op KsDistance : List{Float} List{Float} -> Float .
   eq KsDistance (nil, FL) = -1.0 .
