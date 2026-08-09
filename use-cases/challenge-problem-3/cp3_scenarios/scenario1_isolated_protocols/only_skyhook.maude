@@ -87,20 +87,6 @@ mod HCS_TEST is
      "irc-irc-10" |-> irc-irc-10-ma-v2)
   .
 
-  op ed-images : -> ByteSeqL .
-  eq ed-images =
-       image(1, 3779, 500)
-    :: image(2, 2405, 1000)
-    :: image(3, 36861, 1000)
-    :: image(4, 25377, 500)
-    :: image(5, 2440, 300)
-    :: image(6, 1275, 300)
-    :: image(7, 7710, 1000)
-    :: image(8, 3577, 500)
-    :: image(9, 3415, 300)
-    :: image(10, 74123, 600)
-  .
-
   ---------------------------------------------------
   --- DNS Zone Configurations
   ---------------------------------------------------
@@ -217,7 +203,7 @@ mod HCS_TEST is
   (delayStd:  0.0),
   (delayType: "Constant"),
   (delayMean: 0.01),
-  (delayConst: 0.001),
+  (delayConst: 0.01),
   (noiseMin: 0.),
   (noiseMax: 0.00001),
   (dropP: 0.),
@@ -237,8 +223,8 @@ mod HCS_TEST is
   (delayStd:  0.0),
   (delayType: "Constant"),
   (delayMean: 0.),
-  (delayConst: 0.001),
-  (noiseMin: 0.02),
+  (delayConst: 0.02),
+  (noiseMin: 0.01),
   (noiseMax: 0.00001),
   (dropP: 0.),
   (canDrop: false),
@@ -293,6 +279,10 @@ mod HCS_TEST is
     aaa(IXP-DEFAULT-ADDR, servNetClAddr, LinkType-Dns)
     aaa(corpSkyNetClAddr, IXP-DEFAULT-ADDR, LinkType-Dns)
     aaa(IXP-DEFAULT-ADDR, corpSkyNetClAddr, LinkType-Dns)
+    aaa(corpSkyDnsAddr, publicDnsAddr, LinkType-DnsComposed)
+    aaa(publicDnsAddr, corpSkyDnsAddr, LinkType-DnsComposed)
+    aaa(corpSkyNetClAddr, publicResolverNetSrvAddr, LinkType-DnsComposed)
+    aaa(publicResolverNetSrvAddr, corpSkyNetClAddr, LinkType-DnsComposed)
 
     aaa(publicDnsAddr, IXP-DEFAULT-ADDR, LinkType-Dns)
     aaa(IXP-DEFAULT-ADDR, publicDnsAddr, LinkType-Dns)
@@ -309,17 +299,13 @@ mod HCS_TEST is
     aaa(IXP-DEFAULT-ADDR, servDnsAddr, LinkType-Dns)
     aaa(servNetClAddr, publicResolverNetSrvAddr, LinkType-DnsComposed)
     aaa(publicResolverNetSrvAddr, servNetClAddr, LinkType-DnsComposed)
-    aaa(servNetClAddr, IXP-DEFAULT-ADDR, LinkType-Dns)
-    aaa(IXP-DEFAULT-ADDR, servNetClAddr, LinkType-Dns)
+    aaa(corpMasNetClAddr, publicResolverNetSrvAddr, LinkType-DnsComposed)
+    aaa(publicResolverNetSrvAddr, corpMasNetClAddr, LinkType-DnsComposed)
     *** Skyhook IRC Client enclave DNS server ***
     aaa(corpSkyDnsAddr, publicResolverNetSrvAddr, LinkType-DnsComposed)
     aaa(publicResolverNetSrvAddr, corpSkyDnsAddr, LinkType-DnsComposed)
     aaa(corpSkyDnsAddr, IXP-DEFAULT-ADDR, LinkType-Dns)
     aaa(IXP-DEFAULT-ADDR, corpSkyDnsAddr, LinkType-Dns)
-    aaa(corpSkyNetClAddr, publicResolverNetSrvAddr, LinkType-DnsComposed)
-    aaa(publicResolverNetSrvAddr, corpSkyNetClAddr, LinkType-DnsComposed)
-    aaa(corpSkyNetClAddr, IXP-DEFAULT-ADDR, LinkType-Dns)
-    aaa(IXP-DEFAULT-ADDR, corpSkyNetClAddr, LinkType-Dns)
   .
 
   ---------------------------------------------------
@@ -443,6 +429,7 @@ mod HCS_TEST is
 
     --- Core Infrastructure
     ircServer s3SrvAct
+    mkIrcMonitor(ircMonitorAddr)
     servDns servNetCl
     advActor
 

@@ -201,25 +201,13 @@ mod HCS_TEST is
   )
   .
 
-  op LinkType-Ixp : -> AttributeSet .
-  eq LinkType-Ixp =
-  (4stateLoss:
-     (p13: 0.0,
-      p31: 1.0,
-      p32: 0.0,
-      p23: 0.0,
-      p14: 0.0,
-      oneWayDelay: 0.005)
-  )
-  .
-
   op LinkType-Dns : -> AttributeSet .
   eq LinkType-Dns =
   (delayStd:  0.0),
   (delayType: "Constant"),
   (delayMean: 0.01),
-  (delayConst: 0.001),
-  (noiseMin: 0.),
+  (delayConst: 0.01),
+  (noiseMin: 0.01),
   (noiseMax: 0.00001),
   (dropP: 0.),
   (canDrop: false),
@@ -237,9 +225,9 @@ mod HCS_TEST is
   eq LinkType-DnsComposed =
   (delayStd:  0.0),
   (delayType: "Constant"),
-  (delayMean: 0.),
-  (delayConst: 0.001),
-  (noiseMin: 0.02),
+  (delayMean: 0.02),
+  (delayConst: 0.02),
+  (noiseMin: 0.01),
   (noiseMax: 0.00001),
   (dropP: 0.),
   (canDrop: false),
@@ -256,11 +244,11 @@ mod HCS_TEST is
   ---------------------------------------------------
   --- Transport Equations (Readable Addresses Only)
   ---------------------------------------------------
-  eq transport(publicDnsAddr) = publicDnsAddr .
-  eq transport(corpIodDnsAddr)    = corpIodDnsAddr .
-  eq transport(iodCl7ServerAddr) = iodCl7ServerAddr .
+  eq transport(publicDnsAddr)       = publicDnsAddr .
+  eq transport(corpIodDnsAddr)      = corpIodDnsAddr .
+  eq transport(iodCl7ServerAddr)    = iodCl7ServerAddr .
   eq transport(iodCl7NetServerAddr) = iodCl7NetServerAddr .
-  eq transport(iodCl8ServerAddr) = iodCl8ServerAddr .
+  eq transport(iodCl8ServerAddr)    = iodCl8ServerAddr .
   eq transport(iodCl8NetServerAddr) = iodCl8NetServerAddr .
 
   ---------------------------------------------------
@@ -288,6 +276,19 @@ mod HCS_TEST is
 
     aaa(corpIodDnsAddr, IXP-DEFAULT-ADDR, LinkType-Dns)
     aaa(IXP-DEFAULT-ADDR, corpIodDnsAddr, LinkType-Dns)
+
+    aaa(corpIodNetClAddr, publicResolverNetSrvAddr, LinkType-DnsComposed)
+    aaa(publicResolverNetSrvAddr, corpIodNetClAddr, LinkType-DnsComposed)
+    aaa(iodCl7SrvNetClAddr, iodCl7SrvNetSrvAddr, LinkType-DnsComposed)
+    aaa(iodCl7SrvNetSrvAddr, iodCl7SrvNetClAddr, LinkType-DnsComposed)
+    aaa(iodCl8SrvNetClAddr, iodCl8SrvNetSrvAddr, LinkType-DnsComposed)
+    aaa(iodCl8SrvNetSrvAddr, iodCl8SrvNetClAddr, LinkType-DnsComposed)
+    aaa(corpIodDnsAddr, publicDnsAddr, LinkType-DnsComposed)
+    aaa(publicDnsAddr, corpIodDnsAddr, LinkType-DnsComposed)
+    aaa(iodCl7ServerAddr, publicDnsAddr, LinkType-DnsComposed)
+    aaa(publicDnsAddr, iodCl7ServerAddr, LinkType-DnsComposed)
+    aaa(iodCl8ServerAddr, publicDnsAddr, LinkType-DnsComposed)
+    aaa(publicDnsAddr, iodCl8ServerAddr, LinkType-DnsComposed)
 
     --- UDP DNS Links
     aaa(iodCl7SrvNetClAddr, IXP-DEFAULT-ADDR, LinkType-Dns)
