@@ -626,9 +626,10 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     
     L("  op ed-images : -> ByteSeqL .")
     logger.warning(f"******FIX ED_IMAGES!!!*****")
-    L("  eq ed-images =")
+    preamble = " :: "
+    L("  eq ed-images =")    
     for i in range(10):
-        L(f"       image({i+1}, 19600, 3000)")
+        L(f"    {preamble if i > 0 and i < 10 else " "}image({i+1}, 19600, 3000)")        
     L("  .")
     L("")
     
