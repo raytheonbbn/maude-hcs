@@ -945,6 +945,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         add_bidir_ixp(f"iodCl{i}SrvNetSrvAddr", server_net_link_dns)
         add_bidir_ixp(f"iodCl{i}SrvNetClAddr", dns_net_link_dns)
         add_bidir_link(f"iodCl{i}SrvNetClAddr", f"iodCl{i}SrvNetSrvAddr", server_net_link_dns_comp)
+        add_bidir_link(f"iodCl{i}ServerAddr", "publicDnsAddr", server_net_link_dns_comp)
+        
     add_bidir_ixp(f"corpIodNetClAddr", iod_link_dns)
     add_bidir_link(f"corpIodNetClAddr", f"publicResolverNetSrvAddr", iod_link_dns_comp)
     add_bidir_link(f"corpIodNetClAddr", f"publicDnsAddr", iod_link_dns_comp)    
