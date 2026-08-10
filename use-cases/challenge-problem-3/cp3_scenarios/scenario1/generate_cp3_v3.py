@@ -736,9 +736,18 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  --- One TCP link and one DNS link per net and one DNS composed link")
     L("  ---------------------------------------------------")
 
-    def linkdata(F, _op_name, _lp, _onewaydelay):
+    def linkdata(F, _op_name, _lp, _onewaydelay, v1=False):
         F(f"  op {_op_name} : -> AttributeSet .")
         F(f"  eq {_op_name} =")
+        if v1:
+            F(f"  (delayStd:  0.0),")
+            F(f"  (delayType: \"Constant\"),")
+            F(f"  (delayMean: 0.01),")
+            F(f"  (delayConst: {_onewaydelay}),")
+            F(f"  (noiseMin: 0.),")
+            F(f"  (noiseMax: 0.00001),")
+            F(f"  (dropP: 0.),")
+            F(f"  (canDrop: false),")
         F(f"  (4stateLoss:")
         F(f"     (p13: {_lp['p13']},")
         F(f"      p31: {_lp['p31']},")
@@ -768,11 +777,11 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         linkdata(L, op_name, lp, one_way_delay)
         # DNS link
         L(f"  --- DNS link from/to {net_name} to IXP")
-        linkdata(L, op_name_dns, DEF_LP, one_way_delay)
+        linkdata(L, op_name_dns, DEF_LP, one_way_delay, v1=True)
         # DNS composed link
         if net_name != "dns_net":
             L(f"  --- DNS composed link from/to {net_name} to dns_net")
-            linkdata(L, op_name_dns_comp, DEF_LP, (latency_ms + dns_net_latency_ms) / 1000.0)
+            linkdata(L, op_name_dns_comp, DEF_LP, (latency_ms + dns_net_latency_ms) / 1000.0,  v1=True)
     
     L("  ---------------------------------------------------")
     L("  --- Transport Equations (Readable Addresses Only)")
@@ -939,6 +948,37 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     add_bidir_ixp("ircServerAddr", server_net_link)
     link_entries.append("")
 
+    # dns_enclaves = [
+    #     ("IRC Server", "serv"),
+    #     ("Mastodon IRC Client", "corpMas"),
+    #     ("WebTunnel IRC Client", "corpRt"),
+    #     ("Obfs4 IRC Client", "corpObfs"),
+    #     ("Skyhook IRC Client", "corpSky"),
+    # ]
+    # for desc, prefix in dns_enclaves:
+    #     dns_addr = f"{prefix}DnsAddr"
+    #     netcl_addr = f"{prefix}NetClAddr"
+        
+    #     link_entries.append(f"    *** {desc} enclave DNS server ***")
+    #     link_entries.append("    **** Local DNS addr to PublicDNS resolver net server ****")
+    #     add_bidir_link(dns_addr, "publicDnsAddr", "LinkType-DnsComposed")
+    #     add_bidir_ixp(dns_addr, "LinkType-Dns")
+    #     link_entries.append("    **** Local DNS Net Cl addr to PublicDNS resolver net server ****")
+    #     add_bidir_link(netcl_addr, "publicDnsAddr", "LinkType-DnsComposed")
+    #     add_bidir_ixp(netcl_addr, "LinkType-Dns")
+
+    # link_entries.append("")
+    # add_bidir_link("corpIodDnsAddr", "publicDnsAddr", "LinkType-DnsComposed")
+    # add_bidir_link("corpIodNetClAddr", "publicDnsAddr", "LinkType-DnsComposed")
+    # link_entries.append("")
+    # add_bidir_link("iodCl7ServerAddr", "publicDnsAddr", "LinkType-DnsComposed")
+    # add_bidir_link("iodCl8ServerAddr", "publicDnsAddr", "LinkType-DnsComposed")
+    # add_bidir_link("iodCl7ServerAddr", "iodCl7SrvNetClAddr", "LinkType-DnsComposed")
+    # add_bidir_link("iodCl8ServerAddr", "iodCl8SrvNetClAddr", "LinkType-DnsComposed")
+
+    # link_entries.append("")
+    # link_entries.append("    *** TODO: Do we need the same, but instead of publicResolver, it is the Iodine net servers?")
+    # link_entries.append("")
 
     link_entries.append("    --- TGEN Direct Links")
     
