@@ -1083,11 +1083,10 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"                                       corpRtDnsAddr,")
         L(f"                                       'mastodon . 'pwnd . 'com . root) .")
         L(f"  eq wtCl{i}NetServer  = makeNetServer(wtCl{i}NetServerAddr, wtCl{i}ProxyAddr) .")
-        L("")
-        
-    sky_profs = hcs_profiles_by_channel.get("skyhook", [("irc_3", 0.5), ("irc_10", 0.5)])
-    for idx, i in enumerate([3, 4]):
-        profile = distribute_profiles(2, sky_profs)[idx]
+        L("")        
+    
+    for idx, i in enumerate(hcs_client_ids["skyhook"]):
+        profile = distribute_profiles(hcs_quantity_by_channel["skyhook"], hcs_profiles_by_channel["skyhook"])[idx]
         irc_key = f"irc-{profile.replace('_', '-')}"
         L(f"  --- Skyhook Client {i} (IRC profile: {profile})")
         L(f"  ops skyCl{i}Irc skyCl{i}Um skyCl{i}Iface skyCl{i}SrvIface : -> Actor .")
@@ -1120,11 +1119,10 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"                                       false,")
         L(f"                                       servDnsAddr,")
         L(f"                                       'mastodon . 'pwnd . 'com . root) .")
-        L("")
-        
-    obfs_profs = hcs_profiles_by_channel.get("obfs4", [("irc_11", 1.0)])
-    for idx, i in enumerate([5, 6]):
-        profile = distribute_profiles(2, obfs_profs)[idx]
+        L("")        
+    
+    for idx, i in enumerate(hcs_client_ids["obfs4"]):
+        profile = distribute_profiles(hcs_quantity_by_channel["obfs4"], hcs_profiles_by_channel["obfs4"])[idx]
         irc_key = f"irc-{profile.replace('_', '-')}"
         L(f"  --- OBFS4 Client {i} (IRC profile: {profile})")
         L(f"  ops obfsCl{i}Irc obfsCl{i}Um obfsCl{i}Iface obfsCl{i}SrvIface : -> Actor .")
@@ -1145,10 +1143,9 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"                                       'mastodon . 'pwnd . 'com . root) .")
         L(f"  eq obfsCl{i}NetSrv   = makeNetServer(obfsCl{i}NetServerAddr, obfsCl{i}ServerAddr) .")
         L("")
-        
-    iod_profs = hcs_profiles_by_channel.get("iodine", [("irc_2", 0.5), ("irc_7", 0.5)])
+            
     for idx, i in enumerate(hcs_client_ids["iodine"]):
-        profile = distribute_profiles(2, iod_profs)[idx]
+        profile = distribute_profiles(hcs_quantity_by_channel["iodine"], hcs_profiles_by_channel["iodine"])[idx]
         irc_key = f"irc-{profile.replace('_', '-')}"
         t_id = idx+1
         L(f"  --- Iodine Client {i} (IRC profile: {profile})")
@@ -1175,45 +1172,43 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"                                   IXP-DEFAULT-ADDR) .")
         L("")
         
-    i = 9
-    mas_profs = hcs_profiles_by_channel.get("mastodon", [("irc_6", 1.0)])
-    profile = distribute_profiles(1, mas_profs)[0]
-    irc_key = f"irc-{profile.replace('_', '-')}"
-    L(f"  --- Mastodon HCS Client {i} (IRC profile: {profile})")
-    L(f"  ops masCl{i}Irc masCl{i}Um masCl{i}Iface masCl{i}SrvIface : -> Actor .")
-    L(f"  ops masCl{i}UmacAct masCl{i}CmacAct masCl{i}McacAct masCl{i}EdacAct : -> Actor .")
-    L(f"  ops masCl{i}UmasAct masCl{i}CmasAct masCl{i}McasAct masCl{i}EdasAct : -> Actor .")
-    L(f"  ops masCl{i}ClNet masCl{i}SrvNetCl masNetSrv masSrvAct : -> Actor .")
-    
-    L(f"  eq masCl{i}Irc       = mkIrcClient-v2(masCl{i}IrcAddr, masCl{i}IfaceAddr, \"MasClient{i}\") .")
-    L(f"  eq masCl{i}Um        = mkIrcUMV2Actor(masCl{i}UmAddr, \"{irc_key}\", masCl{i}IrcAddr, ircServerAddr, masCl{i}SrvIfaceAddr) .")
-    L(f"  eq masCl{i}Iface     = mkIrcByteSeqIface(masCl{i}IfaceAddr, masCl{i}IrcAddr, masCl{i}CmacAddr) .")
-    L(f"  eq masCl{i}UmacAct   = mkUMactor(masCl{i}UmacAddr, {mas_client_ma}, masCl{i}CmacAddr) .")
-    L(f"  eq masCl{i}CmacAct   = mkCMSndRcvActor(masCl{i}CmacAddr, masCl{i}EdacAddr, masCl{i}McacAddr, masCl{i}IfaceAddr, \"client{i}\", \"server{i}\") .")
-    L(f"  eq masCl{i}McacAct   = makeMastodonClient(masCl{i}McacAddr, masSrvAddr, masCl{i}CmacAddr) .")
-    L(f"  eq masCl{i}EdacAct   = makeDestiniActor(masCl{i}EdacAddr, ed-images) .")
-    L(f"  eq masCl{i}SrvIface  = mkIrcByteSeqIface(masCl{i}SrvIfaceAddr, ircServerAddr, masCl{i}CmasAddr) .")
-    L(f"  eq masCl{i}UmasAct   = mkUMactor(masCl{i}UmasAddr, {mas_server_ma}, masCl{i}CmasAddr) .")
-    L(f"  eq masCl{i}CmasAct   = mkCMSndRcvActor(masCl{i}CmasAddr, masCl{i}EdasAddr, masCl{i}McasAddr, masCl{i}SrvIfaceAddr, \"server{i}\", \"client{i}\") .")
-    L(f"  eq masCl{i}McasAct   = makeMastodonClient(masCl{i}McasAddr, masSrvAddr, masCl{i}CmasAddr) .")
-    L(f"  eq masCl{i}EdasAct   = makeDestiniActor(masCl{i}EdasAddr, ed-images) .")
-    L(f"  eq masCl{i}ClNet     = makeNetClient(masCl{i}ClNetAddr,")
-    L(f"                                       masSrvAddr,")
-    L(f"                                       masCl{i}McacAddr,")
-    L(f"                                       false,")
-    L(f"                                       corpMasDnsAddr,")
-    L(f"                                       'mastodon . 'pwnd . 'com . root) .")
-    L(f"  eq masNetSrv       = makeNetServer(masNetSrvAddr, masSrvAddr) .")
-    L(f"  eq masCl{i}SrvNetCl  = makeNetClient(masCl{i}SrvNetClAddr,")
-    L(f"                                       masSrvAddr,")
-    L(f"                                       masCl{i}McasAddr,")
-    L(f"                                       false,")
-    L(f"                                       servDnsAddr,")
-    L(f"                                       'mastodon . 'pwnd . 'com . root) .")
-    L("")
+    for idx, i in enumerate(hcs_client_ids["mastodon"]):
+        profile = distribute_profiles(hcs_quantity_by_channel["mastodon"], hcs_profiles_by_channel["mastodon"])[idx]
+        irc_key = f"irc-{profile.replace('_', '-')}"
+        L(f"  --- Mastodon HCS Client {i} (IRC profile: {profile})")
+        L(f"  ops masCl{i}Irc masCl{i}Um masCl{i}Iface masCl{i}SrvIface : -> Actor .")
+        L(f"  ops masCl{i}UmacAct masCl{i}CmacAct masCl{i}McacAct masCl{i}EdacAct : -> Actor .")
+        L(f"  ops masCl{i}UmasAct masCl{i}CmasAct masCl{i}McasAct masCl{i}EdasAct : -> Actor .")
+        L(f"  ops masCl{i}ClNet masCl{i}SrvNetCl : -> Actor .")
+        
+        L(f"  eq masCl{i}Irc       = mkIrcClient-v2(masCl{i}IrcAddr, masCl{i}IfaceAddr, \"MasClient{i}\") .")
+        L(f"  eq masCl{i}Um        = mkIrcUMV2Actor(masCl{i}UmAddr, \"{irc_key}\", masCl{i}IrcAddr, ircServerAddr, masCl{i}SrvIfaceAddr) .")
+        L(f"  eq masCl{i}Iface     = mkIrcByteSeqIface(masCl{i}IfaceAddr, masCl{i}IrcAddr, masCl{i}CmacAddr) .")
+        L(f"  eq masCl{i}UmacAct   = mkUMactor(masCl{i}UmacAddr, {mas_client_ma}, masCl{i}CmacAddr) .")
+        L(f"  eq masCl{i}CmacAct   = mkCMSndRcvActor(masCl{i}CmacAddr, masCl{i}EdacAddr, masCl{i}McacAddr, masCl{i}IfaceAddr, \"client{i}\", \"server{i}\") .")
+        L(f"  eq masCl{i}McacAct   = makeMastodonClient(masCl{i}McacAddr, masSrvAddr, masCl{i}CmacAddr) .")
+        L(f"  eq masCl{i}EdacAct   = makeDestiniActor(masCl{i}EdacAddr, ed-images) .")
+        L(f"  eq masCl{i}SrvIface  = mkIrcByteSeqIface(masCl{i}SrvIfaceAddr, ircServerAddr, masCl{i}CmasAddr) .")
+        L(f"  eq masCl{i}UmasAct   = mkUMactor(masCl{i}UmasAddr, {mas_server_ma}, masCl{i}CmasAddr) .")
+        L(f"  eq masCl{i}CmasAct   = mkCMSndRcvActor(masCl{i}CmasAddr, masCl{i}EdasAddr, masCl{i}McasAddr, masCl{i}SrvIfaceAddr, \"server{i}\", \"client{i}\") .")
+        L(f"  eq masCl{i}McasAct   = makeMastodonClient(masCl{i}McasAddr, masSrvAddr, masCl{i}CmasAddr) .")
+        L(f"  eq masCl{i}EdasAct   = makeDestiniActor(masCl{i}EdasAddr, ed-images) .")
+        L(f"  eq masCl{i}ClNet     = makeNetClient(masCl{i}ClNetAddr,")
+        L(f"                                       masSrvAddr,")
+        L(f"                                       masCl{i}McacAddr,")
+        L(f"                                       false,")
+        L(f"                                       corpMasDnsAddr,")
+        L(f"                                       'mastodon . 'pwnd . 'com . root) .")
+        L(f"  eq masCl{i}SrvNetCl  = makeNetClient(masCl{i}SrvNetClAddr,")
+        L(f"                                       masSrvAddr,")
+        L(f"                                       masCl{i}McasAddr,")
+        L(f"                                       false,")
+        L(f"                                       servDnsAddr,")
+        L(f"                                       'mastodon . 'pwnd . 'com . root) .")
+        L("")
     
     L("  --- Base Infrastructure")
-    L("  ops ircServer s3SrvAct iodineMonitor advActor : -> Actor .")
+    L("  ops ircServer s3SrvAct iodineMonitor advActor masNetSrv masSrvAct : -> Actor .")
     L("  eq ircServer      = mkIrcServer(ircServerAddr) .")
     L("  eq s3SrvAct       = ")
     L("    < s3SrvAddr : AwsS3HttpServer |")
@@ -1227,6 +1222,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("    >")
     L("  .")
     L("  eq masSrvAct      = makeMastodonServer(masSrvAddr) .")
+    L("  eq masNetSrv       = makeNetServer(masNetSrvAddr, masSrvAddr) .")
     L("  eq iodineMonitor  = mkWMonitor(iodineMonitorAddr) .")
     L("  eq advActor       = mkAdversaryCp3(advAddr) .")
     L("")
