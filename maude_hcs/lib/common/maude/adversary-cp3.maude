@@ -89,17 +89,13 @@ eq getSize(pkt(tgt,src,new?,cnx,size)) = size .
 
 op mergeTOL :  TimesObsList TimesObsList -> TimesObsList .
 op toInsert :  TimesObsList TimesObsList TimesObsList -> TimesObsList .
-eq mergeTOL(tol0,nilTO) = tol0 .
-ceq mergeTOL(tol0,to0 ;; tol) = mergeTOL(tol1,tol) 
-  if tol1 := toInsert(tol0,to0,nilTO) .
-
-eq toInsert(nilTO,to0,tol1)  = to0 ;; tol1 . 
-eq toInsert(tol0 ;; to1,to0,tol1) =
-  (if getSendTime(to1) <= getSendTime(to0)
-  then tol0 ;; to1 ;; to0 ;; tol1
-  else toInsert(tol0,to0, to1 ;; tol1)
-  fi)
-  .
+eq mergeTOL(nilTO, tol) = tol .
+eq mergeTOL(tol0, nilTO) = tol0 .
+eq mergeTOL(to0:TimesObs ;; tol0, to1:TimesObs ;; tol1) =
+  if getSendTime(to0:TimesObs) <= getSendTime(to1:TimesObs)
+  then to0:TimesObs ;; mergeTOL(tol0, to1:TimesObs ;; tol1)
+  else to1:TimesObs ;; mergeTOL(to0:TimesObs ;; tol0, tol1)
+  fi .
   
 endm
 
