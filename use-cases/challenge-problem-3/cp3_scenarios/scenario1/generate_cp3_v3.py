@@ -185,10 +185,12 @@ NET_TO_DNS_NAME = {
 def get_corp_dns_addr_name(net):
     return NET_TO_DNS_NAME.get(net, "servDns") + "Addr"
 
-def link_param_name(net_name):
+def link_param_name(net_name, dns=None):
     """Generate a Maude operator name for the link parameters of a network."""
     parts = net_name.split("_")
     camel = "".join(p.capitalize() for p in parts)
+    if dns:
+        return f"LinkType-{camel}-{dns}"
     return f"LinkType-{camel}"
 
 class TgenInstance:
@@ -623,17 +625,10 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("")
     
     L("  op ed-images : -> ByteSeqL .")
+    logger.warning(f"******FIX ED_IMAGES!!!*****")
     L("  eq ed-images =")
-    L("       image(1, 3779, 500)")
-    L("    :: image(2, 2405, 1000)")
-    L("    :: image(3, 36861, 1000)")
-    L("    :: image(4, 25377, 500)")
-    L("    :: image(5, 2440, 300)")
-    L("    :: image(6, 1275, 300)")
-    L("    :: image(7, 7710, 1000)")
-    L("    :: image(8, 3577, 500)")
-    L("    :: image(9, 3415, 300)")
-    L("    :: image(10, 74123, 600)")
+    for i in range(10):
+        L(f"       image({i+1}, 19600, 3000)")
     L("  .")
     L("")
     
@@ -738,84 +733,65 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     
     L("  ---------------------------------------------------")
     L("  --- Link Model Parameters")
+    L("  --- One TCP link and one DNS link per net and one DNS composed link")
     L("  ---------------------------------------------------")
+
+    def linkdata(F, _op_name, _lp, _onewaydelay):
+        F(f"  op {_op_name} : -> AttributeSet .")
+        F(f"  eq {_op_name} =")
+        F(f"  (4stateLoss:")
+        F(f"     (p13: {_lp['p13']},")
+        F(f"      p31: {_lp['p31']},")
+        F(f"      p32: {_lp['p32']},")
+        F(f"      p23: {_lp['p23']},")
+        F(f"      p14: {_lp['p14']},")
+        F(f"      oneWayDelay: {_onewaydelay})")
+        F(f"  )")
+        F(f"  .")
+        F("")
+
     
+    DEF_LP = {"p13": 0.0, "p31": 1.0, "p32": 0.0, "p23": 0.0, "p14": 0.0}
+    dns_net_latency_ms, dns_net_loss_profile = networks["dns_net"]
     for net_name, (latency_ms, loss_profile_name) in networks.items():
-        lp = loss_profiles.get(loss_profile_name, {"p13": 0.0, "p31": 1.0, "p32": 0.0, "p23": 0.0, "p14": 0.0})
+        if not loss_profile_name in loss_profiles:
+            logger.warning(f'Loss profile {loss_profile_name} does exists, reverting to default')
+        lp = loss_profiles[loss_profile_name]
+        ld_dns = loss_profiles[dns_net_loss_profile]
         one_way_delay = latency_ms / 1000.0
+        one_way_delay_dns = dns_net_latency_ms / 1000.0
         op_name = link_param_name(net_name)
-        L(f"  op {op_name} : -> AttributeSet .")
-        L(f"  eq {op_name} =")
-        L(f"  (4stateLoss:")
-        L(f"     (p13: {lp['p13']},")
-        L(f"      p31: {lp['p31']},")
-        L(f"      p32: {lp['p32']},")
-        L(f"      p23: {lp['p23']},")
-        L(f"      p14: {lp['p14']},")
-        L(f"      oneWayDelay: {one_way_delay})")
-        L(f"  )")
-        L(f"  .")
-        L("")
-        
-    L("  op LinkType-Dns : -> AttributeSet .")
-    L("  eq LinkType-Dns =")
-    L("  (delayStd:  0.0),")
-    L("  (delayType: \"Constant\"),")
-    L("  (delayMean: 0.01),")
-    L("  (delayConst: 0.001),")
-    L("  (noiseMin: 0.),")
-    L("  (noiseMax: 0.00001),")
-    L("  (dropP: 0.),")
-    L("  (canDrop: false),")
-    L("  (4stateLoss:")
-    L("     (p13: 0.0,")
-    L("      p31: 1.0,")
-    L("      p32: 0.0,")
-    L("      p23: 0.0,")
-    L("      p14: 0.0,")
-    L("      oneWayDelay: 0.01)")
-    L("  )")
-    L("  .")
-    L("")
-    
-    L("  op LinkType-DnsComposed : -> AttributeSet .")
-    L("  eq LinkType-DnsComposed =")
-    L("  (delayStd:  0.0),")
-    L("  (delayType: \"Constant\"),")
-    L("  (delayMean: 0.),")
-    L("  (delayConst: 0.001),")
-    L("  (noiseMin: 0.),")
-    L("  (noiseMax: 0.00001),")
-    L("  (dropP: 0.),")
-    L("  (canDrop: false),")
-    L("  (4stateLoss:")
-    L("     (p13: 0.0,")
-    L("      p31: 1.0,")
-    L("      p32: 0.0,")
-    L("      p23: 0.0,")
-    L("      p14: 0.0,")
-    L("      oneWayDelay: 0.02)")
-    L("  )")
-    L("  .")
-    L("")
+        op_name_dns = link_param_name(net_name, dns="Dns")
+        op_name_dns_comp = link_param_name(net_name, dns="DnsComposed")
+        # TCP link
+        L(f"  --- TCP link from/to {net_name} to IXP")
+        linkdata(L, op_name, lp, one_way_delay)
+        # DNS link
+        L(f"  --- DNS link from/to {net_name} to IXP")
+        linkdata(L, op_name_dns, DEF_LP, one_way_delay)
+        # DNS composed link
+        if net_name != "dns_net":
+            L(f"  --- DNS composed link from/to {net_name} to dns_net")
+            linkdata(L, op_name_dns_comp, DEF_LP, (latency_ms + dns_net_latency_ms) / 1000.0)
     
     L("  ---------------------------------------------------")
     L("  --- Transport Equations (Readable Addresses Only)")
     L("  ---------------------------------------------------")
-    
+    ##    TCP includes all non DNS (non iddine) traffic
     tcp_addrs = []
-    for i in [1, 2]:
+    for i in hcs_client_ids["webtunnel"]:
         tcp_addrs.append(f"wtCl{i}ClientAddr")
         tcp_addrs.append(f"wtCl{i}ProxyAddr")
-    for i in [5, 6]:
+    for i in hcs_client_ids["obfs4"]:
         tcp_addrs.append(f"obfsCl{i}ClientAddr")
         tcp_addrs.append(f"obfsCl{i}ServerAddr")
-    for i in [3, 4]:
+    for i in hcs_client_ids["skyhook"]:
         tcp_addrs.append(f"skyCl{i}SdkacAddr")
         tcp_addrs.append(f"skyCl{i}SdkasAddr")
-    tcp_addrs.append("s3SrvAddr")
-    tcp_addrs.append("masCl9McacAddr")
-    tcp_addrs.append("masCl9McasAddr")
+    for i in hcs_client_ids["mastodon"]:
+            tcp_addrs.append(f"masCl{i}McacAddr")
+            tcp_addrs.append(f"masCl{i}McasAddr")
+    tcp_addrs.append("s3SrvAddr")    
     tcp_addrs.append("masSrvAddr")
     
     for inst in tgen_instances:
@@ -841,14 +817,14 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         "corpRtDnsAddr",
         "corpObfsDnsAddr",
         "corpSkyDnsAddr",
+        "corpIodDnsAddr",
         "servDnsAddr",
     ]
     for name in udp_addrs:
         L(f"  eq transport({name}) = {name} .")
-    L("")
+    L("")    
     
-    L("  eq transport(corpIodDnsAddr)    = corpIodDnsAddr .")
-    for i in [7, 8]:
+    for i in hcs_client_ids["iodine"]:
         L(f"  eq transport(iodCl{i}ServerAddr) = iodCl{i}ServerAddr .")
         L(f"  eq transport(iodCl{i}NetServerAddr) = iodCl{i}NetServerAddr .")
     L("")
@@ -867,97 +843,102 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     def add_bidir_ixp(addr1, link_type):
         link_entries.append(f"    aaa({addr1}, IXP-DEFAULT-ADDR, {link_type})")
         link_entries.append(f"    aaa(IXP-DEFAULT-ADDR, {addr1}, {link_type})")
-        
+    """
+    We also add links between these actors ?
+    corpMasNetClAddr
+    corpRtNetClAddr
+    corpObfsNetClAddr
+    corpIodNetClAddr
+    corpSkyNetClAddr
+     <>
+    publicResolverNetSrvAddr    (composed)
+    publicDnsAddr (composed)
+    IXP
+    """        
     wt_link = link_param_name("client_net_racetunnel")
-    for i in [1, 2]:
+    wt_link_dns = link_param_name("client_net_racetunnel", "Dns")
+    wt_link_dns_comp = link_param_name("client_net_racetunnel", "DnsComposed")
+    server_net_link = link_param_name("server_net")
+    minio_net_link = link_param_name("minio_net")
+    mas_net_link = link_param_name("mastodon_net")
+    for i in hcs_client_ids["webtunnel"]:
         link_entries.append(f"    --- Webtunnel Client {i}")
         add_bidir_ixp(f"wtCl{i}ClientAddr", wt_link)
-        add_bidir_ixp(f"wtCl{i}ProxyAddr", "LinkType-ServerNet")
+        add_bidir_ixp(f"wtCl{i}ProxyAddr", server_net_link)
+    link_entries.append(f"    --- Webtunnel corp")
+    add_bidir_ixp(f"corpRtNetClAddr", wt_link_dns)
+    add_bidir_link(f"corpRtNetClAddr", f"publicResolverNetSrvAddr", wt_link_dns_comp)
+    add_bidir_link(f"corpRtNetClAddr", f"publicDnsAddr", wt_link_dns_comp)
     link_entries.append("")
     
     obfs_link = link_param_name("client_net_obfs")
-    for i in [5, 6]:
+    obfs_link_dns = link_param_name("client_net_obfs", dns="Dns")
+    obfs_link_dns_comp = link_param_name("client_net_obfs", dns="DnsComposed")
+    for i in hcs_client_ids["obfs4"]:
         link_entries.append(f"    --- OBFS4 Client {i}")
         add_bidir_ixp(f"obfsCl{i}ClientAddr", obfs_link)
-        add_bidir_ixp(f"obfsCl{i}ServerAddr", "LinkType-ServerNet")
+        add_bidir_ixp(f"obfsCl{i}ServerAddr", server_net_link)
+    link_entries.append(f"    --- Obfs4 corp")
+    add_bidir_ixp(f"corpObfsNetClAddr", obfs_link_dns)
+    add_bidir_link(f"corpObfsNetClAddr", f"publicResolverNetSrvAddr", obfs_link_dns_comp)
+    add_bidir_link(f"corpObfsNetClAddr", f"publicDnsAddr", obfs_link_dns_comp)
     link_entries.append("")
     
     sky_link = link_param_name("client_net_sky")
-    for i in [3, 4]:
+    sky_link_dns = link_param_name("client_net_sky", dns="Dns")
+    sky_link_dns_comp = link_param_name("client_net_sky", dns="DnsComposed")
+    for i in hcs_client_ids["skyhook"]:
         link_entries.append(f"    --- Skyhook Client {i}")
         add_bidir_ixp(f"skyCl{i}SdkacAddr", sky_link)
-        add_bidir_ixp(f"skyCl{i}SdkasAddr", sky_link)
-    link_entries.append("    --- Skyhook server")
-    
-    add_bidir_ixp("s3SrvAddr", sky_link)
+        add_bidir_ixp(f"skyCl{i}SdkasAddr", server_net_link)
+    add_bidir_ixp(f"corpSkyNetClAddr", sky_link_dns)
+    add_bidir_link(f"corpSkyNetClAddr", f"publicResolverNetSrvAddr", sky_link_dns_comp)
+    add_bidir_link(f"corpSkyNetClAddr", f"publicDnsAddr", sky_link_dns_comp)    
+
+    link_entries.append("    --- Minio/S3 server")    
+    add_bidir_ixp("s3SrvAddr", minio_net_link)
     link_entries.append("")
-    
-    iod_link = "LinkType-Dns"
-    for i in [7, 8]:
-        link_entries.append(f"    --- Iodine Client {i}")
-        add_bidir_ixp(f"iodCl{i}ServerAddr", iod_link)
-    link_entries.append("    --- Iodine DNS")
-    
-    add_bidir_ixp("corpIodDnsAddr", iod_link)
-    link_entries.append("")
-    
+
     mas_link = link_param_name("client_net_mastodon")
-    i = 9
-    link_entries.append(f"    --- Mastodon HCS Client {i}")
-    add_bidir_ixp(f"masCl{i}McacAddr", mas_link)
-    add_bidir_ixp(f"masCl{i}McasAddr", mas_link)
-    link_entries.append("    --- Mastodon server")
-    add_bidir_ixp("masSrvAddr", mas_link)
+    mas_link_dns = link_param_name("client_net_mastodon", dns="Dns")
+    mas_link_dns_comp = link_param_name("client_net_mastodon", dns="DnsComposed")
+    for i in hcs_client_ids["mastodon"]:    
+        link_entries.append(f"    --- Mastodon HCS Client {i}")
+        add_bidir_ixp(f"masCl{i}McacAddr", mas_link)
+        add_bidir_ixp(f"masCl{i}McasAddr", server_net_link)
+        link_entries.append("    --- Mastodon server")
+        add_bidir_ixp("masSrvAddr", mas_net_link)
+    add_bidir_ixp(f"corpMasNetClAddr", mas_link_dns)
+    add_bidir_link(f"corpMasNetClAddr", f"publicResolverNetSrvAddr", mas_link_dns_comp)
+    add_bidir_link(f"corpMasNetClAddr", f"publicDnsAddr", mas_link_dns_comp)
     link_entries.append("")
     
-    link_entries.append("    --- UDP DNS Links")
-    link_entries.append("    *** Reminder: UDP has no loss.")
-    
-    dns_ixp_addrs = [
-        "iodCl7SrvNetClAddr", "iodCl8SrvNetClAddr",
-        "corpIodNetClAddr",
-    ]
-    for addr in dns_ixp_addrs:
-        add_bidir_ixp(addr, "LinkType-Dns")
+    iod_link_dns = link_param_name("client_net_iodine", dns="Dns")
+    iod_link_dns_comp = link_param_name("client_net_iodine", dns="DnsComposed")
+    server_net_link_dns = link_param_name("server_net", dns="Dns")
+    server_net_link_dns_comp = link_param_name("server_net", dns="DnsComposed")
+    dns_net_link_dns = link_param_name("dns_net", dns="Dns")
+    for i in hcs_client_ids["iodine"]:
+        link_entries.append(f"    --- Iodine Client {i}")        
+        add_bidir_ixp(f"iodCl{i}ClientAddr", iod_link_dns)
+        add_bidir_ixp(f"iodCl{i}ServerAddr", server_net_link_dns)
+        add_bidir_ixp(f"iodCl{i}SrvNetSrvAddr", server_net_link_dns)
+        add_bidir_ixp(f"iodCl{i}SrvNetClAddr", dns_net_link_dns)
+        add_bidir_link(f"iodCl{i}SrvNetClAddr", f"iodCl{i}SrvNetSrvAddr", server_net_link_dns_comp)
+    add_bidir_ixp(f"corpIodNetClAddr", iod_link_dns)
+    add_bidir_link(f"corpIodNetClAddr", f"publicResolverNetSrvAddr", iod_link_dns_comp)
+    add_bidir_link(f"corpIodNetClAddr", f"publicDnsAddr", iod_link_dns_comp)
+    link_entries.append("    --- Iodine DNS")    
+    add_bidir_ixp("corpIodDnsAddr", iod_link_dns)
     link_entries.append("")
-
-    add_bidir_ixp("publicDnsAddr", "LinkType-Dns")
-    link_entries.append("")
-
-    add_bidir_ixp("ircServerAddr", "LinkType-ServerNet")
-    link_entries.append("")
-
-    dns_enclaves = [
-        ("IRC Server", "serv"),
-        ("Mastodon IRC Client", "corpMas"),
-        ("WebTunnel IRC Client", "corpRt"),
-        ("Obfs4 IRC Client", "corpObfs"),
-        ("Skyhook IRC Client", "corpSky"),
-    ]
-    for desc, prefix in dns_enclaves:
-        dns_addr = f"{prefix}DnsAddr"
-        netcl_addr = f"{prefix}NetClAddr"
         
-        link_entries.append(f"    *** {desc} enclave DNS server ***")
-        link_entries.append("    **** Local DNS addr to PublicDNS resolver net server ****")
-        add_bidir_link(dns_addr, "publicDnsAddr", "LinkType-DnsComposed")
-        add_bidir_ixp(dns_addr, "LinkType-Dns")
-        link_entries.append("    **** Local DNS Net Cl addr to PublicDNS resolver net server ****")
-        add_bidir_link(netcl_addr, "publicDnsAddr", "LinkType-DnsComposed")
-        add_bidir_ixp(netcl_addr, "LinkType-Dns")
 
+    add_bidir_ixp("publicDnsAddr", dns_net_link_dns)
     link_entries.append("")
-    add_bidir_link("corpIodDnsAddr", "publicDnsAddr", "LinkType-DnsComposed")
-    add_bidir_link("corpIodNetClAddr", "publicDnsAddr", "LinkType-DnsComposed")
-    link_entries.append("")
-    add_bidir_link("iodCl7ServerAddr", "publicDnsAddr", "LinkType-DnsComposed")
-    add_bidir_link("iodCl8ServerAddr", "publicDnsAddr", "LinkType-DnsComposed")
-    add_bidir_link("iodCl7ServerAddr", "iodCl7SrvNetClAddr", "LinkType-DnsComposed")
-    add_bidir_link("iodCl8ServerAddr", "iodCl8SrvNetClAddr", "LinkType-DnsComposed")
 
+    add_bidir_ixp("ircServerAddr", server_net_link)
     link_entries.append("")
-    link_entries.append("    *** TODO: Do we need the same, but instead of publicResolver, it is the Iodine net servers?")
-    link_entries.append("")
+
 
     link_entries.append("    --- TGEN Direct Links")
     
@@ -992,8 +973,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     link_entries.append("")
     
     link_entries.append("    --- TGEN IXP Links")
-    add_bidir_ixp("ftpSrvAddr", "LinkType-ServerNet")
-    add_bidir_ixp("gorillaSrvAddr", "LinkType-ServerNet")
+    add_bidir_ixp("ftpSrvAddr", server_net_link)
+    add_bidir_ixp("gorillaSrvAddr", server_net_link)
         
     for idx_line, entry in enumerate(link_entries):
         if entry == "":
