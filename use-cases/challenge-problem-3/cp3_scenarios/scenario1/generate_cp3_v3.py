@@ -13,6 +13,7 @@ from venv import logger
 import yaml
 
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
+IMAGE_SIZE = 196000
 
 def chunk_list(lst, n):
     """Yield successive n-sized chunks from lst."""
@@ -633,7 +634,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     preamble = " :: "
     L("  eq ed-images =")    
     for i in range(10):
-        L(f"    {preamble if i > 0 and i < 10 else " "}image({i+1}, 19600, 3000)")        
+        L(f"    {preamble if i > 0 and i < 10 else " "}image({i+1}, {IMAGE_SIZE}, 3000)")        
     L("  .")
     L("")
     
