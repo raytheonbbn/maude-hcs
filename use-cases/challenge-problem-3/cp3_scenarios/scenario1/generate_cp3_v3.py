@@ -183,7 +183,7 @@ NET_TO_DNS_NAME = {
 }
 
 def get_corp_dns_addr_name(net):
-    return NET_TO_DNS_NAME["servDns"] + "Addr"
+    return NET_TO_DNS_NAME[net] + "Addr"
 
 def link_param_name(net_name, dns=None):
     """Generate a Maude operator name for the link parameters of a network."""
@@ -1326,8 +1326,6 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         elif inst.tgen_type == "dnsTgen":
             dns_model = f"dns-config-{inst.profile.replace('_', '-')}-ma"
             dns_rsv = get_corp_dns_addr_name(net) if net in NET_TO_DNS_NAME else "publicDnsAddr"
-            if net == "client_net_iodine":
-                dns_rsv = "iodCl7ServerAddr"
             L(f"  --- DNS TGEN: {bn} (profile={inst.profile}, network={net})")
             L(f"  ops {bn}Act {bn}UmAct : -> Actor .")
             L(f"  eq {bn}Act    = mkDnsTgenA({bn}TgAddr, {dns_rsv}, 1000, 5.0, 2) .")
@@ -1367,10 +1365,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  --- Initial State Configuration")
     L("  ---------------------------------------------------")
     L("  op initState : Nat -> Config .")
-    L("  eq initState(j) =")
-    L("    *** Since this is aiming to be generated via Python script or AI, no need")
-    L("    *** for a Maude counter. Python or AI can use their own counter.")
-    L("    rCtr(j + 154)")
+    L("  eq initState(j) =")    
     L("")
     L("    --- Baseline actor")
     L("    baselineAct")
@@ -1381,47 +1376,38 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("    servDns servNetCl")
     L("    advActor")
     L("")
-    L("    --- Webtunnel Client 1")
-    L("    wtCl1Irc wtCl1Um wtCl1Iface wtCl1SrvIface wtCl1Client wtCl1Proxy")
-    L("    wtCl1NetClient wtCl1NetServer")
-    L("    --- Webtunnel Client 2")
-    L("    wtCl2Irc wtCl2Um wtCl2Iface wtCl2SrvIface wtCl2Client wtCl2Proxy")
-    L("    wtCl2NetClient wtCl2NetServer")
+    for i in hcs_client_ids["webtunnel"]:
+        L(f"    --- Webtunnel Client {i}")
+        L(f"    wtCl{i}Irc wtCl{i}Um wtCl{i}Iface wtCl{i}SrvIface wtCl{i}Client wtCl{i}Proxy")
+        L(f"    wtCl{i}NetClient wtCl{i}NetServer")
     L("    corpRtDns corpRtNetCl")
     L("")
-    L("    --- Skyhook Client 3")
-    L("    skyCl3Irc skyCl3Um skyCl3Iface skyCl3UmacAct skyCl3CmacAct skyCl3PuaAct skyCl3SdkacAct")
-    L("    skyCl3SrvIface skyCl3UmasAct skyCl3CmasAct skyCl3AhaAct skyCl3SdkasAct")
-    L("    skyCl3ClNet skyCl3NetSrv skyCl3SrvNetCl")
-    L("    --- Skyhook Client 4")
-    L("    skyCl4Irc skyCl4Um skyCl4Iface skyCl4UmacAct skyCl4CmacAct skyCl4PuaAct skyCl4SdkacAct")
-    L("    skyCl4SrvIface skyCl4UmasAct skyCl4CmasAct skyCl4AhaAct skyCl4SdkasAct")
-    L("    skyCl4ClNet skyCl4NetSrv skyCl4SrvNetCl")
+    for i in hcs_client_ids["skyhook"]:
+        L(f"    --- Skyhook Client {i}")
+        L(f"    skyCl{i}Irc skyCl{i}Um skyCl{i}Iface skyCl{i}UmacAct skyCl{i}CmacAct skyCl{i}PuaAct skyCl{i}SdkacAct")
+        L(f"    skyCl{i}SrvIface skyCl{i}UmasAct skyCl{i}CmasAct skyCl{i}AhaAct skyCl{i}SdkasAct")
+        L(f"    skyCl{i}ClNet skyCl{i}NetSrv skyCl{i}SrvNetCl")    
     L("    corpSkyDns corpSkyNetCl")
     L("")
-    L("    --- OBFS4 Client 5")
-    L("    obfsCl5Irc obfsCl5Um obfsCl5Iface obfsCl5SrvIface obfsCl5Cl obfsCl5Srv")
-    L("    obfsCl5NetCl obfsCl5NetSrv")
-    L("    --- OBFS4 Client 6")
-    L("    obfsCl6Irc obfsCl6Um obfsCl6Iface obfsCl6SrvIface obfsCl6Cl obfsCl6Srv")
-    L("    obfsCl6NetCl obfsCl6NetSrv")
+    for i in hcs_client_ids["obfs4"]:
+        L(f"    --- OBFS4 Client {i}")
+        L(f"    obfsCl{i}Irc obfsCl{i}Um obfsCl{i}Iface obfsCl{i}SrvIface obfsCl{i}Cl obfsCl{i}Srv")
+        L(f"    obfsCl{i}NetCl obfsCl{i}NetSrv")    
     L("    corpObfsDns corpObfsNetCl")
     L("")
-    L("    --- Iodine Client 7")
-    L("    iodCl7Irc iodCl7Um iodCl7Iface iodCl7SrvIface")
-    L("    iodCl7SendApp iodCl7RcvApp iodCl7Cl iodCl7Srv")
-    L("    iodCl7SrvNetSrv iodCl7SrvNetCl")
-    L("    --- Iodine Client 8")
-    L("    iodCl8Irc iodCl8Um iodCl8Iface iodCl8SrvIface")
-    L("    iodCl8SendApp iodCl8RcvApp iodCl8Cl iodCl8Srv")
-    L("    iodCl8SrvNetSrv iodCl8SrvNetCl")
+    for i in hcs_client_ids["iodine"]:
+        L(f"    --- Iodine Client {i}")
+        L(f"    iodCl{i}Irc iodCl{i}Um iodCl{i}Iface iodCl{i}SrvIface")
+        L(f"    iodCl{i}SendApp iodCl{i}RcvApp iodCl{i}Cl iodCl{i}Srv")
+        L(f"    iodCl{i}SrvNetSrv iodCl{i}SrvNetCl")
     L("    corpIodDns corpIodNetCl")
     L("")
-    L("    --- Mastodon HCS Client 9")
-    L("    masCl9Irc masCl9Um masCl9Iface masCl9SrvIface")
-    L("    masCl9UmacAct masCl9CmacAct masCl9McacAct masCl9EdacAct")
-    L("    masCl9UmasAct masCl9CmasAct masCl9McasAct masCl9EdasAct")
-    L("    masCl9ClNet masNetSrv masCl9SrvNetCl")
+    for i in hcs_client_ids["mastodon"]:
+        L(f"    --- Mastodon HCS Client {i}")
+        L(f"    masCl{i}Irc masCl{i}Um masCl{i}Iface masCl{i}SrvIface")
+        L(f"    masCl{i}UmacAct masCl{i}CmacAct masCl{i}McacAct masCl{i}EdacAct")
+        L(f"    masCl{i}UmasAct masCl{i}CmasAct masCl{i}McasAct masCl{i}EdasAct")
+        L(f"    masCl{i}ClNet masNetSrv masCl{i}SrvNetCl")
     L("    corpMasDns corpMasNetCl")
     L("")
     L("    --- DNS Infrastructure")
@@ -1453,44 +1439,40 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("")
     L("    --- Startup Timers")
     L("")
-    timer_j = 0
-    L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, 0.0001), (to skyCl3AhaAddr from skyCl3AhaAddr : SkyhookStartCmd), 0]"); timer_j += 1
-    L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, 0.0001), (to skyCl4AhaAddr from skyCl4AhaAddr : SkyhookStartCmd), 0]"); timer_j += 1
-    L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, 0.0001), (to wtCl1ClientAddr from wtCl1ClientAddr : WtStartCmd), 0]"); timer_j += 1
-    L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, 0.0001), (to wtCl2ClientAddr from wtCl2ClientAddr : WtStartCmd), 0]"); timer_j += 1
-
-    L(f"    [hcsDelay + 1.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to skyCl3UmacAddr from skyCl3UmacAddr : actionR(\"ok\")), 0]"); timer_j += 1
-    L(f"    [hcsDelay + 1.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to skyCl3UmasAddr from skyCl3UmasAddr : actionR(\"ok\")), 0]"); timer_j += 1
-    L(f"    [hcsDelay + 1.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to skyCl4UmacAddr from skyCl4UmacAddr : actionR(\"ok\")), 0]"); timer_j += 1
-    L(f"    [hcsDelay + 1.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to skyCl4UmasAddr from skyCl4UmasAddr : actionR(\"ok\")), 0]"); timer_j += 1
-    L(f"    [hcsDelay + 1.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to iodCl7SendAppAddr : start), 0]"); timer_j += 1
-    L(f"    [hcsDelay + 1.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to iodCl7RcvAppAddr : start), 0]"); timer_j += 1
-    L(f"    [hcsDelay + 1.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to iodCl8SendAppAddr : start), 0]"); timer_j += 1
-    L(f"    [hcsDelay + 1.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to iodCl8RcvAppAddr : start), 0]"); timer_j += 1
-    L(f"    [hcsDelay + 1.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to masCl9UmacAddr from masCl9UmacAddr : actionR(\"ok\")), 0]"); timer_j += 1
-    L(f"    [hcsDelay + 1.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to masCl9UmasAddr from masCl9UmasAddr : actionR(\"ok\")), 0]"); timer_j += 1
+    timer_j = 1
+    start_noise = 0.009
+    for i in hcs_client_ids["skyhook"]:
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to skyCl{i}AhaAddr from skyCl{i}AhaAddr : SkyhookStartCmd), 0]"); timer_j += 1
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to skyCl{i}UmacAddr from skyCl{i}UmacAddr : actionR(\"ok\")), 0]"); timer_j += 1
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to skyCl{i}UmasAddr from skyCl{i}UmasAddr : actionR(\"ok\")), 0]"); timer_j += 1
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to skyCl{i}UmAddr from skyCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
+    for i in hcs_client_ids["webtunnel"]:
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to wtCl{i}ClientAddr from wtCl{i}ClientAddr : WtStartCmd), 0]"); timer_j += 1
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to wtCl{i}UmAddr from wtCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
+    for i in hcs_client_ids["iodine"]:
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to iodCl{i}SendAppAddr : start), 0]"); timer_j += 1
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to iodCl{i}RcvAppAddr : start), 0]"); timer_j += 1 
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to iodCl{i}UmAddr from iodCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1   
+    for i in hcs_client_ids["mastodon"]:    
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to masCl{i}UmacAddr from masCl{i}UmacAddr : actionR(\"ok\")), 0]"); timer_j += 1
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to masCl{i}UmasAddr from masCl{i}UmasAddr : actionR(\"ok\")), 0]"); timer_j += 1
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to masCl{i}UmAddr from masCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1    
+    for i in hcs_client_ids["obfs4"]:
+        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to obfsCl{i}UmAddr from obfsCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
     L("")
-    L("    --- IRC User Model Burst Delay Timers (staggered)")
-    for i in [1, 2]:
-        L(f"    [hcsDelay + 10.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to wtCl{i}UmAddr from wtCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
-    for i in [3, 4]:
-        L(f"    [hcsDelay + 10.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to skyCl{i}UmAddr from skyCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
-    for i in [5, 6]:
-        L(f"    [hcsDelay + 10.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to obfsCl{i}UmAddr from obfsCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
-    for i in [7, 8]:
-        L(f"    [hcsDelay + 10.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to iodCl{i}UmAddr from iodCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
-    L(f"    [hcsDelay + 10.0 + genRandomX(j + {timer_j}, 0.0, 0.0001), (to masCl9UmAddr from masCl9UmAddr : burstDelayTO), 0]"); timer_j += 1
-    L("")
+    
     L("    --- TGEN User Model Burst Delay Timers (staggered)")
     for inst in tgen_instances:
         bn = inst.base_name
         if inst.tgen_type in ["masTgen", "dnsTgen"]:
-            L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, 0.0001), (to {bn}UmAddr from {bn}UmAddr : actionR(\"ok\")), 0]")
+            L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to {bn}UmAddr from {bn}UmAddr : actionR(\"ok\")), 0]")
         else:
-            L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, 0.0001), (to {bn}UmAddr from {bn}UmAddr : burstDelayTO), 0]")
+            L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to {bn}UmAddr from {bn}UmAddr : burstDelayTO), 0]")
         timer_j += 1
+    L("")    
+    L(f"    rCtr(j + {timer_j})")
     L("  .")
-    L("")
+    L("")    
     L("  ---------------------------------------------------")
     L("  --- Run Limits and Initial Configuration")
     L("  ---------------------------------------------------")
@@ -1506,11 +1488,11 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("")
     L("  op allClientsAddr : -> AddrList .")
     all_clients = []
-    for i in [1, 2]: all_clients.append(f"wtCl{i}IrcAddr")
-    for i in [3, 4]: all_clients.append(f"skyCl{i}IrcAddr")
-    for i in [5, 6]: all_clients.append(f"obfsCl{i}IrcAddr")
-    for i in [7, 8]: all_clients.append(f"iodCl{i}IrcAddr")
-    all_clients.append("masCl9IrcAddr")
+    for i in hcs_client_ids["webtunnel"]: all_clients.append(f"wtCl{i}IrcAddr")
+    for i in hcs_client_ids["skyhook"]: all_clients.append(f"skyCl{i}IrcAddr")
+    for i in hcs_client_ids["obfs4"]: all_clients.append(f"obfsCl{i}IrcAddr")
+    for i in hcs_client_ids["iodine"]: all_clients.append(f"iodCl{i}IrcAddr")
+    for i in hcs_client_ids["mastodon"]: all_clients.append(f"masCl{i}IrcAddr")
             
     L(f"  eq allClientsAddr = {' ; '.join(all_clients)} .")
     L("endm")
