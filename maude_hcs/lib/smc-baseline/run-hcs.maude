@@ -1,0 +1,64 @@
+sload ../../../use-cases/challenge-problem-3/cp3_scenarios/scenario1/z-scenario1
+
+sload ../smc/smc_cp3-refactored
+sload baseline-actor
+sload smc-params
+sload bl-eq
+
+
+mod RUN-HCS is
+  inc HCS_TEST .
+  inc SMC-PARAMS .
+  inc SMC_CP3 .
+  inc BL-EQ .
+  
+  **** slimit default is 1hr == 3600.0
+  eq slimit = 100.0 .
+
+***(  
+set in smc-params
+eq sT = 0.0 .
+eq wS =  60. .
+eq bS = 10. .
+eq eT = slimit .
+)
+
+**** TODO
+**** eq finalize(c:Config) = moveKS2Acv(c:Config)
+
+
+endm
+eof
+**** NEED TO fix the initConfig rule to do
+rew run({0.0 | nil} initState(1) [0.00001, (to baseLineAddr from baseLineAddr : initKs),0],100.) .
+
+q
+eof
+rew initConfig .  
+
+rew run({0.0 | nil} initState(1) [tgenDelay, (to baseLineAddr from baseLineAddr : initBase),0], 100.0)
+q
+eof
+
+in lib/smc
+ln -s visibility-plain.maude visibility.maude  
+  
+slimit 300.
+rewrites: 1 074 410 648 in 216 906ms cpu 3.5min
+(4 953 326 rewrites/second)
+
+slimit 600.
+rewrites: 17 343 992 389 in 1 448 678ms cpu ~ 24min
+(11 972 286  rewrites/second)
+
+
+
+maude scenario1-baseline > tmp.txt
+
+portBaseline(tmp.txt,scenario1-baseline-actor.maude)  
+
+insert just before endm
+  eq baselineAct = <text from tmp.txt >
+  that is text between  and not including
+     "result Actor:" and "Bye."
+

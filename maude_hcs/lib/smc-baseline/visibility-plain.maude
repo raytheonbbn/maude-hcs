@@ -1,0 +1,175 @@
+sload  ../common/maude/structured-addresses 
+sload ../common/maude/adversary-cp3
+
+***(
+  op ept : -> AddrSet [ctor] .
+  op _;;_ : AddrSet AddrSet -> AddrSet [ctor comm assoc id: ept] .
+  )
+
+view NetId from TRIV to STRUCTURED-ADDRESSES is
+  sort Elt to NetId .
+endv  
+  
+view AddrSet from TRIV to ADDRESS is
+  sort Elt to AddrSet .
+ endv  
+  
+mod VISIBILITY is
+  inc ADVERSARY-CP3-DATA .
+  inc STRUCTURED-ADDRESSES .
+  inc MAP{NetId,AddrSet} .
+
+vars vp nid : NetId .
+vars tobs : TimesObs .
+vars tmin tmax  obst : FloatInf .
+vars dir : Dir .
+vars j : Nat .
+vars nidAddrsM : Map{NetId,AddrSet} .
+vars addrs : AddrSet .
+vars addr : Address .
+
+**** to be defined in each scenario file
+op visibilityMap : -> Map{NetId,AddrSet} . 
+
+op hasAddr : AddrSet Address -> Bool .
+eq hasAddr(addrs ;; addr,addr) = true .
+eq hasAddr(addrs,addr) = false [owise] .
+
+op vpSees : Map{NetId,AddrSet} NetId Address -> Bool .
+ceq vpSees(nidAddrsM,vp,addr) = hasAddr(addrs,addr)
+if addrs := (if $hasMapping(nidAddrsM, vp) 
+             then nidAddrsM[vp]
+             else ept
+             fi)
+.
+
+***(
+A vantage point is a network identifier, one of
+   cl[j] srvN masN minN dnsN ixpN
+)
+
+sort Dir .
+ops incoming outgoing : -> Dir [ctor] .
+
+**** test if tmsg is visible at given vantage point 
+**** in a given time interval with a given direction.
+
+op visible : Map{NetId,AddrSet} NetId TimesObs 
+             Float Float Dir -> Bool .
+op visible : NetId TimesObs Float Float Dir -> Bool .
+op visTime : Map{NetId,AddrSet} NetId TimesObs 
+             Float Float Dir -> Bool .
+op visNet : Map{NetId,AddrSet} NetId TimesObs Dir -> Bool .
+
+**** nidAddrsM
+eq visible(vp,tobs,tmin,tmax,dir) =
+ visible(visibilityMap,vp,tobs,tmin,tmax,dir) .
+
+eq visible(nidAddrsM,vp,tobs,tmin,tmax,dir)
+     = false [owise] .
+eq visible(nidAddrsM,vp,tobs,tmin,tmax,dir) =
+    visNet(nidAddrsM,vp,tobs,dir) and visTime(nidAddrsM,vp,tobs,tmin,tmax,dir) .
+    
+eq visNet(nidAddrsM,ixpN,tobs,dir)  = true .
+ceq visNet(nidAddrsM,vp,tobs,dir)  = 
+          vpSees(nidAddrsM,vp,addr)
+if addr := (if dir == incoming
+          then getReceiver(tobs)
+          else getSender(tobs)
+          fi)  [owise] 
+    .
+
+ceq visTime(nidAddrsM,vp,tobs,tmin,tmax,dir) = 
+      (tmin <= obst) and (obst <= tmax)
+if obst := (if vp == ixpN
+            then getIXPTime(tobs)
+            else (if dir == incoming
+                  then getRecvTime(tobs)
+                  else getSendTime(tobs)
+                  fi) fi)
+  .                       
+
+endm
+
+eof
+*** sload ../../../deps/dns_formalization/Maude/dns/common/prelim.maude
+
+mod TEST-VISIBILITY is
+  inc VISIBILITY .
+***  inc MSG .
+  
+  
+ops pDnsAd cDns1Ad cDnsSrvAd cl1CAd masSAd
+      : -> Address .
+
+eq visibilityMap = 
+  (dnsN |-> pDnsAd),
+  (cl[1] |-> cDns1Ad ;; cl1CAd),
+  (srvN |-> cDnsSrvAd) ,
+  (masN |-> masSAd) .
+
+op body : -> Content .
+ops tM0 tM1 tM2 : -> TimesMsg .
+ops tP0 tP1 tP2 tP3 : -> TimesPkt .
+
+**** vis ixpN i/o  dnsN i, srvN o
+eq tM0 = ***** t0 dnsN from srvN
+tm(1.16e-3, 6.24e-3, 6.47e-3, 
+    to pDnsAd from cDnsSrvAd : body) .
+
+***(
+red visible(ixpN,tM0,1.e-3,6.e-3,incoming) .   --- f
+red visible(ixpN,tM0,1.e-3,8.e-3,incoming) .   --- t
+red visible(dnsN,tM0,1.e-3,8.e-3,incoming) .   --- t
+red visible(dnsN,tM0,1.e-3,8.e-3,outgoing) .   --- f
+red visible(srvN,tM0,1.e-3,8.e-3,outgoing) .   --- t
+red visible(srvN,tM0,1.e-3,8.e-3,incoming) .   --- f
+)
+
+**** vis ixpN i/o  dnsN i, srvN o
+eq tM1 =  **** to dnsN from srvN[2]  
+tm(2.209e-3, 7.2745e-3, 7.425e-3, 
+     to pDnsAd from cDnsSrvAd : body) .
+
+***(
+red visible(dnsN,tM1,1.e-3,8.e-3,incoming) .   --- t
+red visible(dnsN,tM1,3.e-3,7.e-3,incoming) .   ---- f
+red visible(dnsN,tM1,2.e-3,8.e-3,outgoing) .   --- f
+red visible(srvN,tM1,2.e-3,8.e-3,outgoing) .   --- t
+
+)
+
+**** vis ixpN i/o  cl[1] i  masN o
+eq tP0 = **** to cl[1] from masN
+tp( 1.059e-3, 1.605e-2, 3.105e-2, pkt(masSAd,cl1CAd,
+true, 0, 200)) .
+
+***(
+red visible(ixpN,tP0,1.e-2,2.e-2,incoming) .   --- t
+red visible(ixpN,tP0,1.e-2,1.5e-2,outgoing) .  --- f
+red visible(dnsN,tP0,2.e-2,8.e-2,incoming) .    --- f
+red visible(masN,tP0,2.e-2,8.e-2,incoming) .    --- t
+red visible(masN,tP0,2.e-2,8.e-2,outgoing) .    --- f
+red visible(cl[1],tP0,1.e-3,8.e-2,outgoing) .    --- t
+red visible(cl[1],tP0,2.e-2,8.e-2,outgoing) .    --- f
+
+)
+
+**** vis srvN i minN o
+**** to masN from cl[1]
+eq tP1 = 
+tp(4.13e-2, 5.634e-2, 7.134e-2, pkt(cl1CAd,masSAd, false, 0, 200)) .
+***(
+red visible(cl[1],tP1,2.e-2,8.e-2,incoming) .   --- t
+red visible(cl[1],tP1,2.e-2,8.e-2,outgoing) .   --- f
+red visible(masN,tP1,2.e-2,8.e-2,outgoing) .   --- t
+red visible(masN,tP1,1.e-3,8.e-2,incoming) .   --- f
+
+red visible(dnsN,tP1,1.e-3,8.e-2,incoming) .   --- f
+red visible(cl[2],tP1,1.e-3,8.e-2,incoming) .   --- f
+)
+
+
+endm
+eof
+

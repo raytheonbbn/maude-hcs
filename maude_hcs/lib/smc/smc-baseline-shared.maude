@@ -13,15 +13,13 @@ mod SMC-BASELINE-SHARED is
   inc STRUCTURED-ADDRESSES .
   inc LIST{Float} .
   
-  
-  
   vars vp nid : NetId .
   vars vpts : NetIdList .
   vars obsF : Feature .
   vars obsFs : FeatureList .
   vars TOL F0Z GtZ mTOL pTOL : TimesObsList .
   vars bcdf : List{Float} .
-  vars Tstart Tend winSize binSize  k : Float .
+  vars tStart tEnd winSize binSize  k : Float .
   vars attrs attrs0 attrs1 attrs2 : AttributeSet .
   vars blist : BaseLineList .
   vars conf conf0 : Config .
@@ -29,13 +27,19 @@ mod SMC-BASELINE-SHARED is
   vars blAct : Actor .
   vars aAddr : Address .
   
+**** defined in scm_cp3  
+  op getBaselineCDFObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
+  op expectedKObsFeature : NetId Feature List{Float} FloatLL Float Float Float Float Float Nat -> Float .
+
+op getECDFObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} [memo] . 
+op KsStatisticZ : List{Float} List{Float} Float -> Float .
+                          
   sort Feature .
   ops dnsQueryRate dnsQuerySize dnsRespSize : -> Feature .
   ops tcpUpRate tcpDownRate tcpUpToDownRate tcpOutPktRate tcpInPktRate tcpOutToInPktRate tcpPktSizeStdDev tcpPktSize tcpPktInterarrival tcpDirectionChange tcpActiveFlow tcpNewCnx : -> Feature .
   
 op  ircServerAddr : -> Address .
 op allClientsAddr : -> AddrList .
-
 
   sort NetIdList .
   subsort NetId < NetIdList .
@@ -62,37 +66,57 @@ op _:;_ : BaseLineList BaseLineList -> BaseLineList
                [ctor assoc id: nilBaseLine] .
 op bl : NetId Feature Float List{Float}  
         -> BaseLineElement [ctor] .
+
+sort FloatLL .
+op nilFloatL : -> FloatLL [ctor] .
+op `[_`] : List{Float} -> FloatLL [ctor] .
+op __ : FloatLL FloatLL -> FloatLL [ctor assoc id: nilFloatL] .
+
+op bl : NetId Feature Float FloatLL -> BaseLineElement .
+
   
 op baseLineAddr : -> Address .
 op BaseLineMonitor : -> ActorType .
 
+**** blm attributes
 op viewPts:_ : NetIdList -> Attribute [ctor] .
 op features:_ : FeatureList -> Attribute [ctor] .
 op baseLine:_ : BaseLineList -> Attribute [ctor] .
-ops tStart:_ tEnd:_ : Float -> Attribute [ctor] .
 ops winSize:_ binSize:_ : Float -> Attribute [ctor] .
+ops tStart:_ tEnd:_ : Float -> Attribute [ctor] .
+op binStart:_  : Float -> Attribute [ctor] .
 
-op mkBaseLineAttrs : NetIdList FeatureList 
-               Float Float Float Float -> AttributeSet .
-eq  mkBaseLineAttrs(vpts,obsFs, 
-                    Tstart,Tend,winSize,binSize) =
-      (viewPts: vpts,
-      features: obsFs,
-      tStart: Tstart,
-      tEnd: Tend,
-      winSize: winSize,
-      binSize: binSize,
-      baseLine: nilBaseLine)
+op wdoKsList:_ : BaseLineList -> Attribute [ctor] .
+
+op  windowTO : -> Content .   --- delay winSize
+op  binTObase : -> Content .      --- delay binSize
+op  binTOexe : -> Content .      --- delay binSize
+op initKs : -> Content .
+op initBase : -> Content .
+
+
+ops sT wS bS  eT : -> Float .
+op Vpts : -> NetIdList .
+op ObsFs : -> FeatureList .
+op BL : -> BaseLineList .
+
+op BaseLineInitAttrs : -> AttributeSet .
+eq  BaseLineInitAttrs =
+      (viewPts: Vpts,
+      features: ObsFs,
+      winSize: wS,
+      binSize: bS,
+      tStart: sT,
+      tEnd: eT,
+      baseLine: BL)
        .
 
-op initBaseLine :  NetIdList FeatureList 
-                Float Float Float Float -> Actor .
-ceq initBaseLine(vpts,obsFs,Tstart,Tend,winSize,binSize) = blAct 
-if attrs := mkBaseLineAttrs(vpts,obsFs, 
-                      Tstart,Tend,winSize,binSize)
-/\ blAct := <  baseLineAddr : BaseLineMonitor | attrs >
+op baseLineAct : -> Actor .
+eq baseLineAct =
+    <  baseLineAddr : BaseLineMonitor | BaseLineInitAttrs >
 .
 
+***(
 op addToBaseLine : AttributeSet NetId Feature 
                  Float List{Float} -> AttributeSet .
 ceq addToBaseLine(attrs,vp,obsF,k,bcdf) =
@@ -100,7 +124,7 @@ ceq addToBaseLine(attrs,vp,obsF,k,bcdf) =
 if attrs0,baseLine: blist := attrs
 .
 eq addToBaseLine(attrs,nid,obsF,k,bcdf) = attrs [owise] .
-
+)
 endm
 eof
 

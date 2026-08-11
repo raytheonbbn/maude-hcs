@@ -1,0 +1,52 @@
+sload ../../../use-cases/challenge-problem-3/cp3_scenarios/scenario1/z-scenario1
+
+sload ../smc_cp3-refactored
+sload baseline-actor
+sload smc-params
+
+
+mod SCENARIO-BASELINE is
+  inc HCS_TEST .
+  inc SMC-PARAMS .
+  inc SMC_CP3 .
+  
+  **** slimit default is 1hr == 3600.0
+  eq slimit = 100.0 .
+
+  eq hcsDelay = slimit + slimit .  --- prevent hcs to start
+
+ eq finalize(c:Config) = addK2Blist(c:Config,false) .
+
+endm
+
+rew run({0.0 | nil} initState(1) [30.0, (to baseLineAddr from baseLineAddr : initBase),0], 100.0) .
+q
+eof
+rew initConfig .  
+
+rew run({0.0 | nil} initState(1) [tgenDelay, (to baseLineAddr from baseLineAddr : initBase),0], 100.0)
+q
+eof
+
+in lib/smc
+ln -s visibility-plain.maude visibility.maude  
+  
+slimit 300.
+rewrites: 1 074 410 648 in 216 906ms cpu 3.5min
+(4 953 326 rewrites/second)
+
+slimit 600.
+rewrites: 17 343 992 389 in 1 448 678ms cpu ~ 24min
+(11 972 286  rewrites/second)
+
+
+
+maude scenario1-baseline > tmp.txt
+
+portBaseline(tmp.txt,scenario1-baseline-actor.maude)  
+
+insert just before endm
+  eq baselineAct = <text from tmp.txt >
+  that is text between  and not including
+     "result Actor:" and "Bye."
+
