@@ -39,11 +39,14 @@ mod FTP-MESSAGES is
   op ftpDataTO : FtpReq -> Content .
  
  **** getSize required by tcp transport model
- ***** using constant  150 from skyhook  
+  --- RFC 959: FTP command format is "<CMD> <ARGS>\r\n" or "<CMD>\r\n"
   eq getSize(ftpReq(n,str1,str2)) =
-       150 + length(str1) + length(str2) .
+       (if length(str2) > 0 then length(str1) + length(str2) + 3 else length(str1) + 2 fi) .
+  --- RFC 959: FTP reply format is "<code> <text>\r\n" or "<code>\r\n"
   eq getSize(ftpRes(n,str1,str2)) =
-       150 + length(str1) + length(str2) .
-  eq getSize(ftpData(n,size)) = 150 + size .
+       (if length(str2) > 0 then length(str1) + length(str2) + 3 else length(str1) + 2 fi) .
+  --- FTP data connection carries the raw payload data bytes
+  eq getSize(ftpData(n,size)) = size .
+  eq getSize(AnyContent:Content) = 0 [owise] .
       
 endm

@@ -61,12 +61,34 @@ mod GORILLACHAT-PROTOCOL is
   op setClientRooms : Address RoomSet -> Content [ctor] .
 
   --- =========================================================
-  --- Message Sizes
+  --- Message Sizes (WebSocket RFC 6455 over-the-wire framing)
   --- =========================================================
+  --- Client -> Server: masked (4 bytes mask key + 2 bytes base header + extended length)
+  op wsClientOverhead : Nat -> Nat .
+  eq wsClientOverhead(N:Nat) =
+       (if N:Nat < 126
+        then 6
+        else (if N:Nat <= 65535 then 8 else 14 fi)
+        fi) .
+
+  --- Server -> Client: unmasked (0 bytes mask key + 2 bytes base header + extended length)
+  op wsServerOverhead : Nat -> Nat .
+  eq wsServerOverhead(N:Nat) =
+       (if N:Nat < 126
+        then 2
+        else (if N:Nat <= 65535 then 4 else 10 fi)
+        fi) .
+
   op getSize : Content -> Nat .
-  eq getSize(chatSend(rm:String, ml:Nat)) = ml:Nat .
-  eq getSize(chatSendAck) = 50 .
-  eq getSize(chatBroadcast(rm:String, sd:Address, ml:Nat)) = ml:Nat .
+  --- Client -> Server chatSend: room prefix + space + message payload + masked WebSocket framing
+  eq getSize(chatSend(rm:String, ml:Nat)) =
+       wsClientOverhead(length(rm:String) + 1 + ml:Nat) + length(rm:String) + 1 + ml:Nat .
+  --- Server -> Client chatSendAck: unmasked WebSocket frame with ack payload (e.g. {"status":"ok"} -> 15 bytes + 2 bytes header = 17 bytes)
+  eq getSize(chatSendAck) = wsServerOverhead(15) + 15 .
+  --- Server -> Client chatBroadcast: room + space + sender + space + message payload + unmasked WebSocket framing
+  eq getSize(chatBroadcast(rm:String, sd:Address, ml:Nat)) =
+       wsServerOverhead(length(rm:String) + ml:Nat + 12) + length(rm:String) + ml:Nat + 12 .
+  --- setClientRooms: internal registration message (0 wire bytes)
   eq getSize(setClientRooms(ca:Address, rs:RoomSet)) = 0 .
   eq getSize(AnyContent:Content) = 0 [owise] .
 
