@@ -16,7 +16,7 @@ import argparse
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 lib = "../../../../maude_hcs/lib"
 deps = "../../../../maude_hcs/deps"
-IMAGE_SIZE = 19000
+IMAGE_SIZE = 190000
 
 def chunk_list(lst, n):
     """Yield successive n-sized chunks from lst."""
