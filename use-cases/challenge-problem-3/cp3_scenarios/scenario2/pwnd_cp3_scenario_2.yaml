@@ -1,0 +1,314 @@
+env: pwnd_cp3_scenario_2
+conversation_duration: 11700
+max_start_delay: 900
+one_way_availability: 30
+analysis_window_size: 900
+network:
+  client_net_mastodon:
+    nat: false
+    network: client
+    params:
+      upstream:
+        latency: 20
+        loss_profile: "excellent"
+      downstream:
+        latency: 20
+        loss_profile: "excellent"
+  client_net_racetunnel:
+    nat: false
+    network: client
+    params:
+      upstream:
+        latency: 20
+        loss_profile: "good"
+      downstream:
+        latency: 20
+        loss_profile: "good"
+  client_net_obfs:
+    nat: false
+    network: client
+    params:
+      upstream:
+        latency: 20
+        loss_profile: "good"
+      downstream:
+        latency: 20
+        loss_profile: "good"
+  client_net_sky:
+    nat: false
+    network: client
+    params:
+      upstream:
+        latency: 5
+        loss_profile: "excellent"
+      downstream:
+        latency: 5
+        loss_profile: "excellent"
+  server_net:
+    network: server
+    params:
+      upstream:
+        latency: 10
+        loss_profile: "excellent"
+      downstream:
+        latency: 10
+        loss_profile: "excellent"
+  minio_net:
+    network: minio
+    params:
+      upstream:
+        latency: 15
+        loss_profile: "good"
+      downstream:
+        latency: 15
+        loss_profile: "good"
+  mastodon_net:
+    network: mastodon
+    params:
+      upstream:
+        latency: 5
+        loss_profile: "good"
+      downstream:
+        latency: 5
+        loss_profile: "good"
+  dns_net:
+    network: dns
+    params:
+      upstream:
+        latency: 20
+        loss_profile: "good"
+      downstream:
+        latency: 20
+        loss_profile: "good"
+nodes:
+  node_type_racetunnel:
+    channel_config:
+      - direction: bidirectional
+        channel: racetunnel
+        vars:
+          client:
+            user_model: ""
+          server:
+            user_model: ""
+    client_per_network:
+      client_net_racetunnel: 
+        quantity: 1
+        profiles:
+          irc_8: 1.0
+  node_type_sky:
+    channel_config:
+      - direction: bidirectional
+        channel: skyhook
+        vars:
+          client:
+            user_model: skyhook_client_scenario_2.json
+          server:
+            user_model: skyhook_server_scenario_2.json
+    client_per_network:
+      client_net_sky: 
+        quantity: 1
+        profiles:
+          irc_12: 1.0
+  node_type_obfs:
+    channel_config:
+      - direction: bidirectional
+        channel: obfs
+        vars:
+          client:
+            iat: "0"
+          server:
+            iat: "0"
+    client_per_network:
+      client_net_obfs: 
+        quantity: 1
+        profiles:
+          irc_3: 1.0
+  node_type_mastodon:
+    channel_config:
+      - direction: bidirectional
+        channel: mastodon
+        vars:
+          client:
+            user_model: mastodon_client_scenario_2.json
+          server:
+            user_model: mastodon_server_scenario_2.json
+    client_per_network:
+      client_net_mastodon:
+        quantity: 1
+        profiles:
+          irc_11: 1.0
+tgen:
+  tgen_type_mastodon:
+    tgen_per_network:
+      client_net_mastodon:
+        quantity: 4
+        profiles:
+          influencer_1: .25
+          normal_1: .25
+          lurker_1: .5
+      client_net_racetunnel:
+        quantity: 4
+        profiles:
+          normal_2: .5
+          lurker_2: .5
+      client_net_obfs:
+        quantity: 4
+        profiles:
+          influencer_4: .5
+          normal_4: .25
+          lurker_4: .25
+      client_net_sky:
+        quantity: 4
+        profiles:
+          influencer_1: .5
+          lurker_1: .5
+      server_net:
+        quantity: 4
+        profiles:
+          normal_2: .5
+          lurker_2: .5
+  tgen_type_ftp:
+    tgen_per_network:
+      client_net_mastodon:
+        quantity: 4
+        profiles:
+          fast: .25
+          medium: .5
+          slow: .25
+      client_net_racetunnel:
+        quantity: 4
+        profiles:
+          medium: .5
+          slow: .5
+      client_net_obfs:
+        quantity: 4
+        profiles:
+          fast: .25
+          medium: .25
+          slow: .5
+      client_net_sky:
+        quantity: 4
+        profiles:
+          fast: .5
+          slow: .5
+  tgen_type_dns:
+    tgen_per_network:
+      client_net_mastodon:
+        quantity: 4
+        profiles:
+          fast_1: .5
+          slow_1: .5
+      client_net_racetunnel:
+        quantity: 4
+        profiles:
+          fast_2: .5
+          normal_2: .25
+          slow_2: .25
+      client_net_obfs:
+        quantity: 4
+        profiles:
+          fast_1: .25
+          normal_4: .5
+          slow_3: .25
+      client_net_sky:
+        quantity: 4
+        profiles:
+          fast_1: .5
+          normal_3: .25
+          slow_2: .25
+      server_net:
+        quantity: 4
+        profiles:
+          fast_1: .5
+          slow_2: .5
+  tgen_type_minio:
+    tgen_per_network:
+      client_net_mastodon:
+        quantity: 4
+        profiles:
+          fast: .5
+          medium: .25
+          slow: .25
+      client_net_racetunnel:
+        quantity: 4
+        profiles:
+          fast: .5
+          medium: .25
+          slow: .25
+      client_net_obfs:
+        quantity: 4
+        profiles:
+          medium: 1.0
+      client_net_sky:
+        quantity: 4
+        profiles:
+          fast: .25
+          medium: .25
+          slow: .5
+      server_net:
+        quantity: 4
+        profiles:
+          fast: .25
+          medium: .25
+          slow: .5
+  tgen_type_gorilla:
+    tgen_per_network:
+      client_net_mastodon:
+        quantity: 4
+        profiles:
+          irc_1: .5
+          irc_6: .25
+          irc_9: .25
+      client_net_racetunnel:
+        quantity: 4
+        profiles:
+          irc_7: .5
+          irc_10: .5
+      client_net_obfs:
+        quantity: 4
+        profiles:
+          irc_12: .25
+          irc_4: .5
+          irc_7: .25
+      client_net_sky:
+        quantity: 4
+        profiles:
+          irc_11: .25
+          irc_3: .25
+          irc_2: .5
+  tgen_type_irc:
+    tgen_per_network:
+      client_net_mastodon:
+        quantity: 4
+        profiles:
+          irc_4: .5
+          irc_7: .5
+      client_net_racetunnel:
+        quantity: 4
+        profiles:
+          irc_11: .25
+          irc_8: .5
+          irc_5: .25
+      client_net_obfs:
+        quantity: 4
+        profiles:
+          irc_7: .5
+          irc_9: .5
+      client_net_sky:
+        quantity: 4
+        profiles:
+          irc_2: .25
+          irc_6: .5
+          irc_7: .25
+  tgen_type_mastodon_monitor:
+    tgen_per_network:
+      mastodon_net:
+        quantity: 1
+        profiles:
+          default: 1
+  tgen_type_minio_monitor:
+    tgen_per_network:
+      minio_net:
+        quantity: 1
+        profiles:
+          default: 1
