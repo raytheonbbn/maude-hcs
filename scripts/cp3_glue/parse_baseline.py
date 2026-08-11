@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 from pathlib import Path
 
@@ -26,7 +27,7 @@ from pathlib import Path
 SCENARIO = "scenario_1"
 FLOW_TIMEOUT = 20
 
-def write_baseline_file(baseline_str: str, params: dict, dir: str):
+def parse_baseline_file(baseline_str: str, params: dict, dct):
     raw_args = baseline_str[3:-1].split(", ")
     vantage, feat, k = raw_args[0], raw_args[1], raw_args[2]
 
@@ -35,7 +36,10 @@ def write_baseline_file(baseline_str: str, params: dict, dir: str):
     else:
         ecdf = list(map(lambda x: float(x), raw_args[3].split()))
 
-    result = {
+    if vantage not in dct:
+        dct[vantage] = {}
+
+    dct[vantage][feat] = {
         "feature": feat,
         "vantage_point": vantage,
         "scenario": SCENARIO,
@@ -51,14 +55,10 @@ def write_baseline_file(baseline_str: str, params: dict, dir: str):
         "ecdf_values": ecdf
     }
 
-    stem = f"{feat}.json"
-    result_path = Path(dir) / stem
-    with open(result_path, "w") as f:
-        json.dump(result, f, indent=4)
 
 if __name__ == "__main__":
-    baseline_file = sys.argv[1]
-    output_dir = sys.argv[2]
+    baseline_file = Path(sys.argv[1]).resolve()
+    output_dir = Path(sys.argv[2]).resolve()
 
     with open(baseline_file, "r") as f:
         # All whitespace runs are replaced by a single space
@@ -83,5 +83,22 @@ if __name__ == "__main__":
     param_strs = raw_baseline_terminator.split(", ")
     params = {item.split(": ")[0]: float(item.split(": ")[1]) for item in param_strs}
 
+    dct = {}
+
     for s in baseline_strs:
-        write_baseline_file(s, params, output_dir)
+        parse_baseline_file(s, params, dct)
+
+    if not output_dir.is_dir():
+        os.mkdir(output_dir)
+
+    for vantage, item in dct.items():
+        vantage_dir_path = output_dir / vantage
+        if not vantage_dir_path.is_dir():
+            os.mkdir(vantage_dir_path)
+
+        for feat, item in item.items():
+            filename = f"{feat}.json"
+
+            result_path = vantage_dir_path / filename
+            with open(result_path, "w") as f:
+                json.dump(item, f, indent=4)
