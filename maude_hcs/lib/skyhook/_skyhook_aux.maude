@@ -266,34 +266,39 @@ mod SKYHOOK_AUX is
   op SkyhookStartCmd : -> Content . --- Kickoff initialization
 
   op getSize : Content -> Nat .
-  eq getSize(S3PutObjReq(BUCKET:String, UUID:String, DATA:String)) = 150 + length(BUCKET:String) + length(UUID:String) + length(DATA:String) .
-  eq getSize(S3PutObjReq(BUCKET:String, UUID:String, DATA:ByteSeq))
-    = 150 + length(BUCKET:String)
-      + length(UUID:String)
-      + getSize(DATA:ByteSeq)
-  .
-  eq getSize(S3PutObjRes(BUCKET:String, UUID:String)) = 150 .
-  eq getSize(S3GetObjReq(BUCKET:String, UUID:String)) = 150 .
-  eq getSize(S3GetObjRes(BUCKET:String, UUID:String, DATA:String)) = 150 + length(DATA:String) .
-  eq getSize(S3GetObjErr(BUCKET:String, UUID:String)) = 150 .
-  eq getSize(S3DeleteObjReq(BUCKET:String, UUID:String)) = 150 .
-  eq getSize(S3DeleteObjRes(BUCKET:String, UUID:String)) = 150 .
-  eq getSize(S3PutBucketPolicyReq(BUCKET:String, POLICY:String)) = 150 + length(POLICY:String) .
-  eq getSize(S3PutBucketPolicyRes(BUCKET:String)) = 150 .
-  eq getSize(S3CreateBucketReq(BUCKET:String, REGION:String)) = 150 .
-  eq getSize(S3CreateBucketRes(BUCKET:String)) = 150 .
-  eq getSize(S3DeleteBucketReq(BUCKET:String, REGION:String)) = 150 .
-  eq getSize(S3DeleteBucketRes(BUCKET:String)) = 150 .
-  eq getSize(S3PutPublicAccessBlockReq(BUCKET:String)) = 150 .
-  eq getSize(S3PutPublicAccessBlockRes(BUCKET:String)) = 150 .
+  eq getSize(S3PutObjReq(BUCKET:String, UUID:String, DATA:String)) =
+       2 * length(BUCKET:String) + length(UUID:String) + length(string(length(DATA:String), 10)) + 106 + length(DATA:String) .
+  eq getSize(S3PutObjReq(BUCKET:String, UUID:String, DATA:ByteSeq)) =
+       2 * length(BUCKET:String) + length(UUID:String) + length(string(getSize(DATA:ByteSeq), 10)) + 106 + getSize(DATA:ByteSeq) .
+  eq getSize(S3PutObjRes(BUCKET:String, UUID:String)) = 41 .
+  eq getSize(S3GetObjReq(BUCKET:String, UUID:String)) =
+       2 * length(BUCKET:String) + length(UUID:String) + 66 .
+  eq getSize(S3GetObjRes(BUCKET:String, UUID:String, DATA:String)) =
+       length(string(length(DATA:String), 10)) + 59 + length(DATA:String) .
+  eq getSize(S3GetObjRes(BUCKET:String, UUID:String, DATA:ByteSeq)) =
+       length(string(getSize(DATA:ByteSeq), 10)) + 59 + getSize(DATA:ByteSeq) .
+  eq getSize(S3GetObjErr(BUCKET:String, UUID:String)) = 48 .
+  eq getSize(S3DeleteObjReq(BUCKET:String, UUID:String)) =
+       2 * length(BUCKET:String) + length(UUID:String) + 69 .
+  eq getSize(S3DeleteObjRes(BUCKET:String, UUID:String)) = 49 .
+  eq getSize(S3PutBucketPolicyReq(BUCKET:String, POLICY:String)) =
+       2 * length(BUCKET:String) + length(string(length(POLICY:String), 10)) + 112 + length(POLICY:String) .
+  eq getSize(S3PutBucketPolicyRes(BUCKET:String)) = 41 .
+  eq getSize(S3CreateBucketReq(BUCKET:String, REGION:String)) =
+       length(BUCKET:String) + length(REGION:String) + 187 .
+  eq getSize(S3CreateBucketRes(BUCKET:String)) = 41 .
+  eq getSize(S3DeleteBucketReq(BUCKET:String, REGION:String)) =
+       length(BUCKET:String) + 69 .
+  eq getSize(S3DeleteBucketRes(BUCKET:String)) = 49 .
+  eq getSize(S3PutPublicAccessBlockReq(BUCKET:String)) =
+       2 * length(BUCKET:String) + 221 .
+  eq getSize(S3PutPublicAccessBlockRes(BUCKET:String)) = 41 .
   
-  eq getSize(SkyhookFetchCmd) = 50 .
-  eq getSize(SkyhookFetchAck(bytes:ByteSeq)) 
-          = 50 + getSize(bytes:ByteSeq) .
-  eq getSize(SkyhookPostCmd(DATA:ByteSeq)) 
-           = 50 + getSize(DATA:ByteSeq) .
- eq getSize(SkyhookPostAck) = 50 .
-  eq getSize(SkyhookStartCmd) = 10 .
+  eq getSize(SkyhookFetchCmd) = 0 .
+  eq getSize(SkyhookFetchAck(bytes:ByteSeq)) = getSize(bytes:ByteSeq) .
+  eq getSize(SkyhookPostCmd(DATA:ByteSeq)) = getSize(DATA:ByteSeq) .
+  eq getSize(SkyhookPostAck) = 0 .
+  eq getSize(SkyhookStartCmd) = 0 .
   
   eq getSize(AnyContent:Content) = 0 [owise] .
 

@@ -100,9 +100,28 @@ mod S3_AUX is
   eq hasKey((MAP:S3DataMap ; (URI:HttpUri -> BODY:HttpBody)), URI:HttpUri) = true .
   eq hasKey(MAP:S3DataMap, URI:HttpUri) = false [owise] .
 
-  eq getSize(HttpS3Req(M:HttpMethod, U:HttpUri, V:String, H:S3HeaderList, B:HttpBody)) = 200 .
+  op getSize : S3HeaderList -> Nat .
+  eq getSize(emptyS3Headers) = 0 .
+  eq getSize(header(K:String, V:String) ;; H:S3HeaderList) =
+       length(K:String) + length(V:String) + 4 + getSize(H:S3HeaderList) .
+
+  op statusReason : Nat -> String .
+  eq statusReason(100) = "Continue" .
+  eq statusReason(200) = "OK" .
+  eq statusReason(204) = "No Content" .
+  eq statusReason(400) = "Bad Request" .
+  eq statusReason(403) = "Forbidden" .
+  eq statusReason(404) = "Not Found" .
+  eq statusReason(500) = "Internal Server Error" .
+  eq statusReason(S:Nat) = "OK" [owise] .
+
+  eq getSize(HttpS3Req(M:HttpMethod, U:HttpUri, V:String, H:S3HeaderList, B:HttpBody)) =
+       length(M:HttpMethod) + length(U:HttpUri) + length(V:String) + 6
+       + getSize(H:S3HeaderList) + getSize(B:HttpBody) .
   eq getSize(HttpS3ReqBody(U:HttpUri, ID:Nat, B:HttpBody)) = getSize(B:HttpBody) .
-  eq getSize(HttpS3Res(S:Nat, V:String, H:S3HeaderList, B:HttpBody)) = 200 .
+  eq getSize(HttpS3Res(S:Nat, V:String, H:S3HeaderList, B:HttpBody)) =
+       length(V:String) + length(string(S:Nat, 10)) + length(statusReason(S:Nat)) + 6
+       + getSize(H:S3HeaderList) + getSize(B:HttpBody) .
 
   op deleteObject : S3DataMap String -> S3DataMap .
   eq deleteObject((DATA_MAP:S3DataMap ; (URI:String -> BODY:ByteSeq)), URI:String) = DATA_MAP:S3DataMap .
