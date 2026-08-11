@@ -57,12 +57,6 @@ FEATS = {
 
 CLIENT_MAP = {}
 
-# I should probably rewrite this to have long unbroken chunks that don't change except for windows. I think that would be most straightforward to go through.
-# In any case the formatter should accept any ordering I think.
-# ok let's try running this quatex with that little runscript I had Friday.
-# Careful about floats, they break if decimal missing
-# The json doesn't actually help, just use text form.
-
 class Lines:
   def __init__(self, *args, indent=0):
     lines = []
@@ -132,12 +126,9 @@ def mk_vantage_point_chunk(win: int, cum: bool, vantage: str, feat: str, tag_nam
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     slide_win = f"{SLIDING_WINDOW_SIZE:.1f}"
     bin_size = f"{BIN_SIZE:.1f}"
-    baseline_len = f"{7200:.1f}"
+    tag = f'// {prefix} {tag_name} {i_start} {i_end} {vantage}'
     return Lines(
-        f'eval E[s.rval("getCUSUM (getAdversary(C), {vantage}, {feat}, {start}, {end}, {slide_win}, {bin_size},',
-        Lines(
-            f'getBaselineCDF(getBaseline(C), {vantage}, {feat}, 0.0, {baseline_len}, {bin_size}),',
-            f'getBaselineK(getBaseline(C), {vantage}, {feat}, 0.0, {baseline_len}, {slide_win}, {bin_size}))")]; // {prefix} {tag_name} {i_start} {i_end} {vantage}').indent(),
+        f'eval E[s.rval("getCUSUM (getAdversary(C), {vantage}, {feat}, {start}, {end}, {slide_win}, {bin_size})]; {tag}'
     )
 
 def all_queries() -> Lines:
