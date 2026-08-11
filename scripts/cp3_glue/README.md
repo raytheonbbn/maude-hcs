@@ -12,18 +12,18 @@ using those queries, and formatting the results to be consistent with what the T
     SLIDING_WINDOW_SIZE
     BIN_SIZE
     HCS_DELAY
-    TGEN_DELAY
-    BASELINE_LENGTH
     MAX_WIN
     VANTAGES
     CLIENTS
+    FEATS
     ```
 
 These should be the same constants used in the scenario, so they should be copied and pasted in from the relevant maude files.
 
 In particular:
 - `VANTAGES` should include all the `NetId`s in the `visibilityMap` from `visibilityMap.maude`, as well as `ixpN`.
-- `CLIENTS` should include all the addresses assigned to `allClientsAddr` in the scenario file.
+- `CLIENTS` should include all the addresses assigned to `allClientsAddr` in the scenario file, paired with what T&E call that client (`CLIENTS` is a dictionary)
+- `FEATS` should include all features you want to measure in the scenario, paired with what T&E call that feature (`FEATS` is a dictionary)
 
 ## Step 1.5: Turn off printing
 
@@ -60,22 +60,34 @@ The formatter takes a lot of arguments:
 > `quatex-file` is the file containing generated quatex queries
 > `perf-output-file` is the desired filename for the performance json output
 > `adv-output-file` is the same, but for adversary features
-> `perf-stats-output-file` is similar to `perf-output-file`, but contains 
+> `perf-stats-output-file` is similar to `perf-output-file`, but the result will additionally contain a radius and standard deviation
+> `adv-stats-output-file` is similar, but for adversary
+> `dump-file` is where the concatenated SMC dumped samples were stored
+> `sample-output-dir` is where you want to store the json sample files extracted from the dump file.
 
+## All together
+
+See the script below for an example of running the whole pipeline in sequence.
+
+``` bash
 #!/bin/bash
 
 set -euo pipefail
 rootdir=/Users/lwest/Documents/pwnd2/playground-maude-hcs
 
 python3 ./scripts/cp3_glue/generate_quatex.py test.quatex
+dumpdir=$(python3 ./scripts/cp3_glue/mk_dump_dir.py dumps/dump)
 
 maude-hcs scheck \
     --file $rootdir/maude_hcs/lib/smc/smc_cp3.maude \
     --test $rootdir/use-cases/challenge-problem-3/cp3_scenarios/scenario1/scenario1.maude \
     --query $rootdir/test.quatex \
-    --dump $rootdir/dumps/dump.txt \
-    -j 1 -n 1-1 \
+    --dump $dumpdir/dump.txt \
+    -j 1 -n 1 \
     | tee log.txt
+
+cat $dumpdir/dump.txt.* > $dumpdir/combined_dump.txt
+rm $dumpdir/dump.txt.*
 
 python3 ./scripts/cp3_glue/format_for_tne_v2.py \
     --smc-results-file log.txt \
@@ -84,5 +96,6 @@ python3 ./scripts/cp3_glue/format_for_tne_v2.py \
     --adv-output-file adv.json \
     --perf-stats-output-file perf_stats.json \
     --adv-stats-output-file adv_stats.json \
-    --dump-file dump.txt \
+    --dump-file $dumpdir/combined_dump.txt \
     --sample-output-dir samples \
+```
