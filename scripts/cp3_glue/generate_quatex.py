@@ -1,44 +1,59 @@
 import sys
 
-# WINDOW_SIZE = 900
-# SLIDING_WINDOW_SIZE = 60
-# BIN_SIZE = 10
-# HCS_DELAY = 0
-# TGEN_DELAY = 0
-# BASELINE_LENGTH = 7200
-# MAX_WIN = 12
-
-WINDOW_SIZE = 60
+WINDOW_SIZE = 900
 SLIDING_WINDOW_SIZE = 60
 BIN_SIZE = 10
 HCS_DELAY = 0
-TGEN_DELAY = 0
-BASELINE_LENGTH = 60
-MAX_WIN = 2
+MAX_WIN = 12
+
+# WINDOW_SIZE = 60
+# SLIDING_WINDOW_SIZE = 60
+# BIN_SIZE = 10
+# HCS_DELAY = 0
+# MAX_WIN = 2
 
 VANTAGES = [
    "ixpN",
    "masN",
    "dnsN",
-#    "minN",
-#    "srvN",
-#    "cl[1]",
-#    "cl[2]",
-#    "cl[3]",
-#    "cl[4]",
-#    "cl[5]",
+   "minN",
+   "srvN",
+   "cl[1]",
+   "cl[2]",
+   "cl[3]",
+   "cl[4]",
+   "cl[5]",
 ]
+
 CLIENTS = [
    "wtCl1IrcAddr",
    "wtCl2IrcAddr",
    "skyCl3IrcAddr",
    "skyCl4IrcAddr",
    "obfsCl5IrcAddr",
-#    "obfsCl6IrcAddr",
-#    "iodCl7IrcAddr",
-#    "iodCl8IrcAddr",
-#    "masCl9IrcAddr"
+   "obfsCl6IrcAddr",
+   "iodCl7IrcAddr",
+   "iodCl8IrcAddr",
+   "masCl9IrcAddr"
 ]
+
+FEATS = {
+    "dnsQueryRate": "dns_query_rate",
+    "dnsQuerySize": "dns_query_size_mean",
+    "dnsRespSize": "dns_response_size_mean",
+    "tcpUpRate": "tcp_upload_rate",
+    "tcpDownRate": "tcp_download_rate",
+    "tcpUpToDownRate": "tcp_upload_download_ratio",
+    "tcpOutPktRate": "tcp_outgoing_packet_rate",
+    "tcpInPktRate": "tcp_incoming_packet_rate",
+    "tcpOutToInPktRate": "tcp_packet_upload_download_ratio",
+    "tcpPktSizeStdDev": "packet_size_std_dev",
+    "tcpPktSize": "packet_size_mean",
+    "tcpPktInterarrival": "packet_interarrival_mean",
+    "tcpDirectionChange": "direction_change_count",
+    "tcpActiveFlow": "active_flow_count",
+    "tcpNewCnx": "tcp_new_conn_count",
+}
 
 # I should probably rewrite this to have long unbroken chunks that don't change except for windows. I think that would be most straightforward to go through.
 # In any case the formatter should accept any ordering I think.
@@ -65,7 +80,6 @@ class Lines:
 def int_to_float_str(i: int) -> str:
    return f"{i:.1f}"
    
-
 def get_prefix_start_end(win: int, cum: bool) -> tuple[str, int, int]:
     if cum:
         prefix = "cumulative"
@@ -115,7 +129,7 @@ def mk_vantage_point_chunk(win: int, cum: bool, vantage: str, feat: str, tag_nam
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     slide_win = f"{SLIDING_WINDOW_SIZE:.1f}"
     bin_size = f"{BIN_SIZE:.1f}"
-    baseline_len = f"{BASELINE_LENGTH:.1f}"
+    baseline_len = f"{7200:.1f}"
     return Lines(
         f'eval E[s.rval("getCUSUM (getAdversary(C), {vantage}, {feat}, {start}, {end}, {slide_win}, {bin_size},',
         Lines(
@@ -126,22 +140,7 @@ def mk_vantage_point_chunk(win: int, cum: bool, vantage: str, feat: str, tag_nam
 def all_queries() -> Lines:
     win_range = range(MAX_WIN)
     bool_range = [True, False]
-    feats = {
-       "dnsQueryRate": "dns_query_rate",
-       "dnsQuerySize": "dns_query_size_mean",
-       "dnsRespSize": "dns_response_size_mean",
-       "tcpUpRate": "tcp_upload_rate",
-       "tcpDownRate": "tcp_download_rate",
-       "tcpUpToDownRate": "tcp_upload_download_ratio",
-       "tcpOutPktRate": "tcp_outgoing_packet_rate",
-       "tcpInPktRate": "tcp_incoming_packet_rate",
-       "tcpOutToInPktRate": "tcp_packet_upload_download_ratio",
-       "tcpPktSizeStdDev": "packet_size_std_dev",
-       "tcpPktSize": "packet_size_mean",
-       "tcpPktInterarrival": "packet_interarrival_mean",
-       "tcpDirectionChange": "direction_change_count",
-       "tcpActiveFlow": "active_flow_count",
-       "tcpNewCnx": "tcp_new_conn_count",
+    FEATS = {
     }
 
     return Lines(
@@ -153,7 +152,7 @@ def all_queries() -> Lines:
             for win in win_range
             for b in bool_range
             for vant in VANTAGES
-            for (feat, tag) in feats.items()],
+            for (feat, tag) in FEATS.items()],
     )
 
 if __name__ == "__main__":
