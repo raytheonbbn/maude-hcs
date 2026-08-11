@@ -61,7 +61,7 @@ op BaseLineMonitor : -> ActorType .
 )
 
 vars j j1 : Nat .
-vars myAddr advAddr : Address .
+vars myAddr advAddr bAddr aAddr : Address .
 vars blAttrs blAttrs0 blAttrs1 
      advAttrs advAttrs0 advAttrs1
      attrs : AttributeSet .
@@ -100,7 +100,7 @@ rCtr(j1)
 smsgs
 if {blAttrs1,smsgs,j1}
  := initBaseLineAttrs(blAttrs,myAddr,j)
-[print "( " T " ) initKs"]
+[print "( " T " ) initBase"]
 . 
 
 op addBaseLine : AttributeSet BaseLineList -> AttributeSet .
@@ -305,7 +305,9 @@ if {blAttrs1,advAttrs1,smsgs,j1}
 op addKsSlideWdo : AttributeSet AttributeSet Address Float Nat 
       ->  AttrsAttrsMsgsNat .
 ceq addKsSlideWdo(blAttrs,advAttrs,myAddr,T,j) =
-   {(blAttrs1, wdoKsList: kslist1), advAttrs1, dmsg, s j}
+   {(blAttrs1, wdoKsList: kslist1,
+               binStart: (bStart + bsize)),
+               advAttrs1, dmsg, s j}
 if advAttrs0, (dns: tml), (tcp: tpl) := advAttrs
 /\ blAttrs0, viewPts: vpts, features: obsFs, 
          winSize: wsize, binSize: bsize, baseLine: blist
@@ -350,9 +352,25 @@ if bl(vpt,obsF,k,bcdf) := ble
 /\ bl(vpt,obsF,k0,ksl) := kse  
 /\ GtZ := (if isDnsFeature(obsF) then tml else tpl fi)
 /\ wdoEcdf := getECDFObsFeature(vpt, obsF, GtZ, T, wsize, bsize)
-/\ ks :=  KsStatisticZ(bcdf,wdoEcdf,k)
+/\ ks :=  (if wdoEcdf == nil
+           then -1.0e6
+           else KsStatisticZ(bcdf,wdoEcdf,k)
+           fi)
 /\ kselt := bl(vpt,obsF,k0,ksl ks)                 
 .
+
+op mvKs2Adv : Config Bool -> Config .
+eq mvKs2Adv(< bAddr : BaseLineMonitor | 
+               blAttrs, wdoKsList: kslist >
+            < aAddr : Adversary | advAttrs >
+            c:Config , b:Bool )
+   =            
+           < bAddr : BaseLineMonitor |  blAttrs >
+           < aAddr : Adversary | advAttrs, gt: kslist >
+           (if b:Bool then c:Config else null fi )
+      .               
+               
+*** op gt:_ : BaseLineList -> Attribute .
 
 
 endm
