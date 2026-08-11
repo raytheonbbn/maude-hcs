@@ -25,6 +25,10 @@ In particular:
 - `CLIENTS` should include all the addresses assigned to `allClientsAddr` in the scenario file, paired with what T&E call that client (`CLIENTS` is a dictionary)
 - `FEATS` should include all features you want to measure in the scenario, paired with what T&E call that feature (`FEATS` is a dictionary)
 
+Additionally, if you want to adjust how clients are named in perf json outputs, add the desired mappings to `CLIENT_MAP`.
+
+For example, if you want to rename `wtCl2IrcAddr` to `alice_1`, then you should add `"wtCl2IrcAddr": "alice_1"` to `CLIENT_MAP`.
+
 ## Step 1.5: Turn off printing
 
 If printing is enabled, it can slow down the SMC or mess with the log, so make sure `set print attribute on .` is commented out.

@@ -55,6 +55,8 @@ FEATS = {
     "tcpNewCnx": "tcp_new_conn_count",
 }
 
+CLIENT_MAP = {}
+
 # I should probably rewrite this to have long unbroken chunks that don't change except for windows. I think that would be most straightforward to go through.
 # In any case the formatter should accept any ordering I think.
 # ok let's try running this quatex with that little runscript I had Friday.
@@ -113,8 +115,9 @@ def mk_global_integrity_chunk(win: int, cum: bool) -> Lines:
 def mk_client_integrity_chunk(win: int, cum: bool, client: str) -> Lines:
     prefix, i_start, i_end = get_prefix_start_end(win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
+    tne_client_name = CLIENT_MAP.get(client, client)
     return Lines(
-        f'eval E[s.rval("getClientIntegrity(getMonitor(C), getIrcSrv(C), {client}, {start}, {end})")]; // {prefix} integrity {i_start} {i_end} {client}',
+        f'eval E[s.rval("getClientIntegrity(getMonitor(C), getIrcSrv(C), {client}, {start}, {end})")]; // {prefix} integrity {i_start} {i_end} {tne_client_name}',
     )
 
 def mk_availability_chunk(win: int, cum: bool) -> Lines:
