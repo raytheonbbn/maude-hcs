@@ -971,18 +971,18 @@ mod SMC_CP3 is
   op DNSQueryOverhead : -> Nat .
   eq DNSQueryOverhead = 29 .
 
-  op size : Name -> Nat .
-  eq size (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) + DNSQueryOverhead .
-  eq size (NAME) = nameLength(NAME) + DNSQueryOverhead [owise] .
+  op sizeName : Name -> Nat .
+  eq sizeName (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) + DNSQueryOverhead .
+  eq sizeName (NAME) = nameLength(NAME) + DNSQueryOverhead [owise] .
 
-  op size : Query -> Nat .
-  eq size (query(ID, NAME, RTYPE)) = size(NAME) .
+  op sizeQuery : Query -> Nat .
+  eq sizeQuery (query(ID, NAME, RTYPE)) = sizeName(NAME) .
 
   op sizeDNSQuery : NetId Flow TimesObsList Float Float -> Nat .
   eq sizeDNSQuery (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq sizeDNSQuery (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
     if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) and Fid == flow(fromAddr, toAddr, 0) 
-    then size(CO) + sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) 
+    then sizeQuery(CO) + sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) 
     else sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) fi .
   eq sizeDNSQuery (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) [owise] .
 
@@ -996,8 +996,8 @@ mod SMC_CP3 is
   eq isDNSResp (RESP) = true .
   eq isDNSResp (CO) = false [owise] .
 
-  op size : Response -> Nat .
-  eq size (response(ID, NAME, LR, LR1, LR2, N)) = size(NAME) .
+  op sizeResp : Response -> Nat .
+  eq sizeResp (response(ID, NAME, LR, LR1, LR2, N)) = sizeName(NAME) .
 
   op countDNSResp : NetId Flow TimesObsList Float Float -> Nat .
   eq countDNSResp (vp, Fid, nilTO, Tstart, Tend) = 0 .
@@ -1011,7 +1011,7 @@ mod SMC_CP3 is
   eq sizeDNSResp (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
     if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) and Fid == flow(fromAddr, toAddr, 0) 
-    then size(CO) + sizeDNSResp(vp, Fid, TsML, Tstart, Tend) 
+    then sizeResp(CO) + sizeDNSResp(vp, Fid, TsML, Tstart, Tend) 
     else sizeDNSResp(vp, Fid, TsML, Tstart, Tend) fi .
   eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
 
@@ -1021,17 +1021,17 @@ mod SMC_CP3 is
   --- 06 tcp_upload_download_ratio        Ratio of outbound TCP bytes to inbound TCP bytes [1]
   -------------------------------------------------------------------------------------------------
 
-  op size : Pkt -> Nat .
-  eq size (pkt) = getSize(pkt) .
+  op sizePkt : Pkt -> Nat .
+  eq sizePkt (pkt) = getSize(pkt) .
 
-  op size : TimesPkt -> Nat .
-  eq size (tpkt) = getSize(tpkt) .
+  op sizePkt : TimesPkt -> Nat .
+  eq sizePkt (tpkt) = getSize(tpkt) .
 
   op sizeTCPUpload : NetId Flow TimesObsList Float Float -> Nat [memo] .
   eq sizeTCPUpload (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq sizeTCPUpload (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
     if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) --- and Fid == getFlow(pkt)  
-    then size(pkt) + sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) 
+    then sizePkt(pkt) + sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) 
     else sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) fi .
   eq sizeTCPUpload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
@@ -1039,7 +1039,7 @@ mod SMC_CP3 is
   eq sizeTCPDownload (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq sizeTCPDownload (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
     if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming) --- and Fid == getFlow(pkt) 
-    then size(pkt) + sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) 
+    then sizePkt(pkt) + sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) 
     else sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) fi .
   eq sizeTCPDownload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
@@ -1082,7 +1082,7 @@ mod SMC_CP3 is
   eq sizeTCPPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq sizeTCPPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
     if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
-    then size(pkt) + sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) 
+    then sizePkt(pkt) + sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) 
     else sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) fi .
   eq sizeTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
@@ -1090,7 +1090,7 @@ mod SMC_CP3 is
   eq collectPktSize (vp, Fid, nilTO, Tstart, Tend) = nil .
   eq collectPktSize (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
     if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
-    then float(size(pkt)) collectPktSize(vp, Fid, TsPL, Tstart, Tend) 
+    then float(sizePkt(pkt)) collectPktSize(vp, Fid, TsPL, Tstart, Tend) 
     else collectPktSize(vp, Fid, TsPL, Tstart, Tend) fi .
   eq collectPktSize (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = collectPktSize(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
