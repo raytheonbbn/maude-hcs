@@ -1,0 +1,88 @@
+These scripts are glue code for generating quatex queries, running SMC on a maude scenario
+using those queries, and formatting the results to be consistent with what the T&E team is expecting.
+
+# How to use
+
+## Step 1: Copy in constants to generate_quatex.py
+
+`generate_quatex.py` uses several constants when generating queries:
+
+    ```
+    WINDOW_SIZE
+    SLIDING_WINDOW_SIZE
+    BIN_SIZE
+    HCS_DELAY
+    TGEN_DELAY
+    BASELINE_LENGTH
+    MAX_WIN
+    VANTAGES
+    CLIENTS
+    ```
+
+These should be the same constants used in the scenario, so they should be copied and pasted in from the relevant maude files.
+
+In particular:
+- `VANTAGES` should include all the `NetId`s in the `visibilityMap` from `visibilityMap.maude`, as well as `ixpN`.
+- `CLIENTS` should include all the addresses assigned to `allClientsAddr` in the scenario file.
+
+## Step 1.5: Turn off printing
+
+If printing is enabled, it can slow down the SMC or mess with the log, so make sure `set print attribute on .` is commented out.
+
+## Step 2: Generate quatex file
+
+Just run the `generate_quatex.py` script with the desired path of the quatex file as an argument.
+
+## Step 3: Set up dump directory
+
+All the dump files from an SMC run need their own directory for the formatter to work, so make a directory to hold them.
+
+For convenience, `mk_dump_dir.py` will automatically create a dump directory matching its argument, but with a timestamp appended
+to avoid clobbering previous runs.
+
+## Step 4: Run `maude-hcs scheck` and capture log
+
+Make sure to pass it the quatex query file you just generated and the dump directory you just made.
+
+I recommend using `| tee log.txt` so you can see the log being captured.
+
+## Step 5: Concatenate dump files
+
+The formatter expects a single dump file, but if you run SMC with multiple threads it will output one dump file per thread.
+
+Concatenate them all into a single dump file.
+
+## Step 5: Run the formatter
+
+The formatter takes a lot of arguments:
+    
+> `smc-results-file` is the SMC log that you captured
+> `quatex-file` is the file containing generated quatex queries
+> `perf-output-file` is the desired filename for the performance json output
+> `adv-output-file` is the same, but for adversary features
+> `perf-stats-output-file` is similar to `perf-output-file`, but contains 
+
+#!/bin/bash
+
+set -euo pipefail
+rootdir=/Users/lwest/Documents/pwnd2/playground-maude-hcs
+
+python3 ./scripts/cp3_glue/generate_quatex.py test.quatex
+
+maude-hcs scheck \
+    --file $rootdir/maude_hcs/lib/smc/smc_cp3.maude \
+    --test $rootdir/use-cases/challenge-problem-3/cp3_scenarios/scenario1/scenario1.maude \
+    --query $rootdir/test.quatex \
+    --dump $rootdir/dumps/dump.txt \
+    -j 1 -n 1-1 \
+    | tee log.txt
+
+python3 ./scripts/cp3_glue/format_for_tne_v2.py \
+    --smc-results-file log.txt \
+    --quatex-file test.quatex \
+    --perf-output-file perf.json \
+    --adv-output-file adv.json \
+    --perf-stats-output-file perf_stats.json \
+    --adv-stats-output-file adv_stats.json \
+    --dump-file dump.txt \
+    --sample-output-dir samples \
