@@ -1445,20 +1445,20 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to skyCl{i}AhaAddr from skyCl{i}AhaAddr : SkyhookStartCmd), 0]"); timer_j += 1
         L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to skyCl{i}UmacAddr from skyCl{i}UmacAddr : actionR(\"ok\")), 0]"); timer_j += 1
         L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to skyCl{i}UmasAddr from skyCl{i}UmasAddr : actionR(\"ok\")), 0]"); timer_j += 1
-        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to skyCl{i}UmAddr from skyCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
+        L(f"    [hcsDelay + 10.0 + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to skyCl{i}UmAddr from skyCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
     for i in hcs_client_ids["webtunnel"]:
         L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to wtCl{i}ClientAddr from wtCl{i}ClientAddr : WtStartCmd), 0]"); timer_j += 1
-        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to wtCl{i}UmAddr from wtCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
+        L(f"    [hcsDelay + 10.0 + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to wtCl{i}UmAddr from wtCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
     for i in hcs_client_ids["iodine"]:
         L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to iodCl{i}SendAppAddr : start), 0]"); timer_j += 1
         L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to iodCl{i}RcvAppAddr : start), 0]"); timer_j += 1 
-        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to iodCl{i}UmAddr from iodCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1   
+        L(f"    [hcsDelay + 10.0 + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to iodCl{i}UmAddr from iodCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1   
     for i in hcs_client_ids["mastodon"]:    
         L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to masCl{i}UmacAddr from masCl{i}UmacAddr : actionR(\"ok\")), 0]"); timer_j += 1
         L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to masCl{i}UmasAddr from masCl{i}UmasAddr : actionR(\"ok\")), 0]"); timer_j += 1
-        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to masCl{i}UmAddr from masCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1    
+        L(f"    [hcsDelay + 10.0 + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to masCl{i}UmAddr from masCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1    
     for i in hcs_client_ids["obfs4"]:
-        L(f"    [hcsDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to obfsCl{i}UmAddr from obfsCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
+        L(f"    [hcsDelay + 10.0 + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to obfsCl{i}UmAddr from obfsCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
     L("")
     
     L("    --- TGEN User Model Burst Delay Timers (staggered)")
@@ -1497,8 +1497,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L(f"  eq allClientsAddr = {' ; '.join(all_clients)} .")
     L("endm")
     L("--- set print attribute on .")
-    L("--- rew initConfig .")
-    L("--- q")
+    L("rew initConfig .")
+    L("q")
     
     return "\n".join(lines)
 
