@@ -23,6 +23,10 @@ def chunk_list(lst, n):
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
+def fmt(val):
+    s = f"{float(val / 100.0):.5f}".rstrip("0")
+    return s + "0" if s.endswith(".") else s
+
 def load_loss_profile(profile_name, base_dir):
     """Load loss parameters from tc_user_models/{profile_name}.yaml if present, or fallback."""
     profile_path = os.path.join(base_dir, "tc_user_models", f"{profile_name}.yaml")
@@ -30,18 +34,13 @@ def load_loss_profile(profile_name, base_dir):
         with open(profile_path, "r") as f:
             data = yaml.safe_load(f)
             return {
-                "p13": float(data.get("p13", 0.0)),
-                "p31": float(data.get("p31", 1.0)),
-                "p32": float(data.get("p32", 0.0)),
-                "p23": float(data.get("p23", 0.0)),
-                "p14": float(data.get("p14", 0.0)),
-            }
-    defaults = {
-        "excellent": {"p13": 0.0054, "p31": 10.0, "p32": 40.0, "p23": 40.0, "p14": 0.05},
-        "good":      {"p13": 0.0219, "p31": 6.67, "p32": 26.7, "p23": 40.0, "p14": 0.05},
-    }
-    logger.warning(f'Couldnt find profile {profile_name} in {base_dir}; reverting to defaults')
-    return defaults.get(profile_name, {"p13": 0.0, "p31": 1.0, "p32": 0.0, "p23": 0.0, "p14": 0.0})
+                "p13": fmt(data["p13"]),
+                "p31": fmt(data["p31"]),
+                "p32": fmt(data["p32"]),
+                "p23": fmt(data["p23"]),
+                "p14": fmt(data["p14"])
+            }    
+    logger.error(f'Couldnt find profile {profile_name} in {base_dir}; reverting to defaults')    
 
 def parse_scenario_yaml(yaml_path):
     with open(yaml_path, "r") as f:
