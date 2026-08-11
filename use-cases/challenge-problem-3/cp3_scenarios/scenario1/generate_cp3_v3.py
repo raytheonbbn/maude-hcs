@@ -183,7 +183,7 @@ NET_TO_DNS_NAME = {
 }
 
 def get_corp_dns_addr_name(net):
-    return NET_TO_DNS_NAME.get(net, "servDns") + "Addr"
+    return NET_TO_DNS_NAME["servDns"] + "Addr"
 
 def link_param_name(net_name, dns=None):
     """Generate a Maude operator name for the link parameters of a network."""
@@ -967,38 +967,6 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     add_bidir_ixp("ircServerAddr", server_net_link)
     link_entries.append("")
 
-    # dns_enclaves = [
-    #     ("IRC Server", "serv"),
-    #     ("Mastodon IRC Client", "corpMas"),
-    #     ("WebTunnel IRC Client", "corpRt"),
-    #     ("Obfs4 IRC Client", "corpObfs"),
-    #     ("Skyhook IRC Client", "corpSky"),
-    # ]
-    # for desc, prefix in dns_enclaves:
-    #     dns_addr = f"{prefix}DnsAddr"
-    #     netcl_addr = f"{prefix}NetClAddr"
-        
-    #     link_entries.append(f"    *** {desc} enclave DNS server ***")
-    #     link_entries.append("    **** Local DNS addr to PublicDNS resolver net server ****")
-    #     add_bidir_link(dns_addr, "publicDnsAddr", "LinkType-DnsComposed")
-    #     add_bidir_ixp(dns_addr, "LinkType-Dns")
-    #     link_entries.append("    **** Local DNS Net Cl addr to PublicDNS resolver net server ****")
-    #     add_bidir_link(netcl_addr, "publicDnsAddr", "LinkType-DnsComposed")
-    #     add_bidir_ixp(netcl_addr, "LinkType-Dns")
-
-    # link_entries.append("")
-    # add_bidir_link("corpIodDnsAddr", "publicDnsAddr", "LinkType-DnsComposed")
-    # add_bidir_link("corpIodNetClAddr", "publicDnsAddr", "LinkType-DnsComposed")
-    # link_entries.append("")
-    # add_bidir_link("iodCl7ServerAddr", "publicDnsAddr", "LinkType-DnsComposed")
-    # add_bidir_link("iodCl8ServerAddr", "publicDnsAddr", "LinkType-DnsComposed")
-    # add_bidir_link("iodCl7ServerAddr", "iodCl7SrvNetClAddr", "LinkType-DnsComposed")
-    # add_bidir_link("iodCl8ServerAddr", "iodCl8SrvNetClAddr", "LinkType-DnsComposed")
-
-    # link_entries.append("")
-    # link_entries.append("    *** TODO: Do we need the same, but instead of publicResolver, it is the Iodine net servers?")
-    # link_entries.append("")
-
     link_entries.append("    --- TGEN Direct Links")
     
     # masTgen Mc
@@ -1106,7 +1074,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  eq skyCl{i}SrvIface  = mkIrcByteSeqIface(skyCl{i}SrvIfaceAddr, ircServerAddr, skyCl{i}CmasAddr) .")
         L(f"  eq skyCl{i}UmasAct   = mkUMactor(skyCl{i}UmasAddr, {sky_server_ma}, skyCl{i}CmasAddr) .")
         L(f"  eq skyCl{i}CmasAct   = mkCMSimpleBi(skyCl{i}CmasAddr, skyCl{i}SrvIfaceAddr, skyCl{i}AhaAddr) .")
-        L(f"  eq skyCl{i}AhaAct    = mkSkyhookAH(skyCl{i}AhaAddr, skyCl{i}CmasAddr, skyCl{i}SdkasAddr, \"c_to_s_bucket_{i}\", \"s_to_c_bucket_{i}\", \"c_to_s_uuid_{i}\", \"s_to_c_uuid_{i}\", \"s_to_c_uuid_{i}\", 6) .")
+        L(f"  eq skyCl{i}AhaAct    = mkSkyhookAH(skyCl{i}AhaAddr, skyCl{i}CmasAddr, skyCl{i}SdkasAddr, \"c_to_s_bucket_{i}\", \"s_to_c_bucket_{i}\", \"c_to_s_uuid_{i}\", \"s_to_c_uuid_{i}\", \"s_to_c_uuid_{i}\", 100) .")
         L(f"  eq skyCl{i}SdkasAct  = makeS3Client(skyCl{i}SdkasAddr, s3SrvAddr) .")
         L(f"  eq skyCl{i}ClNet     = makeNetClient(skyCl{i}ClNetAddr,")
         L(f"                                       s3SrvAddr,")
