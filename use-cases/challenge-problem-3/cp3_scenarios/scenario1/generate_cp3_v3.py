@@ -956,7 +956,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     dns_net_link_dns = link_param_name("dns_net", dns="Dns")
     for i in hcs_client_ids["iodine"]:
         link_entries.append(f"    --- Iodine Client {i}")        
-        add_bidir_ixp(f"iodCl{i}ClientAddr", iod_link_dns, "client_net_iodine")
+        # add_bidir_ixp(f"iodCl{i}ClientAddr", iod_link_dns, "client_net_iodine") # we removed this because iodine client uses the forwarder
         add_bidir_ixp(f"iodCl{i}ServerAddr", server_net_link_dns, "server_net")
         add_bidir_ixp(f"iodCl{i}SrvNetSrvAddr", server_net_link_dns, "server_net")
         add_bidir_ixp(f"iodCl{i}SrvNetClAddr", dns_net_link_dns, "dns_net")
