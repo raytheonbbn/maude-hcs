@@ -59,10 +59,14 @@ class Bl:
 
     def __str__(self):
         return f"bl({self.feat}, {self.vantage}, {self.k}, {' '.join(map(str, self.ecdf))})"
-    
+
+# bl_str should look like "bl(...)"
 def parse_bl(bl_str: str) -> Bl:
-    raw_args = bl_str.strip()[3:-1].split(", ") # strip initial "bl(" and terminal ")"
-    vantage, feat, k = raw_args[0], raw_args[1], float(raw_args[2])
+    first_paren_idx, last_paren_idx = bl_str.find('('), bl_str.find(')')
+    assert first_paren_idx >= 0, last_paren_idx >= 0
+
+    raw_args = bl_str[first_paren_idx+1:last_paren_idx].strip().split(",") # strip initial "bl(" and terminal ")"
+    vantage, feat, k = rm_whitespace(raw_args[0]), rm_whitespace(raw_args[1]), float(raw_args[2])
 
     if "nil" in raw_args[3]:
         ecdf = []
@@ -136,28 +140,37 @@ def parse_baseline(s: str) -> Baseline:
     # All whitespace runs are replaced by a single space
     s = " ".join(s.split())
 
-    baseline_start = s.find("baseLine: (bl(")
+    actor_start = s.find("result Actor: ")
+    assert actor_start >= 0
+    s = s[actor_start:]
+
+    baseline_start = s.find("baseLine")
     assert baseline_start >= 0
     s = s[baseline_start:]
 
-    bl_start = s.find("bl(")
+    bl_start = s.find("bl")
     assert bl_start >= 0
     s = s[bl_start:]
 
-    bl_end = s.find(")), winSize: ")
-    assert bl_end >= 0
-    terminator = s[bl_end+4:-1]
-    s = s[:bl_end+1]
+    winsize_idx = s.rfind("winSize")
+    assert winsize_idx >= 0
+    terminator = s[winsize_idx:]
+    s = s[:winsize_idx]
+
+    last_paren_idx = s.rfind(")")
+    assert last_paren_idx >= 0
+    s = s[:last_paren_idx]
 
     # raw_baseline should now have the form  "bl(...) :; bl(...) :; bl(...) :; ..."
     bl_strs = s.split(" :; ")
 
+    # Omit final gt sign
     attr_end = terminator.find('>')
     assert attr_end >= 0
     terminator = terminator[:attr_end]
 
-    param_strs = terminator.split(", ")
-    params = {item.split(": ")[0]: float(item.split(": ")[1]) for item in param_strs}
+    param_strs = rm_whitespace(terminator).split(",")
+    params = {item.split(":")[0]: float(item.split(":")[1]) for item in param_strs}
 
     return Baseline(list(map(parse_bl, bl_strs)), params)
 
