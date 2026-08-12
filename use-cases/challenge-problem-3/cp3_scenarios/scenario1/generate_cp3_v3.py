@@ -1584,12 +1584,48 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     return "\n".join(lines)
 
 # Generate baseline or run scenario file
+def gen_baselineEq(scenario_name):
+    lines = []
+    L = lines.append
+    """
+    set show advisories off .
+
+    *** sload smc-baseline-shared
+    sload {lib}/smc/smc-baseline-shared
+
+    mod {scenario-name}-BL-EQ is
+    inc SMC-BASELINE-SHARED .
+
+    eq BL = nilBaseLine .
+
+    endm
+    eof
+    """
+    L(f"sload {lib}/smc/smc-baseline-shared")
+    L("")
+    L("")
+    
+    mod_name = scenario_name.upper().replace("_", "-")
+    suffix = "BASELINE-EQ"
+    L(f"mod {mod_name}-{suffix} is")    
+    L("  inc SMC-BASELINE-SHARED .")
+    L("  ")
+    L("  ---- insert baseline output here ---")
+    L("  eq BL = nilBaseLine .")
+    L("")
+    L("endm")
+    L("eof")    
+    
+    return "\n".join(lines)
+
+# Generate baseline or run scenario file
 def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, run_time=None):
     lines = []
     L = lines.append
     
     L(f"sload {scenario_name}")
     L(f"sload {lib}/smc/smc_cp3-refactored")
+    L(f"sload {scenario_name}-baseline-eq")
     L("")
     L("")
     
@@ -1598,6 +1634,8 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, r
     L(f"mod {mod_name}-{suffix} is")
     L("  inc HCS_TEST .  ")
     L("  inc SMC_CP3 . ")
+    if not isBaseline:
+        L(f"  inc {mod_name}-BASELINE-EQ . ")
     L("  ")
     if isBaseline and baseline_time is not None:
         L(f"  eq slimit = {baseline_time} .")
@@ -1682,6 +1720,14 @@ if __name__ == "__main__":
     with open(baseline_path, "w") as f:
         f.write(baseline_content)
     print(f"Wrote {baseline_path} ({len(baseline_content.splitlines())} lines)")
+    # Generate the baseline eq
+    baselin_eq_content = gen_baselineEq(scenario_name)
+    eq_filename = f"{scenario_name}-baseline-eq.maude"
+    eq_path = os.path.join(OUT_DIR, eq_filename)
+    with open(eq_path, "w") as f:
+        f.write(baselin_eq_content)    
+    print(f"Wrote {eq_path} ({len(baselin_eq_content.splitlines())} lines)")
+
     # Generate run file    
     run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, run_time=run_time)
     if run_time is not None:
@@ -1690,6 +1736,5 @@ if __name__ == "__main__":
         run_filename = f"{scenario_name}-run.maude"    
     run_path = os.path.join(OUT_DIR, run_filename)
     with open(run_path, "w") as f:
-        f.write(run_content)
-    logger.warning("****TODO: generate BL-eq ")
+        f.write(run_content)    
     print(f"Wrote {run_path} ({len(run_content.splitlines())} lines)")
