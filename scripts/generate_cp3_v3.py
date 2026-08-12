@@ -928,94 +928,101 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     publicResolverNetSrvAddr    (composed)
     publicDnsAddr (composed)
     IXP
-    """        
-    wt_link = link_param_name("client_net_racetunnel")
-    wt_link_dns = link_param_name("client_net_racetunnel", "Dns")
-    wt_link_dns_comp = link_param_name("client_net_racetunnel", "DnsComposed")
+    """
     server_net_link = link_param_name("server_net")
-    minio_net_link = link_param_name("minio_net")
-    mas_net_link = link_param_name("mastodon_net")
+    server_net_link_dns = link_param_name("server_net", dns="Dns")
+    server_net_link_dns_comp = link_param_name("server_net", dns="DnsComposed")
+    dns_net_link_dns = link_param_name("dns_net", dns="Dns")
+    minio_net_link = link_param_name("minio_net") if "minio_net" in networks else None
+    mas_net_link = link_param_name("mastodon_net") if "mastodon_net" in networks else None
+
+    if "client_net_racetunnel" in networks:
+        wt_link = link_param_name("client_net_racetunnel")
+        wt_link_dns = link_param_name("client_net_racetunnel", "Dns")
+        wt_link_dns_comp = link_param_name("client_net_racetunnel", "DnsComposed")
+        for i in hcs_client_ids["webtunnel"]:
+            link_entries.append(f"    --- Webtunnel Client {i}")
+            add_bidir_ixp(f"wtCl{i}ClientAddr", wt_link, "client_net_racetunnel")
+            add_bidir_ixp(f"wtCl{i}ProxyAddr", server_net_link, "server_net")
+        link_entries.append(f"    --- Webtunnel corp")
+        add_bidir_ixp(f"corpRtNetClAddr", wt_link_dns, "client_net_racetunnel")
+        add_bidir_link(f"corpRtNetClAddr", f"publicResolverNetSrvAddr", wt_link_dns_comp, "client_net_racetunnel")
+        add_bidir_link(f"corpRtNetClAddr", f"publicDnsAddr", wt_link_dns_comp, "client_net_racetunnel")
+        add_bidir_ixp(f"corpRtDnsAddr", wt_link_dns, "client_net_racetunnel")    
+        add_bidir_link(f"corpRtDnsAddr", f"publicDnsAddr", wt_link_dns_comp, "client_net_racetunnel")
+        link_entries.append("")
     
-    for i in hcs_client_ids["webtunnel"]:
-        link_entries.append(f"    --- Webtunnel Client {i}")
-        add_bidir_ixp(f"wtCl{i}ClientAddr", wt_link, "client_net_racetunnel")
-        add_bidir_ixp(f"wtCl{i}ProxyAddr", server_net_link, "server_net")
-    link_entries.append(f"    --- Webtunnel corp")
-    add_bidir_ixp(f"corpRtNetClAddr", wt_link_dns, "client_net_racetunnel")
-    add_bidir_link(f"corpRtNetClAddr", f"publicResolverNetSrvAddr", wt_link_dns_comp, "client_net_racetunnel")
-    add_bidir_link(f"corpRtNetClAddr", f"publicDnsAddr", wt_link_dns_comp, "client_net_racetunnel")
-    add_bidir_ixp(f"corpRtDnsAddr", wt_link_dns, "client_net_racetunnel")    
-    add_bidir_link(f"corpRtDnsAddr", f"publicDnsAddr", wt_link_dns_comp, "client_net_racetunnel")
-    link_entries.append("")
+    if "client_net_obfs" in networks:
+        obfs_link = link_param_name("client_net_obfs")
+        obfs_link_dns = link_param_name("client_net_obfs", dns="Dns")
+        obfs_link_dns_comp = link_param_name("client_net_obfs", dns="DnsComposed")
+        for i in hcs_client_ids["obfs4"]:
+            link_entries.append(f"    --- OBFS4 Client {i}")
+            add_bidir_ixp(f"obfsCl{i}ClientAddr", obfs_link, "client_net_obfs")
+            add_bidir_ixp(f"obfsCl{i}ServerAddr", server_net_link, "server_net")
+        link_entries.append(f"    --- Obfs4 corp")
+        add_bidir_ixp(f"corpObfsNetClAddr", obfs_link_dns, "client_net_obfs")
+        add_bidir_link(f"corpObfsNetClAddr", f"publicResolverNetSrvAddr", obfs_link_dns_comp, "client_net_obfs")
+        add_bidir_link(f"corpObfsNetClAddr", f"publicDnsAddr", obfs_link_dns_comp, "client_net_obfs")
+        add_bidir_ixp(f"corpObfsDnsAddr", obfs_link_dns, "client_net_obfs")    
+        add_bidir_link(f"corpObfsDnsAddr", f"publicDnsAddr", obfs_link_dns_comp, "client_net_obfs")
+        link_entries.append("")
     
-    obfs_link = link_param_name("client_net_obfs")
-    obfs_link_dns = link_param_name("client_net_obfs", dns="Dns")
-    obfs_link_dns_comp = link_param_name("client_net_obfs", dns="DnsComposed")
-    for i in hcs_client_ids["obfs4"]:
-        link_entries.append(f"    --- OBFS4 Client {i}")
-        add_bidir_ixp(f"obfsCl{i}ClientAddr", obfs_link, "client_net_obfs")
-        add_bidir_ixp(f"obfsCl{i}ServerAddr", server_net_link, "server_net")
-    link_entries.append(f"    --- Obfs4 corp")
-    add_bidir_ixp(f"corpObfsNetClAddr", obfs_link_dns, "client_net_obfs")
-    add_bidir_link(f"corpObfsNetClAddr", f"publicResolverNetSrvAddr", obfs_link_dns_comp, "client_net_obfs")
-    add_bidir_link(f"corpObfsNetClAddr", f"publicDnsAddr", obfs_link_dns_comp, "client_net_obfs")
-    add_bidir_ixp(f"corpObfsDnsAddr", obfs_link_dns, "client_net_obfs")    
-    add_bidir_link(f"corpObfsDnsAddr", f"publicDnsAddr", obfs_link_dns_comp, "client_net_obfs")
-    link_entries.append("")
-    
-    sky_link = link_param_name("client_net_sky")
-    sky_link_dns = link_param_name("client_net_sky", dns="Dns")
-    sky_link_dns_comp = link_param_name("client_net_sky", dns="DnsComposed")
-    for i in hcs_client_ids["skyhook"]:
-        link_entries.append(f"    --- Skyhook Client {i}")
-        add_bidir_ixp(f"skyCl{i}SdkacAddr", sky_link, "client_net_sky")
-        add_bidir_ixp(f"skyCl{i}SdkasAddr", server_net_link, "server_net")
-    add_bidir_ixp(f"corpSkyNetClAddr", sky_link_dns, "client_net_sky")
-    add_bidir_link(f"corpSkyNetClAddr", f"publicResolverNetSrvAddr", sky_link_dns_comp, "client_net_sky")
-    add_bidir_link(f"corpSkyNetClAddr", f"publicDnsAddr", sky_link_dns_comp, "client_net_sky")    
-    add_bidir_ixp(f"corpSkyDnsAddr", sky_link_dns, "client_net_sky")    
-    add_bidir_link(f"corpSkyDnsAddr", f"publicDnsAddr", sky_link_dns_comp, "client_net_sky")
+    if "client_net_sky" in networks:
+        sky_link = link_param_name("client_net_sky")
+        sky_link_dns = link_param_name("client_net_sky", dns="Dns")
+        sky_link_dns_comp = link_param_name("client_net_sky", dns="DnsComposed")
+        for i in hcs_client_ids["skyhook"]:
+            link_entries.append(f"    --- Skyhook Client {i}")
+            add_bidir_ixp(f"skyCl{i}SdkacAddr", sky_link, "client_net_sky")
+            add_bidir_ixp(f"skyCl{i}SdkasAddr", server_net_link, "server_net")
+        add_bidir_ixp(f"corpSkyNetClAddr", sky_link_dns, "client_net_sky")
+        add_bidir_link(f"corpSkyNetClAddr", f"publicResolverNetSrvAddr", sky_link_dns_comp, "client_net_sky")
+        add_bidir_link(f"corpSkyNetClAddr", f"publicDnsAddr", sky_link_dns_comp, "client_net_sky")    
+        add_bidir_ixp(f"corpSkyDnsAddr", sky_link_dns, "client_net_sky")    
+        add_bidir_link(f"corpSkyDnsAddr", f"publicDnsAddr", sky_link_dns_comp, "client_net_sky")
+        link_entries.append("")
 
     link_entries.append("    --- Minio/S3 server")    
     add_bidir_ixp("s3SrvAddr", minio_net_link, "minio_net")
     link_entries.append("")
 
-    mas_link = link_param_name("client_net_mastodon")
-    mas_link_dns = link_param_name("client_net_mastodon", dns="Dns")
-    mas_link_dns_comp = link_param_name("client_net_mastodon", dns="DnsComposed")
-    for i in hcs_client_ids["mastodon"]:    
-        link_entries.append(f"    --- Mastodon HCS Client {i}")
-        add_bidir_ixp(f"masCl{i}McacAddr", mas_link, "client_net_mastodon")
-        add_bidir_ixp(f"masCl{i}McasAddr", server_net_link, "server_net")
-        link_entries.append("    --- Mastodon server")
-        add_bidir_ixp("masSrvAddr", mas_net_link, "mastodon_net")
-    add_bidir_ixp(f"corpMasNetClAddr", mas_link_dns, "client_net_mastodon")
-    add_bidir_link(f"corpMasNetClAddr", f"publicResolverNetSrvAddr", mas_link_dns_comp, "client_net_mastodon")
-    add_bidir_link(f"corpMasNetClAddr", f"publicDnsAddr", mas_link_dns_comp, "client_net_mastodon")
-    add_bidir_ixp(f"corpMasDnsAddr", mas_link_dns, "client_net_mastodon")    
-    add_bidir_link(f"corpMasDnsAddr", f"publicDnsAddr", mas_link_dns_comp, "client_net_mastodon")
-    link_entries.append("")
+    if "client_net_mastodon" in networks:
+        mas_link = link_param_name("client_net_mastodon")
+        mas_link_dns = link_param_name("client_net_mastodon", dns="Dns")
+        mas_link_dns_comp = link_param_name("client_net_mastodon", dns="DnsComposed")
+        for i in hcs_client_ids["mastodon"]:    
+            link_entries.append(f"    --- Mastodon HCS Client {i}")
+            add_bidir_ixp(f"masCl{i}McacAddr", mas_link, "client_net_mastodon")
+            add_bidir_ixp(f"masCl{i}McasAddr", server_net_link, "server_net")
+        if "mastodon_net" in networks:
+            link_entries.append("    --- Mastodon server")
+            add_bidir_ixp("masSrvAddr", mas_net_link, "mastodon_net")
+        add_bidir_ixp(f"corpMasNetClAddr", mas_link_dns, "client_net_mastodon")
+        add_bidir_link(f"corpMasNetClAddr", f"publicResolverNetSrvAddr", mas_link_dns_comp, "client_net_mastodon")
+        add_bidir_link(f"corpMasNetClAddr", f"publicDnsAddr", mas_link_dns_comp, "client_net_mastodon")
+        add_bidir_ixp(f"corpMasDnsAddr", mas_link_dns, "client_net_mastodon")    
+        add_bidir_link(f"corpMasDnsAddr", f"publicDnsAddr", mas_link_dns_comp, "client_net_mastodon")
+        link_entries.append("")
     
-    iod_link_dns = link_param_name("client_net_iodine", dns="Dns")
-    iod_link_dns_comp = link_param_name("client_net_iodine", dns="DnsComposed")
-    server_net_link_dns = link_param_name("server_net", dns="Dns")
-    server_net_link_dns_comp = link_param_name("server_net", dns="DnsComposed")
-    dns_net_link_dns = link_param_name("dns_net", dns="Dns")
-    for i in hcs_client_ids["iodine"]:
-        link_entries.append(f"    --- Iodine Client {i}")        
-        # add_bidir_ixp(f"iodCl{i}ClientAddr", iod_link_dns, "client_net_iodine") # we removed this because iodine client uses the forwarder
-        add_bidir_ixp(f"iodCl{i}ServerAddr", server_net_link_dns, "server_net")
-        add_bidir_ixp(f"iodCl{i}SrvNetSrvAddr", server_net_link_dns, "server_net")
-        add_bidir_ixp(f"iodCl{i}SrvNetClAddr", dns_net_link_dns, "dns_net")
-        add_bidir_link(f"iodCl{i}SrvNetClAddr", f"iodCl{i}SrvNetSrvAddr", server_net_link_dns_comp, "server_net")
-        add_bidir_link(f"iodCl{i}ServerAddr", "publicDnsAddr", server_net_link_dns_comp, "server_net")
-        
-    add_bidir_ixp(f"corpIodNetClAddr", iod_link_dns, "client_net_iodine")
-    add_bidir_link(f"corpIodNetClAddr", f"publicResolverNetSrvAddr", iod_link_dns_comp, "client_net_iodine")
-    add_bidir_link(f"corpIodNetClAddr", f"publicDnsAddr", iod_link_dns_comp, "client_net_iodine")    
-    add_bidir_ixp("corpIodDnsAddr", iod_link_dns, "client_net_iodine")    
-    add_bidir_link(f"corpIodDnsAddr", f"publicDnsAddr", iod_link_dns_comp, "client_net_iodine")
-    link_entries.append("")
+    if "client_net_iodine" in networks:
+        iod_link_dns = link_param_name("client_net_iodine", dns="Dns")
+        iod_link_dns_comp = link_param_name("client_net_iodine", dns="DnsComposed")
+        for i in hcs_client_ids["iodine"]:
+            link_entries.append(f"    --- Iodine Client {i}")        
+            # add_bidir_ixp(f"iodCl{i}ClientAddr", iod_link_dns, "client_net_iodine") # we removed this because iodine client uses the forwarder
+            add_bidir_ixp(f"iodCl{i}ServerAddr", server_net_link_dns, "server_net")
+            add_bidir_ixp(f"iodCl{i}SrvNetSrvAddr", server_net_link_dns, "server_net")
+            add_bidir_ixp(f"iodCl{i}SrvNetClAddr", dns_net_link_dns, "dns_net")
+            add_bidir_link(f"iodCl{i}SrvNetClAddr", f"iodCl{i}SrvNetSrvAddr", server_net_link_dns_comp, "server_net")
+            add_bidir_link(f"iodCl{i}ServerAddr", "publicDnsAddr", server_net_link_dns_comp, "server_net")
+            
+        add_bidir_ixp(f"corpIodNetClAddr", iod_link_dns, "client_net_iodine")
+        add_bidir_link(f"corpIodNetClAddr", f"publicResolverNetSrvAddr", iod_link_dns_comp, "client_net_iodine")
+        add_bidir_link(f"corpIodNetClAddr", f"publicDnsAddr", iod_link_dns_comp, "client_net_iodine")    
+        add_bidir_ixp("corpIodDnsAddr", iod_link_dns, "client_net_iodine")    
+        add_bidir_link(f"corpIodDnsAddr", f"publicDnsAddr", iod_link_dns_comp, "client_net_iodine")
+        link_entries.append("")
 
     add_bidir_ixp(f"servDnsAddr", server_net_link_dns, "server_net")        
     add_bidir_link(f"servDnsAddr", f"publicDnsAddr", server_net_link_dns_comp, "server_net")
@@ -1683,22 +1690,25 @@ if __name__ == "__main__":
     parser.add_argument("--runTime", type=float, default=None, help="Duration of actual run")
     parser.add_argument("--hcsDelay", type=float, default=10.0, help="When to start hcs")
     parser.add_argument("--tgenDelay", type=float, default=1.0, help="When to start tgens")
+    parser.add_argument("--outDir", default=None, help="Output directory for generated Maude files (default: directory of YAML file)")
+    parser.add_argument("--scenarioName", default=None, help="Scenario name for generated Maude files (default: basename of YAML without extension)")
     args = parser.parse_args()
     
-    yaml_file = args.yaml_file
+    yaml_file = os.path.abspath(args.yaml_file)
     baseline_time = args.baselineTime
     run_time = args.runTime
     hcs_delay = args.hcsDelay
     tgen_delay = args.tgenDelay
+    out_dir = os.path.abspath(args.outDir) if args.outDir is not None else os.path.dirname(yaml_file)
+    scenario_name = args.scenarioName if args.scenarioName is not None else os.path.splitext(os.path.basename(yaml_file))[0]
 
     print("Execution Arguments:")
     for arg, value in vars(args).items():
         print(f"  {arg}: {value}")
+    print(f"  effective out_dir: {out_dir}")
+    print(f"  effective scenario_name: {scenario_name}")
     print("-" * 40)
     
-    scenario_name = os.path.splitext(os.path.basename(yaml_file))[0]
-
-
     print(f"Parsing scenario YAML from: {yaml_file}")
     duration, networks, net_id_map, net_short, loss_profiles, hcs_nodes, hcs_profiles_by_channel, tgen_defs, hcs_channel_models = parse_scenario_yaml(yaml_file)
     
@@ -1712,16 +1722,18 @@ if __name__ == "__main__":
         count = sum(1 for i in tgen_instances if i.tgen_type == ttype)
         print(f"  {ttype}: {count}")
     
+    os.makedirs(out_dir, exist_ok=True)
+
     # Generate addresses file
     addr_content, hcs_client_ids = gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name)
-    addr_path = os.path.join(OUT_DIR, f"{scenario_name}_addresses.maude")
+    addr_path = os.path.join(out_dir, f"{scenario_name}_addresses.maude")
     with open(addr_path, "w") as f:
         f.write(addr_content)
     print(f"\nWrote {addr_path} ({len(addr_content.splitlines())} lines)")
     
     # Generate main file
     main_content = gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay)
-    main_path = os.path.join(OUT_DIR, f"{scenario_name}.maude")
+    main_path = os.path.join(out_dir, f"{scenario_name}.maude")
     with open(main_path, "w") as f:
         f.write(main_content)
     print(f"Wrote {main_path} ({len(main_content.splitlines())} lines)")
@@ -1731,14 +1743,14 @@ if __name__ == "__main__":
         baseline_filename = f"{scenario_name}-baseline-{baseline_time}.maude"
     else:
         baseline_filename = f"{scenario_name}-baseline.maude"    
-    baseline_path = os.path.join(OUT_DIR, baseline_filename)
+    baseline_path = os.path.join(out_dir, baseline_filename)
     with open(baseline_path, "w") as f:
         f.write(baseline_content)
     print(f"Wrote {baseline_path} ({len(baseline_content.splitlines())} lines)")
     # Generate the baseline eq
     baselin_eq_content = gen_baselineEq(scenario_name)
     eq_filename = f"{scenario_name}-baseline-eq.maude"
-    eq_path = os.path.join(OUT_DIR, eq_filename)
+    eq_path = os.path.join(out_dir, eq_filename)
     with open(eq_path, "w") as f:
         f.write(baselin_eq_content)    
     print(f"Wrote {eq_path} ({len(baselin_eq_content.splitlines())} lines)")
@@ -1749,7 +1761,7 @@ if __name__ == "__main__":
         run_filename = f"{scenario_name}-run-{run_time}.maude"
     else:
         run_filename = f"{scenario_name}-run.maude"    
-    run_path = os.path.join(OUT_DIR, run_filename)
+    run_path = os.path.join(out_dir, run_filename)
     with open(run_path, "w") as f:
         f.write(run_content)    
     print(f"Wrote {run_path} ({len(run_content.splitlines())} lines)")
