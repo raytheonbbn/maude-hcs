@@ -3,6 +3,7 @@ import os
 import json
 from pathlib import Path
 from dataclasses import dataclass, field
+import argparse
 
 # parsable from bins:
 #   "feature": "active_flow_count",
@@ -26,9 +27,6 @@ from dataclasses import dataclass, field
 #   "k_n_trials": 500,
 
 SCENARIO = "unknown"
-
-# parse large number of baseline runs, combine them into one dict,
-# and also combine them into one actor.
 
 def rm_whitespace(s: str) -> str:
     return "".join(s.split())
@@ -89,7 +87,7 @@ class Baseline:
         pairs = list(map(lambda x: (x.feat, x.vantage), self.bls))
         return len(pairs) == len(set(pairs))
 
-    def to_actor_str(self):
+    def to_maude_str(self):
         return str(Lines(
             f"result Actor:",
             Lines(
@@ -133,7 +131,6 @@ class Baseline:
             bls.extend(baseline.bls)
 
         return Baseline(bls, baselines[0].params)
-
 
 def parse_baseline(s: str) -> Baseline:
     # All whitespace runs are replaced by a single space
@@ -182,17 +179,30 @@ def write_jsons(baseline: Baseline, output_dir: Path, scenario: str):
                 json.dump(bl_dict, f, indent=4)
 
 if __name__ == "__main__":
-    baseline_path = Path(sys.argv[1]).resolve()
-    output_dir = Path(sys.argv[2]).resolve()
+    parser = argparse.ArgumentParser(prog="parse_baseline")
+    parser.add_argument("baseline_path",
+        help="path to the baseline file to parse (should contain output from a maude execution). "
+        "If this path points to a dir, all files within are parsed as baseline files and combined.")
+    parser.add_argument("output_dir", 
+        help="path to a directory where the json files representing the baseline will be created. "
+        "A directory is created at this location if it does not already exist.")
+    parser.add_argument("-m", "--maude-output-file",
+        help="Path where a maude representation of the combined baseline actor will be written.")
+    parser.add_argument("-s", "--scenario", help="scenario name to be written to json outputs")
+    args = parser.parse_args()
 
-    if len(sys.argv) >= 4:
-        scenario = sys.argv[3]
+    baseline_path = Path(args.baseline_path).resolve()
+    output_dir = Path(args.output_dir).resolve()
+    
+    if args.scenario is not None:
+        scenario = args.scenario
     else:
         scenario = baseline_path.stem
 
     if baseline_path.is_dir():
         baselines = []
         for path in os.listdir(baseline_path):
+            if path.startswith("."): continue   # Skip hidden files like .DS_Store
             assert Path(path).is_file()
             with open(path, "r") as f:
                 baselines.append(parse_baseline(f.read()))
@@ -205,3 +215,7 @@ if __name__ == "__main__":
         raise Exception("first argument must be a path to either directory or ordinary file")
 
     write_jsons(baseline, output_dir, scenario)
+
+    if args.maude_output_file is not None:
+        with open(args.maude_output_file, "w") as f:
+            f.write(baseline.to_maude_str())
