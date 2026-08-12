@@ -58,7 +58,7 @@ class Bl:
     ecdf: list[float]
 
     def __str__(self):
-        return f"bl({self.feat}, {self.vantage}, {self.k}, {' '.join(map(str, self.ecdf))}"
+        return f"bl({self.feat}, {self.vantage}, {self.k}, {' '.join(map(str, self.ecdf))})"
     
 def parse_bl(bl_str: str) -> Bl:
     raw_args = bl_str.strip()[3:-1].split(", ") # strip initial "bl(" and terminal ")"
@@ -97,7 +97,7 @@ class Baseline:
                     f"features: ({' :; '.join(self.feats)}),",
                     f"baseLine: ({' :; '.join(map(str, self.bls))}),",
                     ', '.join([f"{p[0]}: {p[1]}" for p in self.params.items()]),).indent(),
-                '>',).indent
+                '>',).indent()
         ))
 
     def to_tne_dict(self, scenario):
@@ -124,7 +124,7 @@ class Baseline:
         assert len(baselines) >= 1
 
         # all baselines to be joined must have the same params
-        assert len(set(map(lambda x: x.params, baselines))) == 1
+        assert len(set(map(lambda x: tuple(x.params.items()), baselines))) == 1
 
         bls = []
         for baseline in baselines:
@@ -201,9 +201,11 @@ if __name__ == "__main__":
 
     if baseline_path.is_dir():
         baselines = []
-        for path in os.listdir(baseline_path):
-            if path.startswith("."): continue   # Skip hidden files like .DS_Store
-            assert Path(path).is_file()
+        for filename in os.listdir(baseline_path):
+            if filename.startswith("."): continue   # Skip hidden files like .DS_Store
+
+            path = baseline_path / filename
+            assert Path(path).is_file(), f"{path} is not a file"
             with open(path, "r") as f:
                 baselines.append(parse_baseline(f.read()))
         baseline = Baseline.join(baselines)
