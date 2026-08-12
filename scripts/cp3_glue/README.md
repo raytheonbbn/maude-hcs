@@ -1,6 +1,8 @@
 These scripts are glue code for generating quatex queries, running SMC on a maude scenario
 using those queries, and formatting the results to be consistent with what the T&E team is expecting.
 
+This directory also includes parse_baseline.py, which is not as directly involved in the above pipeline.
+
 # How to use
 
 ## Step 1: Copy in constants to generate_quatex.py
@@ -103,3 +105,9 @@ python3 ./scripts/cp3_glue/format_for_tne_v2.py \
     --dump-file $dumpdir/combined_dump.txt \
     --sample-output-dir samples \
 ```
+
+# How to use `parse_baseline.py`
+
+`python3 parse_baseline.py BASELINE_PATH OUTPUT_DIRECTORY [--maude-output-file FILE] [--scenario STRING]`
+
+If `BASELINE_PATH` points to a directory, all the files inside that directory will be parsed as baseline logs and combined.
