@@ -62,7 +62,7 @@ class Bl:
 
 # bl_str should look like "bl(...)"
 def parse_bl(bl_str: str) -> Bl:
-    first_paren_idx, last_paren_idx = bl_str.find('('), bl_str.find(')')
+    first_paren_idx, last_paren_idx = bl_str.find('('), bl_str.rfind(')')
     assert first_paren_idx >= 0, last_paren_idx >= 0
 
     raw_args = bl_str[first_paren_idx+1:last_paren_idx].strip().split(",") # strip initial "bl(" and terminal ")"
@@ -84,8 +84,8 @@ class Baseline:
 
     def __post_init__(self):
         assert(self.no_dupe_bls())
-        self.vantages = list(map(lambda bl: bl.vantage, self.bls))
-        self.feats = list(map(lambda x: x.feat, self.bls))
+        self.vantages = list(set(map(lambda bl: bl.vantage, self.bls)))
+        self.feats = list(set(map(lambda x: x.feat, self.bls)))
 
     def no_dupe_bls(self) -> bool:
         pairs = list(map(lambda x: (x.feat, x.vantage), self.bls))
@@ -159,7 +159,11 @@ def parse_baseline(s: str) -> Baseline:
 
     last_paren_idx = s.rfind(")")
     assert last_paren_idx >= 0
-    s = s[:last_paren_idx]
+    # usually there's another ) before this, but if this is the only bl there will only be one paren
+    if s[:last_paren_idx].strip()[-1] == ')':
+        s = s[:last_paren_idx]
+    else:
+        s = s[:last_paren_idx+1]
 
     # raw_baseline should now have the form  "bl(...) :; bl(...) :; bl(...) :; ..."
     bl_strs = s.split(" :; ")
