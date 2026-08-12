@@ -73,13 +73,13 @@ vars vpts : NetIdList .
 vars obsF : Feature .
 vars obsFs : FeatureList .   
 vars bsize wsize tStart tEnd eTime sTime
-     binSize winSize T k k0 ks fl bStart : Float .
+     binSize winSize T k k0 ks fl fl0 fl1 bStart : Float .
 vars tml tpl  tml1 tpl1 F0Z tol GtZ
       : TimesObsList .
 vars to : TimesObs .
 vars ble ble1 kse  kselt : BaseLineElement .
-vars binEcdfL edcfl edcf : FloatLL .
-vars bcdf ksl wdoEcdf floatl : List{Float} .
+vars binEcdfL edcfl edcf  flll : FloatLL .
+vars bcdf ksl wdoEcdf floatl fll fll0 fll1 : List{Float} .
 vars b : Bool .
 
 
@@ -230,7 +230,7 @@ ceq addK2BlistX(ble :; blist,tStart,tEnd,wsize,bsize,blist1)
      = addK2BlistX(blist,tStart,tEnd,wsize,bsize,
                    blist1 :; ble1 )
 if bl(vpt,obsF,k0,edcfl) := ble
-/\ bcdf := flattenLL(edcfl)
+/\ bcdf := sFlatLL(edcfl,nil)
 /\ k := getKObsFeatureB(vpt, obsF, bcdf, edcfl,
                         tStart, tEnd, wsize, bsize)
 /\ ble1 := bl(vpt,obsF,k,bcdf)
@@ -252,6 +252,36 @@ op flattenLLX : FloatLL  List{Float} -> List{Float} .
 eq flattenLL(edcfl) = flattenLLX(edcfl,nil) .
 eq flattenLLX([floatl] edcfl, bcdf) = flattenLLX(edcfl, (bcdf floatl)) .
 eq flattenLLX(nilFloatL, bcdf ) = bcdf .
+
+***(
+vars flll : FloatLL .
+vars fll fll0 fll1 : List{Float} .
+vars fl fl0 fl1 : Float .
+)
+
+op sFlatLL : FloatLL List{Float} -> List{Float}  .
+op smerge : List{Float}  List{Float}  List{Float} 
+            -> List{Float} .
+            
+eq sFlatLL(nilFloatL,fll) = fll .
+eq sFlatLL([fll0] flll, fll) 
+    = sFlatLL(flll,smerge(fll,fll0,nil)) .
+
+
+eq smerge(nil,fll0,fll) = fll fll0 .
+eq smerge(fll0,nil,fll) = fll fll0 .
+eq smerge(fl0 fll0, fl1 fll1, fll) 
+  =  (if fl0 < fl1
+     then smerge(fll0, fl1 fll1, fll fl0)
+     else smerge(fl0 fll0,fll1,fll fl1)
+     fi) .
+     
+
+**** [ 1. 2. 3. ] [ 1.1 1.9 3.1] [.5 2.4.2.5 ]
+***(
+red smerge( 1. 2. 3.  , 1.1 1.9 3.1,nil) .
+red sFlatLL([ 1. 2. 3. ] [ 1.1 1.9 3.1] [.5 2.4 2.5],nil) .
+)
 
 -------------- execution rules ---------------------
 
@@ -367,6 +397,7 @@ if bl(vpt,obsF,k,bcdf) := ble
 /\ kselt := bl(vpt,obsF,k0,ksl ks)                 
 .
 
+**** called by finalize in hcs mode
 op mvKs2Adv : Config Bool -> Config .
 eq mvKs2Adv(< bAddr : BaseLineMonitor | 
                blAttrs, wdoKsList: kslist >
