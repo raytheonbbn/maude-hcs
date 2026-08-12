@@ -111,3 +111,6 @@ python3 ./scripts/cp3_glue/format_for_tne_v2.py \
 `python3 parse_baseline.py BASELINE_PATH OUTPUT_DIRECTORY [--maude-output-file FILE] [--scenario STRING]`
 
 If `BASELINE_PATH` points to a directory, all the files inside that directory will be parsed as baseline logs and combined.
+
+Also note that the maude output file *NEEDS TO BE CREATED WITH -no-wrap*. Otherwise, the maude output can have newlines in weird places,
+and vantage point IDs might not be parsed correctly. 
