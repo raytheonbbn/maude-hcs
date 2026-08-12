@@ -17,6 +17,25 @@ OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 lib = "../../../../maude_hcs/lib"
 deps = "../../../../maude_hcs/deps"
 IMAGE_SIZE = 190000
+  
+# Define the features as a list of strings to make them easily reusable and modifiable
+FEATURES = [
+    "dnsQueryRate",
+    # "dnsQuerySize",
+    # "tcpUpRate",
+    # "tcpDownRate",
+    # "tcpUpToDownRate",
+    "tcpOutPktRate",
+    "tcpInPktRate",
+    "tcpOutToInPktRate",
+    "tcpPktSizeStdDev",
+    "tcpPktSize",
+    "tcpPktInterarrival",
+    "tcpDirectionChange",
+    # "tcpActiveFlow",
+    # "tcpNewCnx"
+]
+
 
 def chunk_list(lst, n):
     """Yield successive n-sized chunks from lst."""
@@ -611,17 +630,13 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
        vpts_list.append(cl_id)
     vpts_list.extend(["srvN", "masN"])
     
-    L(f"  eq Vpts = ({' :; '.join(vpts_list)}) .")
+    L(f"  eq Vpts = ({' :; '.join(vpts_list)}) [owise] .")
     L("")
     L("  *** op ObsFs : -> FeatureList .")
     L("  eq ObsFs = ")
-    L("  dnsQueryRate ")
-    L("  *** :; dnsQuerySize ")
-    L("  *** :; tcpUpRate :; tcpDownRate :; tcpUpToDownRate ")
-    L("  :; tcpOutPktRate :; tcpInPktRate  :; tcpOutToInPktRate ")
-    L("  :; tcpPktSizeStdDev :; tcpPktSize :; tcpPktInterarrival ")
-    L("  :; tcpDirectionChange")
-    L("  *** :; tcpActiveFlow :; tcpNewCnx")
+    joined_features = " :; ".join(FEATURES)
+    L((f"  {joined_features}"))    
+    L("  [owise]")
     L("  .")
     L("  ----------------")
     L("")
