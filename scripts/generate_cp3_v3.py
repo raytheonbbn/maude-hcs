@@ -1660,7 +1660,7 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, r
     mod_name = scenario_name.upper().replace("_", "-")
     suffix = "BASELINE" if isBaseline else "RUN"
     if feature and vpt:
-        mod_name_ext = f"{mod_name}-{suffix}-{feature.upper()}-{vpt.upper()}".replace("_", "-")
+        mod_name_ext = f"{mod_name}-{suffix}-{feature.upper()}-{vpt.upper().replace("[","").replace("]","")}".replace("_", "-")
         L(f"mod {mod_name_ext} is")
     else:
         L(f"mod {mod_name}-{suffix} is")
@@ -1799,7 +1799,7 @@ if __name__ == "__main__":
                     feature=feature,
                     vpt=vpt
                 )
-                p_filename = f"{base_fn_no_ext}-{feature}-{vpt}.maude"
+                p_filename = f"{base_fn_no_ext}-{feature}-{vpt.replace("[","").replace("]","")}.maude"
                 p_path = os.path.join(baselines_dir, p_filename)
                 with open(p_path, "w") as f:
                     f.write(p_content)
