@@ -1641,19 +1641,29 @@ def gen_baselineEq(scenario_name):
     return "\n".join(lines)
 
 # Generate baseline or run scenario file
-def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, run_time=None):
+def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, run_time=None, feature=None, vpt=None):
     lines = []
     L = lines.append
+
+    prefix = ""
+    if feature and vpt:
+        # we are generating baselines insside <out_dir>/baselines so we need ../ in paths
+        prefix = "../"
     
-    L(f"sload {scenario_name}")
-    L(f"sload {lib}/smc/smc_cp3-refactored")
-    L(f"sload {scenario_name}-baseline-eq")
+    L(f"sload {prefix}{scenario_name}")
+    L(f"sload {prefix}{lib}/smc/smc_cp3-refactored")
     L("")
+    if not isBaseline:
+        L(f"sload {scenario_name}-baseline-eq")    
     L("")
     
     mod_name = scenario_name.upper().replace("_", "-")
     suffix = "BASELINE" if isBaseline else "RUN"
-    L(f"mod {mod_name}-{suffix} is")
+    if feature and vpt:
+        mod_name_ext = f"{mod_name}-{suffix}-{feature.upper()}-{vpt.upper()}".replace("_", "-")
+        L(f"mod {mod_name_ext} is")
+    else:
+        L(f"mod {mod_name}-{suffix} is")
     L("  inc HCS_TEST .  ")
     L("  inc SMC_CP3 . ")
     if not isBaseline:
@@ -1665,6 +1675,11 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, r
         L(f"  eq slimit = {run_time} .")
     else:
         L("  ----eq slimit = 100.0 . ---- redefine if needed")
+    if feature and vpt:
+        L("")
+        L(f"  eq Vpts = {vpt} .")
+        L(f"  eq ObsFs = {feature} .")
+        
     L("")
     if isBaseline:
         L("  eq hcsDelay = slimit + slimit .  --- prevent hcs from starting")
@@ -1685,13 +1700,14 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, r
 # Main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CP3 scenario.")
-    parser.add_argument("yaml_file", nargs="?", default=os.path.join(OUT_DIR, "pwnd_cp3_scenario_1.yaml"), help="Path to scenario YAML")
+    parser.add_argument("yaml_file", help="Path to scenario YAML")
     parser.add_argument("--baselineTime", type=float, default=None, help="Duration of baseline run")
     parser.add_argument("--runTime", type=float, default=None, help="Duration of actual run")
     parser.add_argument("--hcsDelay", type=float, default=10.0, help="When to start hcs")
     parser.add_argument("--tgenDelay", type=float, default=1.0, help="When to start tgens")
     parser.add_argument("--outDir", default=None, help="Output directory for generated Maude files (default: directory of YAML file)")
     parser.add_argument("--scenarioName", default=None, help="Scenario name for generated Maude files (default: basename of YAML without extension)")
+    parser.add_argument("--parallelizeBaseline", action="store_true", help="If set, generate separate baseline files per feature and vantage point in a 'baselines' directory")
     args = parser.parse_args()
     
     yaml_file = os.path.abspath(args.yaml_file)
@@ -1702,11 +1718,25 @@ if __name__ == "__main__":
     out_dir = os.path.abspath(args.outDir) if args.outDir is not None else os.path.dirname(yaml_file)
     scenario_name = args.scenarioName if args.scenarioName is not None else os.path.splitext(os.path.basename(yaml_file))[0]
 
+    # Dynamically determine the directory depth for lib and deps relative to the out_dir
+    #Find the common ancestor directory of the executing script and the output directory
+    script_path = os.path.abspath(__file__)
+    ancestor_dir = os.path.commonpath([script_path, out_dir])
+
+    # Find the relative path FROM the output directory back TO the ancestor
+    rel_to_ancestor = os.path.relpath(ancestor_dir, out_dir)
+
+    # Build the final lib/deps paths, ensuring forward slashes for the generated Maude files
+    lib = os.path.join(rel_to_ancestor, "maude_hcs", "lib").replace(os.sep, "/")
+    deps = os.path.join(rel_to_ancestor, "maude_hcs", "deps").replace(os.sep, "/")
+
     print("Execution Arguments:")
     for arg, value in vars(args).items():
         print(f"  {arg}: {value}")
     print(f"  effective out_dir: {out_dir}")
     print(f"  effective scenario_name: {scenario_name}")
+    print(f"  effective lib path relative to output dir: {lib}")
+    print(f"  effective deps path relative to output dir: {deps}")
     print("-" * 40)
     
     print(f"Parsing scenario YAML from: {yaml_file}")
@@ -1747,6 +1777,33 @@ if __name__ == "__main__":
     with open(baseline_path, "w") as f:
         f.write(baseline_content)
     print(f"Wrote {baseline_path} ({len(baseline_content.splitlines())} lines)")
+    # Generate parallelized baseline files if flag is set
+    if args.parallelizeBaseline:
+        baselines_dir = os.path.join(out_dir, "baselines")
+        os.makedirs(baselines_dir, exist_ok=True)
+        
+        # Dynamically build Vpts list
+        vpts_list = ["ixpN"]
+        for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
+            vpts_list.append(cl_id)
+        vpts_list.extend(["srvN", "masN"])
+        
+        base_fn_no_ext = baseline_filename.rsplit('.', 1)[0]
+        
+        for feature in FEATURES:
+            for vpt in vpts_list:
+                p_content = gen_baselineOrRun_file(
+                    scenario_name, 
+                    isBaseline=True, 
+                    baseline_time=baseline_time,
+                    feature=feature,
+                    vpt=vpt
+                )
+                p_filename = f"{base_fn_no_ext}-{feature}-{vpt}.maude"
+                p_path = os.path.join(baselines_dir, p_filename)
+                with open(p_path, "w") as f:
+                    f.write(p_content)
+        print(f"Wrote {len(FEATURES) * len(vpts_list)} parallel baseline files to {baselines_dir}/")
     # Generate the baseline eq
     baselin_eq_content = gen_baselineEq(scenario_name)
     eq_filename = f"{scenario_name}-baseline-eq.maude"
