@@ -755,13 +755,22 @@ mod SMC_CP3 is
   eq getECDFObsFeature ([ FL ] binECDFs, 0) = FL .
   eq getECDFObsFeature ([ FL ] binECDFs, s(N)) = getECDFObsFeature(binECDFs, N) .
 
+  op getECDFObsFeatureRange : FloatLL Nat Nat -> List{Float} .
+  eq getECDFObsFeatureRange (binECDFs, I, J) = getECDFObsFeatureRangeAux(binECDFs, I, J, 0) .
+
+  op getECDFObsFeatureRangeAux : FloatLL Nat Nat Nat -> List{Float} .
+  eq getECDFObsFeatureRangeAux (nilFloatL, I, J, N) = nil .
+  ceq getECDFObsFeatureRangeAux ([ FL ] binECDFs, I, J, N) = nil if N > J .
+  ceq getECDFObsFeatureRangeAux ([ FL ] binECDFs, I, J, N) = FL getECDFObsFeatureRangeAux(binECDFs, I, J, s(N)) if (N >= I) and (N <= J) .
+  eq getECDFObsFeatureRangeAux ([ FL ] binECDFs, I, J, N) = getECDFObsFeatureRangeAux(binECDFs, I, J, s(N)) [owise] .
+
   op expectedKObsFeature : NetId Feature List{Float} FloatLL Float Float Float Float Float Nat -> Float .
   ceq expectedKObsFeature (vp, obsF, baselineCDF, binECDFs, T, Tend, winSize, binSize, Ksum, N) =
     if KD >= 0.0
     then expectedKObsFeature(vp, obsF, baselineCDF, binECDFs, T + binSize, Tend, winSize, binSize, Ksum + KD, N + 1)
     else expectedKObsFeature(vp, obsF, baselineCDF, binECDFs, T + binSize, Tend, winSize, binSize, Ksum, N) fi
     if (T + winSize) <= (Tend + Tesp)
-      /\ ECDF := getECDFObsFeature(binECDFs, floor(rat(T / binSize)))
+      /\ ECDF := sort(getECDFObsFeatureRange(binECDFs, floor(rat(T / binSize)), (floor(rat(T / binSize)) + floor(rat(winSize / binSize))) - 1)) 
       /\ KD := KsDistance(baselineCDF, ECDF) .
   ceq expectedKObsFeature (vp, obsF, baselineCDF, binECDFs, T, Tend, winSize, binSize, Ksum, N) =
     if N == 0
