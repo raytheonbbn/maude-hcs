@@ -1583,8 +1583,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     
     return "\n".join(lines)
 
-# Generate baseline scenario file
-def gen_baseline_file(scenario_name, baseline_time=None):
+# Generate baseline or run scenario file
+def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, run_time=None):
     lines = []
     L = lines.append
     
@@ -1594,22 +1594,31 @@ def gen_baseline_file(scenario_name, baseline_time=None):
     L("")
     
     mod_name = scenario_name.upper().replace("_", "-")
-    L(f"mod {mod_name}-BASELINE is")
+    suffix = "BASELINE" if isBaseline else "RUN"
+    L(f"mod {mod_name}-{suffix} is")
     L("  inc HCS_TEST .  ")
     L("  inc SMC_CP3 . ")
     L("  ")
-    if baseline_time is not None:
+    if isBaseline and baseline_time is not None:
         L(f"  eq slimit = {baseline_time} .")
+    elif not isBaseline and run_time is not None:
+        L(f"  eq slimit = {run_time} .")
     else:
         L("  ----eq slimit = 100.0 . ---- redefine if needed")
     L("")
-    L("  eq hcsDelay = slimit + slimit .  --- prevent hcs from starting")
-    L("")
-    L(" eq finalize(c:Config) = addK2Blist(c:Config,false) .")
+    if isBaseline:
+        L("  eq hcsDelay = slimit + slimit .  --- prevent hcs from starting")
+        L("")
+        L(" eq finalize(c:Config) = addK2Blist(c:Config,false) .")
+    else:
+        L(" eq finalize(c:Config) = mvKs2Adv(c:Config,false) .")
     L("")
     L("endm")
     L("")
-    L("rew run({0.0 | nil} initState(counter) [tgenDelay, (to baseLineAddr from baseLineAddr : initBase),0], slimit) .")
+    if isBaseline:
+        L("rew run({0.0 | nil} initState(counter) [tgenDelay, (to baseLineAddr from baseLineAddr : initBase),0], slimit) .")
+    else:
+        L("rew run({0.0 | nil} initState(counter) [hcsDelay, (to baseLineAddr from baseLineAddr : initKs),0], slimit) .")
     L("q")
     
     return "\n".join(lines)
@@ -1618,12 +1627,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CP3 scenario.")
     parser.add_argument("yaml_file", nargs="?", default=os.path.join(OUT_DIR, "pwnd_cp3_scenario_1.yaml"), help="Path to scenario YAML")
     parser.add_argument("--baselineTime", type=float, default=None, help="Duration of baseline run")
+    parser.add_argument("--runTime", type=float, default=None, help="Duration of actual run")
     parser.add_argument("--hcsDelay", type=float, default=10.0, help="When to start hcs")
     parser.add_argument("--tgenDelay", type=float, default=1.0, help="When to start tgens")
     args = parser.parse_args()
     
     yaml_file = args.yaml_file
     baseline_time = args.baselineTime
+    run_time = args.runTime
     hcs_delay = args.hcsDelay
     tgen_delay = args.tgenDelay
 
@@ -1662,12 +1673,23 @@ if __name__ == "__main__":
         f.write(main_content)
     print(f"Wrote {main_path} ({len(main_content.splitlines())} lines)")
     # Generate baseline file    
-    baseline_content = gen_baseline_file(scenario_name, baseline_time)
+    baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=baseline_time)
     if baseline_time is not None:
         baseline_filename = f"{scenario_name}-baseline-{baseline_time}.maude"
     else:
-        baseline_filename = f"{scenario_name}-baseline.maude"
+        baseline_filename = f"{scenario_name}-baseline.maude"    
     baseline_path = os.path.join(OUT_DIR, baseline_filename)
     with open(baseline_path, "w") as f:
         f.write(baseline_content)
     print(f"Wrote {baseline_path} ({len(baseline_content.splitlines())} lines)")
+    # Generate run file    
+    run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, run_time=run_time)
+    if run_time is not None:
+        run_filename = f"{scenario_name}-run-{run_time}.maude"
+    else:
+        run_filename = f"{scenario_name}-run.maude"    
+    run_path = os.path.join(OUT_DIR, run_filename)
+    with open(run_path, "w") as f:
+        f.write(run_content)
+    logger.warning("****TODO: generate BL-eq ")
+    print(f"Wrote {run_path} ({len(run_content.splitlines())} lines)")
