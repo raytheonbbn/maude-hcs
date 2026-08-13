@@ -61,6 +61,7 @@ mod SMC_CP3 is
   vars Ts Tx Tr : Float .
   var tpkt : TimesPkt .
   var pkt : Pkt .
+  var P : Pkt .
   vars fromAddr toAddr : Address .
   var new? : Bool .
   var cnx : Nat .
@@ -1058,21 +1059,29 @@ mod SMC_CP3 is
   eq isDNSQuery (QUERY) = true .
   eq isDNSQuery (CO) = false [owise] .
 
+  op countDNSQueryHelper : NetId Flow TimesObsList Float Float Nat -> Nat .
+  eq countDNSQueryHelper (vp, Fid, nilTO, Tstart, Tend, Acc) = Acc .
+  eq countDNSQueryHelper (vp, Fid, tm(Ts, _, _, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) = 
+    if visible(vp, tm(Ts, 0.0, 0.0, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) --- and Fid == flow(fromAddr, toAddr, 0) 
+    then countDNSQueryHelper(vp, Fid, TsML, Tstart, Tend, Acc + 1) 
+    else countDNSQueryHelper(vp, Fid, TsML, Tstart, Tend, Acc) fi .
+  eq countDNSQueryHelper (vp, Fid, tm(Ts, _, _, M) ;; TsML, Tstart, Tend, Acc) = countDNSQueryHelper(vp, Fid, TsML, Tstart, Tend, Acc) [owise] .
+  eq countDNSQueryHelper (vp, Fid, tp(Ts, _, _, P) ;; TsML, Tstart, Tend, Acc) = countDNSQueryHelper(vp, Fid, TsML, Tstart, Tend, Acc) [owise] .
+
   op countDNSQuery : NetId Flow TimesObsList Float Float -> Nat .
-  eq countDNSQuery (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq countDNSQuery (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) --- and Fid == flow(fromAddr, toAddr, 0) 
-    then 1 + countDNSQuery(vp, Fid, TsML, Tstart, Tend) 
-    else countDNSQuery(vp, Fid, TsML, Tstart, Tend) fi .
-  eq countDNSQuery (vp, Fid, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSQuery(vp, Fid, TsML, Tstart, Tend) [owise] .
+  eq countDNSQuery (vp, Fid, TOL, Tstart, Tend) = countDNSQueryHelper(vp, Fid, TOL, Tstart, Tend, 0) .
+
+  op countDNSQueryHelper : NetId TimesObsList Float Float Nat -> Nat .
+  eq countDNSQueryHelper (vp, nilTO, Tstart, Tend, Acc) = Acc .
+  eq countDNSQueryHelper (vp, tm(Ts, _, _, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) = 
+    if visible(vp, tm(Ts, 0.0, 0.0, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) 
+    then countDNSQueryHelper(vp, TsML, Tstart, Tend, Acc + 1) 
+    else countDNSQueryHelper(vp, TsML, Tstart, Tend, Acc) fi .
+  eq countDNSQueryHelper (vp, tm(Ts, _, _, M) ;; TsML, Tstart, Tend, Acc) = countDNSQueryHelper(vp, TsML, Tstart, Tend, Acc) [owise] .
+  eq countDNSQueryHelper (vp, tp(Ts, _, _, P) ;; TsML, Tstart, Tend, Acc) = countDNSQueryHelper(vp, TsML, Tstart, Tend, Acc) [owise] .
 
   op countDNSQuery : NetId TimesObsList Float Float -> Nat .
-  eq countDNSQuery (vp, nilTO, Tstart, Tend) = 0 .
-  eq countDNSQuery (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) 
-    then 1 + countDNSQuery(vp, TsML, Tstart, Tend) 
-    else countDNSQuery(vp, TsML, Tstart, Tend) fi .
-  eq countDNSQuery (vp, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSQuery(vp, TsML, Tstart, Tend) [owise] .
+  eq countDNSQuery (vp, TOL, Tstart, Tend) = countDNSQueryHelper(vp, TOL, Tstart, Tend, 0) .
 
   -------------------------------------------------------------------------------------------------
   --- 02 dns_query_size_mean              Mean DNS query message size (bytes)
@@ -1096,21 +1105,29 @@ mod SMC_CP3 is
   op sizeQuery : Query -> Nat .
   eq sizeQuery (query(ID, NAME, RTYPE)) = sizeName(NAME) .
 
+  op sizeDNSQueryHelper : NetId Flow TimesObsList Float Float Nat -> Nat .
+  eq sizeDNSQueryHelper (vp, Fid, nilTO, Tstart, Tend, Acc) = Acc .
+  eq sizeDNSQueryHelper (vp, Fid, tm(Ts, _, _, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) = 
+    if visible(vp, tm(Ts, 0.0, 0.0, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) and Fid == flow(fromAddr, toAddr, 0) 
+    then sizeDNSQueryHelper(vp, Fid, TsML, Tstart, Tend, Acc + sizeQuery(CO)) 
+    else sizeDNSQueryHelper(vp, Fid, TsML, Tstart, Tend, Acc) fi .
+  eq sizeDNSQueryHelper (vp, Fid, tm(Ts, _, _, M) ;; TsML, Tstart, Tend, Acc) = sizeDNSQueryHelper(vp, Fid, TsML, Tstart, Tend, Acc) [owise] .
+  eq sizeDNSQueryHelper (vp, Fid, tp(Ts, _, _, P) ;; TsML, Tstart, Tend, Acc) = sizeDNSQueryHelper(vp, Fid, TsML, Tstart, Tend, Acc) [owise] .
+
   op sizeDNSQuery : NetId Flow TimesObsList Float Float -> Nat .
-  eq sizeDNSQuery (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq sizeDNSQuery (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) and Fid == flow(fromAddr, toAddr, 0) 
-    then sizeQuery(CO) + sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) 
-    else sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) fi .
-  eq sizeDNSQuery (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) [owise] .
+  eq sizeDNSQuery (vp, Fid, TOL, Tstart, Tend) = sizeDNSQueryHelper(vp, Fid, TOL, Tstart, Tend, 0) .
+
+  op sizeDNSQueryHelper : NetId TimesObsList Float Float Nat -> Nat .
+  eq sizeDNSQueryHelper (vp, nilTO, Tstart, Tend, Acc) = Acc .
+  eq sizeDNSQueryHelper (vp, tm(Ts, _, _, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) = 
+    if visible(vp, tm(Ts, 0.0, 0.0, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) 
+    then sizeDNSQueryHelper(vp, TsML, Tstart, Tend, Acc + sizeQuery(CO)) 
+    else sizeDNSQueryHelper(vp, TsML, Tstart, Tend, Acc) fi .
+  eq sizeDNSQueryHelper (vp, tm(Ts, _, _, M) ;; TsML, Tstart, Tend, Acc) = sizeDNSQueryHelper(vp, TsML, Tstart, Tend, Acc) [owise] .
+  eq sizeDNSQueryHelper (vp, tp(Ts, _, _, P) ;; TsML, Tstart, Tend, Acc) = sizeDNSQueryHelper(vp, TsML, Tstart, Tend, Acc) [owise] .
 
   op sizeDNSQuery : NetId TimesObsList Float Float -> Nat .
-  eq sizeDNSQuery (vp, nilTO, Tstart, Tend) = 0 .
-  eq sizeDNSQuery (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) 
-    then sizeQuery(CO) + sizeDNSQuery(vp, TsML, Tstart, Tend) 
-    else sizeDNSQuery(vp, TsML, Tstart, Tend) fi .
-  eq sizeDNSQuery (vp, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSQuery(vp, TsML, Tstart, Tend) [owise] .
+  eq sizeDNSQuery (vp, TOL, Tstart, Tend) = sizeDNSQueryHelper(vp, TOL, Tstart, Tend, 0) .
 
   -------------------------------------------------------------------------------------------------
   --- 03 dns_response_size_mean           Mean DNS response message size (bytes)
@@ -1125,37 +1142,53 @@ mod SMC_CP3 is
   op sizeResp : Response -> Nat .
   eq sizeResp (response(ID, NAME, LR, LR1, LR2, N)) = sizeName(NAME) .
 
+  op countDNSRespHelper : NetId Flow TimesObsList Float Float Nat -> Nat .
+  eq countDNSRespHelper (vp, Fid, nilTO, Tstart, Tend, Acc) = Acc .
+  eq countDNSRespHelper (vp, Fid, tm(Ts, _, _, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) = 
+    if visible(vp, tm(Ts, 0.0, 0.0, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) and Fid == flow(fromAddr, toAddr, 0) 
+    then countDNSRespHelper(vp, Fid, TsML, Tstart, Tend, Acc + 1) 
+    else countDNSRespHelper(vp, Fid, TsML, Tstart, Tend, Acc) fi .
+  eq countDNSRespHelper (vp, Fid, tm(Ts, _, _, M) ;; TsML, Tstart, Tend, Acc) = countDNSRespHelper(vp, Fid, TsML, Tstart, Tend, Acc) [owise] .
+  eq countDNSRespHelper (vp, Fid, tp(Ts, _, _, P) ;; TsML, Tstart, Tend, Acc) = countDNSRespHelper(vp, Fid, TsML, Tstart, Tend, Acc) [owise] .
+
   op countDNSResp : NetId Flow TimesObsList Float Float -> Nat .
-  eq countDNSResp (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq countDNSResp (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) and Fid == flow(fromAddr, toAddr, 0) 
-    then 1 + countDNSResp(vp, Fid, TsML, Tstart, Tend) 
-    else countDNSResp(vp, Fid, TsML, Tstart, Tend) fi .
-  eq countDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
+  eq countDNSResp (vp, Fid, TOL, Tstart, Tend) = countDNSRespHelper(vp, Fid, TOL, Tstart, Tend, 0) .
+
+  op countDNSRespHelper : NetId TimesObsList Float Float Nat -> Nat .
+  eq countDNSRespHelper (vp, nilTO, Tstart, Tend, Acc) = Acc .
+  eq countDNSRespHelper (vp, tm(Ts, _, _, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) = 
+    if visible(vp, tm(Ts, 0.0, 0.0, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO)
+    then countDNSRespHelper(vp, TsML, Tstart, Tend, Acc + 1) 
+    else countDNSRespHelper(vp, TsML, Tstart, Tend, Acc) fi .
+  eq countDNSRespHelper (vp, tm(Ts, _, _, M) ;; TsML, Tstart, Tend, Acc) = countDNSRespHelper(vp, TsML, Tstart, Tend, Acc) [owise] .
+  eq countDNSRespHelper (vp, tp(Ts, _, _, P) ;; TsML, Tstart, Tend, Acc) = countDNSRespHelper(vp, TsML, Tstart, Tend, Acc) [owise] .
 
   op countDNSResp : NetId TimesObsList Float Float -> Nat .
-  eq countDNSResp (vp, nilTO, Tstart, Tend) = 0 .
-  eq countDNSResp (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO)
-    then 1 + countDNSResp(vp, TsML, Tstart, Tend) 
-    else countDNSResp(vp, TsML, Tstart, Tend) fi .
-  eq countDNSResp (vp, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSResp(vp, TsML, Tstart, Tend) [owise] .
+  eq countDNSResp (vp, TOL, Tstart, Tend) = countDNSRespHelper(vp, TOL, Tstart, Tend, 0) .
+
+  op sizeDNSRespHelper : NetId Flow TimesObsList Float Float Nat -> Nat .
+  eq sizeDNSRespHelper (vp, Fid, nilTO, Tstart, Tend, Acc) = Acc .
+  eq sizeDNSRespHelper (vp, Fid, tm(Ts, _, _, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) = 
+    if visible(vp, tm(Ts, 0.0, 0.0, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) and Fid == flow(fromAddr, toAddr, 0) 
+    then sizeDNSRespHelper(vp, Fid, TsML, Tstart, Tend, Acc + sizeResp(CO)) 
+    else sizeDNSRespHelper(vp, Fid, TsML, Tstart, Tend, Acc) fi .
+  eq sizeDNSRespHelper (vp, Fid, tm(Ts, _, _, M) ;; TsML, Tstart, Tend, Acc) = sizeDNSRespHelper(vp, Fid, TsML, Tstart, Tend, Acc) [owise] .
+  eq sizeDNSRespHelper (vp, Fid, tp(Ts, _, _, P) ;; TsML, Tstart, Tend, Acc) = sizeDNSRespHelper(vp, Fid, TsML, Tstart, Tend, Acc) [owise] .
 
   op sizeDNSResp : NetId Flow TimesObsList Float Float -> Nat .
-  eq sizeDNSResp (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) and Fid == flow(fromAddr, toAddr, 0) 
-    then sizeResp(CO) + sizeDNSResp(vp, Fid, TsML, Tstart, Tend) 
-    else sizeDNSResp(vp, Fid, TsML, Tstart, Tend) fi .
-  eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
+  eq sizeDNSResp (vp, Fid, TOL, Tstart, Tend) = sizeDNSRespHelper(vp, Fid, TOL, Tstart, Tend, 0) .
+
+  op sizeDNSRespHelper : NetId TimesObsList Float Float Nat -> Nat .
+  eq sizeDNSRespHelper (vp, nilTO, Tstart, Tend, Acc) = Acc .
+  eq sizeDNSRespHelper (vp, tm(Ts, _, _, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) = 
+    if visible(vp, tm(Ts, 0.0, 0.0, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) 
+    then sizeDNSRespHelper(vp, TsML, Tstart, Tend, Acc + sizeResp(CO)) 
+    else sizeDNSRespHelper(vp, TsML, Tstart, Tend, Acc) fi .
+  eq sizeDNSRespHelper (vp, tm(Ts, _, _, M) ;; TsML, Tstart, Tend, Acc) = sizeDNSRespHelper(vp, TsML, Tstart, Tend, Acc) [owise] .
+  eq sizeDNSRespHelper (vp, tp(Ts, _, _, P) ;; TsML, Tstart, Tend, Acc) = sizeDNSRespHelper(vp, TsML, Tstart, Tend, Acc) [owise] .
 
   op sizeDNSResp : NetId TimesObsList Float Float -> Nat .
-  eq sizeDNSResp (vp, nilTO, Tstart, Tend) = 0 .
-  eq sizeDNSResp (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) 
-    then sizeResp(CO) + sizeDNSResp(vp, TsML, Tstart, Tend) 
-    else sizeDNSResp(vp, TsML, Tstart, Tend) fi .
-  eq sizeDNSResp (vp, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSResp(vp, TsML, Tstart, Tend) [owise] .
+  eq sizeDNSResp (vp, TOL, Tstart, Tend) = sizeDNSRespHelper(vp, TOL, Tstart, Tend, 0) .
 
   -------------------------------------------------------------------------------------------------
   --- 04 tcp_upload_rate                  Number of outbound TCP bytes per second (bytes/s)
@@ -1169,37 +1202,53 @@ mod SMC_CP3 is
   op sizePkt : TimesPkt -> Nat .
   eq sizePkt (tpkt) = getSize(tpkt) .
 
+  op sizeTCPUploadHelper : NetId Flow TimesObsList Float Float Nat -> Nat .
+  eq sizeTCPUploadHelper (vp, Fid, nilTO, Tstart, Tend, Acc) = Acc .
+  eq sizeTCPUploadHelper (vp, Fid, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, outgoing) --- and Fid == getFlow(pkt)  
+    then sizeTCPUploadHelper(vp, Fid, TsPL, Tstart, Tend, Acc + sizePkt(pkt)) 
+    else sizeTCPUploadHelper(vp, Fid, TsPL, Tstart, Tend, Acc) fi .
+  eq sizeTCPUploadHelper (vp, Fid, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = sizeTCPUploadHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
+  eq sizeTCPUploadHelper (vp, Fid, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = sizeTCPUploadHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
+
   op sizeTCPUpload : NetId Flow TimesObsList Float Float -> Nat .
-  eq sizeTCPUpload (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq sizeTCPUpload (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) --- and Fid == getFlow(pkt)  
-    then sizePkt(pkt) + sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) 
-    else sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) fi .
-  eq sizeTCPUpload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) [owise] .
+  eq sizeTCPUpload (vp, Fid, TOL, Tstart, Tend) = sizeTCPUploadHelper(vp, Fid, TOL, Tstart, Tend, 0) .
+
+  op sizeTCPUploadHelper : NetId TimesObsList Float Float Nat -> Nat .
+  eq sizeTCPUploadHelper (vp, nilTO, Tstart, Tend, Acc) = Acc .
+  eq sizeTCPUploadHelper (vp, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, outgoing)
+    then sizeTCPUploadHelper(vp, TsPL, Tstart, Tend, Acc + sizePkt(pkt)) 
+    else sizeTCPUploadHelper(vp, TsPL, Tstart, Tend, Acc) fi .
+  eq sizeTCPUploadHelper (vp, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = sizeTCPUploadHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
+  eq sizeTCPUploadHelper (vp, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = sizeTCPUploadHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   op sizeTCPUpload : NetId TimesObsList Float Float -> Nat .
-  eq sizeTCPUpload (vp, nilTO, Tstart, Tend) = 0 .
-  eq sizeTCPUpload (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing)
-    then sizePkt(pkt) + sizeTCPUpload(vp, TsPL, Tstart, Tend) 
-    else sizeTCPUpload(vp, TsPL, Tstart, Tend) fi .
-  eq sizeTCPUpload (vp, tpkt ;; TsPL, Tstart, Tend) = sizeTCPUpload(vp, TsPL, Tstart, Tend) [owise] .
+  eq sizeTCPUpload (vp, TOL, Tstart, Tend) = sizeTCPUploadHelper(vp, TOL, Tstart, Tend, 0) .
+
+  op sizeTCPDownloadHelper : NetId Flow TimesObsList Float Float Nat -> Nat .
+  eq sizeTCPDownloadHelper (vp, Fid, nilTO, Tstart, Tend, Acc) = Acc .
+  eq sizeTCPDownloadHelper (vp, Fid, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, incoming) --- and Fid == getFlow(pkt) 
+    then sizeTCPDownloadHelper(vp, Fid, TsPL, Tstart, Tend, Acc + sizePkt(pkt)) 
+    else sizeTCPDownloadHelper(vp, Fid, TsPL, Tstart, Tend, Acc) fi .
+  eq sizeTCPDownloadHelper (vp, Fid, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = sizeTCPDownloadHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
+  eq sizeTCPDownloadHelper (vp, Fid, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = sizeTCPDownloadHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
 
   op sizeTCPDownload : NetId Flow TimesObsList Float Float -> Nat .
-  eq sizeTCPDownload (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq sizeTCPDownload (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming) --- and Fid == getFlow(pkt) 
-    then sizePkt(pkt) + sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) 
-    else sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) fi .
-  eq sizeTCPDownload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) [owise] .
+  eq sizeTCPDownload (vp, Fid, TOL, Tstart, Tend) = sizeTCPDownloadHelper(vp, Fid, TOL, Tstart, Tend, 0) .
+
+  op sizeTCPDownloadHelper : NetId TimesObsList Float Float Nat -> Nat .
+  eq sizeTCPDownloadHelper (vp, nilTO, Tstart, Tend, Acc) = Acc .
+  eq sizeTCPDownloadHelper (vp, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, incoming)
+    then sizeTCPDownloadHelper(vp, TsPL, Tstart, Tend, Acc + sizePkt(pkt)) 
+    else sizeTCPDownloadHelper(vp, TsPL, Tstart, Tend, Acc) fi .
+  eq sizeTCPDownloadHelper (vp, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = sizeTCPDownloadHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
+  eq sizeTCPDownloadHelper (vp, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = sizeTCPDownloadHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   op sizeTCPDownload : NetId TimesObsList Float Float -> Nat .
-  eq sizeTCPDownload (vp, nilTO, Tstart, Tend) = 0 .
-  eq sizeTCPDownload (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
-    then sizePkt(pkt) + sizeTCPDownload(vp, TsPL, Tstart, Tend) 
-    else sizeTCPDownload(vp, TsPL, Tstart, Tend) fi .
-  eq sizeTCPDownload (vp, tpkt ;; TsPL, Tstart, Tend) = sizeTCPDownload(vp, TsPL, Tstart, Tend) [owise] .
+  eq sizeTCPDownload (vp, TOL, Tstart, Tend) = sizeTCPDownloadHelper(vp, TOL, Tstart, Tend, 0) .
 
   -------------------------------------------------------------------------------------------------
   --- 07 tcp_outgoing_packet_rate         Number of outgoing TCP packets per second (packets/s) [2]
@@ -1207,74 +1256,106 @@ mod SMC_CP3 is
   --- 09 tcp_packet_upload_download_ratio Ratio of outgoing TCP packets to incoming TCP packets
   -------------------------------------------------------------------------------------------------
 
+  op countTCPOutPktHelper : NetId Flow TimesObsList Float Float Nat -> Nat .
+  eq countTCPOutPktHelper (vp, Fid, nilTO, Tstart, Tend, Acc) = Acc .
+  eq countTCPOutPktHelper (vp, Fid, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, outgoing) --- and Fid == getFlow(pkt) 
+    then countTCPOutPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc + 1) 
+    else countTCPOutPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) fi .
+  eq countTCPOutPktHelper (vp, Fid, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = countTCPOutPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
+  eq countTCPOutPktHelper (vp, Fid, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = countTCPOutPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
+
   op countTCPOutPkt : NetId Flow TimesObsList Float Float -> Nat .
-  eq countTCPOutPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq countTCPOutPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) --- and Fid == getFlow(pkt) 
-    then 1 + countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) 
-    else countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) fi .
-  eq countTCPOutPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+  eq countTCPOutPkt (vp, Fid, TOL, Tstart, Tend) = countTCPOutPktHelper(vp, Fid, TOL, Tstart, Tend, 0) .
+
+  op countTCPOutPktHelper : NetId TimesObsList Float Float Nat -> Nat .
+  eq countTCPOutPktHelper (vp, nilTO, Tstart, Tend, Acc) = Acc .
+  eq countTCPOutPktHelper (vp, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, outgoing)
+    then countTCPOutPktHelper(vp, TsPL, Tstart, Tend, Acc + 1) 
+    else countTCPOutPktHelper(vp, TsPL, Tstart, Tend, Acc) fi .
+  eq countTCPOutPktHelper (vp, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = countTCPOutPktHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
+  eq countTCPOutPktHelper (vp, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = countTCPOutPktHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   op countTCPOutPkt : NetId TimesObsList Float Float -> Nat .
-  eq countTCPOutPkt (vp, nilTO, Tstart, Tend) = 0 .
-  eq countTCPOutPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing)
-    then 1 + countTCPOutPkt(vp, TsPL, Tstart, Tend) 
-    else countTCPOutPkt(vp, TsPL, Tstart, Tend) fi .
-  eq countTCPOutPkt (vp, tpkt ;; TsPL, Tstart, Tend) = countTCPOutPkt(vp, TsPL, Tstart, Tend) [owise] .
+  eq countTCPOutPkt (vp, TOL, Tstart, Tend) = countTCPOutPktHelper(vp, TOL, Tstart, Tend, 0) .
+
+  op countTCPInPktHelper : NetId Flow TimesObsList Float Float Nat -> Nat .
+  eq countTCPInPktHelper (vp, Fid, nilTO, Tstart, Tend, Acc) = Acc .
+  eq countTCPInPktHelper (vp, Fid, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, incoming) --- and Fid == getFlow(pkt) 
+    then countTCPInPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc + 1) 
+    else countTCPInPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) fi .
+  eq countTCPInPktHelper (vp, Fid, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = countTCPInPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
+  eq countTCPInPktHelper (vp, Fid, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = countTCPInPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
 
   op countTCPInPkt : NetId Flow TimesObsList Float Float -> Nat .
-  eq countTCPInPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq countTCPInPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming) --- and Fid == getFlow(pkt) 
-    then 1 + countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) 
-    else countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) fi .
-  eq countTCPInPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+  eq countTCPInPkt (vp, Fid, TOL, Tstart, Tend) = countTCPInPktHelper(vp, Fid, TOL, Tstart, Tend, 0) .
+
+  op countTCPInPktHelper : NetId TimesObsList Float Float Nat -> Nat .
+  eq countTCPInPktHelper (vp, nilTO, Tstart, Tend, Acc) = Acc .
+  eq countTCPInPktHelper (vp, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, incoming)
+    then countTCPInPktHelper(vp, TsPL, Tstart, Tend, Acc + 1) 
+    else countTCPInPktHelper(vp, TsPL, Tstart, Tend, Acc) fi .
+  eq countTCPInPktHelper (vp, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = countTCPInPktHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
+  eq countTCPInPktHelper (vp, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = countTCPInPktHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   op countTCPInPkt : NetId TimesObsList Float Float -> Nat .
-  eq countTCPInPkt (vp, nilTO, Tstart, Tend) = 0 .
-  eq countTCPInPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
-    then 1 + countTCPInPkt(vp, TsPL, Tstart, Tend) 
-    else countTCPInPkt(vp, TsPL, Tstart, Tend) fi .
-  eq countTCPInPkt (vp, tpkt ;; TsPL, Tstart, Tend) = countTCPInPkt(vp, TsPL, Tstart, Tend) [owise] .
+  eq countTCPInPkt (vp, TOL, Tstart, Tend) = countTCPInPktHelper(vp, TOL, Tstart, Tend, 0) .
 
   -------------------------------------------------------------------------------------------------
   --- 10 packet_size_std_dev              Standard deviation of packet sizes (bytes) [3]
   --- 11 packet_size_mean                 Mean packet size (bytes) [3]
   -------------------------------------------------------------------------------------------------
 
+  op countTCPPktHelper : NetId Flow TimesObsList Float Float Nat -> Nat .
+  eq countTCPPktHelper (vp, Fid, nilTO, Tstart, Tend, Acc) = Acc .
+  eq countTCPPktHelper (vp, Fid, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if (visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
+    then countTCPPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc + 1) 
+    else countTCPPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) fi .
+  eq countTCPPktHelper (vp, Fid, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = countTCPPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
+  eq countTCPPktHelper (vp, Fid, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = countTCPPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
+
   op countTCPPkt : NetId Flow TimesObsList Float Float -> Nat .
-  eq countTCPPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq countTCPPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
-    then 1 + countTCPPkt(vp, Fid, TsPL, Tstart, Tend) 
-    else countTCPPkt(vp, Fid, TsPL, Tstart, Tend) fi .
-  eq countTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+  eq countTCPPkt (vp, Fid, TOL, Tstart, Tend) = countTCPPktHelper(vp, Fid, TOL, Tstart, Tend, 0) .
+
+  op countTCPPktHelper : NetId TimesObsList Float Float Nat -> Nat .
+  eq countTCPPktHelper (vp, nilTO, Tstart, Tend, Acc) = Acc .
+  eq countTCPPktHelper (vp, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if (visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, incoming))
+    then countTCPPktHelper(vp, TsPL, Tstart, Tend, Acc + 1) 
+    else countTCPPktHelper(vp, TsPL, Tstart, Tend, Acc) fi .
+  eq countTCPPktHelper (vp, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = countTCPPktHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
+  eq countTCPPktHelper (vp, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = countTCPPktHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   op countTCPPkt : NetId TimesObsList Float Float -> Nat .
-  eq countTCPPkt (vp, nilTO, Tstart, Tend) = 0 .
-  eq countTCPPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming))
-    then 1 + countTCPPkt(vp, TsPL, Tstart, Tend) 
-    else countTCPPkt(vp, TsPL, Tstart, Tend) fi .
-  eq countTCPPkt (vp, tpkt ;; TsPL, Tstart, Tend) = countTCPPkt(vp, TsPL, Tstart, Tend) [owise] .
+  eq countTCPPkt (vp, TOL, Tstart, Tend) = countTCPPktHelper(vp, TOL, Tstart, Tend, 0) .
+
+  op sizeTCPPktHelper : NetId Flow TimesObsList Float Float Nat -> Nat .
+  eq sizeTCPPktHelper (vp, Fid, nilTO, Tstart, Tend, Acc) = Acc .
+  eq sizeTCPPktHelper (vp, Fid, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if (visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
+    then sizeTCPPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc + sizePkt(pkt)) 
+    else sizeTCPPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) fi .
+  eq sizeTCPPktHelper (vp, Fid, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = sizeTCPPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
+  eq sizeTCPPktHelper (vp, Fid, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = sizeTCPPktHelper(vp, Fid, TsPL, Tstart, Tend, Acc) [owise] .
 
   op sizeTCPPkt : NetId Flow TimesObsList Float Float -> Nat .
-  eq sizeTCPPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq sizeTCPPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
-    then sizePkt(pkt) + sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) 
-    else sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) fi .
-  eq sizeTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+  eq sizeTCPPkt (vp, Fid, TOL, Tstart, Tend) = sizeTCPPktHelper(vp, Fid, TOL, Tstart, Tend, 0) .
+
+  op sizeTCPPktHelper : NetId TimesObsList Float Float Nat -> Nat .
+  eq sizeTCPPktHelper (vp, nilTO, Tstart, Tend, Acc) = Acc .
+  eq sizeTCPPktHelper (vp, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) = 
+    if (visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, incoming)) 
+    then sizeTCPPktHelper(vp, TsPL, Tstart, Tend, Acc + sizePkt(pkt)) 
+    else sizeTCPPktHelper(vp, TsPL, Tstart, Tend, Acc) fi .
+  eq sizeTCPPktHelper (vp, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = sizeTCPPktHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
+  eq sizeTCPPktHelper (vp, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = sizeTCPPktHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   op sizeTCPPkt : NetId TimesObsList Float Float -> Nat .
-  eq sizeTCPPkt (vp, nilTO, Tstart, Tend) = 0 .
-  eq sizeTCPPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) 
-    then sizePkt(pkt) + sizeTCPPkt(vp, TsPL, Tstart, Tend) 
-    else sizeTCPPkt(vp, TsPL, Tstart, Tend) fi .
-  eq sizeTCPPkt (vp, tpkt ;; TsPL, Tstart, Tend) = sizeTCPPkt(vp, TsPL, Tstart, Tend) [owise] .
+  eq sizeTCPPkt (vp, TOL, Tstart, Tend) = sizeTCPPktHelper(vp, TOL, Tstart, Tend, 0) .
 
   op collectPktSize : NetId Flow TimesObsList Float Float -> List{Float} .
   eq collectPktSize (vp, Fid, nilTO, Tstart, Tend) = nil .
@@ -1392,12 +1473,16 @@ mod SMC_CP3 is
   op newCnx : TimesPkt -> Bool .
   eq newCnx (tp(Ts, Tx, Tr, pkt(toAddr, fromAddr, new?, cnx, psize))) = new? .
 
+  op countNewCnxHelper : NetId TimesObsList Float Float Nat -> Nat .
+  eq countNewCnxHelper (vp, nilTO, Tstart, Tend, Acc) = Acc .
+  eq countNewCnxHelper (vp, tp(Ts, _, _, pkt) ;; TsPL, Tstart, Tend, Acc) =
+    if (visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, 0.0, 0.0, pkt), Tstart, Tend, incoming)) and newCnx(pkt) 
+    then countNewCnxHelper(vp, TsPL, Tstart, Tend, Acc + 1) 
+    else countNewCnxHelper(vp, TsPL, Tstart, Tend, Acc) fi .
+  eq countNewCnxHelper (vp, tm(Ts, _, _, M) ;; TsPL, Tstart, Tend, Acc) = countNewCnxHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
+  eq countNewCnxHelper (vp, tp(Ts, _, _, P) ;; TsPL, Tstart, Tend, Acc) = countNewCnxHelper(vp, TsPL, Tstart, Tend, Acc) [owise] .
+
   op countNewCnx : NetId TimesObsList Float Float -> Nat .
-  eq countNewCnx (vp, nilTO, Tstart, Tend) = 0 .
-  eq countNewCnx (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) =
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) and newCnx(pkt) 
-    then 1 + countNewCnx(vp, TsPL, Tstart, Tend) 
-    else countNewCnx(vp, TsPL, Tstart, Tend) fi .
-  eq countNewCnx (vp, tpkt ;; TsPL, Tstart, Tend) = countNewCnx(vp, TsPL, Tstart, Tend) [owise] .
+  eq countNewCnx (vp, TOL, Tstart, Tend) = countNewCnxHelper(vp, TOL, Tstart, Tend, 0) .
 
 endm
