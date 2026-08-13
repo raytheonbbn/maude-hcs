@@ -376,7 +376,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name):
     return "\n".join(lines), hcs_client_ids
 
 # Generate scenario1.maude (ZERO structured addresses!)
-def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay):
+def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, perf=False):
     lines = []
     L = lines.append
     
@@ -1309,7 +1309,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  eq masSrvAct      = makeMastodonServer(masSrvAddr) .")
     L("  eq masNetSrv       = makeNetServer(masNetSrvAddr, masSrvAddr) .")
     L("  eq iodineMonitor  = mkWMonitor(iodineMonitorAddr) .")
-    L("  eq advActor       = mkAdversaryCp3(advAddr) .")
+    adv_use_tcp = "false" if perf else "true"
+    L(f"  eq advActor       = mkAdversaryCp3(advAddr, {adv_use_tcp}) .")
     L("")
     
     L("  --- DNS Infrastructure")
@@ -1482,9 +1483,10 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  op initState : Nat -> Config .")
     L("  eq initState(j) =")    
     L("")
-    L("    --- Baseline actor")
-    L("    baseLineAct")
-    L("")
+    if not perf:
+        L("    --- Baseline actor")
+        L("    baseLineAct")
+        L("")
     L("    --- Core Infrastructure")
     L("    ircServer s3SrvAct iodineMonitor masSrvAct")
     L("    mkIrcMonitor(ircMonitorAddr)")
@@ -1717,6 +1719,7 @@ if __name__ == "__main__":
     parser.add_argument("--scenarioName", default=None, help="Scenario name for generated Maude files (default: basename of YAML without extension)")
     parser.add_argument("--parallelizeBaseline", action="store_true", help="If set, generate separate baseline files per feature and vantage point in a 'baselines' directory")
     parser.add_argument("--quatexFile", type=str, help="Where to write generated quatex queries")
+    parser.add_argument("--perf", action="store_true", help="Performance mode: removes baseLineAct and sets Adversary useTcpTPL to false")
     args = parser.parse_args()
     
     yaml_file = os.path.abspath(args.yaml_file)
@@ -1771,7 +1774,7 @@ if __name__ == "__main__":
     print(f"\nWrote {addr_path} ({len(addr_content.splitlines())} lines)")
     
     # Generate main file
-    main_content = gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay)
+    main_content = gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, perf=args.perf)
     main_path = os.path.join(out_dir, f"{scenario_name}.maude")
     with open(main_path, "w") as f:
         f.write(main_content)

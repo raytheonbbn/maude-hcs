@@ -195,9 +195,11 @@ ceq [netClientGenTcp]:
     /\ (timePacketList: TIME_LIST_TO_IXP) := pktAttrsAtIxp
 **** log the packets 
     /\ netAttrs1, connectionCount: ctr, newCnx: b := netAttrs
-    /\ tpl := genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, 
-                        size_list, ctr, b) 
-    /\ advAttrs1 := addTPL2tcp(advAttrs,tpl)  
+    /\ advAttrs0, useTcpTPL: b0 := advAttrs
+    /\ advAttrs1 := (if b0
+                     then addTPL2tcp(advAttrs, genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, size_list, ctr, b))
+                     else advAttrs
+                     fi)
     /\ netAttrsNext0, pending: amsgs := netAttrsNext
     
     [ print "(" T ") netClientGenTcp " netAddr " sending " transportMsg " with delay " delay:Float  ]
@@ -340,9 +342,11 @@ eq qrMatch(Q:Query,R:Response) = false [owise] .
     /\ (timePacketList: TIME_LIST_TO_IXP) := pktAttrsAtIxp
 ****      /\ something to log the packets
    /\ flowAttrs0, flowId: ctr  := flowAttrs
-   /\ tpl := genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, size_list,
-                       ctr,false) 
-    /\ advAttrs0 := addTPL2tcp(advAttrs,tpl)   
+   /\ advAttrs1, useTcpTPL: b0 := advAttrs
+   /\ advAttrs0 := (if b0
+                    then addTPL2tcp(advAttrs, genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, size_list, ctr, false))
+                    else advAttrs
+                    fi)
 **** I thought this was removed?    
     /\ netAttrs1 := removeConnection(netAttrs,REMOTE_ADDR) 
     [ print "(" T ") Net server " netAddr " handling response, sending " transportMsg "." ]
