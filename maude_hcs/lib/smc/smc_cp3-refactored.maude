@@ -1215,13 +1215,28 @@ mod SMC_CP3 is
     else countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) fi .
   eq countTCPOutPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
+  var Acc : Nat .
   op countTCPOutPkt : NetId TimesObsList Float Float -> Nat .
+***(
   eq countTCPOutPkt (vp, nilTO, Tstart, Tend) = 0 .
   eq countTCPOutPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
     if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing)
     then 1 + countTCPOutPkt(vp, TsPL, Tstart, Tend) 
     else countTCPOutPkt(vp, TsPL, Tstart, Tend) fi .
   eq countTCPOutPkt (vp, tpkt ;; TsPL, Tstart, Tend) = countTCPOutPkt(vp, TsPL, Tstart, Tend) [owise] .
+)
+  eq countTCPOutPkt (vp, TOL, Tstart, Tend) = countTCPOutPktAux(vp, TOL, Tstart, Tend, 0) .
+
+  op countTCPOutPktAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq countTCPOutPktAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq countTCPOutPktAux( vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend, Acc) =
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing)
+    then countTCPOutPktAux(vp, TsPL, Tstart, Tend, Acc + 1)
+    else countTCPOutPktAux(vp, TsPL, Tstart, Tend, Acc) fi .
+
+  eq countTCPOutPktAux( vp, tpkt ;; TsPL, Tstart, Tend, Acc)
+    = countTCPOutPktAux(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   op countTCPInPkt : NetId Flow TimesObsList Float Float -> Nat .
   eq countTCPInPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
