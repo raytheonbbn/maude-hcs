@@ -12,6 +12,9 @@ import sys
 from venv import logger
 import yaml
 import argparse
+from pathlib import Path
+
+from cp3_glue.generate_quatex import Config, write_all_queries_to_file
 
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 lib = "../../../../maude_hcs/lib"
@@ -19,23 +22,24 @@ deps = "../../../../maude_hcs/deps"
 IMAGE_SIZE = 190000
   
 # Define the features as a list of strings to make them easily reusable and modifiable
-FEATURES = [
-    "dnsQueryRate",
-    # "dnsQuerySize",
-    # "tcpUpRate",
-    # "tcpDownRate",
-    # "tcpUpToDownRate",
-    "tcpOutPktRate",
-    "tcpInPktRate",
-    "tcpOutToInPktRate",
-    "tcpPktSizeStdDev",
-    "tcpPktSize",
-    "tcpPktInterarrival",
-    "tcpDirectionChange",
-    # "tcpActiveFlow",
-    # "tcpNewCnx"
-]
-
+# Changed to dictionary to keep track of the required naming scheme for T&E results
+FEATURES = {
+    "dnsQueryRate": "dns_query_rate",
+    # "dnsQuerySize": "dns_query_size_mean",
+    # "dnsRespSize": "dns_response_size_mean",
+    # "tcpUpRate": "tcp_upload_rate",
+    # "tcpDownRate": "tcp_download_rate",
+    # "tcpUpToDownRate": "tcp_upload_download_ratio",
+    "tcpOutPktRate": "tcp_outgoing_packet_rate",
+    "tcpInPktRate": "tcp_incoming_packet_rate",
+    "tcpOutToInPktRate": "tcp_packet_upload_download_ratio",
+    "tcpPktSizeStdDev": "packet_size_std_dev",
+    "tcpPktSize": "packet_size_mean",
+    "tcpPktInterarrival": "packet_interarrival_mean",
+    "tcpDirectionChange": "direction_change_count",
+    # "tcpActiveFlow": "active_flow_count",
+    # "tcpNewCnx": "tcp_new_conn_count",
+}
 
 def chunk_list(lst, n):
     """Yield successive n-sized chunks from lst."""
@@ -208,6 +212,15 @@ NET_TO_DNS_NAME = {
     "client_net_sky":        "corpSkyDns",
     "server_net":            "servDns",
 }
+
+def get_client_lst(hcs_client_ids):
+    all_clients = []
+    for i in hcs_client_ids["webtunnel"]: all_clients.append(f"wtCl{i}IrcAddr")
+    for i in hcs_client_ids["skyhook"]: all_clients.append(f"skyCl{i}IrcAddr")
+    for i in hcs_client_ids["obfs4"]: all_clients.append(f"obfsCl{i}IrcAddr")
+    for i in hcs_client_ids["iodine"]: all_clients.append(f"iodCl{i}IrcAddr")
+    for i in hcs_client_ids["mastodon"]: all_clients.append(f"masCl{i}IrcAddr")
+    return all_clients
 
 def get_corp_dns_addr_name(net):
     return NET_TO_DNS_NAME[net] + "Addr"
@@ -1589,12 +1602,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .")
     L("")
     L("  op allClientsAddr : -> AddrList .")
-    all_clients = []
-    for i in hcs_client_ids["webtunnel"]: all_clients.append(f"wtCl{i}IrcAddr")
-    for i in hcs_client_ids["skyhook"]: all_clients.append(f"skyCl{i}IrcAddr")
-    for i in hcs_client_ids["obfs4"]: all_clients.append(f"obfsCl{i}IrcAddr")
-    for i in hcs_client_ids["iodine"]: all_clients.append(f"iodCl{i}IrcAddr")
-    for i in hcs_client_ids["mastodon"]: all_clients.append(f"masCl{i}IrcAddr")
+    all_clients = get_client_lst(hcs_client_ids)
             
     L(f"  eq allClientsAddr = {' ; '.join(all_clients)} .")
     L("endm")
@@ -1708,6 +1716,7 @@ if __name__ == "__main__":
     parser.add_argument("--outDir", default=None, help="Output directory for generated Maude files (default: directory of YAML file)")
     parser.add_argument("--scenarioName", default=None, help="Scenario name for generated Maude files (default: basename of YAML without extension)")
     parser.add_argument("--parallelizeBaseline", action="store_true", help="If set, generate separate baseline files per feature and vantage point in a 'baselines' directory")
+    parser.add_argument("--quatexFile", type=str, help="Where to write generated quatex queries")
     args = parser.parse_args()
     
     yaml_file = os.path.abspath(args.yaml_file)
@@ -1767,6 +1776,7 @@ if __name__ == "__main__":
     with open(main_path, "w") as f:
         f.write(main_content)
     print(f"Wrote {main_path} ({len(main_content.splitlines())} lines)")
+
     # Generate baseline file    
     baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=baseline_time)
     if baseline_time is not None:
@@ -1777,18 +1787,30 @@ if __name__ == "__main__":
     with open(baseline_path, "w") as f:
         f.write(baseline_content)
     print(f"Wrote {baseline_path} ({len(baseline_content.splitlines())} lines)")
+        
+    # Dynamically build Vpts list
+    vpts_list = ["ixpN"]
+    for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
+        vpts_list.append(cl_id)
+    vpts_list.extend(["srvN", "masN"])
+    
+    base_fn_no_ext = baseline_filename.rsplit('.', 1)[0]
+
+    all_clients = get_client_lst(hcs_client_ids)
+
+    print("Features: ", FEATURES)
+    print("Vantage points: ", vpts_list)
+    print("Clients: ", all_clients)
+
+    # Write queries to chosen quatex file path
+    if args.quatexFile is not None:
+        write_all_queries_to_file(Config(FEATURES, vpts_list, all_clients), Path(args.quatexFile).resolve())
+        print(f"Wrote quatex queries to {args.quatexFile}")
+
     # Generate parallelized baseline files if flag is set
     if args.parallelizeBaseline:
         baselines_dir = os.path.join(out_dir, "baselines")
         os.makedirs(baselines_dir, exist_ok=True)
-        
-        # Dynamically build Vpts list
-        vpts_list = ["ixpN"]
-        for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
-            vpts_list.append(cl_id)
-        vpts_list.extend(["srvN", "masN"])
-        
-        base_fn_no_ext = baseline_filename.rsplit('.', 1)[0]
         
         for feature in FEATURES:
             for vpt in vpts_list:
@@ -1804,6 +1826,7 @@ if __name__ == "__main__":
                 with open(p_path, "w") as f:
                     f.write(p_content)
         print(f"Wrote {len(FEATURES) * len(vpts_list)} parallel baseline files to {baselines_dir}/")
+
     # Generate the baseline eq
     baselin_eq_content = gen_baselineEq(scenario_name)
     eq_filename = f"{scenario_name}-baseline-eq.maude"
