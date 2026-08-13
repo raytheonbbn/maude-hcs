@@ -82,6 +82,7 @@ vars binEcdfL edcfl edcf  flll : FloatLL .
 vars bcdf ksl wdoEcdf floatl fll fll0 fll1 : List{Float} .
 vars b : Bool .
 
+vars tmll tpll toll : TimesObsLL .
 
   sort AttrsAttrsMsgsNat .
   op `{_`,_`,_`,_`} : AttributeSet AttributeSet Config Nat 
@@ -174,8 +175,11 @@ if advAttrs0, (dns: tml), (tcp: tpl) := advAttrs
 **** comment these out
 --- /\ blist1 := blist
 ************
+/\ tmll := ftol2toll(tolByFlow(tml, mtFTOL),nilTOL) 
+/\ tpll := ftol2toll(tolByFlow(tpl, mtFTOL),nilTOL) 
 /\ blist1 := 
-    addWindowEdcf(blist,bStart,bsize,tml,tpl,nilBaseLine)
+    addWindowEdcf(blist,bStart,bsize, 
+                  tml,tmll,tpl,tpll,nilBaseLine)
 /\ tml1 := slideTOL(tml,bStart + bsize)
 /\ tpl1 := slideTOL(tpl,bStart + bsize)
 /\ sz1 := len(tml)
@@ -189,19 +193,27 @@ if advAttrs0, (dns: tml), (tcp: tpl) := advAttrs
 .
 
 op addWindowEdcf : BaseLineList Float Float
-                   TimesObsList TimesObsList
+                   TimesObsList TimesObsLL
+                   TimesObsList TimesObsLL
                    BaseLineList -> BaseLineList .
-eq addWindowEdcf(nilBaseLine,T,bsize,tml,tpl,blist)
+eq addWindowEdcf(nilBaseLine,T,bsize,
+                 tml,tmll,tpl,tpll,blist)
       = blist .
 ceq addWindowEdcf(bl(vpt,obsF,k,binEcdfL) :; blist0,
-                T,bsize, tml,tpl,blist1)
-    = addWindowEdcf(blist0, T,bsize, tml,tpl, 
+                T,bsize, tml,tmll,tpl,tpll,blist1)
+    = addWindowEdcf(blist0,T,bsize, tml,tmll,tpl,tpll,
                    blist1 :; ble1)
 if F0Z := (if isDnsFeature(obsF) then tml else tpl fi)
-/\ bcdf := getBaselineCDFObsFeature(vpt, obsF, F0Z,
-                                    T, T + bsize, bsize) 
+/\ toll := (if isDnsFeature(obsF) 
+            then tmll else tpll fi)
+/\ bcdf := getBaselineCDFObsFeatureLL(vpt, obsF, 
+                     F0Z, toll, T, T + bsize, bsize) 
 /\ ble1 := bl(vpt,obsF,k,binEcdfL [bcdf])            
 .
+
+op getBaselineCDFObsFeatureLL : 
+   NetId Feature TimesObsList TimesObsLL 
+   Float Float Float -> List{Float} .
 
 ----------------------------------------------
 **** called by baseline finalize 
@@ -352,8 +364,11 @@ if advAttrs0, (dns: tml), (tcp: tpl) := advAttrs
           := blAttrs
 /\ blAttrs1,  wdoKsList: kslist,  binStart: bStart
        := blAttrs
-/\ kslist1 := addWindowKs(blist,kslist,bStart, wsize, 
-                          bsize, tml,tpl,nilBaseLine)
+/\ tmll := ftol2toll(tolByFlow(tml, mtFTOL),nilTOL) 
+/\ tpll := ftol2toll(tolByFlow(tpl, mtFTOL),nilTOL) 
+/\ kslist1 := 
+    addWindowKs(blist,kslist,bStart, wsize, bsize, 
+                tml,tmll,tpl,tpll,nilBaseLine)
 /\ tml1 := slideTOL(tml,bStart + bsize)
 /\ tpl1 := slideTOL(tpl,bStart + bsize)
 /\ advAttrs1 := advAttrs0, dns: tml1, tcp: tpl1
@@ -372,30 +387,38 @@ eq slideTOL(to ;; tol,T) =
    .   
    
  op addWindowKs : BaseLineList BaseLineList Float Float
-       Float TimesObsList TimesObsList 
+       Float TimesObsList TimesObsLL
+       TimesObsList TimesObsLL
        BaseLineList -> BaseLineList .
                    
 eq [addWindowKs]:
- addWindowKs(blist,kslist,T,wsize,bsize,tml,tpl,kslist0)
+ addWindowKs(blist,kslist,T,wsize,bsize, 
+             tml,tmll,tpl,tpll,kslist0)
   = kslist0 
 [owise  print "addWindowKs baseline kslist mismatch, accum kslist " kslist0]
 .
 **** if (blist == nilBaseLine) or (kslist == nilBaseLine)
 
 ceq addWindowKs(ble :; blist, kse :; kslist, 
-                 T, wsize, bsize, tml, tpl, kslist0)
- = addWindowKs(blist, kslist, 
-                 T,wsize,bsize, tml, tpl, kslist0 :; kselt)
+                 T, wsize, bsize, 
+                 tml, tmll, tpl, tpll, kslist0)
+ = addWindowKs(blist, kslist, T,wsize,bsize,
+               tml, tmll, tpl, tpll, kslist0 :; kselt)
 if bl(vpt,obsF,k,bcdf) := ble                
 /\ bl(vpt,obsF,k0,ksl) := kse  
 /\ GtZ := (if isDnsFeature(obsF) then tml else tpl fi)
-/\ wdoEcdf := getECDFObsFeature(vpt, obsF, GtZ, T, wsize, bsize)
+/\ toll := (if isDnsFeature(obsF) then tmll else tpll fi)
+/\ wdoEcdf := getECDFObsFeatureLL(vpt, obsF, GtZ, toll, T, wsize, bsize)
 /\ ks :=  (if wdoEcdf == nil
            then -1.0e6
            else KsStatisticZ(bcdf,wdoEcdf,k)
            fi)
 /\ kselt := bl(vpt,obsF,k0,ksl ks)                 
 .
+
+op getECDFObsFeatureLL : 
+   NetId Feature TimesObsList TimesObsLL 
+   Float Float Float -> List{Float} .
 
 **** called by finalize in hcs mode
 op mvKs2Adv : Config Bool -> Config .
