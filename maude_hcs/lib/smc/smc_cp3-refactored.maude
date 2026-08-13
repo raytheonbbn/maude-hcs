@@ -725,10 +725,17 @@ mod SMC_CP3 is
     then 0.0
     else compObsFeatureX (vp, obsF, Fid, TOL, Tstart, Tend) fi .
 
+  op dropPast : TimesObsList Float Float -> TimesObsList .
+  eq dropPast(nilTO, Tstart, binSize) = nilTO .
+  ceq dropPast(tm(Ts, Tx, Tr, M) ;; TsML, Tstart, binSize) = dropPast(TsML, Tstart, binSize) if Ts < (Tstart - binSize) .
+  ceq dropPast(tm(Ts, Tx, Tr, M) ;; TsML, Tstart, binSize) = tm(Ts, Tx, Tr, M) ;; TsML if Ts >= (Tstart - binSize) .
+  ceq dropPast(tp(Ts, Tx, Tr, pkt) ;; TsML, Tstart, binSize) = dropPast(TsML, Tstart, binSize) if Ts < (Tstart - binSize) .
+  ceq dropPast(tp(Ts, Tx, Tr, pkt) ;; TsML, Tstart, binSize) = tp(Ts, Tx, Tr, pkt) ;; TsML if Ts >= (Tstart - binSize) .
+
   op collectObsFeatureX : NetId Feature TimesObsList Float Float Float -> List{Float} .
   eq collectObsFeatureX (vp, obsF, TOL, T, Tend, binSize) =
     if (T + binSize) <= (Tend + Tesp)
-    then compObsFeature(vp, obsF, TOL, T, T + binSize) collectObsFeatureX (vp, obsF, TOL, T + binSize, Tend, binSize)
+    then compObsFeature(vp, obsF, TOL, T, T + binSize) collectObsFeatureX (vp, obsF, dropPast(TOL, T + binSize, binSize), T + binSize, Tend, binSize)
     else nil fi .
 
   op collectObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
@@ -737,7 +744,7 @@ mod SMC_CP3 is
   op collectObsFeatureX : NetId Feature Flow TimesObsList Float Float Float -> List{Float} .
   eq collectObsFeatureX (vp, obsF, Fid, TOL, T, Tend, binSize) =
     if (T + binSize) <= (Tend + Tesp)
-    then compObsFeature(vp, obsF, Fid, TOL, T, T + binSize) collectObsFeatureX (vp, obsF, Fid, TOL, T + binSize, Tend, binSize)
+    then compObsFeature(vp, obsF, Fid, TOL, T, T + binSize) collectObsFeatureX (vp, obsF, Fid, dropPast(TOL, T + binSize, binSize), T + binSize, Tend, binSize)
     else nil fi .
 
   op collectObsFeature : NetId Feature Flow TimesObsList Float Float Float -> List{Float} .
