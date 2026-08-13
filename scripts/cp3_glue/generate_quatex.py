@@ -152,11 +152,11 @@ def all_queries(cfg: Config) -> Lines:
        *[mk_global_integrity_chunk(cfg, win, b) for win in win_range for b in bool_range],
        *[mk_client_integrity_chunk(cfg, win, b, client) for win in win_range for b in bool_range for client in CLIENTS],
        *[mk_availability_chunk(cfg, win, b) for win in win_range for b in bool_range],
-       *[mk_vantage_point_chunk(cfg, win, b, vant, feat, tag)
-            for win in win_range
-            for b in bool_range
-            for vant in VANTAGES
-            for (feat, tag) in FEATS.items()],
+    #    *[mk_vantage_point_chunk(cfg, win, b, vant, feat, tag)
+    #         for win in win_range
+    #         for b in bool_range
+    #         for vant in VANTAGES
+    #         for (feat, tag) in FEATS.items()],
     )
 
 def write_all_queries_to_file(cfg: Config, path: Path):
@@ -165,5 +165,5 @@ def write_all_queries_to_file(cfg: Config, path: Path):
 
 if __name__ == "__main__":
     output_file = sys.argv[1]
-    cfg = Config(FEATS, VANTAGES, CLIENTS)
+    cfg = Config(FEATS, VANTAGES, CLIENTS, hcs_delay=10, max_win=4)
     write_all_queries_to_file(cfg, Path(output_file))
