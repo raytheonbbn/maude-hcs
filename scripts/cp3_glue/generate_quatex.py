@@ -1,11 +1,6 @@
 import sys
 from dataclasses import dataclass
-
-WINDOW_SIZE = 900
-SLIDING_WINDOW_SIZE = 60
-BIN_SIZE = 10
-HCS_DELAY = 0
-MAX_WIN = 12
+from pathlib import Path
 
 # WINDOW_SIZE = 60
 # SLIDING_WINDOW_SIZE = 60
@@ -60,13 +55,17 @@ CLIENTS = [
    "masCl9IrcAddr"
 ]
 
-CLIENT_MAP = {}
-
 @dataclass
 class Config:
-   feats: dict[str, str]
-   vants: list[str]
-   clients: list[str]
+    feats: dict[str, str]
+    vants: list[str]
+    clients: list[str]
+
+    window_size: int = 900
+    sliding_window_size: int = 60
+    bin_size: int = 10
+    hcs_delay: int = 0
+    max_win: int = 12
 
 class Lines:
   def __init__(self, *args, indent=0):
@@ -84,22 +83,25 @@ class Lines:
   def indent(self, indent=1):
     return Lines(*self.lines, indent=indent)
 
+  def __str__(self):
+     return '\n'.join(self.lines)
+
 def int_to_float_str(i: int) -> str:
    return f"{i:.1f}"
    
-def get_prefix_start_end(win: int, cum: bool) -> tuple[str, int, int]:
+def get_prefix_start_end(cfg: Config, win: int, cum: bool) -> tuple[str, int, int]:
     if cum:
         prefix = "cumulative"
         start = 0
-        end = (win+1) * WINDOW_SIZE
+        end = (win+1) * cfg.window_size
     else:
         prefix = "independent"
-        start = win * WINDOW_SIZE
-        end = (win+1) * WINDOW_SIZE
-    return (prefix, start + HCS_DELAY, end + HCS_DELAY)
+        start = win * cfg.window_size
+        end = (win+1) * cfg.window_size
+    return (prefix, start + cfg.hcs_delay, end + cfg.hcs_delay)
 
-def mk_latency_query_chunk(win: int, cum: bool) -> Lines:
-    prefix, i_start, i_end = get_prefix_start_end(win, cum)
+def mk_latency_query_chunk(cfg: Config, win: int, cum: bool) -> Lines:
+    prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     return Lines(
         f'eval E[s.rval("getMinLatency(getMonitor(C), {start}, {end})")]; // {prefix} latency0 {i_start} {i_end}',
@@ -110,60 +112,58 @@ def mk_latency_query_chunk(win: int, cum: bool) -> Lines:
         f'eval E[s.rval("getGoodput(getMonitor(C), {start}, {end})")]; // {prefix} goodput {i_start} {i_end}',
     )
 
-def mk_global_integrity_chunk(win: int, cum: bool) -> Lines:
-    prefix, i_start, i_end = get_prefix_start_end(win, cum)
+def mk_global_integrity_chunk(cfg: Config, win: int, cum: bool) -> Lines:
+    prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     return Lines(
         f'eval E[s.rval("getSystemIntegrity(getMonitor(C), getIrcSrv(C), {start}, {end})")]; // {prefix} integrity {i_start} {i_end}',
     )
    
-def mk_client_integrity_chunk(win: int, cum: bool, client: str) -> Lines:
-    prefix, i_start, i_end = get_prefix_start_end(win, cum)
+def mk_client_integrity_chunk(cfg: Config, win: int, cum: bool, client: str) -> Lines:
+    prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
-    tne_client_name = CLIENT_MAP.get(client, client)
     return Lines(
-        f'eval E[s.rval("getClientIntegrity(getMonitor(C), getIrcSrv(C), {client}, {start}, {end})")]; // {prefix} integrity {i_start} {i_end} {tne_client_name}',
+        f'eval E[s.rval("getClientIntegrity(getMonitor(C), getIrcSrv(C), {client}, {start}, {end})")]; // {prefix} integrity {i_start} {i_end} {client}',
     )
 
-def mk_availability_chunk(win: int, cum: bool) -> Lines:
-    prefix, i_start, i_end = get_prefix_start_end(win, cum)
+def mk_availability_chunk(cfg: Config, win: int, cum: bool) -> Lines:
+    prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     return Lines(
         f'eval E[s.rval("getMTBF(getMonitor(C), 16.0, {start}, {end})")]; // {prefix} availability {i_start} {i_end}',
     )
 
-def mk_vantage_point_chunk(win: int, cum: bool, vantage: str, feat: str, tag_name: str) -> Lines:
-    prefix, i_start, i_end = get_prefix_start_end(win, cum)
+def mk_vantage_point_chunk(cfg: Config, win: int, cum: bool, vantage: str, feat: str, tag_name: str) -> Lines:
+    prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
-    slide_win = f"{SLIDING_WINDOW_SIZE:.1f}"
-    bin_size = f"{BIN_SIZE:.1f}"
+    slide_win = f"{cfg.sliding_window_size:.1f}"
+    bin_size = f"{cfg.bin_size:.1f}"
     tag = f'// {prefix} {tag_name} {i_start} {i_end} {vantage}'
     return Lines(
         f'eval E[s.rval("getCUSUM (getAdversary(C), {vantage}, {feat}, {start}, {end}, {slide_win}, {bin_size})]; {tag}'
     )
 
-def all_queries() -> Lines:
-    win_range = range(MAX_WIN)
+def all_queries(cfg: Config) -> Lines:
+    win_range = range(cfg.max_win)
     bool_range = [True, False]
 
     return Lines(
-       *[mk_latency_query_chunk(win, b) for win in win_range for b in bool_range],
-       *[mk_global_integrity_chunk(win, b) for win in win_range for b in bool_range],
-       *[mk_client_integrity_chunk(win, b, client) for win in win_range for b in bool_range for client in CLIENTS],
-       *[mk_availability_chunk(win, b) for win in win_range for b in bool_range],
-       *[mk_vantage_point_chunk(win, b, vant, feat, tag)
+       *[mk_latency_query_chunk(cfg, win, b) for win in win_range for b in bool_range],
+       *[mk_global_integrity_chunk(cfg, win, b) for win in win_range for b in bool_range],
+       *[mk_client_integrity_chunk(cfg, win, b, client) for win in win_range for b in bool_range for client in CLIENTS],
+       *[mk_availability_chunk(cfg, win, b) for win in win_range for b in bool_range],
+       *[mk_vantage_point_chunk(cfg, win, b, vant, feat, tag)
             for win in win_range
             for b in bool_range
             for vant in VANTAGES
             for (feat, tag) in FEATS.items()],
     )
 
+def write_all_queries_to_file(cfg: Config, path: Path):
+    with open(path, "w") as f:
+       f.write(str(all_queries(cfg)))
+
 if __name__ == "__main__":
     output_file = sys.argv[1]
-
-    lines = Lines(
-        all_queries()
-    )
-
-    with open(output_file, "w") as f:
-       f.write('\n'.join(lines.lines))
+    cfg = Config(FEATS, VANTAGES, CLIENTS)
+    write_all_queries_to_file(cfg, Path(output_file))
