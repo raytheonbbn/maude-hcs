@@ -1,4 +1,5 @@
 import sys
+from dataclasses import dataclass
 
 WINDOW_SIZE = 900
 SLIDING_WINDOW_SIZE = 60
@@ -12,11 +13,33 @@ MAX_WIN = 12
 # HCS_DELAY = 0
 # MAX_WIN = 2
 
+# ['dnsQueryRate', 'tcpOutPktRate', 'tcpInPktRate', 'tcpOutToInPktRate', 'tcpPktSizeStdDev', 'tcpPktSize', 'tcpPktInterarrival', 'tcpDirectionChange']
+# ['ixpN', 'cl[1]', 'cl[2]', 'cl[3]', 'cl[4]', 'cl[5]', 'srvN', 'masN']
+# ['wtCl1IrcAddr', 'wtCl2IrcAddr', 'skyCl3IrcAddr', 'skyCl4IrcAddr', 'obfsCl5IrcAddr', 'obfsCl6IrcAddr', 'iodCl7IrcAddr', 'iodCl8IrcAddr', 'masCl9IrcAddr']
+
+FEATS = {
+    "dnsQueryRate": "dns_query_rate",
+    # "dnsQuerySize": "dns_query_size_mean",
+    # "dnsRespSize": "dns_response_size_mean",
+    # "tcpUpRate": "tcp_upload_rate",
+    # "tcpDownRate": "tcp_download_rate",
+    # "tcpUpToDownRate": "tcp_upload_download_ratio",
+    "tcpOutPktRate": "tcp_outgoing_packet_rate",
+    "tcpInPktRate": "tcp_incoming_packet_rate",
+    "tcpOutToInPktRate": "tcp_packet_upload_download_ratio",
+    "tcpPktSizeStdDev": "packet_size_std_dev",
+    "tcpPktSize": "packet_size_mean",
+    "tcpPktInterarrival": "packet_interarrival_mean",
+    "tcpDirectionChange": "direction_change_count",
+    # "tcpActiveFlow": "active_flow_count",
+    # "tcpNewCnx": "tcp_new_conn_count",
+}
+
 VANTAGES = [
    "ixpN",
    "masN",
-   "dnsN",
-   "minN",
+#    "dnsN",
+#    "minN",
    "srvN",
    "cl[1]",
    "cl[2]",
@@ -37,25 +60,13 @@ CLIENTS = [
    "masCl9IrcAddr"
 ]
 
-FEATS = {
-    "dnsQueryRate": "dns_query_rate",
-    "dnsQuerySize": "dns_query_size_mean",
-    "dnsRespSize": "dns_response_size_mean",
-    "tcpUpRate": "tcp_upload_rate",
-    "tcpDownRate": "tcp_download_rate",
-    "tcpUpToDownRate": "tcp_upload_download_ratio",
-    "tcpOutPktRate": "tcp_outgoing_packet_rate",
-    "tcpInPktRate": "tcp_incoming_packet_rate",
-    "tcpOutToInPktRate": "tcp_packet_upload_download_ratio",
-    "tcpPktSizeStdDev": "packet_size_std_dev",
-    "tcpPktSize": "packet_size_mean",
-    "tcpPktInterarrival": "packet_interarrival_mean",
-    "tcpDirectionChange": "direction_change_count",
-    "tcpActiveFlow": "active_flow_count",
-    "tcpNewCnx": "tcp_new_conn_count",
-}
-
 CLIENT_MAP = {}
+
+@dataclass
+class Config:
+   feats: dict[str, str]
+   vants: list[str]
+   clients: list[str]
 
 class Lines:
   def __init__(self, *args, indent=0):
@@ -134,8 +145,6 @@ def mk_vantage_point_chunk(win: int, cum: bool, vantage: str, feat: str, tag_nam
 def all_queries() -> Lines:
     win_range = range(MAX_WIN)
     bool_range = [True, False]
-    FEATS = {
-    }
 
     return Lines(
        *[mk_latency_query_chunk(win, b) for win in win_range for b in bool_range],
