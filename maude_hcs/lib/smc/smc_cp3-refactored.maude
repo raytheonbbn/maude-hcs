@@ -383,35 +383,41 @@ mod SMC_CP3 is
 
   op collectIngestionFailureTime : Nat Float MessageTimestampList -> List{Float} .
   eq collectIngestionFailureTime (ircMsgId, Tdeadline, nilMessageTimestampList) = nil .
-  eq collectIngestionFailureTime (ircMsgId, Tdeadline, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
-    if (ircMsgId == ircMsgId') and isIrcServerAddr(ircAddrTo) and (T > Tdeadline)
-    then Tdeadline collectIngestionFailureTime(ircMsgId, Tdeadline, ircMTL)
-    else collectIngestionFailureTime(ircMsgId, Tdeadline, ircMTL) fi .
+  ceq collectIngestionFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) = 
+    Tdeadline
+  if (ircMsgId == ircMsgId') and isIrcServerAddr(ircAddrTo) and (T > Tdeadline) .
+  eq collectIngestionFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
+    collectIngestionFailureTime (ircMsgId, Tdeadline, ircMTL) [owise] .
 
   op collectIngestionFailure : MessageTimestampList MessageTimestampList Float Float Float -> List{Float} .
   eq collectIngestionFailure (nilMessageTimestampList, ircMTL, Tn, Tstart, Tend) = nil .
   eq collectIngestionFailure (ircMTL, nilMessageTimestampList, Tn, Tstart, Tend) = nil .
-  eq collectIngestionFailure (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tn, Tstart, Tend) = 
-    if (Tstart <= T + Tn) and (T + Tn <= Tend) and isIrcClientAddr(ircAddrFrom)  
-    then collectIngestionFailureTime(ircMsgId, T + Tn, ircMTL') collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) 
-    else collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) fi .
+  ceq collectIngestionFailure (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tn, Tstart, Tend) = nil if T + Tn > Tend .
+  ceq collectIngestionFailure (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tn, Tstart, Tend) =
+    collectIngestionFailureTime(ircMsgId, T + Tn, ircMTL') collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend)
+  if (Tstart <= T + Tn) and isIrcClientAddr(ircAddrFrom) .
+  eq collectIngestionFailure (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tn, Tstart, Tend) =
+    collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) [owise] .
 
   op getIngestionFailureDistribution : Actor Float Float Float -> List{Float} .
   eq getIngestionFailureDistribution (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) .
 
   op collectDeliveryFailureTime : Nat Float MessageTimestampList -> List{Float} .
   eq collectDeliveryFailureTime (ircMsgId, Tdeadline, nilMessageTimestampList) = nil .
-  eq collectDeliveryFailureTime (ircMsgId, Tdeadline, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
-    if (ircMsgId == ircMsgId') and isIrcClientAddr(ircAddrTo) and (T > Tdeadline)
-    then Tdeadline collectDeliveryFailureTime(ircMsgId, Tdeadline, ircMTL)
-    else collectDeliveryFailureTime(ircMsgId, Tdeadline, ircMTL) fi .
+  ceq collectDeliveryFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) = 
+    Tdeadline
+  if (ircMsgId == ircMsgId') and isIrcClientAddr(ircAddrTo) and (T > Tdeadline) .
+  eq collectDeliveryFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
+    collectDeliveryFailureTime(ircMsgId, Tdeadline, ircMTL) [owise] .
 
   op collectDeliveryFailure : MessageTimestampList Float Float Float -> List{Float} .
   eq collectDeliveryFailure (nilMessageTimestampList, Tn, Tstart, Tend) = nil .
-  eq collectDeliveryFailure (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tn, Tstart, Tend) = 
-    if (Tstart <= T + Tn) and (T + Tn <= Tend) and isIrcServerAddr(ircAddrTo)  
-    then collectDeliveryFailureTime(ircMsgId, T + Tn, ircMTL) collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) 
-    else collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) fi .
+  ceq collectDeliveryFailure (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tn, Tstart, Tend) = nil if T + Tn > Tend .
+  ceq collectDeliveryFailure (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tn, Tstart, Tend) =
+    collectDeliveryFailureTime(ircMsgId, T + Tn, ircMTL) collectDeliveryFailure(ircMTL, Tn, Tstart, Tend)
+  if (Tstart <= T + Tn) and isIrcServerAddr(ircAddrTo) .
+  eq collectDeliveryFailure(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tn, Tstart, Tend) = 
+    collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) [owise] .
 
   op getDeliveryFailureDistribution : Actor Float Float Float -> List{Float} .
   eq getDeliveryFailureDistribution (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tn, Tstart, Tend) = collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) .
