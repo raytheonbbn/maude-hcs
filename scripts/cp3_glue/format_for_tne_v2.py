@@ -117,11 +117,15 @@ def write_stats_to_json_file(
     with open(adv_output_file, "w") as f:
         json.dump(adv_dict, f, indent=4)
 
+# def load_stats_from_txt(s: str) -> list[dict[str, float]]
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
                         prog='TnE Formatter',
                         description='Transform results from SMC queries into a proper JSON format')
     parser.add_argument('--smc-results-file')
+    parser.add_argument('--json-smc-results-file')
+
     parser.add_argument('--quatex-file')
 
     parser.add_argument('--perf-output-file')
@@ -154,6 +158,33 @@ if __name__ == "__main__":
             lines = [ln.strip() for ln in f.readlines() if ln.strip().startswith("μ")]
 
         stats = [extract_stats(line) for line in lines]
+        means = [feat["mean"] for feat in stats]
+
+        write_stats_to_json_file(means, args.perf_output_file, args.adv_output_file, queries, scenario, generated_at)
+
+        if args.perf_stats_output_file is not None:
+            assert args.adv_stats_output_file is not None
+            write_stats_to_json_file(stats, args.perf_stats_output_file, args.adv_stats_output_file, queries, scenario, generated_at)
+
+    if args.json_smc_results_file:
+        assert args.perf_output_file is not None
+        assert args.adv_output_file is not None
+
+        stats = []
+
+        with open(args.json_smc_results_file, "r") as f:
+            s = f.read()
+            pre_json_idx = s.rfind("has converged")
+            assert pre_json_idx >= 0
+            s = s[pre_json_idx:]
+            json_start_idx = s.find("{")
+            assert json_start_idx >= 0
+            json_str = s[json_start_idx:]
+            js = json.loads(json_str)["queries"]
+
+            for query in js:
+                stats.append({"mean": query["mean"], "stddev": query["std"], "radius": query["radius"]})
+
         means = [feat["mean"] for feat in stats]
 
         write_stats_to_json_file(means, args.perf_output_file, args.adv_output_file, queries, scenario, generated_at)
