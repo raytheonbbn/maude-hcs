@@ -9,16 +9,16 @@ This directory also includes parse_baseline.py, which is not as directly involve
 
 `generate_quatex.py` uses several constants when generating queries:
 
-    ```
-    WINDOW_SIZE
-    SLIDING_WINDOW_SIZE
-    BIN_SIZE
-    HCS_DELAY
-    MAX_WIN
-    VANTAGES
-    CLIENTS
-    FEATS
-    ```
+```
+WINDOW_SIZE
+SLIDING_WINDOW_SIZE
+BIN_SIZE
+HCS_DELAY
+MAX_WIN
+VANTAGES
+CLIENTS
+FEATS
+```
 
 These should be the same constants used in the scenario, so they should be copied and pasted in from the relevant maude files.
 
@@ -62,14 +62,14 @@ Concatenate them all into a single dump file.
 
 The formatter takes a lot of arguments:
     
-> `smc-results-file` is the SMC log that you captured
-> `quatex-file` is the file containing generated quatex queries
-> `perf-output-file` is the desired filename for the performance json output
-> `adv-output-file` is the same, but for adversary features
-> `perf-stats-output-file` is similar to `perf-output-file`, but the result will additionally contain a radius and standard deviation
-> `adv-stats-output-file` is similar, but for adversary
-> `dump-file` is where the concatenated SMC dumped samples were stored
-> `sample-output-dir` is where you want to store the json sample files extracted from the dump file.
+- `smc-results-file` is the SMC log that you captured
+- `quatex-file` is the file containing generated quatex queries
+- `perf-output-file` is the desired filename for the performance json output
+- `adv-output-file` is the same, but for adversary features
+- `perf-stats-output-file` is similar to `perf-output-file`, but the result will additionally contain a radius and standard deviation
+- `adv-stats-output-file` is similar, but for adversary
+- `dump-file` is where the concatenated SMC dumped samples were stored
+- `sample-output-dir` is where you want to store the json sample files extracted from the dump file.
 
 ## All together
 
