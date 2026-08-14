@@ -245,17 +245,12 @@ mod HCS_TEST is
   eq eT = slimit .
 
   *** op Vpts : -> NetIdList .
-  eq Vpts = (ixpN :; cl[1] :; cl[2] :; cl[3] :; cl[4] :; srvN :; masN) .
+  eq Vpts = (ixpN :; cl[1] :; cl[2] :; cl[3] :; cl[4] :; srvN :; masN) [owise] .
 
   *** op ObsFs : -> FeatureList .
   eq ObsFs = 
-  dnsQueryRate 
-  *** :; dnsQuerySize 
-  *** :; tcpUpRate :; tcpDownRate :; tcpUpToDownRate 
-  :; tcpOutPktRate :; tcpInPktRate  :; tcpOutToInPktRate 
-  :; tcpPktSizeStdDev :; tcpPktSize :; tcpPktInterarrival 
-  :; tcpDirectionChange
-  *** :; tcpActiveFlow :; tcpNewCnx
+  dnsQueryRate :; tcpOutPktRate :; tcpInPktRate :; tcpOutToInPktRate :; tcpPktSizeStdDev :; tcpPktSize :; tcpPktInterarrival :; tcpDirectionChange
+  [owise]
   .
   ----------------
 
@@ -1471,7 +1466,7 @@ mod HCS_TEST is
   eq masSrvAct      = makeMastodonServer(masSrvAddr) .
   eq masNetSrv       = makeNetServer(masNetSrvAddr, masSrvAddr) .
   eq iodineMonitor  = mkWMonitor(iodineMonitorAddr) .
-  eq advActor       = mkAdversaryCp3(advAddr) .
+  eq advActor       = mkAdversaryCp3(advAddr, false) .
 
   --- DNS Infrastructure
   ops corpMasDns corpRtDns corpIodDns corpObfsDns corpSkyDns servDns : -> Actor .
@@ -2660,9 +2655,6 @@ mod HCS_TEST is
   op initState : Nat -> Config .
   eq initState(j) =
 
-    --- Baseline actor
-    baseLineAct
-
     --- Core Infrastructure
     ircServer s3SrvAct iodineMonitor masSrvAct
     mkIrcMonitor(ircMonitorAddr)
@@ -2947,7 +2939,7 @@ mod HCS_TEST is
   eq IRC-PING-INTV-S = 1200000. [owise]  .
   
   op slimit : -> Float .
-  eq slimit = 1000.0 [owise] .
+  eq slimit = 11700.0 [owise] .
 
   op initConfig : -> Config .
   rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .
@@ -2955,8 +2947,7 @@ mod HCS_TEST is
   op allClientsAddr : -> AddrList .
   eq allClientsAddr = wtCl1IrcAddr ; skyCl2IrcAddr ; obfsCl3IrcAddr ; masCl4IrcAddr .
 endm
-
-set print attribute on .
-rew initConfig .
-q
 eof
+--- set print attribute on .
+--- rew initConfig .
+--- q
