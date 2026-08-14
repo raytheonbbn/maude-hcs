@@ -25,7 +25,7 @@ IMAGE_SIZE = 190000
 # Changed to dictionary to keep track of the required naming scheme for T&E results
 FEATURES = {
     "dnsQueryRate": "dns_query_rate",
-    "dnsQuerySize": "dns_query_size_mean",
+    # "dnsQuerySize": "dns_query_size_mean",
     # "dnsRespSize": "dns_response_size_mean",
     # "tcpUpRate": "tcp_upload_rate",
     # "tcpDownRate": "tcp_download_rate",
@@ -35,7 +35,7 @@ FEATURES = {
     #"tcpOutToInPktRate": "tcp_packet_upload_download_ratio",
     #"tcpPktSizeStdDev": "packet_size_std_dev",
     "tcpPktSize": "packet_size_mean",
-    #"tcpPktInterarrival": "packet_interarrival_mean",
+    "tcpPktInterarrival": "packet_interarrival_mean",
     #"tcpDirectionChange": "direction_change_count",
     # "tcpActiveFlow": "active_flow_count",
     # "tcpNewCnx": "tcp_new_conn_count",
