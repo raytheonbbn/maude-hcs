@@ -144,7 +144,7 @@ def mk_vantage_point_chunk(cfg: Config, win: int, cum: bool, vantage: str, feat:
     bin_size = f"{cfg.bin_size:.1f}"
     tag = f'// {prefix} {tag_name} {i_start} {i_end} {vantage}'
     return Lines(
-        f'eval E[s.rval("getCUSUM (getAdversary(C), {vantage}, {feat}, {start}, {end}, {slide_win}, {bin_size})")]; {tag}'
+        f'eval E[s.rval("getCUSUMZt(getAdversary(C), {vantage}, {feat}, {start}, {end}, {slide_win}, {bin_size})")]; {tag}'
     )
 
 def all_queries(cfg: Config) -> Lines:
