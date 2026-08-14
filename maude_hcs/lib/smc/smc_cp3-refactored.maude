@@ -725,21 +725,41 @@ mod SMC_CP3 is
     else compObsFeatureX (vp, obsF, Fid, TOL, Tstart, Tend) fi .
 
   op collectObsFeatureX : NetId Feature TimesObsList Float Float Float -> List{Float} .
+***(
   eq collectObsFeatureX (vp, obsF, TOL, T, Tend, binSize) =
     if (T + binSize) <= (Tend + Tesp)
     then compObsFeature(vp, obsF, filterWindow(TOL, T, T + binSize), T, T + binSize) collectObsFeatureX (vp, obsF, filterWindow(TOL, T + binSize, Tend), T + binSize, Tend, binSize)
     ---then compObsFeature(vp, obsF, TOL, T, T + binSize) collectObsFeatureX (vp, obsF, TOL, T + binSize, Tend), T + binSize, Tend, binSize)
     else nil fi .
+)
+  ceq collectObsFeatureX(vp, obsF, TOL, T, Tend, binSize) =
+    compObsFeature(vp, obsF, filterWindow(TOL, T, T + binSize), T, T + binSize) 
+    collectObsFeatureX(vp, obsF, filterWindow(TOL, T + binSize, Tend), T + binSize, Tend, binSize)
+    if (T + (2.0 * binSize)) <= (Tend + Tesp) .
+  eq collectObsFeatureX(vp, obsF, TOL, T, Tend, binSize) =
+    if (T + binSize) <= (Tend + Tesp)
+    then compObsFeature(vp, obsF, filterWindow(TOL, T, T + binSize), T, T + binSize)
+    else nil fi [owise] .
 
   op collectObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
   eq collectObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = collectObsFeatureX(vp, obsF, TOL, Tstart, Tstart + winSize, binSize) .
 
   op collectObsFeatureX : NetId Feature Flow TimesObsList Float Float Float -> List{Float} .
+***(
   eq collectObsFeatureX (vp, obsF, Fid, TOL, T, Tend, binSize) =
     if (T + binSize) <= (Tend + Tesp)
     then compObsFeature(vp, obsF, Fid, filterWindow(TOL, T, T + binSize), T, T + binSize) collectObsFeatureX (vp, obsF, Fid, filterWindow(TOL, T + binSize, Tend), T + binSize, Tend, binSize)
     ---then compObsFeature(vp, obsF, Fid, TOL, T, T + binSize) collectObsFeatureX (vp, obsF, Fid, TOL, T + binSize, Tend, binSize)
     else nil fi .
+)
+  ceq collectObsFeatureX(vp, obsF, Fid, TOL, T, Tend, binSize) =
+    compObsFeature(vp, obsF, Fid, filterWindow(TOL, T, T + binSize), T, T + binSize) 
+    collectObsFeatureX(vp, obsF, Fid, filterWindow(TOL, T + binSize, Tend), T + binSize, Tend, binSize)
+    if (T + (2.0 * binSize)) <= (Tend + Tesp) .
+  eq collectObsFeatureX(vp, obsF, Fid, TOL, T, Tend, binSize) =
+    if (T + binSize) <= (Tend + Tesp)
+    then compObsFeature(vp, obsF, Fid, filterWindow(TOL, T, T + binSize), T, T + binSize)
+    else nil fi [owise] .
 
   op collectObsFeature : NetId Feature Flow TimesObsList Float Float Float -> List{Float} .
   eq collectObsFeature (vp, obsF, Fid, TOL, Tstart, winSize, binSize) = collectObsFeatureX(vp, obsF, Fid, filterFlow(Fid, TOL), Tstart, Tstart + winSize, binSize) .
