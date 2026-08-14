@@ -1719,7 +1719,7 @@ if __name__ == "__main__":
     parser.add_argument("--scenarioName", default=None, help="Scenario name for generated Maude files (default: basename of YAML without extension)")
     parser.add_argument("--parallelizeBaseline", action="store_true", help="If set, generate separate baseline files per feature and vantage point in a 'baselines' directory")
     parser.add_argument("--quatex", action="store_true", help="generate quatex file for combinations?")
-    parser.add_argument("--perf", action="store_true", help="Performance mode: removes baseLineAct and sets Adversary useTcpTPL to false")
+    parser.add_argument("--perf", action="store_true", help="Performance mode: removes baseLineAct and sets Adversary useTcpTPL to false")    
     parser.add_argument("--filterVpFeatCombos", action="store_true", help="filter the combinations of VP and feature")
     args = parser.parse_args()
     
@@ -1819,7 +1819,7 @@ if __name__ == "__main__":
         quatex_filename = f"{scenario_name}-quatex.maude"    
         quatex_path = os.path.join(out_dir, quatex_filename)
         max_win = math.floor(duration/analysis_window_size)
-        write_all_queries_to_file(Config(FEATURES, vpts_list, all_clients, max_win=max_win, hcs_delay=hcs_delay), Path(quatex_path))
+        write_all_queries_to_file(Config(FEATURES, vpts_list, all_clients, max_win=max_win, hcs_delay=hcs_delay, perf_only=args.perf), Path(quatex_path))
         print(f"Wrote quatex queries to {quatex_path}: max_win: {max_win}, hcs_delay: {hcs_delay}")
 
     # Generate parallelized baseline files if flag is set
