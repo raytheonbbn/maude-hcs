@@ -1236,12 +1236,26 @@ mod SMC_CP3 is
   eq sizeTCPUpload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op sizeTCPUpload : NetId TimesObsList Float Float -> Nat .
+***(
   eq sizeTCPUpload (vp, nilTO, Tstart, Tend) = 0 .
   eq sizeTCPUpload (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
     if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing)
     then sizePkt(pkt) + sizeTCPUpload(vp, TsPL, Tstart, Tend) 
     else sizeTCPUpload(vp, TsPL, Tstart, Tend) fi .
   eq sizeTCPUpload (vp, tpkt ;; TsPL, Tstart, Tend) = sizeTCPUpload(vp, TsPL, Tstart, Tend) [owise] .
+)
+  eq sizeTCPUpload (vp, TOL, Tstart, Tend) = sizeTCPUploadAux(vp, TOL, Tstart, Tend, 0) .
+
+  op sizeTCPUploadAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq sizeTCPUploadAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq sizeTCPUploadAux( vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend, Acc) =
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing)
+    then sizeTCPUploadAux(vp, TsPL, Tstart, Tend, Acc + sizePkt(pkt))
+    else sizeTCPUploadAux(vp, TsPL, Tstart, Tend, Acc) fi .
+
+  eq sizeTCPUploadAux( vp, tpkt ;; TsPL, Tstart, Tend, Acc)
+    = sizeTCPUploadAux(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   op sizeTCPDownload : NetId Flow TimesObsList Float Float -> Nat .
   eq sizeTCPDownload (vp, Fid, nilTO, Tstart, Tend) = 0 .
@@ -1252,12 +1266,26 @@ mod SMC_CP3 is
   eq sizeTCPDownload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op sizeTCPDownload : NetId TimesObsList Float Float -> Nat .
+***(
   eq sizeTCPDownload (vp, nilTO, Tstart, Tend) = 0 .
   eq sizeTCPDownload (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
     if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
     then sizePkt(pkt) + sizeTCPDownload(vp, TsPL, Tstart, Tend) 
     else sizeTCPDownload(vp, TsPL, Tstart, Tend) fi .
   eq sizeTCPDownload (vp, tpkt ;; TsPL, Tstart, Tend) = sizeTCPDownload(vp, TsPL, Tstart, Tend) [owise] .
+)
+  eq sizeTCPDownload (vp, TOL, Tstart, Tend) = sizeTCPDownloadAux(vp, TOL, Tstart, Tend, 0) .
+
+  op sizeTCPDownloadAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq sizeTCPDownloadAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq sizeTCPDownloadAux( vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend, Acc) =
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
+    then sizeTCPDownloadAux(vp, TsPL, Tstart, Tend, Acc + sizePkt(pkt))
+    else sizeTCPDownloadAux(vp, TsPL, Tstart, Tend, Acc) fi .
+
+  eq sizeTCPDownloadAux( vp, tpkt ;; TsPL, Tstart, Tend, Acc)
+    = sizeTCPDownloadAux(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   -------------------------------------------------------------------------------------------------
   --- 07 tcp_outgoing_packet_rate         Number of outgoing TCP packets per second (packets/s) [2]
@@ -1369,12 +1397,26 @@ mod SMC_CP3 is
   eq sizeTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op sizeTCPPkt : NetId TimesObsList Float Float -> Nat .
+***(
   eq sizeTCPPkt (vp, nilTO, Tstart, Tend) = 0 .
   eq sizeTCPPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
     if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) 
     then sizePkt(pkt) + sizeTCPPkt(vp, TsPL, Tstart, Tend) 
     else sizeTCPPkt(vp, TsPL, Tstart, Tend) fi .
   eq sizeTCPPkt (vp, tpkt ;; TsPL, Tstart, Tend) = sizeTCPPkt(vp, TsPL, Tstart, Tend) [owise] .
+)
+  eq sizeTCPPkt (vp, TOL, Tstart, Tend) = sizeTCPPktAux(vp, TOL, Tstart, Tend, 0) .
+
+  op sizeTCPPktAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq sizeTCPPktAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq sizeTCPPktAux( vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend, Acc) =
+    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming))
+    then sizeTCPPktAux(vp, TsPL, Tstart, Tend, Acc + sizePkt(pkt))
+    else sizeTCPPktAux(vp, TsPL, Tstart, Tend, Acc) fi .
+
+  eq sizeTCPPktAux( vp, tpkt ;; TsPL, Tstart, Tend, Acc)
+    = sizeTCPPktAux(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   op collectPktSize : NetId Flow TimesObsList Float Float -> List{Float} .
   eq collectPktSize (vp, Fid, nilTO, Tstart, Tend) = nil .
@@ -1393,16 +1435,20 @@ mod SMC_CP3 is
   eq collectPktSize (vp, tpkt ;; TsPL, Tstart, Tend) = collectPktSize(vp, TsPL, Tstart, Tend) [owise] .
 
   op meanPktSize : NetId Flow TimesObsList Float Float -> Float .
-  eq meanPktSize (vp, Fid, TsPL, Tstart, Tend) =  
-    if countTCPPkt(vp, Fid, TsPL, Tstart, Tend) == 0
+  ceq meanPktSize (vp, Fid, TsPL, Tstart, Tend) =  
+    if N == 0
     then 0.0
-    else float(sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend)) / float(countTCPPkt(vp, Fid, TsPL, Tstart, Tend)) fi .
+    else float(sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend)) / float(N) 
+    fi 
+  if N := countTCPPkt(vp, Fid, TsPL, Tstart, Tend) . 
 
   op meanPktSize : NetId TimesObsList Float Float -> Float .
-  eq meanPktSize (vp, TsPL, Tstart, Tend) =  
-    if countTCPPkt(vp, TsPL, Tstart, Tend) == 0
+  ceq meanPktSize (vp, TsPL, Tstart, Tend) =  
+    if N == 0 
     then 0.0
-    else float(sizeTCPPkt(vp, TsPL, Tstart, Tend)) / float(countTCPPkt(vp, TsPL, Tstart, Tend)) fi .
+    else float(sizeTCPPkt(vp, TsPL, Tstart, Tend)) / float(N) 
+    fi 
+  if N := countTCPPkt(vp, TsPL, Tstart, Tend) .
 
   op stdDevPktSize : NetId Flow TimesObsList Float Float -> Float .
   eq stdDevPktSize (vp, Fid, TsPL, Tstart, Tend) = 
@@ -1493,11 +1539,25 @@ mod SMC_CP3 is
   eq newCnx (tp(Ts, Tx, Tr, pkt(toAddr, fromAddr, new?, cnx, psize))) = new? .
 
   op countNewCnx : NetId TimesObsList Float Float -> Nat .
+***(
   eq countNewCnx (vp, nilTO, Tstart, Tend) = 0 .
   eq countNewCnx (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) =
     if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) and newCnx(pkt) 
     then 1 + countNewCnx(vp, TsPL, Tstart, Tend) 
     else countNewCnx(vp, TsPL, Tstart, Tend) fi .
   eq countNewCnx (vp, tpkt ;; TsPL, Tstart, Tend) = countNewCnx(vp, TsPL, Tstart, Tend) [owise] .
+)
+  eq countNewCnx (vp, TOL, Tstart, Tend) = countNewCnxAux(vp, TOL, Tstart, Tend, 0) .
+
+  op countNewCnxAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq countNewCnxAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq countNewCnxAux( vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend, Acc) =
+    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) and newCnx(pkt) 
+    then countNewCnxAux(vp, TsPL, Tstart, Tend, Acc + 1)
+    else countNewCnxAux(vp, TsPL, Tstart, Tend, Acc) fi .
+
+  eq countNewCnxAux( vp, tpkt ;; TsPL, Tstart, Tend, Acc)
+    = countNewCnxAux(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
 endm
