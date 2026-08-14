@@ -23,6 +23,9 @@ class Query:
 def default_feature_dict():
     return {"cumulative": {}, "independent": {}}
 
+def inty(x):
+    return int(float(x))
+
 # Maybe this should individually parse clients and stuff, but do that later.
 def parse_quatex(quatex: str) -> list[Query]:
     result = []
@@ -36,11 +39,11 @@ def parse_quatex(quatex: str) -> list[Query]:
 
         if len(parts) == 4:
             result.append(Query(
-                parts[0], parts[1], int(parts[2]), int(parts[3]), None
+                parts[0], parts[1], inty(parts[2]), inty(parts[3]), None
             ))
         elif len(parts) == 5:
             result.append(Query(
-                parts[0], parts[1], int(parts[2]), int(parts[3]), parts[4]
+                parts[0], parts[1], inty(parts[2]), inty(parts[3]), parts[4]
             ))
         else:
             raise Exception("tags should have 4 or 5 whitespace-separated parts")
