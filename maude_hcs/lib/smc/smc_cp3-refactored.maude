@@ -1046,6 +1046,8 @@ mod SMC_CP3 is
 15 tcp_new_conn_count               Number of new TCP connections initiated in the bin*
 )
 
+  var Acc : Nat .
+
   -------------------------------------------------------------------------------------------------
   --- 01 dns_query_rate                   Number of DNS query messages per second (queries/s)
   -------------------------------------------------------------------------------------------------
@@ -1067,12 +1069,26 @@ mod SMC_CP3 is
   eq countDNSQuery (vp, Fid, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSQuery(vp, Fid, TsML, Tstart, Tend) [owise] .
 
   op countDNSQuery : NetId TimesObsList Float Float -> Nat .
+***(
   eq countDNSQuery (vp, nilTO, Tstart, Tend) = 0 .
   eq countDNSQuery (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
     if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) 
     then 1 + countDNSQuery(vp, TsML, Tstart, Tend) 
     else countDNSQuery(vp, TsML, Tstart, Tend) fi .
   eq countDNSQuery (vp, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSQuery(vp, TsML, Tstart, Tend) [owise] .
+)
+  eq countDNSQuery (vp, TOL, Tstart, Tend) = countDNSQueryAux(vp, TOL, Tstart, Tend, 0) .
+
+  op countDNSQueryAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq countDNSQueryAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq countDNSQueryAux (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) = 
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) 
+    then countDNSQueryAux(vp, TsML, Tstart, Tend, Acc + 1)
+    else countDNSQueryAux(vp, TsML, Tstart, Tend, Acc) fi .
+
+  eq countDNSQueryAux (vp, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend, Acc)
+    = countDNSQueryAux(vp, TsML, Tstart, Tend, Acc) [owise] .
 
   -------------------------------------------------------------------------------------------------
   --- 02 dns_query_size_mean              Mean DNS query message size (bytes)
@@ -1215,7 +1231,6 @@ mod SMC_CP3 is
     else countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) fi .
   eq countTCPOutPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
-  var Acc : Nat .
   op countTCPOutPkt : NetId TimesObsList Float Float -> Nat .
 ***(
   eq countTCPOutPkt (vp, nilTO, Tstart, Tend) = 0 .
@@ -1247,12 +1262,26 @@ mod SMC_CP3 is
   eq countTCPInPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op countTCPInPkt : NetId TimesObsList Float Float -> Nat .
+***(
   eq countTCPInPkt (vp, nilTO, Tstart, Tend) = 0 .
   eq countTCPInPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
     if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
     then 1 + countTCPInPkt(vp, TsPL, Tstart, Tend) 
     else countTCPInPkt(vp, TsPL, Tstart, Tend) fi .
   eq countTCPInPkt (vp, tpkt ;; TsPL, Tstart, Tend) = countTCPInPkt(vp, TsPL, Tstart, Tend) [owise] .
+)
+  eq countTCPInPkt (vp, TOL, Tstart, Tend) = countTCPInPktAux(vp, TOL, Tstart, Tend, 0) .
+
+  op countTCPInPktAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq countTCPInPktAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq countTCPInPktAux( vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend, Acc) =
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
+    then countTCPInPktAux(vp, TsPL, Tstart, Tend, Acc + 1)
+    else countTCPInPktAux(vp, TsPL, Tstart, Tend, Acc) fi .
+
+  eq countTCPInPktAux( vp, tpkt ;; TsPL, Tstart, Tend, Acc)
+    = countTCPInPktAux(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   -------------------------------------------------------------------------------------------------
   --- 10 packet_size_std_dev              Standard deviation of packet sizes (bytes) [3]
@@ -1268,12 +1297,26 @@ mod SMC_CP3 is
   eq countTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op countTCPPkt : NetId TimesObsList Float Float -> Nat .
+***(
   eq countTCPPkt (vp, nilTO, Tstart, Tend) = 0 .
   eq countTCPPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
     if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming))
     then 1 + countTCPPkt(vp, TsPL, Tstart, Tend) 
     else countTCPPkt(vp, TsPL, Tstart, Tend) fi .
   eq countTCPPkt (vp, tpkt ;; TsPL, Tstart, Tend) = countTCPPkt(vp, TsPL, Tstart, Tend) [owise] .
+)
+  eq countTCPPkt (vp, TOL, Tstart, Tend) = countTCPPktAux(vp, TOL, Tstart, Tend, 0) .
+
+  op countTCPPktAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq countTCPPktAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq countTCPPktAux( vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend, Acc) =
+    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming))
+    then countTCPPktAux(vp, TsPL, Tstart, Tend, Acc + 1)
+    else countTCPPktAux(vp, TsPL, Tstart, Tend, Acc) fi .
+
+  eq countTCPPktAux( vp, tpkt ;; TsPL, Tstart, Tend, Acc)
+    = countTCPPktAux(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
   op sizeTCPPkt : NetId Flow TimesObsList Float Float -> Nat .
   eq sizeTCPPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
