@@ -58,7 +58,7 @@ class Bl:
     ecdf: list[float]
 
     def __str__(self):
-        return f"bl({self.feat}, {self.vantage}, {self.k}, {' '.join(map(str, self.ecdf))})"
+        return f"bl({self.vantage}, {self.feat}, {self.k}, {' '.join(map(str, self.ecdf))})"
 
 # bl_str should look like "bl(...)"
 def parse_bl(bl_str: str) -> Bl:

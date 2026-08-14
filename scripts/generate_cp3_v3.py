@@ -1853,7 +1853,7 @@ if __name__ == "__main__":
 
     # Generate the baseline eq
     baselin_eq_content = gen_baselineEq(scenario_name)
-    eq_filename = f"{scenario_name}-baseline-eq.maude"
+    eq_filename = f"{scenario_name}-baseline-eq-tmp.maude"
     eq_path = os.path.join(out_dir, eq_filename)
     with open(eq_path, "w") as f:
         f.write(baselin_eq_content)    
