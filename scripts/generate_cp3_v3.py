@@ -261,7 +261,7 @@ def generate_all_tgen_instances(tgen_defs, net_id_map, net_short):
     return instances
 
 # Generate scenario1_addresses.maude
-def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name):
+def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, notgens):
     lines = []
     L = lines.append
     
@@ -341,7 +341,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name):
     L("  ops corpMasNetClAddr corpRtNetClAddr corpIodNetClAddr corpObfsNetClAddr corpSkyNetClAddr : -> Address .")
     L("  ops servNetClAddr publicResolverNetSrvAddr : -> Address .")
     L("")
-    
+
     L("  ---------------------------------------------------")
     L("  --- TGEN Addresses")
     L("  ---------------------------------------------------")
@@ -378,7 +378,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name):
     return "\n".join(lines), hcs_client_ids
 
 # Generate scenario1.maude (ZERO structured addresses!)
-def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=False):
+def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=False, notgens=False):
     lines = []
     L = lines.append
     
@@ -1578,15 +1578,16 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"    [hcsDelay + 10.0 + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to obfsCl{i}UmAddr from obfsCl{i}UmAddr : burstDelayTO), 0]"); timer_j += 1
     L("")
     
-    L("    --- TGEN User Model Burst Delay Timers (staggered)")
-    for inst in tgen_instances:
-        bn = inst.base_name
-        if inst.tgen_type in ["masTgen", "dnsTgen"]:
-            L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to {bn}UmAddr from {bn}UmAddr : actionR(\"ok\")), 0]")
-        else:
-            L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to {bn}UmAddr from {bn}UmAddr : burstDelayTO), 0]")
-        timer_j += 1
-    L("")    
+    if not notgens:
+        L("    --- TGEN User Model Burst Delay Timers (staggered)")
+        for inst in tgen_instances:
+            bn = inst.base_name
+            if inst.tgen_type in ["masTgen", "dnsTgen"]:
+                L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to {bn}UmAddr from {bn}UmAddr : actionR(\"ok\")), 0]")
+            else:
+                L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to {bn}UmAddr from {bn}UmAddr : burstDelayTO), 0]")
+            timer_j += 1
+        L("")    
     L(f"    rCtr(j + {timer_j})")
     L("  .")
     L("")    
@@ -1721,13 +1722,14 @@ if __name__ == "__main__":
     parser.add_argument("--quatex", action="store_true", help="generate quatex file for combinations?")
     parser.add_argument("--perf", action="store_true", help="Performance mode: removes baseLineAct and sets Adversary useTcpTPL to false")    
     parser.add_argument("--filterVpFeatCombos", action="store_true", help="filter the combinations of VP and feature")
+    parser.add_argument("--notgens", action="store_true", help="disable tgens firing")
     args = parser.parse_args()
     
     yaml_file = os.path.abspath(args.yaml_file)
     baseline_time = args.baselineTime
     run_time = args.runTime
     hcs_delay = args.hcsDelay
-    tgen_delay = args.tgenDelay
+    tgen_delay = args.tgenDelay    
     out_dir = os.path.abspath(args.outDir) if args.outDir is not None else os.path.dirname(yaml_file)
     scenario_name = args.scenarioName if args.scenarioName is not None else os.path.splitext(os.path.basename(yaml_file))[0]
 
@@ -1754,7 +1756,10 @@ if __name__ == "__main__":
     
     print(f"Parsing scenario YAML from: {yaml_file}")
     duration, analysis_window_size, networks, net_id_map, net_short, loss_profiles, hcs_nodes, hcs_profiles_by_channel, tgen_defs, hcs_channel_models = parse_scenario_yaml(yaml_file)
-    
+
+    if args.notgens:
+        tgen_delay = 2*duration
+
     tgen_instances = generate_all_tgen_instances(tgen_defs, net_id_map, net_short)
     
     print(f"Loaded duration: {duration}s")
@@ -1768,7 +1773,7 @@ if __name__ == "__main__":
     os.makedirs(out_dir, exist_ok=True)
 
     # Generate addresses file
-    addr_content, hcs_client_ids = gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name)
+    addr_content, hcs_client_ids = gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, args.notgens)
     addr_path = os.path.join(out_dir, f"{scenario_name}_addresses.maude")
     with open(addr_path, "w") as f:
         f.write(addr_content)
@@ -1786,8 +1791,12 @@ if __name__ == "__main__":
             vpts_list.append(cl_id)
         vpts_list.extend(["srvN", "masN"])
     
+    
+    # for now delay tgens (TODO: remove them from the soup completely)
+    if args.notgens:
+        tgen_delay = 2*duration
     # Generate main file
-    main_content = gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=args.perf)
+    main_content = gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=args.perf, notgens=args.notgens)
     main_path = os.path.join(out_dir, f"{scenario_name}.maude")
     with open(main_path, "w") as f:
         f.write(main_content)
