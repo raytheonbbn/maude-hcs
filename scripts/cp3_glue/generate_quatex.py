@@ -67,6 +67,8 @@ class Config:
     hcs_delay: int = 0
     max_win: int = 12
 
+    perf_only: bool = False
+
 class Lines:
   def __init__(self, *args, indent=0):
     lines = []
@@ -134,13 +136,15 @@ def mk_availability_chunk(cfg: Config, win: int, cum: bool) -> Lines:
     )
 
 def mk_vantage_point_chunk(cfg: Config, win: int, cum: bool, vantage: str, feat: str, tag_name: str) -> Lines:
+    if cfg.perf_only:
+       return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     slide_win = f"{cfg.sliding_window_size:.1f}"
     bin_size = f"{cfg.bin_size:.1f}"
     tag = f'// {prefix} {tag_name} {i_start} {i_end} {vantage}'
     return Lines(
-        f'eval E[s.rval("getCUSUM (getAdversary(C), {vantage}, {feat}, {start}, {end}, {slide_win}, {bin_size})]; {tag}'
+        f'eval E[s.rval("getCUSUM (getAdversary(C), {vantage}, {feat}, {start}, {end}, {slide_win}, {bin_size})")]; {tag}'
     )
 
 def all_queries(cfg: Config) -> Lines:
@@ -150,13 +154,13 @@ def all_queries(cfg: Config) -> Lines:
     return Lines(
        *[mk_latency_query_chunk(cfg, win, b) for win in win_range for b in bool_range],
        *[mk_global_integrity_chunk(cfg, win, b) for win in win_range for b in bool_range],
-       *[mk_client_integrity_chunk(cfg, win, b, client) for win in win_range for b in bool_range for client in CLIENTS],
+       *[mk_client_integrity_chunk(cfg, win, b, client) for win in win_range for b in bool_range for client in cfg.clients],
        *[mk_availability_chunk(cfg, win, b) for win in win_range for b in bool_range],
-    #    *[mk_vantage_point_chunk(cfg, win, b, vant, feat, tag)
-    #         for win in win_range
-    #         for b in bool_range
-    #         for vant in VANTAGES
-    #         for (feat, tag) in FEATS.items()],
+       *[mk_vantage_point_chunk(cfg, win, b, vant, feat, tag)
+            for win in win_range
+            for b in bool_range
+            for vant in cfg.vants
+            for (feat, tag) in cfg.feats.items()],
     )
 
 def write_all_queries_to_file(cfg: Config, path: Path):
