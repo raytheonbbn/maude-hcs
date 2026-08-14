@@ -335,16 +335,6 @@ mod SMC_CP3 is
   eq getNormMED (ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) =
     normMED( collectLocalView( ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend), collectGlobalView( ircRoom, ircMTL, Tstart, Tend)) .
 
-***(
-  op getNormMED : Address IrcChannelName MessageTimestampList MessageTimestampList Float Float -> Float .
-  eq getNormMED (ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) = 
-    if (max(lenMsgIdList(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend)), lenMsgIdList(collectGlobalView(ircRoom, ircMTL, Tstart, Tend))) == 0) 
-    then 1.0
-    else 1.0 - (float(med(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend), collectGlobalView(ircRoom, ircMTL, Tstart, Tend))) 
-                / 
-                float(max(lenMsgIdList(collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend)), lenMsgIdList(collectGlobalView(ircRoom, ircMTL, Tstart, Tend))))) fi . 
-)
-
   op lenChannelNameList : IrcChannelNameList -> Nat .
   eq lenChannelNameList (nilIrcChannelName) = 0 .
   eq lenChannelNameList (emptyIrcChannelNameList) = 0 .
@@ -490,17 +480,7 @@ mod SMC_CP3 is
     KsDistanceX(FL, nil, I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float (N'))))) .
   eq KsDistanceX (nil, F' FL', I, J, N, N', D) = 
     KsDistanceX(nil, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float (N'))))) .  
-***(
-  eq KsDistanceX (F FL, F' FL', I, J, N, N', D) = 
-    if F == F' 
-    then KsDistanceX(rmEqPrefix(F, F FL), rmEqPrefix(F', F' FL'), 
-      I + countEqPrefix(F, F FL), J + countEqPrefix(F', F' FL'), N, N', 
-      max2(D, abs((float(I + countEqPrefix(F, F FL)) / float(N)) - (float(J + countEqPrefix(F', F' FL')) / float(N'))))) 
-    else if F < F' 
-    then KsDistanceX(FL, F' FL', I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float (N')))))
-    else  
-    KsDistanceX(F FL, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float (N'))))) fi fi .  
-)
+
   ceq KsDistanceX(F FL, F' FL', I, J, N, N', D) =
     KsDistanceX( FL1, FL2, I + C1, J + C2, N, N', max2(D, abs((float(I + C1) / float(N)) - (float(J + C2) / float(N')))))
     if F == F'
@@ -725,13 +705,7 @@ mod SMC_CP3 is
     else compObsFeatureX (vp, obsF, Fid, TOL, Tstart, Tend) fi .
 
   op collectObsFeatureX : NetId Feature TimesObsList Float Float Float -> List{Float} .
-***(
-  eq collectObsFeatureX (vp, obsF, TOL, T, Tend, binSize) =
-    if (T + binSize) <= (Tend + Tesp)
-    then compObsFeature(vp, obsF, filterWindow(TOL, T, T + binSize), T, T + binSize) collectObsFeatureX (vp, obsF, filterWindow(TOL, T + binSize, Tend), T + binSize, Tend, binSize)
-    ---then compObsFeature(vp, obsF, TOL, T, T + binSize) collectObsFeatureX (vp, obsF, TOL, T + binSize, Tend), T + binSize, Tend, binSize)
-    else nil fi .
-)
+
   ceq collectObsFeatureX(vp, obsF, TOL, T, Tend, binSize) =
     compObsFeature(vp, obsF, filterWindow(TOL, T, T + binSize), T, T + binSize) 
     collectObsFeatureX(vp, obsF, filterWindow(TOL, T + binSize, Tend), T + binSize, Tend, binSize)
@@ -745,13 +719,7 @@ mod SMC_CP3 is
   eq collectObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = collectObsFeatureX(vp, obsF, TOL, Tstart, Tstart + winSize, binSize) .
 
   op collectObsFeatureX : NetId Feature Flow TimesObsList Float Float Float -> List{Float} .
-***(
-  eq collectObsFeatureX (vp, obsF, Fid, TOL, T, Tend, binSize) =
-    if (T + binSize) <= (Tend + Tesp)
-    then compObsFeature(vp, obsF, Fid, filterWindow(TOL, T, T + binSize), T, T + binSize) collectObsFeatureX (vp, obsF, Fid, filterWindow(TOL, T + binSize, Tend), T + binSize, Tend, binSize)
-    ---then compObsFeature(vp, obsF, Fid, TOL, T, T + binSize) collectObsFeatureX (vp, obsF, Fid, TOL, T + binSize, Tend, binSize)
-    else nil fi .
-)
+
   ceq collectObsFeatureX(vp, obsF, Fid, TOL, T, Tend, binSize) =
     compObsFeature(vp, obsF, Fid, filterWindow(TOL, T, T + binSize), T, T + binSize) 
     collectObsFeatureX(vp, obsF, Fid, filterWindow(TOL, T + binSize, Tend), T + binSize, Tend, binSize)
@@ -873,15 +841,6 @@ mod SMC_CP3 is
     fi
     if (T + winSize) > (Tend + Tesp) .
 
-***(
-  eq expectedKObsFeature (vp, obsF, FL, GtZ, T, Tend, winSize, binSize, Ksum, N) =
-    if (T + winSize) <= (Tend + Tesp) 
-    then if KsDistance(FL, getECDFObsFeature(vp, obsF, GtZ, T, winSize, binSize)) >= 0.0 
-      then expectedKObsFeature(vp, obsF, FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum + KsDistance(FL, getECDFObsFeature(vp, obsF, GtZ, T, winSize, binSize)), N + 1) 
-      else expectedKObsFeature(vp, obsF, FL, GtZ, T + binSize, Tend, winSize, binSize, Ksum, N) 
-      fi 
-    else if N == 0 then 0.0 else Ksum / float(N) fi fi .
-)
 
   op getKObsFeature : NetId Feature TimesObsList Float Float Float Float -> Float .
   eq getKObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = expectedKObsFeature(vp, obsF, getBaselineCDFObsFeature(vp, obsF, TOL, Tstart, Tend, binSize), TOL, Tstart, Tend, winSize, binSize, 0.0, 0) .
@@ -1089,14 +1048,7 @@ mod SMC_CP3 is
   eq countDNSQuery (vp, Fid, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSQuery(vp, Fid, TsML, Tstart, Tend) [owise] .
 
   op countDNSQuery : NetId TimesObsList Float Float -> Nat .
-***(
-  eq countDNSQuery (vp, nilTO, Tstart, Tend) = 0 .
-  eq countDNSQuery (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) 
-    then 1 + countDNSQuery(vp, TsML, Tstart, Tend) 
-    else countDNSQuery(vp, TsML, Tstart, Tend) fi .
-  eq countDNSQuery (vp, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSQuery(vp, TsML, Tstart, Tend) [owise] .
-)
+
   eq countDNSQuery (vp, TOL, Tstart, Tend) = countDNSQueryAux(vp, TOL, Tstart, Tend, 0) .
 
   op countDNSQueryAux : NetId TimesObsList Float Float Nat -> Nat .
@@ -1141,14 +1093,7 @@ mod SMC_CP3 is
   eq sizeDNSQuery (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) [owise] .
 
   op sizeDNSQuery : NetId TimesObsList Float Float -> Nat .
-***(
-  eq sizeDNSQuery (vp, nilTO, Tstart, Tend) = 0 .
-  eq sizeDNSQuery (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) 
-    then sizeQuery(CO) + sizeDNSQuery(vp, TsML, Tstart, Tend) 
-    else sizeDNSQuery(vp, TsML, Tstart, Tend) fi .
-  eq sizeDNSQuery (vp, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSQuery(vp, TsML, Tstart, Tend) [owise] .
-)
+
   eq sizeDNSQuery (vp, TOL, Tstart, Tend) = sizeDNSQueryAux(vp, TOL, Tstart, Tend, 0) .
 
   op sizeDNSQueryAux : NetId TimesObsList Float Float Nat -> Nat .
@@ -1184,14 +1129,7 @@ mod SMC_CP3 is
   eq countDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
 
   op countDNSResp : NetId TimesObsList Float Float -> Nat .
-***(
-  eq countDNSResp (vp, nilTO, Tstart, Tend) = 0 .
-  eq countDNSResp (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO)
-    then 1 + countDNSResp(vp, TsML, Tstart, Tend) 
-    else countDNSResp(vp, TsML, Tstart, Tend) fi .
-  eq countDNSResp (vp, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSResp(vp, TsML, Tstart, Tend) [owise] .
-)
+
   eq countDNSResp (vp, TOL, Tstart, Tend) = countDNSRespAux(vp, TOL, Tstart, Tend, 0) .
 
   op countDNSRespAux : NetId TimesObsList Float Float Nat -> Nat .
@@ -1214,14 +1152,7 @@ mod SMC_CP3 is
   eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
 
   op sizeDNSResp : NetId TimesObsList Float Float -> Nat .
-***(
-  eq sizeDNSResp (vp, nilTO, Tstart, Tend) = 0 .
-  eq sizeDNSResp (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) 
-    then sizeResp(CO) + sizeDNSResp(vp, TsML, Tstart, Tend) 
-    else sizeDNSResp(vp, TsML, Tstart, Tend) fi .
-  eq sizeDNSResp (vp, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSResp(vp, TsML, Tstart, Tend) [owise] .
-)
+
   eq sizeDNSResp (vp, TOL, Tstart, Tend) = sizeDNSRespAux(vp, TOL, Tstart, Tend, 0) .
 
   op sizeDNSRespAux : NetId TimesObsList Float Float Nat -> Nat .
@@ -1256,14 +1187,7 @@ mod SMC_CP3 is
   eq sizeTCPUpload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op sizeTCPUpload : NetId TimesObsList Float Float -> Nat .
-***(
-  eq sizeTCPUpload (vp, nilTO, Tstart, Tend) = 0 .
-  eq sizeTCPUpload (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing)
-    then sizePkt(pkt) + sizeTCPUpload(vp, TsPL, Tstart, Tend) 
-    else sizeTCPUpload(vp, TsPL, Tstart, Tend) fi .
-  eq sizeTCPUpload (vp, tpkt ;; TsPL, Tstart, Tend) = sizeTCPUpload(vp, TsPL, Tstart, Tend) [owise] .
-)
+
   eq sizeTCPUpload (vp, TOL, Tstart, Tend) = sizeTCPUploadAux(vp, TOL, Tstart, Tend, 0) .
 
   op sizeTCPUploadAux : NetId TimesObsList Float Float Nat -> Nat .
@@ -1286,14 +1210,7 @@ mod SMC_CP3 is
   eq sizeTCPDownload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op sizeTCPDownload : NetId TimesObsList Float Float -> Nat .
-***(
-  eq sizeTCPDownload (vp, nilTO, Tstart, Tend) = 0 .
-  eq sizeTCPDownload (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
-    then sizePkt(pkt) + sizeTCPDownload(vp, TsPL, Tstart, Tend) 
-    else sizeTCPDownload(vp, TsPL, Tstart, Tend) fi .
-  eq sizeTCPDownload (vp, tpkt ;; TsPL, Tstart, Tend) = sizeTCPDownload(vp, TsPL, Tstart, Tend) [owise] .
-)
+
   eq sizeTCPDownload (vp, TOL, Tstart, Tend) = sizeTCPDownloadAux(vp, TOL, Tstart, Tend, 0) .
 
   op sizeTCPDownloadAux : NetId TimesObsList Float Float Nat -> Nat .
@@ -1322,14 +1239,7 @@ mod SMC_CP3 is
   eq countTCPOutPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op countTCPOutPkt : NetId TimesObsList Float Float -> Nat .
-***(
-  eq countTCPOutPkt (vp, nilTO, Tstart, Tend) = 0 .
-  eq countTCPOutPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing)
-    then 1 + countTCPOutPkt(vp, TsPL, Tstart, Tend) 
-    else countTCPOutPkt(vp, TsPL, Tstart, Tend) fi .
-  eq countTCPOutPkt (vp, tpkt ;; TsPL, Tstart, Tend) = countTCPOutPkt(vp, TsPL, Tstart, Tend) [owise] .
-)
+
   eq countTCPOutPkt (vp, TOL, Tstart, Tend) = countTCPOutPktAux(vp, TOL, Tstart, Tend, 0) .
 
   op countTCPOutPktAux : NetId TimesObsList Float Float Nat -> Nat .
@@ -1352,14 +1262,7 @@ mod SMC_CP3 is
   eq countTCPInPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op countTCPInPkt : NetId TimesObsList Float Float -> Nat .
-***(
-  eq countTCPInPkt (vp, nilTO, Tstart, Tend) = 0 .
-  eq countTCPInPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
-    then 1 + countTCPInPkt(vp, TsPL, Tstart, Tend) 
-    else countTCPInPkt(vp, TsPL, Tstart, Tend) fi .
-  eq countTCPInPkt (vp, tpkt ;; TsPL, Tstart, Tend) = countTCPInPkt(vp, TsPL, Tstart, Tend) [owise] .
-)
+
   eq countTCPInPkt (vp, TOL, Tstart, Tend) = countTCPInPktAux(vp, TOL, Tstart, Tend, 0) .
 
   op countTCPInPktAux : NetId TimesObsList Float Float Nat -> Nat .
@@ -1387,14 +1290,7 @@ mod SMC_CP3 is
   eq countTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op countTCPPkt : NetId TimesObsList Float Float -> Nat .
-***(
-  eq countTCPPkt (vp, nilTO, Tstart, Tend) = 0 .
-  eq countTCPPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming))
-    then 1 + countTCPPkt(vp, TsPL, Tstart, Tend) 
-    else countTCPPkt(vp, TsPL, Tstart, Tend) fi .
-  eq countTCPPkt (vp, tpkt ;; TsPL, Tstart, Tend) = countTCPPkt(vp, TsPL, Tstart, Tend) [owise] .
-)
+
   eq countTCPPkt (vp, TOL, Tstart, Tend) = countTCPPktAux(vp, TOL, Tstart, Tend, 0) .
 
   op countTCPPktAux : NetId TimesObsList Float Float Nat -> Nat .
@@ -1417,14 +1313,7 @@ mod SMC_CP3 is
   eq sizeTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op sizeTCPPkt : NetId TimesObsList Float Float -> Nat .
-***(
-  eq sizeTCPPkt (vp, nilTO, Tstart, Tend) = 0 .
-  eq sizeTCPPkt (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) 
-    then sizePkt(pkt) + sizeTCPPkt(vp, TsPL, Tstart, Tend) 
-    else sizeTCPPkt(vp, TsPL, Tstart, Tend) fi .
-  eq sizeTCPPkt (vp, tpkt ;; TsPL, Tstart, Tend) = sizeTCPPkt(vp, TsPL, Tstart, Tend) [owise] .
-)
+
   eq sizeTCPPkt (vp, TOL, Tstart, Tend) = sizeTCPPktAux(vp, TOL, Tstart, Tend, 0) .
 
   op sizeTCPPktAux : NetId TimesObsList Float Float Nat -> Nat .
@@ -1559,14 +1448,7 @@ mod SMC_CP3 is
   eq newCnx (tp(Ts, Tx, Tr, pkt(toAddr, fromAddr, new?, cnx, psize))) = new? .
 
   op countNewCnx : NetId TimesObsList Float Float -> Nat .
-***(
-  eq countNewCnx (vp, nilTO, Tstart, Tend) = 0 .
-  eq countNewCnx (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) =
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) and newCnx(pkt) 
-    then 1 + countNewCnx(vp, TsPL, Tstart, Tend) 
-    else countNewCnx(vp, TsPL, Tstart, Tend) fi .
-  eq countNewCnx (vp, tpkt ;; TsPL, Tstart, Tend) = countNewCnx(vp, TsPL, Tstart, Tend) [owise] .
-)
+
   eq countNewCnx (vp, TOL, Tstart, Tend) = countNewCnxAux(vp, TOL, Tstart, Tend, 0) .
 
   op countNewCnxAux : NetId TimesObsList Float Float Nat -> Nat .
