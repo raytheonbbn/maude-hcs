@@ -18,8 +18,9 @@ mod NET-DNS is
   vars msg msg_to_net msg_to_pub msg_to_ixp msg_to_loc : Msg .
   vars dixp dtgt T : Float .
   vars j j1 : Nat .
+  vars b b0 : Bool .
   vars attrs netAttrs netAttrs0 netAttrs1  netAttrs2 
-       advAttrs advAttrs1  : AttributeSet .
+       advAttrs advAttrs0 advAttrs1  : AttributeSet .
   vars tmsg : TimesMsg .
   vars dmsg : ScheduleMsg .
   vars amsg : ActiveMsg .
@@ -108,7 +109,8 @@ eq mkPubDnsNetS(myAddr,pubDnsAddr,ixpAddr) =
   /\ dixp := delayParamdX(j,msg_to_ixp)  
   /\ dtgt := delayParamdX(s j,msg_to_pub)  
   /\ tmsg := tm(T,T + dixp, T + dtgt, msg_to_pub)
-  /\ advAttrs1 := addTM2Dns(advAttrs,tmsg)
+  /\ advAttrs0, useTcpTPL: b0 := advAttrs
+  /\ advAttrs1 := (if b0 then addTM2Dns(advAttrs,tmsg) else advAttrs fi)
   /\ dmsg := [dtgt,msg_to_net,0]
  .  
 
@@ -198,7 +200,8 @@ ceq  netDnsSrvResponse(netAttrs,advAttrs,netAddr,amsg,j)
   /\ dixp := delayParamdX(j,msg_to_ixp)  
   /\ dtgt := delayParamdX(s j,msg_to_loc)  
   /\ tmsg := tm(T,T + dixp, T + dtgt, msg_to_loc)
-  /\ advAttrs1 := addTM2Dns(advAttrs,tmsg)
+  /\ advAttrs0, useTcpTPL: b0 := advAttrs
+  /\ advAttrs1 := (if b0 then addTM2Dns(advAttrs,tmsg) else advAttrs fi)
   /\ dmsg := [dtgt,msg_to_loc,0]
 .   
 
