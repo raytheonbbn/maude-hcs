@@ -13,6 +13,7 @@ from venv import logger
 import yaml
 import argparse
 from pathlib import Path
+import math
 
 from cp3_glue.generate_quatex import Config, write_all_queries_to_file
 
@@ -71,6 +72,7 @@ def parse_scenario_yaml(yaml_path):
         
     base_dir = os.path.dirname(os.path.abspath(yaml_path))
     duration = float(config.get("conversation_duration", 11700))
+    analysis_window_size = float(config.get("analysis_window_size", 900))    
 
     # Parse networks
     networks = {}
@@ -187,7 +189,7 @@ def parse_scenario_yaml(yaml_path):
             net_dict[net_name] = (qty, profs_list)
         tgen_defs[internal_type] = net_dict
 
-    return duration, networks, net_id_map, net_short, loss_profiles, hcs_nodes, hcs_profiles_by_channel, tgen_defs, hcs_channel_models
+    return duration, analysis_window_size, networks, net_id_map, net_short, loss_profiles, hcs_nodes, hcs_profiles_by_channel, tgen_defs, hcs_channel_models
 
 def distribute_profiles(qty, profiles):
     """Convert fractional profiles to discrete assignment list."""
@@ -1716,7 +1718,7 @@ if __name__ == "__main__":
     parser.add_argument("--outDir", default=None, help="Output directory for generated Maude files (default: directory of YAML file)")
     parser.add_argument("--scenarioName", default=None, help="Scenario name for generated Maude files (default: basename of YAML without extension)")
     parser.add_argument("--parallelizeBaseline", action="store_true", help="If set, generate separate baseline files per feature and vantage point in a 'baselines' directory")
-    parser.add_argument("--quatexFile", type=str, help="Where to write generated quatex queries")
+    parser.add_argument("--quatex", action="store_true", help="generate quatex file for combinations?")
     parser.add_argument("--perf", action="store_true", help="Performance mode: removes baseLineAct and sets Adversary useTcpTPL to false")
     parser.add_argument("--filterVpFeatCombos", action="store_true", help="filter the combinations of VP and feature")
     args = parser.parse_args()
@@ -1751,7 +1753,7 @@ if __name__ == "__main__":
     print("-" * 40)
     
     print(f"Parsing scenario YAML from: {yaml_file}")
-    duration, networks, net_id_map, net_short, loss_profiles, hcs_nodes, hcs_profiles_by_channel, tgen_defs, hcs_channel_models = parse_scenario_yaml(yaml_file)
+    duration, analysis_window_size, networks, net_id_map, net_short, loss_profiles, hcs_nodes, hcs_profiles_by_channel, tgen_defs, hcs_channel_models = parse_scenario_yaml(yaml_file)
     
     tgen_instances = generate_all_tgen_instances(tgen_defs, net_id_map, net_short)
     
@@ -1813,9 +1815,12 @@ if __name__ == "__main__":
     print("Clients: ", all_clients)
 
     # Write queries to chosen quatex file path
-    if args.quatexFile is not None:
-        write_all_queries_to_file(Config(FEATURES, vpts_list, all_clients), Path(args.quatexFile).resolve())
-        print(f"Wrote quatex queries to {args.quatexFile}")
+    if args.quatex:
+        quatex_filename = f"{scenario_name}-quatex.maude"    
+        quatex_path = os.path.join(out_dir, quatex_filename)
+        max_win = math.floor(duration/analysis_window_size)
+        write_all_queries_to_file(Config(FEATURES, vpts_list, all_clients, max_win=max_win, hcs_delay=hcs_delay), Path(quatex_path))
+        print(f"Wrote quatex queries to {quatex_path}: max_win: {max_win}, hcs_delay: {hcs_delay}")
 
     # Generate parallelized baseline files if flag is set
     if args.parallelizeBaseline:
