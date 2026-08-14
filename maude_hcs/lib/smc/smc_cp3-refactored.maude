@@ -1121,12 +1121,26 @@ mod SMC_CP3 is
   eq sizeDNSQuery (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) [owise] .
 
   op sizeDNSQuery : NetId TimesObsList Float Float -> Nat .
+***(
   eq sizeDNSQuery (vp, nilTO, Tstart, Tend) = 0 .
   eq sizeDNSQuery (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
     if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) 
     then sizeQuery(CO) + sizeDNSQuery(vp, TsML, Tstart, Tend) 
     else sizeDNSQuery(vp, TsML, Tstart, Tend) fi .
   eq sizeDNSQuery (vp, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSQuery(vp, TsML, Tstart, Tend) [owise] .
+)
+  eq sizeDNSQuery (vp, TOL, Tstart, Tend) = sizeDNSQueryAux(vp, TOL, Tstart, Tend, 0) .
+
+  op sizeDNSQueryAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq sizeDNSQueryAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq sizeDNSQueryAux (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) =
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO)
+    then sizeDNSQueryAux(vp, TsML, Tstart, Tend, Acc + sizeQuery(CO))
+    else sizeDNSQueryAux(vp, TsML, Tstart, Tend, Acc) fi .
+
+  eq sizeDNSQueryAux (vp, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend, Acc)
+    = sizeDNSQueryAux(vp, TsML, Tstart, Tend, Acc) [owise] .
 
   -------------------------------------------------------------------------------------------------
   --- 03 dns_response_size_mean           Mean DNS response message size (bytes)
@@ -1150,12 +1164,26 @@ mod SMC_CP3 is
   eq countDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
 
   op countDNSResp : NetId TimesObsList Float Float -> Nat .
+***(
   eq countDNSResp (vp, nilTO, Tstart, Tend) = 0 .
   eq countDNSResp (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
     if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO)
     then 1 + countDNSResp(vp, TsML, Tstart, Tend) 
     else countDNSResp(vp, TsML, Tstart, Tend) fi .
   eq countDNSResp (vp, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSResp(vp, TsML, Tstart, Tend) [owise] .
+)
+  eq countDNSResp (vp, TOL, Tstart, Tend) = countDNSRespAux(vp, TOL, Tstart, Tend, 0) .
+
+  op countDNSRespAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq countDNSRespAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq countDNSRespAux (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) =
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO)
+    then countDNSRespAux(vp, TsML, Tstart, Tend, Acc + 1)
+    else countDNSRespAux(vp, TsML, Tstart, Tend, Acc) fi .
+
+  eq countDNSRespAux (vp, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend, Acc)
+    = countDNSRespAux(vp, TsML, Tstart, Tend, Acc) [owise] .
 
   op sizeDNSResp : NetId Flow TimesObsList Float Float -> Nat .
   eq sizeDNSResp (vp, Fid, nilTO, Tstart, Tend) = 0 .
@@ -1166,12 +1194,26 @@ mod SMC_CP3 is
   eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
 
   op sizeDNSResp : NetId TimesObsList Float Float -> Nat .
+***(
   eq sizeDNSResp (vp, nilTO, Tstart, Tend) = 0 .
   eq sizeDNSResp (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
     if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) 
     then sizeResp(CO) + sizeDNSResp(vp, TsML, Tstart, Tend) 
     else sizeDNSResp(vp, TsML, Tstart, Tend) fi .
   eq sizeDNSResp (vp, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSResp(vp, TsML, Tstart, Tend) [owise] .
+)
+  eq sizeDNSResp (vp, TOL, Tstart, Tend) = sizeDNSRespAux(vp, TOL, Tstart, Tend, 0) .
+
+  op sizeDNSRespAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq sizeDNSRespAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq sizeDNSRespAux (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) =
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) 
+    then sizeDNSRespAux(vp, TsML, Tstart, Tend, Acc + sizeResp(CO))
+    else sizeDNSRespAux(vp, TsML, Tstart, Tend, Acc) fi .
+
+  eq sizeDNSRespAux (vp, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend, Acc)
+    = sizeDNSRespAux(vp, TsML, Tstart, Tend, Acc) [owise] .
 
   -------------------------------------------------------------------------------------------------
   --- 04 tcp_upload_rate                  Number of outbound TCP bytes per second (bytes/s)
