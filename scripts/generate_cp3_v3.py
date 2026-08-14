@@ -1777,7 +1777,7 @@ if __name__ == "__main__":
         vpts_list = ["ixpN"]
         for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net_sky")]):
             vpts_list.append(cl_id)
-        vpts_list.extend(["srvN"])
+        # vpts_list.extend(["srvN"])
     else:
         vpts_list = ["ixpN"]
         for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
