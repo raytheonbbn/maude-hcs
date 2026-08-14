@@ -25,18 +25,18 @@ IMAGE_SIZE = 190000
 # Changed to dictionary to keep track of the required naming scheme for T&E results
 FEATURES = {
     "dnsQueryRate": "dns_query_rate",
-    # "dnsQuerySize": "dns_query_size_mean",
+    "dnsQuerySize": "dns_query_size_mean",
     # "dnsRespSize": "dns_response_size_mean",
     # "tcpUpRate": "tcp_upload_rate",
     # "tcpDownRate": "tcp_download_rate",
     # "tcpUpToDownRate": "tcp_upload_download_ratio",
     "tcpOutPktRate": "tcp_outgoing_packet_rate",
     "tcpInPktRate": "tcp_incoming_packet_rate",
-    "tcpOutToInPktRate": "tcp_packet_upload_download_ratio",
-    "tcpPktSizeStdDev": "packet_size_std_dev",
+    #"tcpOutToInPktRate": "tcp_packet_upload_download_ratio",
+    #"tcpPktSizeStdDev": "packet_size_std_dev",
     "tcpPktSize": "packet_size_mean",
-    "tcpPktInterarrival": "packet_interarrival_mean",
-    "tcpDirectionChange": "direction_change_count",
+    #"tcpPktInterarrival": "packet_interarrival_mean",
+    #"tcpDirectionChange": "direction_change_count",
     # "tcpActiveFlow": "active_flow_count",
     # "tcpNewCnx": "tcp_new_conn_count",
 }
@@ -376,7 +376,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name):
     return "\n".join(lines), hcs_client_ids
 
 # Generate scenario1.maude (ZERO structured addresses!)
-def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, perf=False):
+def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=False):
     lines = []
     L = lines.append
     
@@ -640,12 +640,6 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  eq eT = slimit .")
     L("")
     L("  *** op Vpts : -> NetIdList .")
-    
-    # Dynamically build Vpts list
-    vpts_list = ["ixpN"]
-    for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
-       vpts_list.append(cl_id)
-    vpts_list.extend(["srvN", "masN"])
     
     L(f"  eq Vpts = ({' :; '.join(vpts_list)}) [owise] .")
     L("")
@@ -1724,6 +1718,7 @@ if __name__ == "__main__":
     parser.add_argument("--parallelizeBaseline", action="store_true", help="If set, generate separate baseline files per feature and vantage point in a 'baselines' directory")
     parser.add_argument("--quatexFile", type=str, help="Where to write generated quatex queries")
     parser.add_argument("--perf", action="store_true", help="Performance mode: removes baseLineAct and sets Adversary useTcpTPL to false")
+    parser.add_argument("--filterVpFeatCombos", action="store_true", help="filter the combinations of VP and feature")
     args = parser.parse_args()
     
     yaml_file = os.path.abspath(args.yaml_file)
@@ -1776,9 +1771,21 @@ if __name__ == "__main__":
     with open(addr_path, "w") as f:
         f.write(addr_content)
     print(f"\nWrote {addr_path} ({len(addr_content.splitlines())} lines)")
+
+    # Dynamically build Vpts list
+    if args.filterVpFeatCombos:
+        vpts_list = ["ixpN"]
+        for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net_skyhook")]):
+            vpts_list.append(cl_id)
+        vpts_list.extend(["srvN"])
+    else:
+        vpts_list = ["ixpN"]
+        for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
+            vpts_list.append(cl_id)
+        vpts_list.extend(["srvN", "masN"])
     
     # Generate main file
-    main_content = gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, perf=args.perf)
+    main_content = gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=args.perf)
     main_path = os.path.join(out_dir, f"{scenario_name}.maude")
     with open(main_path, "w") as f:
         f.write(main_content)
@@ -1795,11 +1802,7 @@ if __name__ == "__main__":
         f.write(baseline_content)
     print(f"Wrote {baseline_path} ({len(baseline_content.splitlines())} lines)")
         
-    # Dynamically build Vpts list
-    vpts_list = ["ixpN"]
-    for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
-        vpts_list.append(cl_id)
-    vpts_list.extend(["srvN", "masN"])
+
     
     base_fn_no_ext = baseline_filename.rsplit('.', 1)[0]
 
