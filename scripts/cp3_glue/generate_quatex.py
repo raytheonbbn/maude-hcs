@@ -68,6 +68,7 @@ class Config:
     max_win: int = 12
 
     perf_only: bool = False
+    conf_only: bool = False
 
 class Lines:
   def __init__(self, *args, indent=0):
@@ -103,6 +104,8 @@ def get_prefix_start_end(cfg: Config, win: int, cum: bool) -> tuple[str, int, in
     return (prefix, start + cfg.hcs_delay, end + cfg.hcs_delay)
 
 def mk_latency_query_chunk(cfg: Config, win: int, cum: bool) -> Lines:
+    if cfg.conf_only:
+        return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     return Lines(
@@ -115,6 +118,8 @@ def mk_latency_query_chunk(cfg: Config, win: int, cum: bool) -> Lines:
     )
 
 def mk_global_integrity_chunk(cfg: Config, win: int, cum: bool) -> Lines:
+    if cfg.conf_only:
+        return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     return Lines(
@@ -122,6 +127,8 @@ def mk_global_integrity_chunk(cfg: Config, win: int, cum: bool) -> Lines:
     )
    
 def mk_client_integrity_chunk(cfg: Config, win: int, cum: bool, client: str) -> Lines:
+    if cfg.conf_only:
+        return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     return Lines(
@@ -129,6 +136,8 @@ def mk_client_integrity_chunk(cfg: Config, win: int, cum: bool, client: str) -> 
     )
 
 def mk_availability_chunk(cfg: Config, win: int, cum: bool) -> Lines:
+    if cfg.conf_only:
+        return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     return Lines(
