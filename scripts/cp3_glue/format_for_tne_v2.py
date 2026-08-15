@@ -32,7 +32,8 @@ def parse_quatex(quatex: str) -> list[Query]:
 
     for line in quatex.splitlines():
         comment_start = line.find("//")
-        if comment_start < 0: continue
+        if comment_start <= 0: 
+            raise Exception("We expect quatex file to have no commented lines and each line to have a correctly formatted comment the end")
 
         tag = line[comment_start+2:]
         parts = tag.split()
@@ -177,13 +178,13 @@ if __name__ == "__main__":
 
         with open(args.json_smc_results_file, "r") as f:
             s = f.read()
-            pre_json_idx = s.rfind("has converged")
-            assert pre_json_idx >= 0
-            s = s[pre_json_idx:]
-            json_start_idx = s.find("{")
-            assert json_start_idx >= 0
-            json_str = s[json_start_idx:]
-            js = json.loads(json_str)["queries"]
+            # pre_json_idx = s.rfind("has converged")            
+            # s = s[pre_json_idx:]
+            # json_start_idx = s.find("{")
+            # assert json_start_idx >= 0
+            # json_str = s[json_start_idx:]
+            # js = json.loads(json_str)["queries"]
+            js = json.loads(s)["queries"]
 
             for query in js:
                 stats.append({"mean": query["mean"], "stddev": query["std"], "radius": query["radius"]})
@@ -196,14 +197,25 @@ if __name__ == "__main__":
             assert args.adv_stats_output_file is not None
             write_stats_to_json_file(stats, args.perf_stats_output_file, args.adv_stats_output_file, queries, scenario, generated_at)
 
+    def are_all_zeroes_exact(float_list):
+        """Checks if all elements in the list are exactly 0.0"""
+        return all(x == 0.0 for x in float_list)
+
     if args.dump_file is not None:
         with open(args.dump_file, "r") as f:
             raw_dumps = f.read().splitlines()
         dumps = [[float(val) for val in line.split()] for line in raw_dumps]
-
+        ignored_samples = 0
+        good_samples = 0
         for i, dump in enumerate(dumps):
+            if are_all_zeroes_exact(dump):
+                print(f"Sample {i} is all zeros, ignoring")
+                ignored_samples += 1
+                continue
             perf_sample_dict = {}
-            adv_sample_dict = {"metadata": {"scenario": scenario, "generated_at": generated_at}}
+            adv_sample_dict = {"metadata": {"team": "Maude-HCS", "scenario": scenario, "generated_at": generated_at}}
             perf_sample_output_file = str(Path(args.sample_output_dir) / f"run{i}_perf.json")
             adv_sample_output_file = str(Path(args.sample_output_dir) / f"run{i}_adv.json")
             write_stats_to_json_file(dump, perf_sample_output_file, adv_sample_output_file, queries, scenario, generated_at)
+            good_samples += 1
+        print(f"wrote {good_samples} samples to files ({ignored_samples} ignored)")

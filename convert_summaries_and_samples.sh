@@ -5,11 +5,11 @@
 # set -euox pipefail
 set -euo pipefail
 
-root_dir=/Users/lwest/Documents/pwnd2/playground-maude-hcs
-scenario_dir=$root_dir/use-cases/challenge-problem-3/cp3_scenarios/scenario2
+root_dir=/Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh
+scenario_dir=$root_dir/use-cases/challenge-problem-3/cp3_scenarios/scenario1
 
-tne_output_dir=$scenario_dir/results_scenario2_7200_notgens_formatted
-raw_results_dir=$scenario_dir/results_scenario2_7200_notgens_raw
+tne_output_dir=$scenario_dir/scenario1_7200_perf_formatted
+raw_results_dir=$scenario_dir/scenario1_7200_perf_raw
 dump_dir=$raw_results_dir/dumplogs
 
 mkdir -p $tne_output_dir
@@ -21,10 +21,12 @@ cat $dump_dir/dump.log.* > $dump_dir/combined_dump.log
 # these arguments have them all getting dumped in the tne output directory
 python3 ./scripts/cp3_glue/format_for_tne_v2.py \
     --json-smc-results-file $raw_results_dir/smc.log \
-    --quatex-file $raw_results_dir/short_scenario2.quatex \
+    --quatex-file $raw_results_dir/pwnd_cp3_scenario_1-quatex.maude \
     --perf-output-file $tne_output_dir/perf.json \
     --adv-output-file $tne_output_dir/adv.json \
     --perf-stats-output-file $tne_output_dir/perf_stats.json \
     --adv-stats-output-file $tne_output_dir/adv_stats.json \
     --dump-file $dump_dir/combined_dump.log \
-    --sample-output-dir $tne_output_dir
+    --sample-output-dir $tne_output_dir \
+    --scenario "scenario1-7200"
+
