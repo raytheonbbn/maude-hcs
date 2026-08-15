@@ -631,9 +631,10 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     logger.warning("TODO: extract and set Iodine packet size and framgment size correctly")
     
     L("  --- how much to delay the HCS and TGENs")
-    L("  ops hcsDelay tgenDelay : -> Float .")
+    L("  ops hcsDelay tgenDelay ksWindowDelay : -> Float .")
     L(f"  eq hcsDelay  = {hcs_delay} [owise] .")
     L(f"  eq tgenDelay = {tgen_delay} [owise] .")
+    L(f"  eq ksWindowDelay = slimit + slimit [owise] .")
     L("")
     L("  ----- SMC confidentiality parameters ----")
     L("  eq sT = 0.0 .")
@@ -1588,6 +1589,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
                 L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to {bn}UmAddr from {bn}UmAddr : burstDelayTO), 0]")
             timer_j += 1
         L("")    
+    L(f"[ksWindowDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to baseLineAddr from baseLineAddr : initKs),0]")
+    timer_j += 1
     L(f"    rCtr(j + {timer_j})")
     L("  .")
     L("")    
@@ -1686,12 +1689,15 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, r
         L(f"  eq slimit = {run_time} .")
     else:
         L("  ----eq slimit = 100.0 . ---- redefine if needed")
+    
     if feature and vpt:
         L("")
         L(f"  eq Vpts = {vpt} .")
         L(f"  eq ObsFs = {feature} .")
         
     L("")
+    if not isBaseline:
+        L(f"  eq ksWindowDelay = hcsDelay .") # only in the run file
     if isBaseline:
         L("  eq hcsDelay = slimit + slimit .  --- prevent hcs from starting")
         L("")
@@ -1703,9 +1709,10 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, r
     L("")
     if isBaseline:
         L("rew run({0.0 | nil} initState(counter) [tgenDelay, (to baseLineAddr from baseLineAddr : initBase),0], slimit) .")
+        L("q")
     else:
-        L("rew run({0.0 | nil} initState(counter) [hcsDelay, (to baseLineAddr from baseLineAddr : initKs),0], slimit) .")
-    L("q")
+        L("---rew initConfig .")
+        L("---q")
     
     return "\n".join(lines)
 # Main
