@@ -22,6 +22,7 @@ lib = "../../../../maude_hcs/lib"
 deps = "../../../../maude_hcs/deps"
 IMAGE_SIZE = 190000
 smc_mod_name = "HCS_TEST"
+MAX_BL_SIZE = 10000.0 # max list size
   
 # Define the features as a list of strings to make them easily reusable and modifiable
 # Changed to dictionary to keep track of the required naming scheme for T&E results
@@ -636,6 +637,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L(f"  eq hcsDelay  = {hcs_delay} [owise] .")
     L(f"  eq tgenDelay = {tgen_delay} [owise] .")
     L(f"  eq ksWindowDelay = slimit + slimit [owise] .")
+    L(f"  eq MaxBLSize = {MAX_BL_SIZE} [owise] .")
     L("")
     L("  ----- SMC confidentiality parameters ----")
     L("  eq sT = 0.0 .")
