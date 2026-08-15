@@ -226,10 +226,12 @@ mod SMC_CP3 is
 
   op collectMsgLatency : Nat Float MessageTimestampList Float Float -> List{Float} .
   eq collectMsgLatency (ircMsgId, Tsent, nilMessageTimestampList, Tstart, Tend) = nil .
-  eq collectMsgLatency (ircMsgId, Tsent, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend) = 
-    if (ircMsgId == ircMsgId') and (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) 
-    then compLatency(Tsent, T) collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) 
-    else collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) fi . 
+  ceq collectMsgLatency(ircMsgId, Tsent, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend)
+  =
+    compLatency(Tsent, T)
+  if (ircMsgId == ircMsgId') and (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) .
+  eq collectMsgLatency(ircMsgId, Tsent, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend) =
+    collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) [owise] .
 
   op collectLatency : MessageTimestampList MessageTimestampList Float Float -> List{Float} .
   eq collectLatency (nilMessageTimestampList, ircMTL, Tstart, Tend) = nil .
@@ -258,18 +260,30 @@ mod SMC_CP3 is
   --- Goodput
   -------------------------------------------------------------------------------------------------
   
-  op collectGoodput : MessageTimestampList Float Float -> List{Float} .
-  eq collectGoodput (nilMessageTimestampList, Tstart, Tend) = nil .
-  eq collectGoodput (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tstart, Tend) = 
+  op collectGoodputDist : MessageTimestampList Float Float -> List{Float} .
+  eq collectGoodputDist (nilMessageTimestampList, Tstart, Tend) = nil .
+  eq collectGoodputDist (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tstart, Tend) = 
     if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) 
-    then float(ircMsgSize) collectGoodput(ircMTL, Tstart, Tend) 
-    else collectGoodput(ircMTL, Tstart, Tend) fi .
+    then float(ircMsgSize) collectGoodputDist(ircMTL, Tstart, Tend) 
+    else collectGoodputDist(ircMTL, Tstart, Tend) fi .
+
+  op collectGoodput : MessageTimestampList Float Float -> Float .
+  eq collectGoodput(ircMTL, Tstart, Tend) = collectGoodputAux(ircMTL, Tstart, Tend, 0.0) .
+
+  op collectGoodputAux : MessageTimestampList Float Float Float -> Float .
+  eq collectGoodputAux(nilMessageTimestampList, Tstart, Tend, F) = F .
+  ceq collectGoodputAux(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tstart, Tend, F) =
+    collectGoodputAux(ircMTL, Tstart, Tend, F + float(ircMsgSize))
+  if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) .
+  eq collectGoodputAux(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tstart, Tend, F) =
+    collectGoodputAux(ircMTL, Tstart, Tend, F) [owise] .
 
   op getGoodputDistribution : Actor Float Float -> List{Float} .
-  eq getGoodputDistribution (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = collectGoodput(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend) .
+  eq getGoodputDistribution (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = collectGoodputDist(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend) .
 
   op getGoodput : Actor Float Float -> Float .
-  eq getGoodput (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = sum(collectGoodput(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend)) * 8.0 / (Tend - Tstart) . 
+  eq getGoodput (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = collectGoodput(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend) * 8.0 / (Tend - Tstart) . 
+  ---eq getGoodput (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = sum(collectGoodputDist(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend)) * 8.0 / (Tend - Tstart) . 
 
   -------------------------------------------------------------------------------------------------
   --- Integrity (MED)
