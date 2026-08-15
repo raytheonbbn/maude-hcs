@@ -553,27 +553,31 @@ mod SMC_CP3 is
   op incPrefix : PrefixInfo -> PrefixInfo .
   eq incPrefix (prefix(N, FL)) = prefix(N + 1, FL) .
 
-  op KsDistanceX : List{Float} List{Float} Nat Nat Nat Nat Float -> Float .
-  eq KsDistanceX (nil, nil, I, J, N, N', D) = D .
-  eq KsDistanceX (F FL, nil, I, J, N, N', D) = max2(D, abs((float(I) / float(N)) - 1.0)) . 
-  eq KsDistanceX (nil, F' FL', I, J, N, N', D) = max2(D, abs(1.0 - (float(J) / float (N')))) .  
+  vars invN invN' : Float . 
 
-  ceq KsDistanceX(F FL, F' FL', I, J, N, N', D) =
-    KsDistanceX( FL1, FL2, I + C1, J + C2, N, N', max2(D, abs((float(I + C1) / float(N)) - (float(J + C2) / float(N')))))
+  op KsDistanceX : List{Float} List{Float} Nat Nat Float Float Float -> Float .
+  eq KsDistanceX(nil, nil, I, J, invN, invN', D) = D .
+  eq KsDistanceX(F FL, nil, I, J, invN, invN', D) = max2(D, abs((float(I) * invN) - 1.0)) .
+  eq KsDistanceX(nil, F' FL', I, J, invN, invN', D) = max2(D, abs(1.0 - (float(J) * invN'))) .
+
+  ceq KsDistanceX(F FL, F' FL', I, J, invN, invN', D) =
+    KsDistanceX(FL1, FL2, I + C1, J + C2, invN, invN', max2(D, abs((float(I + C1) * invN) - (float(J + C2) * invN'))))
     if F == F'
       /\ prefix(C1, FL1) := skipEqPrefix(F, F FL)
       /\ prefix(C2, FL2) := skipEqPrefix(F', F' FL') .
-  ceq KsDistanceX(F FL, F' FL', I, J, N, N', D) =
-    KsDistanceX( FL, F' FL', I + 1, J, N, N', max2(D, abs((float(I + 1) / float(N)) - (float(J) / float(N'))))) 
+
+  ceq KsDistanceX(F FL, F' FL', I, J, invN, invN', D) =
+    KsDistanceX(FL, F' FL', I + 1, J, invN, invN', max2(D, abs((float(I + 1) * invN) - (float(J) * invN'))))
     if F < F' .
-  ceq KsDistanceX(F FL, F' FL', I, J, N, N', D) = 
-    KsDistanceX( F FL, FL', I, J + 1, N, N', max2(D, abs((float(I) / float(N)) - (float(J + 1) / float(N')))))
+
+  ceq KsDistanceX(F FL, F' FL', I, J, invN, invN', D) =
+    KsDistanceX(F FL, FL', I, J + 1, invN, invN', max2(D, abs((float(I) * invN) - (float(J + 1) * invN'))))
     if F > F' .
 
   op KsDistance : List{Float} List{Float} -> Float .
-  eq KsDistance (nil, FL) = -1.0 .
-  eq KsDistance (FL, nil) = -1.0 .
-  eq KsDistance (FL, FL') = KsDistanceX(FL, FL', 0, 0, len(FL), len(FL'), 0.0) .
+  eq KsDistance(nil, FL) = -1.0 .
+  eq KsDistance(FL, nil) = -1.0 .
+  eq KsDistance(FL, FL') = KsDistanceX(FL, FL', 0, 0, 1.0 / float(len(FL)), 1.0 / float(len(FL')), 0.0) .
 
   op KsStatisticZ : List{Float} List{Float} Float -> Float .
   eq KsStatisticZ (FL, FL', K) = KsDistance(FL, FL') - K .
