@@ -206,6 +206,17 @@ mod SMC_CP3 is
   op getRcvdMsg : Actor -> MessageTimestampList .
   eq getRcvdMsg (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >) = ircMTL .
 
+  op filterWindow : MessageTimestampList Float Float -> MessageTimestampList .
+  eq filterWindow (nilMessageTimestampList, Tstart, Tend) = nilMessageTimestampList .
+  ceq filterWindow(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend)
+    = nilMessageTimestampList
+  if T > Tend .
+  ceq filterWindow(messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend) =
+    messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; filterWindow(ircMTL, Tstart, Tend)
+  if (Tstart <= T) and (T <= Tend) .
+  eq filterWindow(messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend) = 
+    filterWindow(ircMTL, Tstart, Tend) [owise] .
+
   -------------------------------------------------------------------------------------------------
   --- Latency
   -------------------------------------------------------------------------------------------------
@@ -229,19 +240,19 @@ mod SMC_CP3 is
     else collectLatency(ircMTL, ircMTL', Tstart, Tend) fi .
 
   op getLatencyDistribution : Actor Float Float -> List{Float} .
-  eq getLatencyDistribution (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = collectLatency(ircMTL, ircMTL', Tstart, Tend) . 
+  eq getLatencyDistribution (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = collectLatency(filterWindow(ircMTL, Tstart, Tend), filterWindow(ircMTL', Tstart, Tend), Tstart, Tend) . 
 
   op getAvgLatency : Actor Float Float -> Float .
-  eq getAvgLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = avg(collectLatency(ircMTL, ircMTL', Tstart, Tend)) . 
+  eq getAvgLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = avg(collectLatency(filterWindow(ircMTL, Tstart, Tend), filterWindow(ircMTL', Tstart, Tend), Tstart, Tend)) . 
 
   op getMinLatency : Actor Float Float -> Float .
-  eq getMinLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = min(collectLatency(ircMTL, ircMTL', Tstart, Tend)) . 
+  eq getMinLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = min(collectLatency(filterWindow(ircMTL, Tstart, Tend), filterWindow(ircMTL', Tstart, Tend), Tstart, Tend)) . 
 
   op getMaxLatency : Actor Float Float -> Float .
-  eq getMaxLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = max(collectLatency(ircMTL, ircMTL', Tstart, Tend)) . 
+  eq getMaxLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = max(collectLatency(filterWindow(ircMTL, Tstart, Tend), filterWindow(ircMTL', Tstart, Tend), Tstart, Tend)) . 
 
   op getPercentileLatency : Actor Float Float Nat -> Float .
-  eq getPercentileLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend, N) = percentile(collectLatency(ircMTL, ircMTL', Tstart, Tend), N) . 
+  eq getPercentileLatency (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend, N) = percentile(collectLatency(filterWindow(ircMTL, Tstart, Tend), filterWindow(ircMTL', Tstart, Tend), Tstart, Tend), N) . 
 
   -------------------------------------------------------------------------------------------------
   --- Goodput
@@ -255,10 +266,10 @@ mod SMC_CP3 is
     else collectGoodput(ircMTL, Tstart, Tend) fi .
 
   op getGoodputDistribution : Actor Float Float -> List{Float} .
-  eq getGoodputDistribution (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = collectGoodput(ircMTL, Tstart, Tend) .
+  eq getGoodputDistribution (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = collectGoodput(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend) .
 
   op getGoodput : Actor Float Float -> Float .
-  eq getGoodput (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = sum(collectGoodput(ircMTL, Tstart, Tend)) * 8.0 / (Tend - Tstart) . 
+  eq getGoodput (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = sum(collectGoodput(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend)) * 8.0 / (Tend - Tstart) . 
 
   -------------------------------------------------------------------------------------------------
   --- Integrity (MED)
@@ -359,7 +370,7 @@ mod SMC_CP3 is
 
   op getClientIntegrity : Actor Actor Address Float Float -> Float .
   eq getClientIntegrity (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, < ADDR' : IrcServer | channelMap: cMap, attrs' >, ircAddr, Tstart, Tend) =
-    individualClientIntegrity (ircAddr, getChannels(cMap, ircAddr), ircMTL, ircMTL', Tstart, Tend) .
+    individualClientIntegrity (ircAddr, getChannels(cMap, ircAddr), filterWindow(ircMTL, Tstart, Tend), filterWindow(ircMTL', Tstart, Tend), Tstart, Tend) .
 
   op lenUserNameList : IrcUserNameList -> Nat .
   eq lenUserNameList (nilIrcUserName) = 0 .
@@ -375,7 +386,7 @@ mod SMC_CP3 is
   eq getSystemIntegrity (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, < ADDR' : IrcServer | channelMap: cMap, attrs' >, Tstart, Tend) = 
     if (lenUserNameList(allClientsUserName) == 0)
     then 1.0
-    else sumClientIntegrity(allClientsAddr, cMap, ircMTL, ircMTL', Tstart, Tend) / float(lenUserNameList(allClientsUserName)) fi . 
+    else sumClientIntegrity(allClientsAddr, cMap, filterWindow(ircMTL, Tstart, Tend), filterWindow(ircMTL', Tstart, Tend), Tstart, Tend) / float(lenUserNameList(allClientsUserName)) fi . 
 
   -------------------------------------------------------------------------------------------------
   --- Availability (MTBF)
@@ -425,8 +436,14 @@ mod SMC_CP3 is
   op getFailureDistribution : Actor Float Float Float -> List{Float} .
   eq getFailureDistribution (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = sort(collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) collectDeliveryFailure(ircMTL', Tn, Tstart, Tend)) .
 
+  op getMTBFAux : MessageTimestampList MessageTimestampList Float Float Float -> List{Float} .
+  eq getMTBFAux (ircMTL, ircMTL', Tn, Tstart, Tend) =
+    avgDiff(sort(collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) collectDeliveryFailure(ircMTL', Tn, Tstart, Tend))) .
+
   op getMTBF : Actor Float Float Float -> List{Float} .
-  eq getMTBF (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = avgDiff(sort(collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) collectDeliveryFailure(ircMTL', Tn, Tstart, Tend))) .
+  eq getMTBF (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend)
+  = getMTBFAux(filterWindow(ircMTL, Tstart - Tn, Tend + Tn), filterWindow(ircMTL', Tstart - Tn, Tend + Tn), Tn, Tstart, Tend) .
+  ---eq getMTBF (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = avgDiff(sort(collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) collectDeliveryFailure(ircMTL', Tn, Tstart, Tend))) .
 
   -------------------------------------------------------------------------------------------------
   --- Confidentiality (KS Statistic + CUSUM)
