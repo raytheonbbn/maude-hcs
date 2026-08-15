@@ -60,7 +60,7 @@ op baseLineAddr : -> Address .
 op BaseLineMonitor : -> ActorType .
 )
 
-vars j j1 sz1 sz2 sz3 sz4 : Nat .
+vars j j1 sz1 sz2 sz3 sz4 ix nextIx inc : Nat .
 vars myAddr advAddr bAddr aAddr : Address .
 vars blAttrs blAttrs0 blAttrs1 
      advAttrs advAttrs0 advAttrs1
@@ -73,16 +73,16 @@ vars vpts : NetIdList .
 vars obsF : Feature .
 vars obsFs : FeatureList .   
 vars bsize wsize tStart tEnd eTime sTime bc
-     binSize winSize T k k0 ks fl fl0 fl1 bStart : Float .
+     binSize winSize T k k0 ks fl fl0 fl1 
+     bStart mxSize : Float .
 vars tml tpl  tml1 tpl1 F0Z tol GtZ
       : TimesObsList .
 vars to : TimesObs .
 vars ble ble1 kse  kselt : BaseLineElement .
 vars binEcdfL edcfl ecdfl ecdfl1  flll : FloatLL .
-vars bcdf ksl wdoEcdf ecdf floatl fll fll0 fll1 ksl1  
-      : List{Float} .
+vars bcdf bcdf0 ksl wdoEcdf ecdf floatl 
+     fll fll0 fll1 ksl1 : List{Float} .
 vars b : Bool .
-
 vars tmll tpll toll : TimesObsLL .
 
   sort AttrsAttrsMsgsNat .
@@ -210,7 +210,8 @@ if F0Z := (if isDnsFeature(obsF) then tml else tpl fi)
             then tmll else tpll fi)
 /\ bcdf := getBaselineCDFObsFeature(vpt, obsF, 
                      F0Z, toll, T, T + bsize, bsize) 
-/\ ble1 := bl(vpt,obsF,k,binEcdfL [bcdf])            
+/\ k0 := k + float(size(bcdf))
+/\ ble1 := bl(vpt,obsF,k0,binEcdfL [bcdf])            
 .
 
 ***(
@@ -222,6 +223,7 @@ op getBaselineCDFObsFeatureLL :
 **** called by baseline finalize 
 ****  compute k for each element
 
+*** op maxBLsize:_ : Float -> Attribute [ctor] .
 op addK2Blist : Config  Bool -> Config .
 ceq addK2Blist(conf,b) =
     (if b then conf0 else null fi)
@@ -230,22 +232,29 @@ ceq addK2Blist(conf,b) =
 if conf0 < myAddr : BaseLineMonitor | blAttrs > := conf
 /\ blAttrs0, baseLine: blist := blAttrs
 /\ blAttrs1, winSize: wsize, binSize: bsize, 
-             tStart: tStart, tEnd: tEnd := blAttrs
+             tStart: tStart, tEnd: tEnd ,
+             maxBLsize: mxSize := blAttrs
 /\ blist1 := addK2BlistX(blist,tStart,tEnd,wsize,bsize,
-                         nilBaseLine)  
+                      mxSize,   nilBaseLine)  
  .                                   
 op addK2BlistX : BaseLineList 
                  Float Float Float Float
-                 BaseLineList -> BaseLineList .
+                 Float BaseLineList -> BaseLineList .
 
-eq addK2BlistX(nilBaseLine,tStart,tEnd,wsize,bsize,blist)
+eq addK2BlistX(nilBaseLine,tStart,tEnd,wsize,bsize,
+               mxSize,blist)
    = blist .
                   
-ceq addK2BlistX(ble :; blist,tStart,tEnd,wsize,bsize,blist1)  
+ceq addK2BlistX(ble :; blist,tStart,tEnd,wsize,bsize,
+                mxSize,blist1)  
      = addK2BlistX(blist,tStart,tEnd,wsize,bsize,
-                   blist1 :; ble1 )
+                  mxSize, blist1 :; ble1 )
 if bl(vpt,obsF,k0,edcfl) := ble
-/\ bcdf := sFlatLL(edcfl,nil)
+/\ bcdf0 := sFlatLL(edcfl,nil)
+/\ bcdf := (if mxSize >= k0 
+           then bcdf0 
+           else downsample(bcdf0,mxSize,k0)
+           fi)
 /\ k := getKObsFeatureB(vpt, obsF, bcdf, edcfl,
                         tStart, tEnd, wsize, bsize)
 /\ ble1 := bl(vpt,obsF,k,bcdf)
@@ -298,6 +307,29 @@ red smerge( 1. 2. 3.  , 1.1 1.9 3.1,nil) .
 red sFlatLL([ 1. 2. 3. ] [ 1.1 1.9 3.1] [.5 2.4 2.5],nil) .
 )
 
+  
+  
+  op downsample : List{Float} Float Float -> List{Float} .
+  ceq downsample(bcdf0,mxSize,k0) = bcdf
+  if inc := rat(floor(k0 / mxSize))
+  /\ bcdf := filterByUniformIx(bcdf0,0,0,inc,nil)
+.
+  op filterByUniformIx : List{Float} Nat Nat Nat
+                       List{Float} -> List{Float} .
+  **** ix <= nextIx
+  eq filterByUniformIx(nil,ix,nextIx,inc,bcdf) = bcdf .
+
+  eq filterByUniformIx(fl bcdf0,ix,ix,inc,bcdf)
+  =
+  filterByUniformIx(bcdf0, s ix, ix + inc, inc,bcdf fl)
+  .
+  eq
+  filterByUniformIx(fl bcdf0, ix,nextIx,inc,bcdf)
+  =
+  filterByUniformIx(bcdf0, s ix, nextIx, inc,bcdf) [owise]
+  .
+
+  
 -------------- execution rules ---------------------
 
 crl[initKs]:
