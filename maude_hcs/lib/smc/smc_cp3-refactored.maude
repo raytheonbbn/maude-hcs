@@ -1059,15 +1059,15 @@ mod SMC_CP3 is
   op nZ : -> Float .
   eq nZ = -1.0e+5 .
 
-  op sumRange : List{Float} Nat Nat -> Float .
-  eq sumRange (FL, I, J) = sumRangeAux(FL, I, J, 0) .
+  op cusumRange : List{Float} Nat Nat -> Float .
+  eq cusumRange(FL, I, J) = cusumRangeAux(FL, I, J, 0, 0.0) .
 
-  op sumRangeAux : List{Float} Nat Nat Nat -> Float .
-  eq sumRangeAux (nil, I, J, N) = 0.0 .
-  ceq sumRangeAux (F FL, I, J, N) = 0.0 if N > J .
-  ceq sumRangeAux (F FL, I, J, N) = sumRangeAux(FL, I, J, s(N)) if N < I .
-  ceq sumRangeAux (F FL, I, J, N) = F + sumRangeAux(FL, I, J, s(N)) if (N >= I) and (N <= J) and (F > nZ) .
-  eq sumRangeAux (F FL, I, J, N) = sumRangeAux(FL, I, J, s(N)) [owise] .
+  op cusumRangeAux : List{Float} Nat Nat Nat Float -> Float .
+  eq cusumRangeAux(nil, I, J, N, S) = S .
+  ceq cusumRangeAux(Z FL, I, J, N, S) = S if N > J .
+  ceq cusumRangeAux(Z FL, I, J, N, S) = cusumRangeAux(FL, I, J, s(N), S) if N < I .
+  ceq cusumRangeAux(Z FL, I, J, N, S) = cusumRangeAux(FL, I, J, s(N), max2(0.0, S + Z)) if (N >= I) and (N <= J) and (Z > nZ) .
+  eq cusumRangeAux(Z FL, I, J, N, S) = cusumRangeAux(FL, I, J, s(N), S) [owise] .
 
   op getZt : Actor NetId Feature -> List{Float} .
   eq getZt (< ADDR : Adversary | gt: (bl(vp, obsF, K, Zt) :; blList), attrs >, vp, obsF) = Zt .
@@ -1077,7 +1077,7 @@ mod SMC_CP3 is
   op getCUSUMZt : Actor NetId Feature Float Float Float Float -> Float .
   eq getCUSUMZt (< ADDR : Adversary | gt: nilBaseLine, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) = nZ .
   eq getCUSUMZt (< ADDR : Adversary | gt: (bl(vp, obsF, K, Zt) :; blList), attrs >, vp, obsF, Tstart, Tend, winSize, binSize) =
-      sumRange(Zt, floor(rat(Tstart / binSize)), floor(rat((Tend - winSize) / binSize))) .
+    cusumRange(Zt, floor(rat(Tstart / binSize)), floor(rat((Tend - winSize) / binSize))) .
   eq getCUSUMZt (< ADDR : Adversary | gt: (bl(vp', obsF', K, Zt) :; blList), attrs >, vp, obsF, Tstart, Tend, winSize, binSize) =
     getCUSUMZt (< ADDR : Adversary | gt: (blList), attrs >, vp, obsF, Tstart, Tend, winSize, binSize) [owise] .
 
