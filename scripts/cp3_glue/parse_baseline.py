@@ -50,7 +50,7 @@ class Lines:
   def __str__(self):
       return "\n".join(self.lines)
 
-@dataclass(frozen=True)
+@dataclass
 class Bl:
     feat: str
     vantage: str
@@ -136,7 +136,7 @@ class Baseline:
 
         return Baseline(bls, baselines[0].params)
 
-def parse_baseline(s: str) -> Baseline:
+def parse_baseline(s: str, maxlimit=0) -> Baseline:
     # All whitespace runs are replaced by a single space
     s = " ".join(s.split())
 
@@ -176,7 +176,11 @@ def parse_baseline(s: str) -> Baseline:
     param_strs = rm_whitespace(terminator).split(",")
     params = {item.split(":")[0]: float(item.split(":")[1]) for item in param_strs}
 
-    return Baseline(list(map(parse_bl, bl_strs)), params)
+    bls = list(map(parse_bl, bl_strs))
+    if maxlimit > 0:
+        for bl in bls:
+            bl.ecdf = bl.ecdf[0:maxlimit]    
+    return Baseline(bls, params)
 
 def write_jsons(baseline: Baseline, output_dir: Path, scenario: str):
     baseline_dct = baseline.to_tne_dict(scenario)
@@ -206,16 +210,18 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--maude-output-file",
         help="Path where a maude representation of the combined baseline actor will be written.")
     parser.add_argument("-s", "--scenario", help="scenario name to be written to json outputs")
+    parser.add_argument("--maxlimit", type=int, default=0, help="limit the sizes of float lists to a max")
     args = parser.parse_args()
 
     baseline_path = Path(args.baseline_path).resolve()
     output_dir = Path(args.output_dir).resolve()
+    maxlimit = int(args.maxlimit)
     
     if args.scenario is not None:
         scenario = args.scenario
     else:
         scenario = baseline_path.stem
-
+    num_floats = 0
     if baseline_path.is_dir():
         baselines = []
         for filename in os.listdir(baseline_path):
@@ -224,14 +230,19 @@ if __name__ == "__main__":
             path = baseline_path / filename
             assert Path(path).is_file(), f"{path} is not a file"
             with open(path, "r") as f:
-                baselines.append(parse_baseline(f.read()))
+                baselines.append(parse_baseline(f.read(), maxlimit=maxlimit))
         baseline = Baseline.join(baselines)
 
     elif baseline_path.is_file():
         with open(baseline_path, "r") as f:
-            baseline = parse_baseline(f.read())
+            baseline = parse_baseline(f.read(), maxlimit=maxlimit)
     else:
         raise Exception("first argument must be a path to either directory or ordinary file")
+
+    for bl in baseline.bls:
+        print(f"BL {bl.vantage}, {bl.feat}, {bl.k}, {len(bl.ecdf)}")
+        num_floats += len(bl.ecdf)
+    print(f"Total num of floats: {num_floats}")
 
     write_jsons(baseline, output_dir, scenario)
 
