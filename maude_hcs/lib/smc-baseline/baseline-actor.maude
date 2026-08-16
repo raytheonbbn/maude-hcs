@@ -60,7 +60,8 @@ op baseLineAddr : -> Address .
 op BaseLineMonitor : -> ActorType .
 )
 
-vars j j1 sz1 sz2 sz3 sz4 ix nextIx inc : Nat .
+vars j j1 sz1 sz2 sz3 sz4 ix nextIx inc 
+      k0N mxSizeN D delta G DmG : Nat .
 vars myAddr advAddr bAddr aAddr : Address .
 vars blAttrs blAttrs0 blAttrs1 
      advAttrs advAttrs0 advAttrs1
@@ -307,29 +308,54 @@ red smerge( 1. 2. 3.  , 1.1 1.9 3.1,nil) .
 red sFlatLL([ 1. 2. 3. ] [ 1.1 1.9 3.1] [.5 2.4 2.5],nil) .
 )
 
-  
-  
-  op downsample : List{Float} Float Float -> List{Float} .
-  ceq downsample(bcdf0,mxSize,k0) = bcdf
-  if inc := rat(floor(k0 / mxSize))
-  /\ bcdf := filterByUniformIx(bcdf0,0,0,inc,nil)
+***(
+vars k0N mxSizeN D delta G DmG ix j : Nat .
+vars fl  mxSize k k0 : Float .
+vars bcdf bcdf0 : List{Float} .
+)
+**** assume k0 > mxSize
+op downsample : List{Float} Float Float -> List{Float} .
+ceq downsample(bcdf0,mxSize,k0) = bcdf
+  if k0N := rat(k0)
+  /\ mxSizeN := rat(mxSize)
+  /\ D := _-_(k0N,mxSizeN)
+  /\ delta := k0N quo D
+  /\ G := k0N rem D
+  /\ DmG := _-_(D,G)
+  /\ bcdf := filterByInc(bcdf0,0,0,delta,DmG,G,nil)
 .
-  op filterByUniformIx : List{Float} Nat Nat Nat
-                       List{Float} -> List{Float} .
-  **** ix <= nextIx
-  eq filterByUniformIx(nil,ix,nextIx,inc,bcdf) = bcdf .
-
-  eq filterByUniformIx(fl bcdf0,ix,ix,inc,bcdf)
-  =
-  filterByUniformIx(bcdf0, s ix, ix + inc, inc,bcdf fl)
-  .
-  eq
-  filterByUniformIx(fl bcdf0, ix,nextIx,inc,bcdf)
-  =
-  filterByUniformIx(bcdf0, s ix, nextIx, inc,bcdf) [owise]
-  .
-
   
+op filterByInc : List{Float} Nat Nat Nat Nat Nat
+                 List{Float} -> List{Float} .
+eq filterByInc(nil,ix,j,delta,DmG,G,bcdf) = bcdf .
+
+ceq filterByInc(fl bcdf0,ix,j,delta,DmG,G,bcdf) 
+    = filterByInc( bcdf0,s ix, s j,delta,DmG,G,bcdf fl) 
+if j < DmG
+/\ s ix < delta
+.
+
+ceq filterByInc(fl bcdf0,ix,j,delta,DmG,G,bcdf) 
+    = filterByInc( bcdf0, 0, s j,delta,DmG,G,bcdf) 
+if j < DmG
+/\ s ix >= delta
+.
+
+ceq filterByInc(fl bcdf0,ix,j,delta,DmG,G,bcdf) 
+    = filterByInc( bcdf0,s ix, s j,delta,DmG,G,bcdf fl) 
+if j >= DmG
+/\ ix < delta
+.
+
+ceq filterByInc(fl bcdf0,ix,j,delta,DmG,G,bcdf) 
+    = filterByInc( bcdf0, 0, s j,delta,DmG,G,bcdf) 
+if j >= DmG
+/\ ix >= delta
+.
+  
+  
+  
+
 -------------- execution rules ---------------------
 
 crl[initKs]:
