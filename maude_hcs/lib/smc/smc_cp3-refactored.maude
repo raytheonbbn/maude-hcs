@@ -228,7 +228,7 @@ mod SMC_CP3 is
   eq collectMsgLatency (ircMsgId, Tsent, nilMessageTimestampList, Tstart, Tend) = nil .
   ceq collectMsgLatency(ircMsgId, Tsent, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend)
   =
-    compLatency(Tsent, T)
+    compLatency(Tsent, T) collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend)
   if (ircMsgId == ircMsgId') and (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) .
   eq collectMsgLatency(ircMsgId, Tsent, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend) =
     collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) [owise] .
@@ -505,7 +505,10 @@ mod SMC_CP3 is
 
   op collectDeliveryFailureTime : Nat Float MessageTimestampList -> List{Float} .
   eq collectDeliveryFailureTime (ircMsgId, Tdeadline, nilMessageTimestampList) = nil .
-  ceq collectDeliveryFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) = 
+  ceq collectDeliveryFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
+    nil
+  if (ircMsgId == ircMsgId') and isIrcClientAddr(ircAddrTo) and (T <= Tdeadline) .
+  ceq collectDeliveryFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
     Tdeadline
   if (ircMsgId == ircMsgId') and isIrcClientAddr(ircAddrTo) and (T > Tdeadline) .
   eq collectDeliveryFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
