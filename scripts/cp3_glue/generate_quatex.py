@@ -152,6 +152,10 @@ def mk_vantage_point_chunk(cfg: Config, win: int, cum: bool, vantage: str, feat:
     slide_win = f"{cfg.sliding_window_size:.1f}"
     bin_size = f"{cfg.bin_size:.1f}"
     tag = f'// {prefix} {tag_name} {i_start} {i_end} {vantage}'
+    if win == 0 and not cum:
+       # this indep is a duplicate of cum 
+       print(f"skipping independent win {win}: {tag}")
+       return Lines()
     return Lines(
         f'eval E[s.rval("getCUSUMZt(getAdversary(C), {vantage}, {feat}, {start}, {end}, {slide_win}, {bin_size})")]; {tag}'
     )
