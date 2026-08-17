@@ -1733,6 +1733,7 @@ if __name__ == "__main__":
     parser.add_argument("--perf", action="store_true", help="Performance mode: removes baseLineAct and sets Adversary useTcpTPL to false")    
     parser.add_argument("--confidentiality", action="store_true", help="Confidentiality mode: only quatex needed for computing confidentiality")    
     parser.add_argument("--filterVpFeatCombos", action="store_true", help="filter the combinations of VP and feature")
+    parser.add_argument("--filterVpFeatCombos2", action="store_true", help="filter the combinations of VP and feature (different vps)")
     parser.add_argument("--notgens", action="store_true", help="disable tgens firing")
     args = parser.parse_args()
     
@@ -1796,6 +1797,10 @@ if __name__ == "__main__":
         for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net_sky")]):
             vpts_list.append(cl_id)
         # vpts_list.extend(["srvN"])
+    elif args.filterVpFeatCombos2:
+            vpts_list = ["srvN"]
+            for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net_mastodon") or k.startswith("client_net_racetunnel")]):
+                vpts_list.append(cl_id)            
     else:
         vpts_list = ["ixpN"]
         for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
