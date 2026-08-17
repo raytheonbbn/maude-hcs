@@ -217,6 +217,13 @@ mod SMC_CP3 is
   eq filterWindow(messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend) = 
     filterWindow(ircMTL, Tstart, Tend) [owise] .
 
+  op dropBefore : MessageTimestampList Float -> MessageTimestampList .
+  eq dropBefore(nilMessageTimestampList, Tsent) = nilMessageTimestampList .
+  ceq dropBefore(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tsent) =
+    dropBefore(ircMTL, Tsent)
+  if T < Tsent .
+  eq dropBefore(ircMTL, Tsent) = ircMTL [owise] .
+
   -------------------------------------------------------------------------------------------------
   --- Latency
   -------------------------------------------------------------------------------------------------
@@ -247,6 +254,34 @@ mod SMC_CP3 is
     then collectLatencyAux(ircMTL, ircMTL', Tstart, Tend, AccL collectMsgLatency(ircMsgId, T, ircMTL', Tstart, Tend)) 
     else collectLatencyAux(ircMTL, ircMTL', Tstart, Tend, AccL) fi .
 
+***(
+  --- dup handling
+  op collectMsgLatency : Nat Float MessageTimestampList Float Float -> List{Float} .
+  eq collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) = collectMsgLatencyAux(ircMsgId, Tsent, dropBefore(ircMTL, Tsent), Tstart, Tend, nil, nil) .
+
+  op collectMsgLatencyAux : Nat Float MessageTimestampList Float Float AddrList List{Float} -> List{Float} .
+  eq collectMsgLatencyAux(ircMsgId, Tsent, nilMessageTimestampList, Tstart, Tend, aList, AccL) = AccL .
+  ceq collectMsgLatencyAux(ircMsgId, Tsent, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend, aList, AccL) =
+    collectMsgLatencyAux(ircMsgId, Tsent, ircMTL, Tstart, Tend, ircAddrTo ; aList, AccL compLatency(Tsent, T))
+  if (ircMsgId == ircMsgId') and (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) and not inAddrList(ircAddrTo, aList) .
+  eq collectMsgLatencyAux(ircMsgId, Tsent, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend, aList, AccL) =
+    collectMsgLatencyAux(ircMsgId, Tsent, ircMTL, Tstart, Tend, aList, AccL) [owise] .
+
+  var AccL : List{Float} .
+
+  op collectLatency : MessageTimestampList MessageTimestampList Float Float -> List{Float} .
+  eq collectLatency(ircMTL, ircMTL', Tstart, Tend) = collectLatencyAux(ircMTL, ircMTL', Tstart, Tend, nil) .
+
+  op collectLatencyAux : MessageTimestampList MessageTimestampList Float Float List{Float} -> List{Float} .
+  eq collectLatencyAux(nilMessageTimestampList, ircMTL', Tstart, Tend, AccL) = AccL .
+  eq collectLatencyAux(ircMTL, nilMessageTimestampList, Tstart, Tend, AccL) = AccL .
+
+  eq collectLatencyAux(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tstart, Tend, AccL) = 
+    if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrFrom) 
+    then collectLatencyAux(ircMTL, ircMTL', Tstart, Tend, AccL collectMsgLatency(ircMsgId, T, ircMTL', Tstart, Tend)) 
+    else collectLatencyAux(ircMTL, ircMTL', Tstart, Tend, AccL) fi .
+  ---
+)
   op getLatencyDistribution : Actor Float Float -> List{Float} .
   eq getLatencyDistribution (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tstart, Tend) = collectLatency(filterWindow(ircMTL, Tstart, Tend), filterWindow(ircMTL', Tstart, Tend), Tstart, Tend) . 
 
@@ -265,7 +300,7 @@ mod SMC_CP3 is
   -------------------------------------------------------------------------------------------------
   --- Goodput
   -------------------------------------------------------------------------------------------------
-  
+
   op collectGoodputDist : MessageTimestampList Float Float -> List{Float} .
   eq collectGoodputDist (nilMessageTimestampList, Tstart, Tend) = nil .
   eq collectGoodputDist (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tstart, Tend) = 
@@ -284,6 +319,41 @@ mod SMC_CP3 is
   eq collectGoodputAux(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tstart, Tend, F) =
     collectGoodputAux(ircMTL, Tstart, Tend, F) [owise] .
 
+***(
+  --- dup handling 
+  sort MsgAddrPair .
+  sort MsgAddrPairList .
+
+  var pList : MsgAddrPairList .
+
+  op msgAddrPair : Nat Address -> MsgAddrPair [ctor] .
+  op nilMsgAddrPairList : -> MsgAddrPairList [ctor] .
+  op _;;_ : MsgAddrPair MsgAddrPairList -> MsgAddrPairList [ctor] .
+
+  op inMsgAddrPairList : Nat Address MsgAddrPairList -> Bool .
+  eq inMsgAddrPairList(ircMsgId, ircAddrTo, nilMsgAddrPairList) = false .
+  eq inMsgAddrPairList(ircMsgId, ircAddrTo, msgAddrPair(ircMsgId, ircAddrTo) ;; pList) = true .
+  eq inMsgAddrPairList(ircMsgId, ircAddrTo, msgAddrPair(ircMsgId', ircAddrTo') ;; pList) = inMsgAddrPairList(ircMsgId, ircAddrTo, pList) [owise] .
+  
+  op collectGoodputDist : MessageTimestampList Float Float -> List{Float} .
+  eq collectGoodputDist (nilMessageTimestampList, Tstart, Tend) = nil .
+  eq collectGoodputDist (messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tstart, Tend) = 
+    if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) 
+    then float(ircMsgSize) collectGoodputDist(ircMTL, Tstart, Tend) 
+    else collectGoodputDist(ircMTL, Tstart, Tend) fi .
+
+  op collectGoodput : MessageTimestampList Float Float -> Float .
+  eq collectGoodput(ircMTL, Tstart, Tend) = collectGoodputAux(ircMTL, Tstart, Tend, 0.0, nilMsgAddrPairList) .
+
+  op collectGoodputAux : MessageTimestampList Float Float Float MsgAddrPairList -> Float .
+  eq collectGoodputAux(nilMessageTimestampList, Tstart, Tend, F, pList) = F .
+  ceq collectGoodputAux(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tstart, Tend, F, pList) =
+    collectGoodputAux(ircMTL, Tstart, Tend, F + float(ircMsgSize), msgAddrPair(ircMsgId, ircAddrTo) ;; pList)
+  if (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) and not inMsgAddrPairList(ircMsgId, ircAddrTo, pList) .
+  eq collectGoodputAux(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tstart, Tend, F, pList) =
+    collectGoodputAux(ircMTL, Tstart, Tend, F, pList) [owise] .
+  --- 
+)
   op getGoodputDistribution : Actor Float Float -> List{Float} .
   eq getGoodputDistribution (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = collectGoodputDist(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend) .
 
@@ -484,6 +554,9 @@ mod SMC_CP3 is
   ceq collectIngestionFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) = 
     Tdeadline
   if (ircMsgId == ircMsgId') and isIrcServerAddr(ircAddrTo) and (T > Tdeadline) .
+  ceq collectIngestionFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
+    nil
+  if (ircMsgId == ircMsgId') and isIrcServerAddr(ircAddrTo) and (T <= Tdeadline) .
   eq collectIngestionFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
     collectIngestionFailureTime (ircMsgId, Tdeadline, ircMTL) [owise] .
 
