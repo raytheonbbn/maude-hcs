@@ -1658,7 +1658,7 @@ def gen_baselineEq(scenario_name):
     return "\n".join(lines)
 
 # Generate baseline or run scenario file
-def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, run_time=None, feature=None, vpt=None):
+def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, run_time=None, feature=None, vpt=None, combos1=True, combos2=False):
     lines = []
     L = lines.append
 
@@ -1671,7 +1671,14 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, r
     L(f"sload {prefix}{lib}/smc/smc_cp3-refactored")
     L("")
     if not isBaseline:
-        L(f"sload {scenario_name}-baseline-eq")    
+        eqSuffix = ""
+        if combos1 and combos2:
+            raise Exception("********For now you have to pick one feature/vp combo!!")
+        if combos1:
+            eqSuffix = "-combo1"
+        elif combos2:
+            eqSuffix = "-combo2"
+        L(f"sload {scenario_name}-baseline-eq{eqSuffix}")    
     L("")
     
     mod_name = scenario_name.upper().replace("_", "-")    
@@ -1802,10 +1809,11 @@ if __name__ == "__main__":
             for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net_mastodon") or k.startswith("client_net_racetunnel")]):
                 vpts_list.append(cl_id)            
     else:
-        vpts_list = ["ixpN"]
-        for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
-            vpts_list.append(cl_id)
-        vpts_list.extend(["srvN", "masN"])
+        raise Exception("Need to specify the combos or combos2 option for feature vantage point")
+        # vpts_list = ["ixpN"]
+        # for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
+        #     vpts_list.append(cl_id)
+        # vpts_list.extend(["srvN", "masN"])
     
     
     # for now delay tgens (TODO: remove them from the soup completely)
@@ -1819,7 +1827,7 @@ if __name__ == "__main__":
     print(f"Wrote {main_path} ({len(main_content.splitlines())} lines)")
 
     # Generate baseline file    
-    baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=baseline_time)
+    baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=baseline_time, combos1=args.filterVpFeatCombos, combos2=args.filterVpFeatCombos2)
     if baseline_time is not None:
         baseline_filename = f"{scenario_name}-baseline-{baseline_time}.maude"
     else:
@@ -1859,7 +1867,9 @@ if __name__ == "__main__":
                     isBaseline=True, 
                     baseline_time=baseline_time,
                     feature=feature,
-                    vpt=vpt
+                    vpt=vpt,
+                    combos1=args.filterVpFeatCombos,
+                    combos2=args.filterVpFeatCombos2
                 )
                 p_filename = f"{base_fn_no_ext}-{feature}-{vpt.replace("[","").replace("]","")}.maude"
                 p_path = os.path.join(baselines_dir, p_filename)
@@ -1876,7 +1886,9 @@ if __name__ == "__main__":
     print(f"Wrote {eq_path} ({len(baselin_eq_content.splitlines())} lines)")
 
     # Generate run file    
-    run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, run_time=run_time)
+    run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, run_time=run_time,
+                                         combos1=args.filterVpFeatCombos,
+                                        combos2=args.filterVpFeatCombos2)
     if run_time is not None:
         run_filename = f"{scenario_name}-run-{run_time}.maude"
     else:
