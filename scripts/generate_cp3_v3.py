@@ -1658,7 +1658,7 @@ def gen_baselineEq(scenario_name):
     return "\n".join(lines)
 
 # Generate baseline or run scenario file
-def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, run_time=None, feature=None, vpt=None, combos1=True, combos2=False):
+def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_time=None, run_time=None, feature=None, vpt=None, combos1=True, combos2=False):
     lines = []
     L = lines.append
 
@@ -1668,18 +1668,19 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, r
         prefix = "../"
     
     L(f"sload {prefix}{scenario_name}")
-    L(f"sload {prefix}{lib}/smc/smc_cp3-refactored")
-    L("")
-    if not isBaseline:
-        eqSuffix = ""
-        if combos1 and combos2:
-            raise Exception("********For now you have to pick one feature/vp combo!!")
-        if combos1:
-            eqSuffix = "-combo1"
-        elif combos2:
-            eqSuffix = "-combo2"
-        L(f"sload {scenario_name}-baseline-eq{eqSuffix}")    
-    L("")
+    if not perf:
+        L(f"sload {prefix}{lib}/smc/smc_cp3-refactored")
+        L("")
+        if not isBaseline:
+            eqSuffix = ""
+            if combos1 and combos2:
+                raise Exception("********For now you have to pick one feature/vp combo!!")
+            if combos1:
+                eqSuffix = "-combo1"
+            elif combos2:
+                eqSuffix = "-combo2"
+            L(f"sload {scenario_name}-baseline-eq{eqSuffix}")    
+        L("")
     
     mod_name = scenario_name.upper().replace("_", "-")    
     suffix = "-BASELINE" if isBaseline else ""
@@ -1689,32 +1690,33 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=None, r
     else:
         L(f"mod {smc_mod_name}{suffix} is")
     L(f"  inc {mod_name} .  ") 
-    L("  inc SMC_CP3 . ")
-    if not isBaseline:
-        L(f"  inc {mod_name}-BASELINE-EQ . ")
-    L("  ")
-    if isBaseline and baseline_time is not None:
-        L(f"  eq slimit = {baseline_time} .")
-    elif not isBaseline and run_time is not None:
-        L(f"  eq slimit = {run_time} .")
-    else:
-        L("  ----eq slimit = 100.0 . ---- redefine if needed")
+    if not perf:
+        L("  inc SMC_CP3 . ")
+        if not isBaseline:
+            L(f"  inc {mod_name}-BASELINE-EQ . ")
+        L("  ")
+        if isBaseline and baseline_time is not None:
+            L(f"  eq slimit = {baseline_time} .")
+        elif not isBaseline and run_time is not None:
+            L(f"  eq slimit = {run_time} .")        
+    L("  ----eq slimit = 100.0 . ---- redefine if needed")
     
-    if feature and vpt:
+    if not perf:
+        if feature and vpt:
+            L("")
+            L(f"  eq Vpts = {vpt} .")
+            L(f"  eq ObsFs = {feature} .")
+            
         L("")
-        L(f"  eq Vpts = {vpt} .")
-        L(f"  eq ObsFs = {feature} .")
-        
-    L("")
-    if not isBaseline:
-        L(f"  eq ksWindowDelay = hcsDelay .") # only in the run file
-    if isBaseline:
-        L("  eq hcsDelay = slimit + slimit .  --- prevent hcs from starting")
+        if not isBaseline:
+            L(f"  eq ksWindowDelay = hcsDelay .") # only in the run file
+        if isBaseline:
+            L("  eq hcsDelay = slimit + slimit .  --- prevent hcs from starting")
+            L("")
+            L(" eq finalize(c:Config) = addK2Blist(c:Config,false) .")
+        else:
+            L(" eq finalize(c:Config) = mvKs2Adv(c:Config,false) .")
         L("")
-        L(" eq finalize(c:Config) = addK2Blist(c:Config,false) .")
-    else:
-        L(" eq finalize(c:Config) = mvKs2Adv(c:Config,false) .")
-    L("")
     L("endm")
     L("")
     if isBaseline:
@@ -1827,7 +1829,7 @@ if __name__ == "__main__":
     print(f"Wrote {main_path} ({len(main_content.splitlines())} lines)")
 
     # Generate baseline file    
-    baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, baseline_time=baseline_time, combos1=args.filterVpFeatCombos, combos2=args.filterVpFeatCombos2)
+    baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=args.perf, baseline_time=baseline_time, combos1=args.filterVpFeatCombos, combos2=args.filterVpFeatCombos2)
     if baseline_time is not None:
         baseline_filename = f"{scenario_name}-baseline-{baseline_time}.maude"
     else:
@@ -1865,6 +1867,7 @@ if __name__ == "__main__":
                 p_content = gen_baselineOrRun_file(
                     scenario_name, 
                     isBaseline=True, 
+                    perf=args.perf,
                     baseline_time=baseline_time,
                     feature=feature,
                     vpt=vpt,
@@ -1886,7 +1889,7 @@ if __name__ == "__main__":
     print(f"Wrote {eq_path} ({len(baselin_eq_content.splitlines())} lines)")
 
     # Generate run file    
-    run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, run_time=run_time,
+    run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, perf=args.perf, run_time=run_time,
                                          combos1=args.filterVpFeatCombos,
                                         combos2=args.filterVpFeatCombos2)
     if run_time is not None:
