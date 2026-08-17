@@ -1668,8 +1668,8 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
         prefix = "../"
     
     L(f"sload {prefix}{scenario_name}")
+    L(f"sload {prefix}{lib}/smc/smc_cp3-refactored")
     if not perf:
-        L(f"sload {prefix}{lib}/smc/smc_cp3-refactored")
         L("")
         if not isBaseline:
             eqSuffix = ""
@@ -1690,8 +1690,8 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
     else:
         L(f"mod {smc_mod_name}{suffix} is")
     L(f"  inc {mod_name} .  ") 
+    L("  inc SMC_CP3 . ")
     if not perf:
-        L("  inc SMC_CP3 . ")
         if not isBaseline:
             L(f"  inc {mod_name}-BASELINE-EQ . ")
         L("  ")
