@@ -369,13 +369,50 @@ mod SMC_CP3 is
   op getClientMsgOrder : Actor Address IrcChannelName Float Float -> MsgIdList .
   eq getClientMsgOrder(< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, ircAddr, ircRoom, Tstart, Tend) =  collectLocalView(ircAddr, ircRoom, ircMTL, ircMTL', Tstart, Tend) .
 
+  sort NatRow .
+
+  op nilNatRow : -> NatRow [ctor] .
+  op nr : Nat NatRow -> NatRow [ctor] .
+
+  vars MedId1 MedId2 MedI MedJ MedLeft MedUp MedUpLeft : Nat .
+  vars MedList1 MedList2 : MsgIdList .
+  vars MedRow MedPrevRow MedAccRow : NatRow .
+
+  op minNat2 : Nat Nat -> Nat .
+  eq minNat2(MedI, MedJ) = if MedI <= MedJ then MedI else MedJ fi .
+
+  op minNat3 : Nat Nat Nat -> Nat .
+  eq minNat3(MedI, MedJ, MedId1) = minNat2(MedI, minNat2(MedJ, MedId1)) .
+
   op med : MsgIdList MsgIdList -> Nat .
-  eq med (nilMsgIdList, NL) = lenMsgIdList(NL) .
-  eq med (NL, nilMsgIdList) = lenMsgIdList(NL) .
----  eq med (N ::: NL, N' ::: NL') = if N == N' then med(NL, NL') else 1 + min3(med(NL, N' ::: NL'), med(N ::: NL, NL'), med(NL, NL')) fi .
-  eq med(N ::: NL, N ::: NL') = med(NL, NL') .
-  eq med(N ::: N' ::: NL, N' ::: N ::: NL') = 2 + med(NL, NL') .
-  eq med(N ::: NL, N' ::: NL') = 1 + med(NL, NL') [owise] .
+  eq med(MedList1, MedList2) = medRows(MedList1, MedList2, initMedRow(0, lenMsgIdList(MedList2)), 1) .
+
+  op initMedRow : Nat Nat -> NatRow .
+  ceq initMedRow(MedI, MedJ) = nilNatRow if MedI > MedJ .
+  ceq initMedRow(MedI, MedJ) = nr(MedI, initMedRow(s(MedI), MedJ)) if MedI <= MedJ .
+
+  op medRows : MsgIdList MsgIdList NatRow Nat -> Nat .
+  eq medRows(nilMsgIdList, MedList2, MedPrevRow, MedI) = lastNatRow(MedPrevRow) .
+  eq medRows(MedId1 ::: MedList1, MedList2, MedPrevRow, MedI) = medRows(MedList1, MedList2, buildMedRow(MedId1, MedList2, MedPrevRow, MedI), s(MedI)) .
+
+  op buildMedRow : Nat MsgIdList NatRow Nat -> NatRow .
+  eq buildMedRow(MedId1, MedList2, MedPrevRow, MedI) = reverseNatRow(buildMedRowAux(MedId1, MedList2, MedPrevRow, MedI, nr(MedI, nilNatRow)), nilNatRow) .
+
+  op buildMedRowAux : Nat MsgIdList NatRow Nat NatRow -> NatRow .
+  eq buildMedRowAux(MedId1, nilMsgIdList, MedPrevRow, MedLeft, MedAccRow) = MedAccRow .
+  eq buildMedRowAux(MedId1, MedId2 ::: MedList2, nr(MedUpLeft, nr(MedUp, MedRow)), MedLeft, MedAccRow) = buildMedRowAux(MedId1, MedList2, nr(MedUp, MedRow), medCell(MedId1, MedId2, MedLeft, MedUp, MedUpLeft), nr(medCell(MedId1, MedId2, MedLeft, MedUp, MedUpLeft), MedAccRow)) .
+
+  op medCell : Nat Nat Nat Nat Nat -> Nat .
+  eq medCell(MedId1, MedId1, MedLeft, MedUp, MedUpLeft) = minNat3(s(MedLeft), s(MedUp), MedUpLeft) .
+  eq medCell(MedId1, MedId2, MedLeft, MedUp, MedUpLeft) = minNat3(s(MedLeft), s(MedUp), s(MedUpLeft)) [owise] .
+
+  op reverseNatRow : NatRow NatRow -> NatRow .
+  eq reverseNatRow(nilNatRow, MedAccRow) = MedAccRow .
+  eq reverseNatRow(nr(MedI, MedRow), MedAccRow) = reverseNatRow(MedRow, nr(MedI, MedAccRow)) .
+
+  op lastNatRow : NatRow -> Nat .
+  eq lastNatRow(nr(MedI, nilNatRow)) = MedI .
+  eq lastNatRow(nr(MedI, nr(MedJ, MedRow))) = lastNatRow(nr(MedJ, MedRow)) .
 
   op normMED : MsgIdList MsgIdList -> Float .
   eq normMED(NL, NL') = 
