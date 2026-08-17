@@ -2,18 +2,15 @@
 
 # Run this from repo root
 
-set -euox pipefail
-# set -euo pipefail
+set -euo pipefail
 
-# root_dir=/Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh
-root_dir=/Users/lwest/Documents/pwnd2/playground-maude-hcs/
+root_dir=/Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh
 scenario_dir=$root_dir/use-cases/challenge-problem-3/cp3_scenarios/scenario2
 
 tne_output_dir=$scenario_dir/scenario2_full_perf_formatted
 raw_results_dir=$scenario_dir/scenario2_full_perf_raw
 dump_dir=$raw_results_dir/dumplogs
 
-# Where do I get the scenario1 client names from? probably run the generator.
 scenario1_mapping=$(cat << 'EOF'
 {
 "wtCl1IrcAddr": "alice_1",
