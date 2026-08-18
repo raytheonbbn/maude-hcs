@@ -14,6 +14,7 @@ import yaml
 import argparse
 from pathlib import Path
 import math
+import json
 
 from cp3_glue.generate_quatex import Config, write_all_queries_to_file
 
@@ -1799,6 +1800,8 @@ if __name__ == "__main__":
     with open(addr_path, "w") as f:
         f.write(addr_content)
     print(f"\nWrote {addr_path} ({len(addr_content.splitlines())} lines)")
+
+    print(f"Net id mapping: {json.dumps(net_id_map, indent=4)}")
 
     # Dynamically build Vpts list
     if args.filterVpFeatCombos:
