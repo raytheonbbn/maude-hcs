@@ -108,6 +108,10 @@ def mk_latency_query_chunk(cfg: Config, win: int, cum: bool) -> Lines:
         return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
+    if win == 0 and not cum:
+        # this indep is a duplicate of cum 
+        print(f"skipping independent win {win}: {prefix}")
+        return Lines()
     return Lines(
         f'eval E[s.rval("getMinLatency(getMonitor(C), {start}, {end})")]; // {prefix} latency0 {i_start} {i_end}',
         f'eval E[s.rval("getPercentileLatency(getMonitor(C), {start}, {end}, 25)")]; // {prefix} latency25 {i_start} {i_end}',
@@ -122,6 +126,10 @@ def mk_global_integrity_chunk(cfg: Config, win: int, cum: bool) -> Lines:
         return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
+    if win == 0 and not cum:
+        # this indep is a duplicate of cum 
+        print(f"skipping independent win {win}: {prefix}")
+        return Lines()
     return Lines(
         f'eval E[s.rval("getSystemIntegrity(getMonitor(C), getIrcSrv(C), {start}, {end})")]; // {prefix} integrity {i_start} {i_end}',
     )
@@ -131,6 +139,10 @@ def mk_client_integrity_chunk(cfg: Config, win: int, cum: bool, client: str) -> 
         return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
+    if win == 0 and not cum:
+        # this indep is a duplicate of cum 
+        print(f"skipping independent win {win}: {prefix}")
+        return Lines()
     return Lines(
         f'eval E[s.rval("getClientIntegrity(getMonitor(C), getIrcSrv(C), {client}, {start}, {end})")]; // {prefix} integrity {i_start} {i_end} {client}',
     )
@@ -140,6 +152,10 @@ def mk_availability_chunk(cfg: Config, win: int, cum: bool) -> Lines:
         return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
+    if win == 0 and not cum:
+        # this indep is a duplicate of cum 
+        print(f"skipping independent win {win}: {prefix}")
+        return Lines()
     return Lines(
         f'eval E[s.rval("getMTBF(getMonitor(C), 16.0, {start}, {end})")]; // {prefix} availability {i_start} {i_end}',
     )
