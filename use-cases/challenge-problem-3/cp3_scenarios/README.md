@@ -48,3 +48,26 @@ Client id mapping
 "obfsCl3IrcAddr": "alice_3",
 "masCl4IrcAddr": "alice_4"
 ```
+
+# Included in this drop
+
+Initial demo results (directories)
+ * Scenario 1 performance/integrity/availability 7200 sec run results (163 samples)
+   * scenario1_7271_perf_formatted
+ * Scenario 2 performance/integrity/ availability 7200 sec run results (249 samples)
+   * scenario2_7271_perf_formatted
+ * Scenario 1 baseline generation run (25 prioritized combinations of vantage point and feature) 7200 sec run results (1 run results fed into the actual confidentiality runs)
+   * baseline-combo1
+   * baseline-combo2
+ * Scenario 2 baseline generation run (25 prioritized combinations of vantage point and feature) 7200 sec run results (1 run results fed into the actual confidentiality runs) 
+   * baseline-combo1
+   * baseline-combo1
+* Scenario 1 confidentiality (15 prioritized combinations of vantage point and feature) 910 sec run results (121 samples)
+  * scenario1_910_conf_formatted  
+* Scenario 2 confidentiality (10 prioritized combinations of vantage point and feature) 7200 sec run results (249 samples)
+  * scenario2_7210_conf_formatted
+
+
+# Still in progress as of Aug 18 at 15:00 eastern
+* Scenario 1 confidentiality (25 prioritized combinations of vantage point and feature) 7200 sec run results 
+* Scenario 2 confidentiality (15 more prioritized combinations of vantage point and feature) 7200 sec run
