@@ -343,10 +343,15 @@ if __name__ == "__main__":
     # --------------------------------------------------------------------------
     # Subplot 1: First-Hop Arrivals
     # --------------------------------------------------------------------------
+    # The pcaps already include physical network delays. We apply a uniform 
+    # alignment offset (50ms) to both hops to account for the model's TLS handshake 
+    # start time (80ms) vs the empirical start time (30ms).
+    alignment_offset = 50.0
+
     ax1.plot(k_vals, model_first, label='Model First-Hop ($E[T_{k, first}]$)', color='blue', linewidth=2)
-    ax1.plot(k_vals, emp_first_mean + (OWD_ms / 2.0), label='Empirical First-Hop (Mean)', color='red', linewidth=2)
-    ax1.plot(k_vals, emp_first_median + (OWD_ms / 2.0), label='Empirical First-Hop (Median)', color='darkred', linestyle='--', linewidth=1.5)
-    ax1.fill_between(k_vals, emp_first_p25 + (OWD_ms / 2.0), emp_first_p75 + (OWD_ms / 2.0), color='red', alpha=0.2, label='Empirical 25th-75th %ile')
+    ax1.plot(k_vals, emp_first_mean + alignment_offset, label='Empirical First-Hop (Mean)', color='red', linewidth=2)
+    ax1.plot(k_vals, emp_first_median + alignment_offset, label='Empirical First-Hop (Median)', color='darkred', linestyle='--', linewidth=1.5)
+    ax1.fill_between(k_vals, emp_first_p25 + alignment_offset, emp_first_p75 + alignment_offset, color='red', alpha=0.2, label='Empirical 25th-75th %ile')
     
     add_flight_spans(ax1)
     ax1.set_ylabel('Relative Arrival Time (ms)', fontsize=11)
@@ -361,9 +366,9 @@ if __name__ == "__main__":
     # Subplot 2: Final Destination Arrivals
     # --------------------------------------------------------------------------
     ax2.plot(k_vals, model_dest, label='Model Dest Arrival ($E[T_{k, dest}]$)', color='blue', linewidth=2)
-    ax2.plot(k_vals, emp_dest_mean + OWD_ms, label='Empirical Dest (Mean)', color='red', linewidth=2)
-    ax2.plot(k_vals, emp_dest_median + OWD_ms, label='Empirical Dest (Median)', color='darkred', linestyle='--', linewidth=1.5)
-    ax2.fill_between(k_vals, emp_dest_p25 + OWD_ms, emp_dest_p75 + OWD_ms, color='red', alpha=0.2, label='Empirical 25th-75th %ile')
+    ax2.plot(k_vals, emp_dest_mean + alignment_offset, label='Empirical Dest (Mean)', color='red', linewidth=2)
+    ax2.plot(k_vals, emp_dest_median + alignment_offset, label='Empirical Dest (Median)', color='darkred', linestyle='--', linewidth=1.5)
+    ax2.fill_between(k_vals, emp_dest_p25 + alignment_offset, emp_dest_p75 + alignment_offset, color='red', alpha=0.2, label='Empirical 25th-75th %ile')
     
     add_flight_spans(ax2)
     ax2.set_xlabel('Segment Index ($k$)', fontsize=12)
@@ -375,7 +380,7 @@ if __name__ == "__main__":
     by_label2 = dict(zip(labels2, handles2))
     ax2.legend(by_label2.values(), by_label2.keys(), loc='upper left')
 
-    fig.suptitle(f'2-Hop Dual-Stage TCP Delivery Validation ({len(all_trials_data)} Trials - L1: {args.tc_profile}, L2: {l2_prof})', fontsize=14, y=0.98)
+    fig.suptitle(f'2-Hop TCP Delivery Validation ({len(all_trials_data)} Trials - L1: {args.tc_profile}, L2: {l2_prof})', fontsize=14, y=0.98)
     
     plt.tight_layout()
     plot_file = 'tcp_validation_plot.png'
