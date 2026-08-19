@@ -66,21 +66,22 @@ def write_integrity_stat(val, q: Query, dct: dict, mapping: dict[str, str]):
             dct["integrity"][feature_name] = default_feature_dict()
         dct["integrity"][feature_name][q.typ][q.to_win_str()] = val
     
-def write_adv_stat(val, q: Query, dct: dict, mapping: dict[str, str]):
+def write_adv_stat(val, q: Query, dct: dict, net_mapping: dict[str, str]):
     if "vantage_points" not in dct:
         dct["vantage_points"] = {}
 
+    # q.extra should be our name for the network vantage point
     assert q.extra is not None
 
-    cname = mapping[q.extra]
+    vantage_point = net_mapping[q.extra]
 
-    if cname not in dct["vantage_points"]:
-        dct["vantage_points"][cname] = {}
+    if vantage_point not in dct["vantage_points"]:
+        dct["vantage_points"][vantage_point] = {}
 
-    if q.name not in dct["vantage_points"][cname]:
-        dct["vantage_points"][cname][q.name] = default_feature_dict()
+    if q.name not in dct["vantage_points"][vantage_point]:
+        dct["vantage_points"][vantage_point][q.name] = default_feature_dict()
 
-    dct["vantage_points"][cname][q.name][q.typ][q.to_win_str()] = val
+    dct["vantage_points"][vantage_point][q.name][q.typ][q.to_win_str()] = val
 
 def write_perf_stat(val, q: Query, dct: dict, mapping: dict[str, str]):
     if q.name == "integrity":
@@ -109,14 +110,15 @@ def write_stats_to_json_file(
         queries: list[Query],
         scenario: str,
         generated_at: str,
-        mapping: dict[str, str]
+        mapping: dict[str, str],
+        net_mapping: dict[str, str]
 ):
     perf_dict = {}
     adv_dict = {"metadata": {"scenario": scenario, "generated_at": generated_at}}
 
     for val, q in zip(stats, queries):
         if q.is_adv_stat():
-            write_adv_stat(val, q, adv_dict, mapping)
+            write_adv_stat(val, q, adv_dict, net_mapping)
         else:
             write_perf_stat(val, q, perf_dict, mapping)
 
@@ -147,11 +149,13 @@ if __name__ == "__main__":
     parser.add_argument('--scenario')
 
     parser.add_argument('--mapping', required=True, help="json string that maps client names to alice names the way TnE expects")
+    parser.add_argument('--net-mapping', required=True, help="json string that maps our network names to adversary vantage points the way TnE expects")
     args = parser.parse_args()
 
     assert args.quatex_file is not None
     print(args.mapping)
     mapping = json.loads(args.mapping)
+    net_mapping = json.loads(args.net_mapping)
 
     with open(args.quatex_file, "r") as f:
         queries = parse_quatex(f.read())
@@ -174,11 +178,11 @@ if __name__ == "__main__":
         means = [feat["mean"] for feat in stats]
         assert len(stats) == len(queries)
 
-        write_stats_to_json_file(means, args.perf_output_file, args.adv_output_file, queries, scenario, generated_at, mapping)
+        write_stats_to_json_file(means, args.perf_output_file, args.adv_output_file, queries, scenario, generated_at, mapping, net_mapping)
 
         if args.perf_stats_output_file is not None:
             assert args.adv_stats_output_file is not None
-            write_stats_to_json_file(stats, args.perf_stats_output_file, args.adv_stats_output_file, queries, scenario, generated_at, mapping)
+            write_stats_to_json_file(stats, args.perf_stats_output_file, args.adv_stats_output_file, queries, scenario, generated_at, mapping, net_mapping)
 
     if args.json_smc_results_file:
         assert args.perf_output_file is not None
@@ -202,11 +206,11 @@ if __name__ == "__main__":
         assert len(stats) == len(queries)
         means = [feat["mean"] for feat in stats]
 
-        write_stats_to_json_file(means, args.perf_output_file, args.adv_output_file, queries, scenario, generated_at, mapping)
+        write_stats_to_json_file(means, args.perf_output_file, args.adv_output_file, queries, scenario, generated_at, mapping, net_mapping)
 
         if args.perf_stats_output_file is not None:
             assert args.adv_stats_output_file is not None
-            write_stats_to_json_file(stats, args.perf_stats_output_file, args.adv_stats_output_file, queries, scenario, generated_at, mapping)
+            write_stats_to_json_file(stats, args.perf_stats_output_file, args.adv_stats_output_file, queries, scenario, generated_at, mapping, net_mapping)
 
     def are_all_zeroes_exact(float_list):
         """Checks if all elements in the list are exactly 0.0"""
@@ -228,6 +232,6 @@ if __name__ == "__main__":
             adv_sample_dict = {"metadata": {"team": "Maude-HCS", "scenario": scenario, "generated_at": generated_at}}
             perf_sample_output_file = str(Path(args.sample_output_dir) / f"run{i}_perf.json")
             adv_sample_output_file = str(Path(args.sample_output_dir) / f"run{i}_adv.json")
-            write_stats_to_json_file(dump, perf_sample_output_file, adv_sample_output_file, queries, scenario, generated_at, mapping)
+            write_stats_to_json_file(dump, perf_sample_output_file, adv_sample_output_file, queries, scenario, generated_at, mapping, net_mapping)
             good_samples += 1
         print(f"wrote {good_samples} samples to files ({ignored_samples} ignored)")
