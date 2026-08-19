@@ -64,10 +64,10 @@ Initial demo results (directories)
    * baseline-combo1
 * Scenario 1 confidentiality (15 prioritized combinations of vantage point and feature) 910 sec run results (121 samples)
   * scenario1_910_conf_formatted  
+* Scenario 1 confidentiality (10 prioritized different combinations of vantage point and feature) 1810 sec run results (35 samples)
+  * scenario1_1811_conf_formatted    
 * Scenario 2 confidentiality (10 prioritized combinations of vantage point and feature) 7200 sec run results (249 samples)
   * scenario2_7210_conf_formatted
+* Scenario 2 confidentiality (15 prioritized different combinations of vantage point and feature) 1811 sec run results (64 samples)
+  * scenario2_1811_conf_formatted  
 
-
-# Still in progress as of Aug 18 at 15:00 eastern
-* Scenario 1 confidentiality (25 prioritized combinations of vantage point and feature) 7200 sec run results 
-* Scenario 2 confidentiality (15 more prioritized combinations of vantage point and feature) 7200 sec run
