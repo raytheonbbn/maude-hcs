@@ -51,10 +51,27 @@ for i in range(num_estimation_trials):
     baseline_ks_distances[i] = ks_stat
     baseline_ks1_distances[i] = ks1_stat
 
+# ==========================================
+# 3. Plotting the Histogram
+# ==========================================
+plt.figure(figsize=(10, 6))
+
+# Plot both distributions with transparency (alpha) so overlaps are visible
+plt.hist(baseline_ks_distances, bins=30, alpha=0.6, label='ks_2samp distances', color='blue', edgecolor='black')
+plt.hist(baseline_ks1_distances, bins=30, alpha=0.6, label='ks_1samp distances', color='orange', edgecolor='black')
+
+plt.title('Histogram of Baseline KS Distances (2-samp vs 1-samp)')
+plt.xlabel('Kolmogorov-Smirnov Statistic')
+plt.ylabel('Frequency')
+plt.legend(loc='upper right')
+plt.grid(axis='y', alpha=0.4)
+
 # k is the expected (mean) KS distance under H0
 k  = np.mean(baseline_ks_distances)
 k1 = np.mean(baseline_ks1_distances)
-print(f'mean k: {k}, {k1}, {(k - k1)/k}')
+print(f'mean ks_2sample: {k}')
+print(f'mean ks_1sample: {k1}')
+print(f'error %: {100*(k - k1)/k}')
 
 print(f"Empirically estimated expected KS distance (k) = {k:.4f}")
 print("-" * 50)
