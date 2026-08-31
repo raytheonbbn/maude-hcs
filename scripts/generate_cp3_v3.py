@@ -55,8 +55,12 @@ def fmt(val):
     return s + "0" if s.endswith(".") else s
 
 def load_loss_profile(profile_name, base_dir):
-    """Load loss parameters from tc_user_models/{profile_name}.yaml if present, or fallback."""
+    """Load loss parameters from tc_user_models/{profile_name}.yaml if present, or raise an exception."""
     profile_path = os.path.join(base_dir, "tc_user_models", f"{profile_name}.yaml")
+    if not os.path.exists(profile_path):
+        parent_tc = os.path.join(base_dir, "..", "tc_user_models", f"{profile_name}.yaml")
+        if os.path.exists(parent_tc):
+            profile_path = parent_tc
     if os.path.exists(profile_path):
         with open(profile_path, "r") as f:
             data = yaml.safe_load(f)
@@ -67,7 +71,7 @@ def load_loss_profile(profile_name, base_dir):
                 "p23": fmt(data["p23"]),
                 "p14": fmt(data["p14"])
             }    
-    logger.error(f'Couldnt find profile {profile_name} in {base_dir}; reverting to defaults')    
+    raise FileNotFoundError(f"Could not find loss profile '{profile_name}' in {base_dir}")    
 
 def parse_scenario_yaml(yaml_path):
     with open(yaml_path, "r") as f:
@@ -1679,7 +1683,7 @@ def gen_baselineEq(scenario_name):
     return "\n".join(lines)
 
 # Generate baseline or run scenario file
-def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_time=None, run_time=None, feature=None, vpt=None, combos1=True, combos2=False):
+def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_time=None, run_time=None, feature=None, vpt=None, combos1=False, combos2=False):
     lines = []
     L = lines.append
 
@@ -1830,15 +1834,16 @@ if __name__ == "__main__":
             vpts_list.append(cl_id)
         # vpts_list.extend(["srvN"])
     elif args.filterVpFeatCombos2:
-            vpts_list = ["srvN"]
-            for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net_mastodon") or k.startswith("client_net_racetunnel")]):
-                vpts_list.append(cl_id)            
+        vpts_list = ["srvN"]
+        for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net_mastodon") or k.startswith("client_net_racetunnel")]):
+            vpts_list.append(cl_id)            
     else:
-        raise Exception("Need to specify the combos or combos2 option for feature vantage point")
-        # vpts_list = ["ixpN"]
-        # for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
-        #     vpts_list.append(cl_id)
-        # vpts_list.extend(["srvN", "masN"])
+        vpts_list = ["ixpN"]
+        for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
+            vpts_list.append(cl_id)
+        for srv in ["srvN", "masN"]:
+            if srv in net_id_map.values():
+                vpts_list.append(srv)
     
     
     # for now delay tgens (TODO: remove them from the soup completely)
