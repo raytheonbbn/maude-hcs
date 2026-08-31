@@ -1226,7 +1226,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  eq skyCl{i}SrvNetCl  = makeNetClient(skyCl{i}SrvNetClAddr,")
         L(f"                                       s3SrvAddr,")
         L(f"                                       skyCl{i}SdkasAddr,")
-        L(f"                                       false,")
+        L(f"                                       true,")
         L(f"                                       servDnsAddr,")
         L(f"                                       'mastodon . 'pwnd . 'com . root) .")
         L("")        
