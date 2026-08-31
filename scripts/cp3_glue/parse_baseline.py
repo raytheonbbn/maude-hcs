@@ -58,7 +58,8 @@ class Bl:
     ecdf: list[float]
 
     def __str__(self):
-        return f"bl({self.vantage}, {self.feat}, {self.k}, {' '.join(map(str, self.ecdf))})"
+        ecdf_str = " ".join(map(str, self.ecdf)) if self.ecdf else "nil"
+        return f"bl({self.vantage}, {self.feat}, {self.k}, {ecdf_str})"
 
 # bl_str should look like "bl(...)"
 def parse_bl(bl_str: str) -> Bl:
@@ -140,7 +141,11 @@ def parse_baseline(s: str, maxlimit=0) -> Baseline:
     # All whitespace runs are replaced by a single space
     s = " ".join(s.split())
 
-    actor_start = s.find("result Actor: ")
+    actor_start = s.find("result Actor:")
+    if actor_start < 0:
+        actor_start = s.find("result ")
+    if actor_start < 0:
+        actor_start = s.find("baseLine")
     assert actor_start >= 0
     s = s[actor_start:]
 

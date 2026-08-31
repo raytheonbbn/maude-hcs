@@ -283,7 +283,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, not
     L("  ---------------------------------------------------")
     
     L("  ops ircServerAddr s3SrvAddr ircMonitorAddr iodineMonitorAddr : -> Address .")
-    L("  ops masSrvAddr : -> Address .")
+    L("  ops masSrvAddr masNetSrvAddr : -> Address .")
     L("  ops advAddr : -> Address .")
     L("")
 
@@ -329,7 +329,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, not
                 L(f"  ops masCl{i}IrcAddr masCl{i}UmAddr masCl{i}IfaceAddr masCl{i}SrvIfaceAddr : -> Address .")
                 L(f"  ops masCl{i}UmacAddr masCl{i}CmacAddr masCl{i}McacAddr masCl{i}EdacAddr : -> Address .")
                 L(f"  ops masCl{i}UmasAddr masCl{i}CmasAddr masCl{i}McasAddr masCl{i}EdasAddr : -> Address .")
-                L(f"  ops masCl{i}ClNetAddr masCl{i}SrvNetClAddr masNetSrvAddr : -> Address .")
+                L(f"  ops masCl{i}ClNetAddr masCl{i}SrvNetClAddr : -> Address .")
             hcs_client_ids[channel].append(i)
             
             global_client_id += 1
@@ -411,17 +411,19 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L(f"sload {lib}/raceboatMastodonBidir/maude/rb-cm-bidir-mas.maude")
     L(f"sload {lib}/mastodon/maude/probabilistic/mastodon")
     
-    mas_client = hcs_channel_models["mastodon"]["client"]
-    mas_server = hcs_channel_models["mastodon"]["server"]
-    L(f"sload mastodon_action_models/{mas_client}.maude")
-    L(f"sload mastodon_action_models/{mas_server}.maude")
+    if "mastodon" in hcs_channel_models:
+        mas_client = hcs_channel_models["mastodon"]["client"]
+        mas_server = hcs_channel_models["mastodon"]["server"]
+        L(f"sload mastodon_action_models/{mas_client}.maude")
+        L(f"sload mastodon_action_models/{mas_server}.maude")
     
     L(f"sload {lib}/common/maude/http-overhead.maude")
     
-    sky_client = hcs_channel_models["skyhook"]["client"]
-    sky_server = hcs_channel_models["skyhook"]["server"]
-    L(f"sload skyhook_action_models/{sky_client}.maude")
-    L(f"sload skyhook_action_models/{sky_server}.maude")
+    if "skyhook" in hcs_channel_models:
+        sky_client = hcs_channel_models["skyhook"]["client"]
+        sky_server = hcs_channel_models["skyhook"]["server"]
+        L(f"sload skyhook_action_models/{sky_client}.maude")
+        L(f"sload skyhook_action_models/{sky_server}.maude")
     
     L(f"sload {lib}/irc/common/irc-msg-model")
     L(f"sload {lib}/raceboatSkyhook/maude/rb-cm-simple-bi")
@@ -526,8 +528,12 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L(f"mod {mod_name} is")
     L("  pr SCHEDULER .")
     L("  pr USER-ACTION-ACTOR .")
-    L(f"  inc {sky_client.upper().replace('_', '-')}-MAMODEL .")
-    L(f"  inc {sky_server.upper().replace('_', '-')}-MAMODEL .")
+    if "skyhook" in hcs_channel_models:
+        sky_client = hcs_channel_models["skyhook"]["client"]
+        sky_server = hcs_channel_models["skyhook"]["server"]
+        L(f"  inc {sky_client.upper().replace('_', '-')}-MAMODEL .")
+        L(f"  inc {sky_server.upper().replace('_', '-')}-MAMODEL .")
+
     L("  pr IRC-V2 .")
     L("  pr IRC-USER-ACTION-ACTOR-V2 .")
     L("  pr IRC-BYTESEQ-INTERFACE .")
@@ -535,8 +541,12 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  inc ENC-DEC .")
     L("  inc CONTENT-MANAGER-BIDIR .")
     L("  inc MASTODON .")
-    L(f"  inc {mas_client.upper().replace('_', '-')}-MAMODEL .")
-    L(f"  inc {mas_server.upper().replace('_', '-')}-MAMODEL .")
+
+    if "mastodon" in hcs_channel_models:
+        mas_client = hcs_channel_models["mastodon"]["client"]
+        mas_server = hcs_channel_models["mastodon"]["server"]
+        L(f"  inc {mas_client.upper().replace('_', '-')}-MAMODEL .")
+        L(f"  inc {mas_server.upper().replace('_', '-')}-MAMODEL .")
     L("  pr SKYHOOK .")
     L("  pr S3_PROTOCOL .")
     L("  pr IRC_MONITOR .")
@@ -682,16 +692,21 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         op_name = f"gorilla-tgen-{p.replace('_', '-')}-ma-v2"
         mm_entries.append(f'"{key}" |-> {op_name}')
         
-    L("  eq MAModelMap =")
-    for i, entry in enumerate(mm_entries):
-        sep = "," if i < len(mm_entries) - 1 else ""
-        if i == 0:
-            L(f"    ({entry}{sep}")
-        elif i == len(mm_entries) - 1:
-            L(f"     {entry})")
+    if len(mm_entries) == 0:
+        L("  eq MAModelMap = empty .")
+    else:
+        L("  eq MAModelMap =")
+        if len(mm_entries) == 1:
+            L(f"    ({mm_entries[0]})")
         else:
-            L(f"     {entry}{sep}")
-    L("  .")
+            for i, entry in enumerate(mm_entries):
+                if i == 0:
+                    L(f"    ({entry},")
+                elif i == len(mm_entries) - 1:
+                    L(f"     {entry})")
+                else:
+                    L(f"     {entry},")
+        L("  .")
     L("")
     
     L("  op ed-images : -> ByteSeqL .")    
@@ -1136,10 +1151,15 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  --- Actor Declarations & Definitions")
     L("  ---------------------------------------------------")
     L("")
-    sky_client_ma = sky_client.replace('_', '-') + "-ma"
-    sky_server_ma = sky_server.replace('_', '-') + "-ma"
-    mas_client_ma = mas_client.replace('_', '-') + "-ma"
-    mas_server_ma = mas_server.replace('_', '-') + "-ma"        
+    sky_client = hcs_channel_models.get("skyhook", {}).get("client", "")
+    sky_server = hcs_channel_models.get("skyhook", {}).get("server", "")
+    mas_client = hcs_channel_models.get("mastodon", {}).get("client", "")
+    mas_server = hcs_channel_models.get("mastodon", {}).get("server", "")
+
+    sky_client_ma = (sky_client.replace('_', '-') + "-ma") if sky_client else ""
+    sky_server_ma = (sky_server.replace('_', '-') + "-ma") if sky_server else ""
+    mas_client_ma = (mas_client.replace('_', '-') + "-ma") if mas_client else ""
+    mas_server_ma = (mas_server.replace('_', '-') + "-ma") if mas_server else ""        
     hcs_quantity_by_channel = {}
     
     for channel, net_name, qty, profs in hcs_nodes:
@@ -1388,7 +1408,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     
     gorilla_tg_addrs = [inst.base_name + "TgAddr" for inst in tgen_instances if inst.tgen_type == "gorTgen"]
     L("  ops gorillaSrvAct gorillaNetSrvAct : -> Actor .")
-    gorilla_addr_list = " addr ".join(gorilla_tg_addrs)
+    gorilla_addr_list = " addr ".join(gorilla_tg_addrs) if gorilla_tg_addrs else "noAddr"
     L(f"  eq gorillaSrvAct   = mkGorillaChatServer(gorillaSrvAddr, ({gorilla_addr_list})) .")
     L("  eq gorillaNetSrvAct = makeNetServer(gorillaNetSrvAddr, gorillaSrvAddr) .")
     L("")
@@ -1614,7 +1634,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  op allClientsAddr : -> AddrList .")
     all_clients = get_client_lst(hcs_client_ids)
             
-    L(f"  eq allClientsAddr = {' ; '.join(all_clients)} .")
+    L(f"  eq allClientsAddr = {' ; '.join(all_clients) if all_clients else 'nil'} .")
     L("endm")
     L("eof")
     L("--- set print attribute on .")
@@ -1716,7 +1736,7 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
             L("")
             L(" eq finalize(c:Config) = addK2Blist(c:Config,false) .")
         else:
-            L(" eq finalize(c:Config) = mvKs2Adv(c:Config,false) .")
+            L(" eq finalize(c:Config) = mvKs2Adv(c:Config,true) .")
         L("")
     L("endm")
     L("")
@@ -1857,7 +1877,7 @@ if __name__ == "__main__":
         quatex_filename = f"{scenario_name}-quatex.maude"    
         quatex_path = os.path.join(out_dir, quatex_filename)
         max_win = math.floor(duration/analysis_window_size)
-        write_all_queries_to_file(Config(FEATURES, vpts_list, all_clients, max_win=max_win, hcs_delay=hcs_delay, perf_only=args.perf, conf_only=args.confidentiality), Path(quatex_path))
+        write_all_queries_to_file(Config(FEATURES, vpts_list, all_clients, window_size=int(analysis_window_size), max_win=max_win, hcs_delay=hcs_delay, perf_only=args.perf, conf_only=args.confidentiality), Path(quatex_path))
         print(f"Wrote quatex queries to {quatex_path}: max_win: {max_win}, hcs_delay: {hcs_delay}")
 
     # Generate parallelized baseline files if flag is set
