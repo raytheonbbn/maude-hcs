@@ -174,6 +174,7 @@ mod MASTODON_NODE is
   vars fromAddr toAddr FROM-ADDR TO-ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
   vars masClAttrs masClAttrsNext masClAttrsTrans msgAttrs : AttributeSet .
   vars masClAttrsMsg : AttributeSetMsgs .
+  vars cache CACHE : UrlMediaCache .
   vars postId POST_ID : MasId .
   vars masIdList MAS_ID_LIST : MasIdList .
   vars mediaFile MEDIA_FILE : MediaFile .
@@ -219,6 +220,11 @@ mod MASTODON_NODE is
   op gettingTag:_ : Tag -> Attribute [ctor] .
   --- The list of posts to get (usually from a hashtag search).
   op gettingPosts:_ : MasIdList -> Attribute [ctor] .
+  --- The URL that was requested for download.
+  --- TODO: Use gettingMediaUrls above and do not pop before receiving reply.
+  op gettingMediaUrl:_ : Url -> Attribute [ctor] .
+  --- The URL download cache.
+  op mediaCache:_ : UrlMediaCache -> Attribute [ctor] .
 
   --- Make a MasClient:   its_addr srver_addr requester_addr
   op makeMastodonClient : Address  Address    Address -> Actor .
@@ -235,9 +241,31 @@ mod MASTODON_NODE is
         gettingMediaUrls: emptyUrlList,
         gettingMedias: emptyMediaFileList,
         gettingTag: nilTag,
-        gettingPosts: emptyMasIdList
+        gettingPosts: emptyMasIdList,
+        gettingMediaUrl: nilUrl,
+        mediaCache: emptyUrlMediaCache
     >
     .
+
+  -----------------
+  --- URL Cache ---
+  -----------------
+  sort UrlMediaEntry UrlMediaCache .
+  subsort UrlMediaEntry < UrlMediaCache .
+
+  op _~>_ : Url MediaFile -> UrlMediaEntry [ctor] .
+  op emptyUrlMediaCache : -> UrlMediaCache [ctor] .
+  op __ : UrlMediaCache UrlMediaCache -> UrlMediaCache [ctor assoc comm id: emptyUrlMediaCache] .
+
+  op getCachedMedia : UrlMediaCache Url -> MediaFile .
+  eq getCachedMedia((CACHE (URL ~> MEDIA_FILE)), URL) = MEDIA_FILE .
+  eq getCachedMedia(CACHE, URL) = nilMediaFile [owise] .
+  
+  op cacheMedia : UrlMediaCache Url MediaFile -> UrlMediaCache .
+  eq cacheMedia((CACHE (URL ~> OLD:MediaFile)), URL, MEDIA_FILE) =
+    CACHE (URL ~> MEDIA_FILE)
+  .
+  eq cacheMedia(CACHE, URL, MEDIA_FILE) = CACHE (URL ~> MEDIA_FILE) [owise] .
 
   --- Eqs ---
   ----- For Messages -----
@@ -283,6 +311,12 @@ mod MASTODON_NODE is
 
   op getPostingText : AttributeSet -> String .
   eq getPostingText(masClAttrs, postingText: POST_TEXT) = POST_TEXT .
+
+  op getGettingMediaUrl : AttributeSet -> Url .
+  eq getGettingMediaUrl(masClAttrs, gettingMediaUrl: URL) = URL .
+
+  op getMediaCache : AttributeSet -> UrlMediaCache .
+  eq getMediaCache(masClAttrs, mediaCache: CACHE) = CACHE .
 
   op peekOp : AttributeSet -> Op .
   eq peekOp(masClAttrs, opStack: (CURRENT_OP : OP_STACK)) = CURRENT_OP .
@@ -374,6 +408,20 @@ mod MASTODON_NODE is
       if masClAttrsTrans := (masClAttrs, opStack: (POST-STATUS-W-MEDIA-OP : OP_STACK), postingText: STATUS, postingMedia: MEDIA_FILE_LIST)
         /\ masClAttrsMsg := uploadNewMedia(masClAttrsTrans, MEDIA_FILE)
     .
+
+  ---Get media at url---
+  ---Check cache, download if needed.
+  op getMediaAtUrl : AttributeSet Url -> AttributeSetMsgs .
+  ceq getMediaAtUrl((masClAttrs, gettingMediaUrl: url), mediaLocation) =
+    masClAttrsMsg
+    if masClAttrsNext := (masClAttrs, gettingMediaUrl: mediaLocation)
+      /\ MEDIA_FILE := getCachedMedia(getMediaCache(masClAttrsNext), mediaLocation)
+      /\ masClAttrsMsg := (if MEDIA_FILE == nilMediaFile
+                            then downloadMediaAtUrl((masClAttrsNext), mediaLocation)
+                            else handleReply(makeHttpResponse("OK", MEDIA_FILE),
+                                             pushOp(masClAttrsNext, GET-MEDIA-URL-OP))
+                          fi)
+  .
 
   ---Download media at url---
   op downloadMediaAtUrl : AttributeSet Url -> AttributeSetMsgs .
@@ -533,7 +581,7 @@ mod MASTODON_NODE is
             then (if url == nilUrl
                   then {(masClAttrs, opStack: popOp(OP_STACK), gettingMediaUrls: emptyUrlList), *** TODO: Replace this with a call to reassemble the media together into a message from Alice.
                         (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : ResponseMediaList(getTag(masClAttrs), emptyMediaFileList))} 
-                  else downloadMediaAtUrl((masClAttrs, opStack: OP_STACK, gettingMediaUrls: popUrlList(urlList)), url)
+                  else getMediaAtUrl((masClAttrs, opStack: OP_STACK, gettingMediaUrls: popUrlList(urlList)), url)
                  fi)
             else {(masClAttrs, opStack: popOp(OP_STACK), gettingMediaUrls: URL_LIST), nullMsg}
             *** Else we are done.
@@ -543,8 +591,8 @@ mod MASTODON_NODE is
   --- Handle a Get media in post by Url reply.
   ---                      MsgAttributes ClientAttributes  ClientAttributes
   op handleMediaGetByUrl : MediaFile AttributeSet -> AttributeSetMsgs .
-  eq handleMediaGetByUrl(MEDIA_FILE, (masClAttrs, opStack: OP_STACK, gettingMediaUrls: URL_LIST, gettingMedias: mediaFileList)) =
-    cueNextGetOp((masClAttrs, gettingMedias: (mediaFileList :: MEDIA_FILE)), opStack: popOp(OP_STACK), gettingMediaUrls: URL_LIST)
+  eq handleMediaGetByUrl(MEDIA_FILE, (masClAttrs, opStack: OP_STACK, gettingMedias: mediaFileList, mediaCache: cache)) =
+    cueNextGetOp((masClAttrs, gettingMedias: (mediaFileList :: MEDIA_FILE)), opStack: popOp(OP_STACK), mediaCache: cacheMedia(cache, getGettingMediaUrl(masClAttrs), MEDIA_FILE))
     .
 
   --- Handle a Get media in post by Id reply.
@@ -554,7 +602,7 @@ mod MASTODON_NODE is
     masClAttrsMsg
       if url := peekUrlList(urlList)
         /\ urlList' := popUrlList(urlList)
-        /\ masClAttrsMsg := downloadMediaAtUrl((masClAttrs, opStack: OP_STACK, gettingMediaUrls: urlList'), url)
+        /\ masClAttrsMsg := getMediaAtUrl((masClAttrs, opStack: OP_STACK, gettingMediaUrls: urlList'), url)
     .
 
   --- Handle later parts of a Get request.
@@ -567,7 +615,7 @@ mod MASTODON_NODE is
             (if currentOp == GET-MEDIA-POST-OP
               then (if url == nilUrl
                       then finishGetMediaFromPost(masClAttrs, opStack: OP_STACK, gettingMediaUrls: emptyUrlList)
-                      else downloadMediaAtUrl((masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: urlList), url)
+                      else getMediaAtUrl((masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: urlList), url)
                    fi)
               else finishGetMediaFromPost(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: URL_LIST)
             fi)
@@ -585,7 +633,7 @@ mod MASTODON_NODE is
             then (if url == nilUrl
                    then {(masClAttrs, opStack: OP_STACK, gettingMediaUrls: emptyUrlList),
                          (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : ResponseMediaList(getTag(masClAttrs), getMedias(masClAttrs)))}
-                   else downloadMediaAtUrl((masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: popUrlList(URL_LIST)), url)
+                   else getMediaAtUrl((masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: popUrlList(URL_LIST)), url)
                  fi)
             else {(masClAttrs, opStack: (currentOp : OP_STACK), gettingMediaUrls: emptyUrlList),
                   (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : ResponseMediaList(getTag(masClAttrs), getMedias(masClAttrs)))}
@@ -720,9 +768,9 @@ mod MASTODON_NODE is
 
   op insertTag : TagPostIdsMap Tag MasId -> TagPostIdsMap .
   eq insertTag(tagPostIdsMap : (tag ~> MAS_ID_LIST), tag, postId) =
-    tagPostIdsMap : (tag ~> (MAS_ID_LIST : postId))
+    tagPostIdsMap : (tag ~> (postId : MAS_ID_LIST))
     .
-    eq insertTag(tagPostIdsMap, nilTag, postId) = tagPostIdsMap .
+  eq insertTag(tagPostIdsMap, nilTag, postId) = tagPostIdsMap .
   eq insertTag(tagPostIdsMap, tag, postId) =
     tagPostIdsMap : (tag ~> postId) [owise]
     .
