@@ -115,16 +115,35 @@ mod SMC_CP3 is
   eq removeZero(nil) = nil .
   eq removeZero(F FL) = if F == 0.0 then removeZero(FL) else F removeZero(FL) fi .
 
+  vars fl0 fl1 : Float .
+  vars fll fll0 fll1 : List{Float} .
+
+  op smerge : List{Float} List{Float} -> List{Float} .
+  op smergeAux : List{Float} List{Float} List{Float} -> List{Float} .
+
+  eq smerge(fll0, fll1) = smergeAux(fll0, fll1, nil) .
+
+  eq smergeAux(nil, fll0, fll) = fll fll0 .
+  eq smergeAux(fll0, nil, fll) = fll fll0 .
+
+  eq smergeAux(fl0 fll0, fl1 fll1, fll) = 
+    if fl0 < fl1
+    then smergeAux(fll0, fl1 fll1, fll fl0)
+    else smergeAux(fl0 fll0, fll1, fll fl1)
+    fi . 
+     
   op nth : List{Float} Nat -> Float .
   eq nth(nil, N) = 0.0 .
+  eq nth(FL, 0) = 0.0 .
   eq nth(F FL, 1) = F .
-  eq nth(F FL, s N) = nth(FL, N) . 
+  ceq nth(F FL, s N) = nth(FL, N) if N > 0 . 
 
   op ceil : Nat Nat -> Nat .
   eq ceil (N, N') = if N rem N' == 0 then N quo N' else (N quo N') + 1 fi .
 
   op percentile : List{Float} Nat -> Float .
-  eq percentile(FL, N) = nth(sort(FL), ceil(N * len(FL), 100)) . 
+  eq percentile(FL, 0) = nth(sort(FL), 1) .
+  ceq percentile(FL, N) = nth(sort(FL), ceil(N * len(FL), 100)) if N > 0 . 
 
   op min2 : Nat Nat -> Nat .
   eq min2(N, N') = if N <= N' then N else N' fi .
@@ -217,6 +236,14 @@ mod SMC_CP3 is
   eq filterWindow(messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend) = 
     filterWindow(ircMTL, Tstart, Tend) [owise] .
 
+  op filterIrcClientMsg : MessageTimestampList -> MessageTimestampList .
+  eq filterIrcClientMsg (nilMessageTimestampList) = nilMessageTimestampList .
+  ceq filterIrcClientMsg(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
+    messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; filterIrcClientMsg(ircMTL)
+  if isIrcClientAddr(ircAddrFrom) or isIrcClientAddr(ircAddrTo) .
+  eq filterIrcClientMsg(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) = 
+    filterIrcClientMsg(ircMTL) [owise] .
+
   op dropBefore : MessageTimestampList Float -> MessageTimestampList .
   eq dropBefore(nilMessageTimestampList, Tsent) = nilMessageTimestampList .
   ceq dropBefore(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, Tsent) =
@@ -232,18 +259,20 @@ mod SMC_CP3 is
   eq compLatency (Tsent, Trcvd) = Trcvd - Tsent .
 
   op collectMsgLatency : Nat Float MessageTimestampList Float Float -> List{Float} .
-  eq collectMsgLatency (ircMsgId, Tsent, nilMessageTimestampList, Tstart, Tend) = nil .
-  ceq collectMsgLatency(ircMsgId, Tsent, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend)
-  =
-    compLatency(Tsent, T) collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend)
+  eq collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) = collectMsgLatencyAux(ircMsgId, Tsent, dropBefore(ircMTL, Tsent), Tstart, Tend, nil) .
+
+  op collectMsgLatencyAux : Nat Float MessageTimestampList Float Float List{Float} -> List{Float} .
+  eq collectMsgLatencyAux(ircMsgId, Tsent, nilMessageTimestampList, Tstart, Tend, AccL) = AccL .
+  ceq collectMsgLatencyAux(ircMsgId, Tsent, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend, AccL) =
+    collectMsgLatencyAux(ircMsgId, Tsent, ircMTL, Tstart, Tend, AccL compLatency(Tsent, T))
   if (ircMsgId == ircMsgId') and (Tstart <= T) and (T <= Tend) and isIrcClientAddr(ircAddrTo) .
-  eq collectMsgLatency(ircMsgId, Tsent, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend) =
-    collectMsgLatency(ircMsgId, Tsent, ircMTL, Tstart, Tend) [owise] .
+  eq collectMsgLatencyAux(ircMsgId, Tsent, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tstart, Tend, AccL) =
+    collectMsgLatencyAux(ircMsgId, Tsent, ircMTL, Tstart, Tend, AccL) [owise] .
 
   var AccL : List{Float} .
 
   op collectLatency : MessageTimestampList MessageTimestampList Float Float -> List{Float} .
-  eq collectLatency(ircMTL, ircMTL', Tstart, Tend) = collectLatencyAux(ircMTL, ircMTL', Tstart, Tend, nil) .
+  eq collectLatency(ircMTL, ircMTL', Tstart, Tend) = collectLatencyAux(filterIrcClientMsg(ircMTL), filterIrcClientMsg(ircMTL'), Tstart, Tend, nil) .
 
   op collectLatencyAux : MessageTimestampList MessageTimestampList Float Float List{Float} -> List{Float} .
   eq collectLatencyAux(nilMessageTimestampList, ircMTL', Tstart, Tend, AccL) = AccL .
@@ -270,7 +299,7 @@ mod SMC_CP3 is
   var AccL : List{Float} .
 
   op collectLatency : MessageTimestampList MessageTimestampList Float Float -> List{Float} .
-  eq collectLatency(ircMTL, ircMTL', Tstart, Tend) = collectLatencyAux(ircMTL, ircMTL', Tstart, Tend, nil) .
+  eq collectLatency(ircMTL, ircMTL', Tstart, Tend) = collectLatencyAux(filterIrcClientMsg(ircMTL), filterIrcClientMsg(ircMTL'), Tstart, Tend, nil) .
 
   op collectLatencyAux : MessageTimestampList MessageTimestampList Float Float List{Float} -> List{Float} .
   eq collectLatencyAux(nilMessageTimestampList, ircMTL', Tstart, Tend, AccL) = AccL .
@@ -358,8 +387,11 @@ mod SMC_CP3 is
   eq getGoodputDistribution (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = collectGoodputDist(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend) .
 
   op getGoodput : Actor Float Float -> Float .
-  eq getGoodput (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = collectGoodput(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend) * 8.0 / (Tend - Tstart) . 
-  ---eq getGoodput (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = sum(collectGoodputDist(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend)) * 8.0 / (Tend - Tstart) . 
+  ceq getGoodput (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = collectGoodput(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend) * 8.0 / (Tend - Tstart) 
+	if Tend > Tstart .
+  ---ceq getGoodput (< ADDR : IrcMonitor | msgRcvd: ircMTL, attrs >, Tstart, Tend) = sum(collectGoodputDist(filterWindow(ircMTL, Tstart, Tend), Tstart, Tend)) * 8.0 / (Tend - Tstart) 
+	---if Tend > Tstart . 
+  eq getGoodput (A:Actor, Tstart, Tend) = 0.0 [owise] .
 
   -------------------------------------------------------------------------------------------------
   --- Integrity (MED)
@@ -529,7 +561,7 @@ mod SMC_CP3 is
   op lenUserNameList : IrcUserNameList -> Nat .
   eq lenUserNameList (nilIrcUserName) = 0 .
   eq lenUserNameList (emptyIrcUserNameList) = 0 .
-  eq lenUserNameList (ircUserName : uList) = if (uList == nilIrcUserName) then lenUserNameList(uList) else 1 + lenUserNameList(uList) fi .
+  eq lenUserNameList (ircUserName : uList) = if (ircUserName == nilIrcUserName) then lenUserNameList(uList) else 1 + lenUserNameList(uList) fi .
 
   op sumClientIntegrity : AddrList NameClientsMap MessageTimestampList MessageTimestampList Float Float -> Float .
   eq sumClientIntegrity(aList, cMap, ircMTL, ircMTL', Tstart, Tend) = sumClientIntegrityAux(aList, cMap, ircMTL, ircMTL', Tstart, Tend, 0.0) .
@@ -550,11 +582,11 @@ mod SMC_CP3 is
   -------------------------------------------------------------------------------------------------
 
   op collectIngestionFailureTime : Nat Float MessageTimestampList -> List{Float} .
-  eq collectIngestionFailureTime (ircMsgId, Tdeadline, nilMessageTimestampList) = nil .
+  eq collectIngestionFailureTime (ircMsgId, Tdeadline, nilMessageTimestampList) = Tdeadline .
   ceq collectIngestionFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) = 
     Tdeadline
   if (ircMsgId == ircMsgId') and isIrcServerAddr(ircAddrTo) and (T > Tdeadline) .
-  ceq collectIngestionFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
+  ceq collectIngestionFailureTime (ircMsgId, Tdeadline, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
     nil
   if (ircMsgId == ircMsgId') and isIrcServerAddr(ircAddrTo) and (T <= Tdeadline) .
   eq collectIngestionFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
@@ -565,7 +597,6 @@ mod SMC_CP3 is
 
   op collectIngestionFailureAux : MessageTimestampList MessageTimestampList Float Float Float List{Float} -> List{Float} .
   eq collectIngestionFailureAux(nilMessageTimestampList, ircMTL', Tn, Tstart, Tend, AccL) = AccL .
-  eq collectIngestionFailureAux(ircMTL, nilMessageTimestampList, Tn, Tstart, Tend, AccL) = AccL .
   ceq collectIngestionFailureAux(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tn, Tstart, Tend, AccL) = AccL if T + Tn > Tend .
   ceq collectIngestionFailureAux(messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId) ; ircMTL, ircMTL', Tn, Tstart, Tend, AccL) = 
     collectIngestionFailureAux(ircMTL, ircMTL', Tn, Tstart, Tend, AccL collectIngestionFailureTime(ircMsgId, T + Tn, ircMTL')) 
@@ -576,16 +607,21 @@ mod SMC_CP3 is
   op getIngestionFailureDistribution : Actor Float Float Float -> List{Float} .
   eq getIngestionFailureDistribution (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) .
 
+  var Tlast : Float . 
+
   op collectDeliveryFailureTime : Nat Float MessageTimestampList -> List{Float} .
-  eq collectDeliveryFailureTime (ircMsgId, Tdeadline, nilMessageTimestampList) = nil .
-  ceq collectDeliveryFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
-    nil
-  if (ircMsgId == ircMsgId') and isIrcClientAddr(ircAddrTo) and (T <= Tdeadline) .
-  ceq collectDeliveryFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
-    Tdeadline
-  if (ircMsgId == ircMsgId') and isIrcClientAddr(ircAddrTo) and (T > Tdeadline) .
-  eq collectDeliveryFailureTime (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL) =
-    collectDeliveryFailureTime(ircMsgId, Tdeadline, ircMTL) [owise] .
+  eq collectDeliveryFailureTime (ircMsgId, Tdeadline, ircMTL) = collectDeliveryFailureTimeAux (ircMsgId, Tdeadline, ircMTL, 0.0) .
+
+  op collectDeliveryFailureTimeAux : Nat Float MessageTimestampList Float -> List{Float} . 
+  eq collectDeliveryFailureTimeAux (ircMsgId, Tdeadline, nilMessageTimestampList, Tlast) = 
+    if Tlast <= Tdeadline 
+    then nil 
+    else Tdeadline fi .
+  ceq collectDeliveryFailureTimeAux (ircMsgId, Tdeadline, messageTimestamp(T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tlast) =
+    collectDeliveryFailureTimeAux(ircMsgId, Tdeadline, ircMTL, T) 
+  if (ircMsgId == ircMsgId') and isIrcClientAddr(ircAddrTo) .
+  eq collectDeliveryFailureTimeAux (ircMsgId, Tdeadline, messageTimestamp( T, ircAddrFrom, ircAddrTo, ircMsgSize, ircRoom, ircMsgId') ; ircMTL, Tlast) =
+    collectDeliveryFailureTimeAux(ircMsgId, Tdeadline, ircMTL, Tlast) [owise] .
 
   op collectDeliveryFailure : MessageTimestampList Float Float Float -> List{Float} .
   eq collectDeliveryFailure(ircMTL, Tn, Tstart, Tend) = collectDeliveryFailureAux(ircMTL, Tn, Tstart, Tend, nil) .
@@ -611,8 +647,7 @@ mod SMC_CP3 is
 
   op getMTBF : Actor Float Float Float -> List{Float} .
   eq getMTBF (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend)
-  = getMTBFAux(filterWindow(ircMTL, Tstart - Tn, Tend + Tn), filterWindow(ircMTL', Tstart - Tn, Tend + Tn), Tn, Tstart, Tend) .
-  ---eq getMTBF (< ADDR : IrcMonitor | msgSent: ircMTL, msgRcvd: ircMTL', attrs >, Tn, Tstart, Tend) = avgDiff(sort(collectIngestionFailure(ircMTL, ircMTL', Tn, Tstart, Tend) collectDeliveryFailure(ircMTL', Tn, Tstart, Tend))) .
+    = getMTBFAux(filterWindow(ircMTL, Tstart - Tn, Tend), dropBefore(ircMTL', Tstart - Tn), Tn, Tstart, Tend) .
 
   -------------------------------------------------------------------------------------------------
   --- Confidentiality (KS Statistic + CUSUM)
@@ -910,7 +945,7 @@ mod SMC_CP3 is
     else nil fi [owise] .
 
   op collectObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
-  eq collectObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = collectObsFeatureX(vp, obsF, TOL, Tstart, Tstart + winSize, binSize) .
+  eq collectObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = removeZero(sort(collectObsFeatureX(vp, obsF, TOL, Tstart, Tstart + winSize, binSize))) .
 
   op collectObsFeatureX : NetId Feature Flow TimesObsList Float Float Float -> List{Float} .
 
@@ -924,19 +959,19 @@ mod SMC_CP3 is
     else nil fi [owise] .
 
   op collectObsFeature : NetId Feature Flow TimesObsList Float Float Float -> List{Float} .
-  eq collectObsFeature (vp, obsF, Fid, TOL, Tstart, winSize, binSize) = collectObsFeatureX(vp, obsF, Fid, filterFlow(Fid, TOL), Tstart, Tstart + winSize, binSize) .
+  eq collectObsFeature (vp, obsF, Fid, TOL, Tstart, winSize, binSize) = removeZero(sort(collectObsFeatureX(vp, obsF, Fid, filterFlow(Fid, TOL), Tstart, Tstart + winSize, binSize))) .
 
   op collectObsFeatureFlow : NetId Feature FlowList TimesObsList Float Float Float -> List{Float} .
   eq collectObsFeatureFlow (vp, obsF, nilFlow, TOL, Tstart, winSize, binSize) = nil .
-  eq collectObsFeatureFlow (vp, obsF, Fid :: FidList, TOL, Tstart, winSize, binSize) = collectObsFeature(vp, obsF, Fid, TOL, Tstart, winSize, binSize) collectObsFeatureFlow(vp, obsF, FidList, TOL, Tstart, winSize, binSize) .
+  eq collectObsFeatureFlow (vp, obsF, Fid :: FidList, TOL, Tstart, winSize, binSize) = smerge(collectObsFeature(vp, obsF, Fid, TOL, Tstart, winSize, binSize), collectObsFeatureFlow(vp, obsF, FidList, TOL, Tstart, winSize, binSize)) .
 
   op getECDFObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} . 
   eq getECDFObsFeature (vp, tcpActiveFlow, TOL, Tstart, winSize, binSize) =
-    removeZero(sort(collectObsFeature(vp, tcpActiveFlow, TOL, Tstart, winSize, binSize))) .
+    collectObsFeature(vp, tcpActiveFlow, TOL, Tstart, winSize, binSize) .
   eq getECDFObsFeature (vp, tcpNewCnx, TOL, Tstart, winSize, binSize) = 
-    removeZero(sort(collectObsFeature(vp, tcpNewCnx, TOL, Tstart, winSize, binSize))) . 
+    collectObsFeature(vp, tcpNewCnx, TOL, Tstart, winSize, binSize) . 
   eq getECDFObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = 
-    removeZero(sort(collectObsFeatureFlow(vp, obsF, collectObsFlow(TOL), TOL, Tstart, winSize, binSize))) [owise] .
+    collectObsFeatureFlow(vp, obsF, collectObsFlow(TOL), TOL, Tstart, winSize, binSize) [owise] .
 
   op getBaselineCDFObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
   eq getBaselineCDFObsFeature (vp, obsF, F0Z, Tstart, Tend, binSize) = getECDFObsFeature(vp, obsF, F0Z, Tstart, Tend, binSize) . 
@@ -948,18 +983,18 @@ mod SMC_CP3 is
 
   op getECDFObsFeature : NetId Feature TimesObsList TimesObsLL Float Float Float -> List{Float} . 
   eq getECDFObsFeature (vp, tcpActiveFlow, TOL, TOLL, Tstart, winSize, binSize) =
-    removeZero(sort(collectObsFeature(vp, tcpActiveFlow, TOL, Tstart, winSize, binSize))) .
+    collectObsFeature(vp, tcpActiveFlow, TOL, Tstart, winSize, binSize) .
   eq getECDFObsFeature (vp, tcpNewCnx, TOL, TOLL, Tstart, winSize, binSize) = 
-    removeZero(sort(collectObsFeature(vp, tcpNewCnx, TOL, Tstart, winSize, binSize))) . 
+    collectObsFeature(vp, tcpNewCnx, TOL, Tstart, winSize, binSize) . 
   eq getECDFObsFeature (vp, obsF, TOL, TOLL, Tstart, winSize, binSize) = 
-    removeZero(sort(collectObsFeatureFlow(vp, obsF, TOLL, Tstart, winSize, binSize))) [owise] .
+    collectObsFeatureFlow(vp, obsF, TOLL, Tstart, winSize, binSize) [owise] .
 
   op collectObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
-  eq collectObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = collectObsFeatureX(vp, obsF, TOL, Tstart, Tstart + winSize, binSize) .
+  eq collectObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = removeZero(sort(collectObsFeatureX(vp, obsF, TOL, Tstart, Tstart + winSize, binSize))) .
 
   op collectObsFeatureFlow : NetId Feature TimesObsLL Float Float Float -> List{Float} .
   eq collectObsFeatureFlow (vp, obsF, nilTOL, Tstart, winSize, binSize) = nil .
-  eq collectObsFeatureFlow (vp, obsF, [ TOL ] :; TOLL, Tstart, winSize, binSize) = collectObsFeature(vp, obsF, TOL, Tstart, winSize, binSize) collectObsFeatureFlow(vp, obsF, TOLL, Tstart, winSize, binSize) .
+  eq collectObsFeatureFlow (vp, obsF, [ TOL ] :; TOLL, Tstart, winSize, binSize) = smerge(collectObsFeature(vp, obsF, TOL, Tstart, winSize, binSize), collectObsFeatureFlow(vp, obsF, TOLL, Tstart, winSize, binSize)) .
 
   op getBaseline : Config -> Actor .
   eq getBaseline (C < ADDR : BaseLineMonitor | attrs >) = < ADDR : BaseLineMonitor | attrs > .
@@ -1017,7 +1052,7 @@ mod SMC_CP3 is
   op getECDFObsFeatureRangeAux : FloatLL Nat Nat Nat -> List{Float} .
   eq getECDFObsFeatureRangeAux (nilFloatL, I, J, N) = nil .
   ceq getECDFObsFeatureRangeAux ([ FL ] binECDFs, I, J, N) = nil if N > J .
-  ceq getECDFObsFeatureRangeAux ([ FL ] binECDFs, I, J, N) = FL getECDFObsFeatureRangeAux(binECDFs, I, J, s(N)) if (N >= I) and (N <= J) .
+  ceq getECDFObsFeatureRangeAux ([ FL ] binECDFs, I, J, N) = smerge(FL, getECDFObsFeatureRangeAux(binECDFs, I, J, s(N))) if (N >= I) and (N <= J) .
   eq getECDFObsFeatureRangeAux ([ FL ] binECDFs, I, J, N) = getECDFObsFeatureRangeAux(binECDFs, I, J, s(N)) [owise] .
 
   op expectedKObsFeature : NetId Feature List{Float} FloatLL Float Float Float Float Float Nat -> Float .
@@ -1026,7 +1061,7 @@ mod SMC_CP3 is
     then expectedKObsFeature(vp, obsF, baselineCDF, binECDFs, T + binSize, Tend, winSize, binSize, Ksum + KD, N + 1)
     else expectedKObsFeature(vp, obsF, baselineCDF, binECDFs, T + binSize, Tend, winSize, binSize, Ksum, N) fi
     if (T + winSize) <= (Tend + Tesp)
-      /\ ECDF := sort(getECDFObsFeatureRange(binECDFs, floor(rat(T / binSize)), (floor(rat(T / binSize)) + floor(rat(winSize / binSize))) - 1)) 
+      /\ ECDF := getECDFObsFeatureRange(binECDFs, floor(rat(T / binSize)), (floor(rat(T / binSize)) + floor(rat(winSize / binSize))) - 1) 
       /\ KD := KsDistance(baselineCDF, ECDF) .
   ceq expectedKObsFeature (vp, obsF, baselineCDF, binECDFs, T, Tend, winSize, binSize, Ksum, N) =
     if N == 0
