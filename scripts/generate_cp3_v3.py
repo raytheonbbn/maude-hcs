@@ -45,6 +45,14 @@ FEATURES = {
     "tcpNewCnx": "tcp_new_conn_count",
 }
 
+VP_FEAT_COMBO_FEATURE_NAMES = {
+    "dns_query_rate",
+    "tcp_outgoing_packet_rate",
+    "tcp_incoming_packet_rate",
+    "packet_size_mean",
+    "packet_interarrival_mean",
+}
+
 TOP25_VANTAGE_POINTS = (
     "client_net_iodine",
     "client_net_mastodon",
@@ -88,6 +96,19 @@ def get_top25_features():
     missing = TOP25_FEATURE_NAMES.difference(selected.values())
     if missing:
         raise ValueError(f"Top 25 features have no Maude mapping: {', '.join(sorted(missing))}")
+    return selected
+
+
+def get_vp_feat_combo_features():
+    """Return the shared feature set for VP/feature combos 1 and 2."""
+    selected = {
+        operator: name
+        for operator, name in FEATURES.items()
+        if name in VP_FEAT_COMBO_FEATURE_NAMES
+    }
+    missing = VP_FEAT_COMBO_FEATURE_NAMES.difference(selected.values())
+    if missing:
+        raise ValueError(f"Combo features have no Maude mapping: {', '.join(sorted(missing))}")
     return selected
 
 def chunk_list(lst, n):
@@ -1901,7 +1922,12 @@ if __name__ == "__main__":
             if srv in net_id_map.values():
                 vpts_list.append(srv)
 
-    selected_features = get_top25_features() if args.filterVpFeatTop25 else FEATURES
+    if args.filterVpFeatTop25:
+        selected_features = get_top25_features()
+    elif args.filterVpFeatCombos or args.filterVpFeatCombos2:
+        selected_features = get_vp_feat_combo_features()
+    else:
+        selected_features = FEATURES
     
     
     # for now delay tgens (TODO: remove them from the soup completely)
