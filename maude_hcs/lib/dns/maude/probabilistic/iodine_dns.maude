@@ -480,9 +480,10 @@ crl [wnameserver-receive-query-weird]:
      then 
      delayMsgs((to getFromAddr(response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)) : start),null)
      else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
-    (if msgOutExt == nullMsg then 
-     null 
-     else [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
+    (if ((msgOutExt == nullMsg) or (txComplete == true))
+        then null 
+        else [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0]
+    fi)
   (if appMsgOut == nullMsg then null else delayMsgs(appMsgOut,null) fi)
 ***     [0., appMsgOut, 0] 
 ***** endMsgs
@@ -576,7 +577,7 @@ crl [wnameserver-receive-query-weird]:
           else sendFragment(wattrs, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
-      [print "(" T ") WClient ACK Timeout: sending possible fragment " msgOutExt " or requesting new packet" ]
+      [print "(" T ") WClient " ADDR " ACK Timeout: sending possible fragment " msgOutExt " or requesting new packet." ]
     .
 
   --- Timeout rule for catching WClient timeout when it has become moot.
@@ -586,7 +587,7 @@ crl [wnameserver-receive-query-weird]:
     =>
     < ADDR : WClient | wattrs >
     if not (isSending(wattrs) and isTimeOutMatch(wattrs, FRAGMENT))
-    [print "(" T ") WClient ignoring timeout" ]
+    [print "(" T ") WClient " ADDR " ignoring timeout" ]
   .
 
 
