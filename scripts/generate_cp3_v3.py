@@ -45,6 +45,51 @@ FEATURES = {
     "tcpNewCnx": "tcp_new_conn_count",
 }
 
+TOP25_VANTAGE_POINTS = (
+    "client_net_iodine",
+    "client_net_mastodon",
+    "client_net_obfs",
+    "client_net_racetunnel",
+    "client_net_sky",
+    "ixp-router",
+    "mastodon_net",
+    "minio_net",
+    "server_net",
+)
+
+TOP25_FEATURE_NAMES = {
+    "active_flow_count",
+    "direction_change_count",
+    "dns_query_rate",
+    "dns_query_size_mean",
+    "dns_response_size_mean",
+    "packet_interarrival_mean",
+    "packet_size_mean",
+    "packet_size_std_dev",
+    "tcp_new_conn_count",
+}
+
+
+def get_top25_vantage_points(net_id_map):
+    """Translate the Top 25 network names to their generated Maude NetIds."""
+    special_vantage_points = {"ixp-router": "ixpN"}
+    missing = [
+        name for name in TOP25_VANTAGE_POINTS
+        if name not in special_vantage_points and name not in net_id_map
+    ]
+    if missing:
+        raise ValueError(f"Top 25 vantage points missing from scenario YAML: {', '.join(missing)}")
+    return [special_vantage_points.get(name, net_id_map.get(name)) for name in TOP25_VANTAGE_POINTS]
+
+
+def get_top25_features():
+    """Return Maude feature operators whose external names are in the Top 25 set."""
+    selected = {operator: name for operator, name in FEATURES.items() if name in TOP25_FEATURE_NAMES}
+    missing = TOP25_FEATURE_NAMES.difference(selected.values())
+    if missing:
+        raise ValueError(f"Top 25 features have no Maude mapping: {', '.join(sorted(missing))}")
+    return selected
+
 def chunk_list(lst, n):
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
@@ -385,7 +430,8 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, not
     return "\n".join(lines), hcs_client_ids
 
 # Generate scenario1.maude (ZERO structured addresses!)
-def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=False, notgens=False):
+def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=False, notgens=False, features=None):
+    features = FEATURES if features is None else features
     lines = []
     L = lines.append
     
@@ -666,7 +712,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("")
     L("  *** op ObsFs : -> FeatureList .")
     L("  eq ObsFs = ")
-    joined_features = " :; ".join(FEATURES)
+    joined_features = " :; ".join(features)
     L((f"  {joined_features}"))    
     L("  [owise]")
     L("  .")
@@ -1683,7 +1729,7 @@ def gen_baselineEq(scenario_name):
     return "\n".join(lines)
 
 # Generate baseline or run scenario file
-def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_time=None, run_time=None, feature=None, vpt=None, combos1=False, combos2=False):
+def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_time=None, run_time=None, feature=None, vpt=None, combos1=False, combos2=False, top25=False):
     lines = []
     L = lines.append
 
@@ -1698,12 +1744,14 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
         L("")
         if not isBaseline:
             eqSuffix = ""
-            if combos1 and combos2:
+            if sum((combos1, combos2, top25)) > 1:
                 raise Exception("********For now you have to pick one feature/vp combo!!")
             if combos1:
                 eqSuffix = "-combo1"
             elif combos2:
                 eqSuffix = "-combo2"
+            elif top25:
+                eqSuffix = "-top25"
             L(f"sload {scenario_name}-baseline-eq{eqSuffix}")    
         L("")
     
@@ -1766,8 +1814,14 @@ if __name__ == "__main__":
     parser.add_argument("--quatex", action="store_true", help="generate quatex file for combinations?")
     parser.add_argument("--perf", action="store_true", help="Performance mode: removes baseLineAct and sets Adversary useTcpTPL to false")    
     parser.add_argument("--confidentiality", action="store_true", help="Confidentiality mode: only quatex needed for computing confidentiality")    
-    parser.add_argument("--filterVpFeatCombos", action="store_true", help="filter the combinations of VP and feature")
-    parser.add_argument("--filterVpFeatCombos2", action="store_true", help="filter the combinations of VP and feature (different vps)")
+    combo_group = parser.add_mutually_exclusive_group()
+    combo_group.add_argument("--filterVpFeatCombos", action="store_true", help="filter the combinations of VP and feature")
+    combo_group.add_argument("--filterVpFeatCombos2", action="store_true", help="filter the combinations of VP and feature (different vps)")
+    combo_group.add_argument(
+        "--filterVpFeatTop25",
+        action="store_true",
+        help="use the Top 25 vantage-point and feature sets",
+    )
     parser.add_argument("--notgens", action="store_true", help="disable tgens firing")
     args = parser.parse_args()
     
@@ -1836,7 +1890,9 @@ if __name__ == "__main__":
     elif args.filterVpFeatCombos2:
         vpts_list = ["srvN"]
         for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net_mastodon") or k.startswith("client_net_racetunnel")]):
-            vpts_list.append(cl_id)            
+            vpts_list.append(cl_id)
+    elif args.filterVpFeatTop25:
+        vpts_list = get_top25_vantage_points(net_id_map)
     else:
         vpts_list = ["ixpN"]
         for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
@@ -1844,20 +1900,27 @@ if __name__ == "__main__":
         for srv in ["srvN", "masN"]:
             if srv in net_id_map.values():
                 vpts_list.append(srv)
+
+    selected_features = get_top25_features() if args.filterVpFeatTop25 else FEATURES
     
     
     # for now delay tgens (TODO: remove them from the soup completely)
     if args.notgens:
         tgen_delay = 2*duration
     # Generate main file
-    main_content = gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=args.perf, notgens=args.notgens)
+    main_content = gen_main_file(
+        tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration,
+        hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map,
+        hcs_delay, tgen_delay, vpts_list, features=selected_features,
+        perf=args.perf, notgens=args.notgens,
+    )
     main_path = os.path.join(out_dir, f"{scenario_name}.maude")
     with open(main_path, "w") as f:
         f.write(main_content)
     print(f"Wrote {main_path} ({len(main_content.splitlines())} lines)")
 
     # Generate baseline file    
-    baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=args.perf, baseline_time=baseline_time, combos1=args.filterVpFeatCombos, combos2=args.filterVpFeatCombos2)
+    baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=args.perf, baseline_time=baseline_time, combos1=args.filterVpFeatCombos, combos2=args.filterVpFeatCombos2, top25=args.filterVpFeatTop25)
     if baseline_time is not None:
         baseline_filename = f"{scenario_name}-baseline-{baseline_time}.maude"
     else:
@@ -1873,7 +1936,7 @@ if __name__ == "__main__":
 
     all_clients = get_client_lst(hcs_client_ids)
 
-    print("Features: ", FEATURES)
+    print("Features: ", selected_features)
     print("Vantage points: ", vpts_list)
     print("Clients: ", all_clients)
 
@@ -1882,7 +1945,7 @@ if __name__ == "__main__":
         quatex_filename = f"{scenario_name}-quatex.maude"    
         quatex_path = os.path.join(out_dir, quatex_filename)
         max_win = math.floor(duration/analysis_window_size)
-        write_all_queries_to_file(Config(FEATURES, vpts_list, all_clients, window_size=int(analysis_window_size), max_win=max_win, hcs_delay=hcs_delay, perf_only=args.perf, conf_only=args.confidentiality), Path(quatex_path))
+        write_all_queries_to_file(Config(selected_features, vpts_list, all_clients, window_size=int(analysis_window_size), max_win=max_win, hcs_delay=hcs_delay, perf_only=args.perf, conf_only=args.confidentiality), Path(quatex_path))
         print(f"Wrote quatex queries to {quatex_path}: max_win: {max_win}, hcs_delay: {hcs_delay}")
 
     # Generate parallelized baseline files if flag is set
@@ -1890,7 +1953,7 @@ if __name__ == "__main__":
         baselines_dir = os.path.join(out_dir, "baselines")
         os.makedirs(baselines_dir, exist_ok=True)
         
-        for feature in FEATURES:
+        for feature in selected_features:
             for vpt in vpts_list:
                 p_content = gen_baselineOrRun_file(
                     scenario_name, 
@@ -1900,13 +1963,14 @@ if __name__ == "__main__":
                     feature=feature,
                     vpt=vpt,
                     combos1=args.filterVpFeatCombos,
-                    combos2=args.filterVpFeatCombos2
+                    combos2=args.filterVpFeatCombos2,
+                    top25=args.filterVpFeatTop25,
                 )
                 p_filename = f"{base_fn_no_ext}-{feature}-{vpt.replace("[","").replace("]","")}.maude"
                 p_path = os.path.join(baselines_dir, p_filename)
                 with open(p_path, "w") as f:
                     f.write(p_content)
-        print(f"Wrote {len(FEATURES) * len(vpts_list)} parallel baseline files to {baselines_dir}/")
+        print(f"Wrote {len(selected_features) * len(vpts_list)} parallel baseline files to {baselines_dir}/")
 
     # Generate the baseline eq
     baselin_eq_content = gen_baselineEq(scenario_name)
@@ -1919,7 +1983,8 @@ if __name__ == "__main__":
     # Generate run file    
     run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, perf=args.perf, run_time=run_time,
                                          combos1=args.filterVpFeatCombos,
-                                        combos2=args.filterVpFeatCombos2)
+                                         combos2=args.filterVpFeatCombos2,
+                                         top25=args.filterVpFeatTop25)
     if run_time is not None:
         run_filename = f"{scenario_name}-run-{run_time}.maude"
     else:
