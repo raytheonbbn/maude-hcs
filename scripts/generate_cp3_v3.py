@@ -29,20 +29,20 @@ MAX_BL_SIZE = 10000.0 # max list size
 # Changed to dictionary to keep track of the required naming scheme for T&E results
 FEATURES = {
     "dnsQueryRate": "dns_query_rate",
-    # "dnsQuerySize": "dns_query_size_mean",
-    # "dnsRespSize": "dns_response_size_mean",
-    # "tcpUpRate": "tcp_upload_rate",
-    # "tcpDownRate": "tcp_download_rate",
-    # "tcpUpToDownRate": "tcp_upload_download_ratio",
+    "dnsQuerySize": "dns_query_size_mean",
+    "dnsRespSize": "dns_response_size_mean",
+    "tcpUpRate": "tcp_upload_rate",
+    "tcpDownRate": "tcp_download_rate",
+    "tcpUpToDownRate": "tcp_upload_download_ratio",
     "tcpOutPktRate": "tcp_outgoing_packet_rate",
     "tcpInPktRate": "tcp_incoming_packet_rate",
-    #"tcpOutToInPktRate": "tcp_packet_upload_download_ratio",
-    #"tcpPktSizeStdDev": "packet_size_std_dev",
+    "tcpOutToInPktRate": "tcp_packet_upload_download_ratio",
+    "tcpPktSizeStdDev": "packet_size_std_dev",
     "tcpPktSize": "packet_size_mean",
     "tcpPktInterarrival": "packet_interarrival_mean",
-    #"tcpDirectionChange": "direction_change_count",
-    # "tcpActiveFlow": "active_flow_count",
-    # "tcpNewCnx": "tcp_new_conn_count",
+    "tcpDirectionChange": "direction_change_count",
+    "tcpActiveFlow": "active_flow_count",
+    "tcpNewCnx": "tcp_new_conn_count",
 }
 
 def chunk_list(lst, n):
