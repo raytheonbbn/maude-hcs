@@ -1750,7 +1750,7 @@ def gen_baselineEq(scenario_name):
     return "\n".join(lines)
 
 # Generate baseline or run scenario file
-def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_time=None, run_time=None, feature=None, vpt=None, combos1=False, combos2=False, top25=False):
+def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_time=None, run_time=None, feature=None, vpt=None, combos1=False, combos2=False, top25=False, ixp=False):
     lines = []
     L = lines.append
 
@@ -1765,7 +1765,7 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
         L("")
         if not isBaseline:
             eqSuffix = ""
-            if sum((combos1, combos2, top25)) > 1:
+            if sum((combos1, combos2, top25, ixp)) > 1:
                 raise Exception("********For now you have to pick one feature/vp combo!!")
             if combos1:
                 eqSuffix = "-combo1"
@@ -1773,6 +1773,8 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
                 eqSuffix = "-combo2"
             elif top25:
                 eqSuffix = "-top25"
+            elif ixp:
+                eqSuffix = "-ixp"
             L(f"sload {scenario_name}-baseline-eq{eqSuffix}")    
         L("")
     
@@ -1842,6 +1844,11 @@ if __name__ == "__main__":
         "--filterVpFeatTop25",
         action="store_true",
         help="use the Top 25 vantage-point and feature sets",
+    )
+    combo_group.add_argument(
+        "--filterVpFeatIxp",
+        action="store_true",
+        help="use ixpN as the only vantage point and retain all features",
     )
     parser.add_argument("--notgens", action="store_true", help="disable tgens firing")
     args = parser.parse_args()
@@ -1914,6 +1921,8 @@ if __name__ == "__main__":
             vpts_list.append(cl_id)
     elif args.filterVpFeatTop25:
         vpts_list = get_top25_vantage_points(net_id_map)
+    elif args.filterVpFeatIxp:
+        vpts_list = ["ixpN"]
     else:
         vpts_list = ["ixpN"]
         for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
@@ -1946,7 +1955,7 @@ if __name__ == "__main__":
     print(f"Wrote {main_path} ({len(main_content.splitlines())} lines)")
 
     # Generate baseline file    
-    baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=args.perf, baseline_time=baseline_time, combos1=args.filterVpFeatCombos, combos2=args.filterVpFeatCombos2, top25=args.filterVpFeatTop25)
+    baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=args.perf, baseline_time=baseline_time, combos1=args.filterVpFeatCombos, combos2=args.filterVpFeatCombos2, top25=args.filterVpFeatTop25, ixp=args.filterVpFeatIxp)
     if baseline_time is not None:
         baseline_filename = f"{scenario_name}-baseline-{baseline_time}.maude"
     else:
@@ -1991,6 +2000,7 @@ if __name__ == "__main__":
                     combos1=args.filterVpFeatCombos,
                     combos2=args.filterVpFeatCombos2,
                     top25=args.filterVpFeatTop25,
+                    ixp=args.filterVpFeatIxp,
                 )
                 p_filename = f"{base_fn_no_ext}-{feature}-{vpt.replace("[","").replace("]","")}.maude"
                 p_path = os.path.join(baselines_dir, p_filename)
@@ -2010,7 +2020,8 @@ if __name__ == "__main__":
     run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, perf=args.perf, run_time=run_time,
                                          combos1=args.filterVpFeatCombos,
                                          combos2=args.filterVpFeatCombos2,
-                                         top25=args.filterVpFeatTop25)
+                                         top25=args.filterVpFeatTop25,
+                                         ixp=args.filterVpFeatIxp)
     if run_time is not None:
         run_filename = f"{scenario_name}-run-{run_time}.maude"
     else:

@@ -122,6 +122,7 @@ def generate_baselines(baseline_time=10800.0, combo=None):
         "combo1": "--filterVpFeatCombos",
         "combo2": "--filterVpFeatCombos2",
         "top25": "--filterVpFeatTop25",
+        "ixp": "--filterVpFeatIxp",
     }
     if combo:
         command.append(combo_flags[combo])
@@ -328,7 +329,7 @@ def main():
     )
     parser.set_defaults(scenario=1)
     parser.add_argument(
-        "--combo", choices=("combo1", "combo2", "top25"), default=None,
+        "--combo", choices=("combo1", "combo2", "top25", "ixp"), default=None,
         help="Vantage-point/feature combination filter to apply during generation",
     )
     parser.add_argument("--baselineTime", type=float, default=10800.0, help="Baseline time duration (default: 10800.0)")
