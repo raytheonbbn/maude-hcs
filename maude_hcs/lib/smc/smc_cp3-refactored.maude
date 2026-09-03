@@ -165,7 +165,6 @@ mod SMC_CP3 is
 
   op sumSquaredDiff : List{Float} Float -> Float .
   eq sumSquaredDiff(nil, F') = 0.0 .
-  eq sumSquaredDiff(F nil, F') = 0.0 .
   eq sumSquaredDiff(F FL, F') = (F - F') * (F - F') + sumSquaredDiff(FL, F') . 
 
   op countChange : List{Float} -> Nat .
@@ -687,19 +686,20 @@ mod SMC_CP3 is
   eq rmEqPrefix (F, nil) = nil .
   eq rmEqPrefix (F, F' FL) = if F == F' then rmEqPrefix(F, FL) else F' FL fi .
 
+  --- baseline-shared 
   vars FL1 FL2 : List{Float} .
   vars C1 C2 : Nat .
 
   sort PrefixInfo .
   op prefix : Nat List{Float} -> PrefixInfo [ctor] .
 
+  op incPrefix : PrefixInfo -> PrefixInfo .
+  eq incPrefix (prefix(N, FL)) = prefix(N + 1, FL) .
+
   op skipEqPrefix : Float List{Float} -> PrefixInfo .
   eq skipEqPrefix (F, nil) = prefix(0, nil) .
   eq skipEqPrefix (F, F FL) = incPrefix(skipEqPrefix(F, FL)) .
   ceq skipEqPrefix (F, F' FL) = prefix(0, F' FL) if F =/= F' .
-
-  op incPrefix : PrefixInfo -> PrefixInfo .
-  eq incPrefix (prefix(N, FL)) = prefix(N + 1, FL) .
 
   vars invN invN' : Float . 
 
@@ -725,10 +725,11 @@ mod SMC_CP3 is
   op KsDistance : List{Float} List{Float} -> Float .
   eq KsDistance(nil, FL) = -1.0 .
   eq KsDistance(FL, nil) = -1.0 .
-  eq KsDistance(FL, FL') = KsDistanceX(FL, FL', 0, 0, 1.0 / float(len(FL)), 1.0 / float(len(FL')), 0.0) .
+  eq KsDistance(FL, FL') = KsDistanceX(FL, FL', 0, 0, 1.0 / float(len(FL)), 1.0 / float(len(FL')), 0.0) [owise] .
 
   op KsStatisticZ : List{Float} List{Float} Float -> Float .
   eq KsStatisticZ (FL, FL', K) = KsDistance(FL, FL') - K .
+  --- baseline-shared 
 
   sort FlowList .
   subsort Flow < FlowList .
@@ -862,11 +863,21 @@ mod SMC_CP3 is
     stdDevPktSize(vp, Fid, TOL, Tstart, Tend) .  
   eq compObsFeatureX (vp, tcpPktSize, Fid, TOL, Tstart, Tend) =
     meanPktSize(vp, Fid, TOL, Tstart, Tend) .  
+  --- deprecated
   eq compObsFeatureX (vp, tcpPktInterarrival, Fid, TOL, Tstart, Tend) =
-    avgDiff(sort(collectPktTime(vp, Fid, TOL, Tstart, Tend))) .
+    avgDiff(sort(collectPktTime(vp, TOL, Tstart, Tend))) .
   eq compObsFeatureX (vp, tcpDirectionChange, Fid, TOL, Tstart, Tend) =
-    float(countPktDirectionChange(vp, Fid, TOL, Tstart, Tend)) .
+    float(countPktDirectionChange(vp, TOL, Tstart, Tend)) .
+  ---
 
+  op compObsFeature : NetId Feature Flow TimesObsList Float Float -> Float .
+  eq compObsFeature (vp, obsF, Fid, nilTO, Tstart, Tend) = 0.0 . 
+  eq compObsFeature (vp, obsF, Fid, TOL, Tstart, Tend) = 
+    if Tend <= Tstart
+    then 0.0
+    else compObsFeatureX (vp, obsF, Fid, TOL, Tstart, Tend) fi .
+
+  --- baseline-shared
   op compObsFeatureX : NetId Feature TimesObsList Float Float -> Float .
   eq compObsFeatureX (vp, obsF, nilTO, Tstart, Tend) = 0.0 . 
   eq compObsFeatureX (vp, dnsQueryRate, TOL, Tstart, Tend) = 
@@ -911,9 +922,6 @@ mod SMC_CP3 is
     avgDiff(sort(collectPktTime(vp, TOL, Tstart, Tend))) .
   eq compObsFeatureX (vp, tcpDirectionChange, TOL, Tstart, Tend) =
     float(countPktDirectionChange(vp, TOL, Tstart, Tend)) .
-
-  op compObsFeatureX : NetId Feature TimesObsList Float Float -> Float .
-  eq compObsFeatureX (vp, obsF, nilTO, Tstart, Tend) = 0.0 . 
   eq compObsFeatureX (vp, tcpActiveFlow, TOL, Tstart, Tend) =
     float(countActiveFlow(vp, TOL, Tstart, Tend)) .
   eq compObsFeatureX (vp, tcpNewCnx, TOL, Tstart, Tend) = 
@@ -926,15 +934,7 @@ mod SMC_CP3 is
     then 0.0
     else compObsFeatureX (vp, obsF, TOL, Tstart, Tend) fi .
 
-  op compObsFeature : NetId Feature Flow TimesObsList Float Float -> Float .
-  eq compObsFeature (vp, obsF, Fid, nilTO, Tstart, Tend) = 0.0 . 
-  eq compObsFeature (vp, obsF, Fid, TOL, Tstart, Tend) = 
-    if Tend <= Tstart
-    then 0.0
-    else compObsFeatureX (vp, obsF, Fid, TOL, Tstart, Tend) fi .
-
   op collectObsFeatureX : NetId Feature TimesObsList Float Float Float -> List{Float} .
-
   ceq collectObsFeatureX(vp, obsF, TOL, T, Tend, binSize) =
     compObsFeature(vp, obsF, filterWindow(TOL, T, T + binSize), T, T + binSize) 
     collectObsFeatureX(vp, obsF, filterWindow(TOL, T + binSize, Tend), T + binSize, Tend, binSize)
@@ -946,9 +946,9 @@ mod SMC_CP3 is
 
   op collectObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
   eq collectObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = removeZero(sort(collectObsFeatureX(vp, obsF, TOL, Tstart, Tstart + winSize, binSize))) .
+  --- baseline-shared
 
   op collectObsFeatureX : NetId Feature Flow TimesObsList Float Float Float -> List{Float} .
-
   ceq collectObsFeatureX(vp, obsF, Fid, TOL, T, Tend, binSize) =
     compObsFeature(vp, obsF, Fid, filterWindow(TOL, T, T + binSize), T, T + binSize) 
     collectObsFeatureX(vp, obsF, Fid, filterWindow(TOL, T + binSize, Tend), T + binSize, Tend, binSize)
@@ -976,6 +976,7 @@ mod SMC_CP3 is
   op getBaselineCDFObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
   eq getBaselineCDFObsFeature (vp, obsF, F0Z, Tstart, Tend, binSize) = getECDFObsFeature(vp, obsF, F0Z, Tstart, Tend, binSize) . 
 
+  --- baseline-shared
   var TOLL : TimesObsLL .
 
   op getBaselineCDFObsFeature : NetId Feature TimesObsList TimesObsLL Float Float Float -> List{Float} .
@@ -989,12 +990,10 @@ mod SMC_CP3 is
   eq getECDFObsFeature (vp, obsF, TOL, TOLL, Tstart, winSize, binSize) = 
     collectObsFeatureFlow(vp, obsF, TOLL, Tstart, winSize, binSize) [owise] .
 
-  op collectObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
-  eq collectObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = removeZero(sort(collectObsFeatureX(vp, obsF, TOL, Tstart, Tstart + winSize, binSize))) .
-
   op collectObsFeatureFlow : NetId Feature TimesObsLL Float Float Float -> List{Float} .
   eq collectObsFeatureFlow (vp, obsF, nilTOL, Tstart, winSize, binSize) = nil .
   eq collectObsFeatureFlow (vp, obsF, [ TOL ] :; TOLL, Tstart, winSize, binSize) = smerge(collectObsFeature(vp, obsF, TOL, Tstart, winSize, binSize), collectObsFeatureFlow(vp, obsF, TOLL, Tstart, winSize, binSize)) .
+  --- basedline-shared
 
   op getBaseline : Config -> Actor .
   eq getBaseline (C < ADDR : BaseLineMonitor | attrs >) = < ADDR : BaseLineMonitor | attrs > .
@@ -1040,9 +1039,11 @@ mod SMC_CP3 is
     fi
     if (T + winSize) > (Tend + Tesp) .
 
+  --- baseline-shared 
   var binECDFs : FloatLL .
 
   op getECDFObsFeature : FloatLL Nat -> List{Float} .
+  eq getECDFObsFeature (nilFloatL, N) = nil .
   eq getECDFObsFeature ([ FL ] binECDFs, 0) = FL .
   eq getECDFObsFeature ([ FL ] binECDFs, s(N)) = getECDFObsFeature(binECDFs, N) .
 
@@ -1069,7 +1070,7 @@ mod SMC_CP3 is
     else Ksum / float(N)
     fi
     if (T + winSize) > (Tend + Tesp) .
-
+  --- baseline-shared 
 
   op getKObsFeature : NetId Feature TimesObsList Float Float Float Float -> Float .
   eq getKObsFeature (vp, obsF, TOL, Tstart, Tend, winSize, binSize) = expectedKObsFeature(vp, obsF, getBaselineCDFObsFeature(vp, obsF, TOL, Tstart, Tend, binSize), TOL, Tstart, Tend, winSize, binSize, 0.0, 0) .
@@ -1208,7 +1209,8 @@ mod SMC_CP3 is
   eq nZ = -1.0e+5 .
 
   op cusumRange : List{Float} Nat Nat -> Float .
-  eq cusumRange(FL, I, J) = cusumRangeAux(FL, I, J, 0, 0.0) .
+  ceq cusumRange(FL, I, J) = 0.0 if I > J .
+  ceq cusumRange(FL, I, J) = cusumRangeAux(FL, I, J, 0, 0.0) if I <= J .
 
   op cusumRangeAux : List{Float} Nat Nat Nat Float -> Float .
   eq cusumRangeAux(nil, I, J, N, S) = S .
@@ -1225,7 +1227,9 @@ mod SMC_CP3 is
   op getCUSUMZt : Actor NetId Feature Float Float Float Float -> Float .
   eq getCUSUMZt (< ADDR : Adversary | gt: nilBaseLine, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) = nZ .
   eq getCUSUMZt (< ADDR : Adversary | gt: (bl(vp, obsF, K, Zt) :; blList), attrs >, vp, obsF, Tstart, Tend, winSize, binSize) =
-    cusumRange(Zt, floor(rat(Tstart / binSize)), floor(rat((Tend - winSize) / binSize))) .
+    if (Tstart + winSize) <= Tend
+    then cusumRange(Zt, floor(rat(Tstart / binSize)), floor(rat((Tend - winSize) / binSize))) 
+    else 0.0 fi .
   eq getCUSUMZt (< ADDR : Adversary | gt: (bl(vp', obsF', K, Zt) :; blList), attrs >, vp, obsF, Tstart, Tend, winSize, binSize) =
     getCUSUMZt (< ADDR : Adversary | gt: (blList), attrs >, vp, obsF, Tstart, Tend, winSize, binSize) [owise] .
 
@@ -1268,6 +1272,7 @@ mod SMC_CP3 is
   eq isDNSQuery (QUERY) = true .
   eq isDNSQuery (CO) = false [owise] .
 
+  --- deprecated
   op countDNSQuery : NetId Flow TimesObsList Float Float -> Nat .
   eq countDNSQuery (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq countDNSQuery (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
@@ -1275,6 +1280,7 @@ mod SMC_CP3 is
     then 1 + countDNSQuery(vp, Fid, TsML, Tstart, Tend) 
     else countDNSQuery(vp, Fid, TsML, Tstart, Tend) fi .
   eq countDNSQuery (vp, Fid, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSQuery(vp, Fid, TsML, Tstart, Tend) [owise] .
+  ---
 
   op countDNSQuery : NetId TimesObsList Float Float -> Nat .
 
@@ -1306,13 +1312,14 @@ mod SMC_CP3 is
   op DNSQueryOverhead : -> Nat .
   eq DNSQueryOverhead = 29 .
 
-  op sizeName : Name -> Nat .
-  eq sizeName (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) + DNSQueryOverhead .
-  eq sizeName (NAME) = nameLength(NAME) + DNSQueryOverhead [owise] .
+  op sizeQName : Name -> Nat .
+  eq sizeQName (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) + DNSQueryOverhead .
+  eq sizeQName (NAME) = nameLength(NAME) + DNSQueryOverhead [owise] .
 
   op sizeQuery : Query -> Nat .
-  eq sizeQuery (query(ID, NAME, RTYPE)) = sizeName(NAME) .
+  eq sizeQuery (query(ID, NAME, RTYPE)) = sizeQName(NAME) .
 
+  --- deprecated
   op sizeDNSQuery : NetId Flow TimesObsList Float Float -> Nat .
   eq sizeDNSQuery (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq sizeDNSQuery (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
@@ -1320,6 +1327,7 @@ mod SMC_CP3 is
     then sizeQuery(CO) + sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) 
     else sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) fi .
   eq sizeDNSQuery (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSQuery(vp, Fid, TsML, Tstart, Tend) [owise] .
+  ---
 
   op sizeDNSQuery : NetId TimesObsList Float Float -> Nat .
 
@@ -1346,9 +1354,17 @@ mod SMC_CP3 is
   eq isDNSResp (RESP) = true .
   eq isDNSResp (CO) = false [owise] .
 
-  op sizeResp : Response -> Nat .
-  eq sizeResp (response(ID, NAME, LR, LR1, LR2, N)) = sizeName(NAME) .
+  op DNSRespOverhead : -> Nat .
+  eq DNSRespOverhead = 34 .
 
+  op sizeRName : Name -> Nat .
+  eq sizeRName (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) + DNSRespOverhead .
+  eq sizeRName (NAME) = nameLength(NAME) + DNSRespOverhead [owise] .
+
+  op sizeResp : Response -> Nat .
+  eq sizeResp (response(ID, NAME, LR, LR1, LR2, N)) = sizeRName(NAME) .
+
+  --- deprecated
   op countDNSResp : NetId Flow TimesObsList Float Float -> Nat .
   eq countDNSResp (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq countDNSResp (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
@@ -1356,6 +1372,15 @@ mod SMC_CP3 is
     then 1 + countDNSResp(vp, Fid, TsML, Tstart, Tend) 
     else countDNSResp(vp, Fid, TsML, Tstart, Tend) fi .
   eq countDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = countDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
+
+  op sizeDNSResp : NetId Flow TimesObsList Float Float -> Nat .
+  eq sizeDNSResp (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) and Fid == flow(fromAddr, toAddr, 0) 
+    then sizeResp(CO) + sizeDNSResp(vp, Fid, TsML, Tstart, Tend) 
+    else sizeDNSResp(vp, Fid, TsML, Tstart, Tend) fi .
+  eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
+  ---
 
   op countDNSResp : NetId TimesObsList Float Float -> Nat .
 
@@ -1371,14 +1396,6 @@ mod SMC_CP3 is
 
   eq countDNSRespAux (vp, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend, Acc)
     = countDNSRespAux(vp, TsML, Tstart, Tend, Acc) [owise] .
-
-  op sizeDNSResp : NetId Flow TimesObsList Float Float -> Nat .
-  eq sizeDNSResp (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, incoming) and isDNSResp(CO) and Fid == flow(fromAddr, toAddr, 0) 
-    then sizeResp(CO) + sizeDNSResp(vp, Fid, TsML, Tstart, Tend) 
-    else sizeDNSResp(vp, Fid, TsML, Tstart, Tend) fi .
-  eq sizeDNSResp (vp, Fid, tm(Ts, Tx, Tr, M) ;; TsML, Tstart, Tend) = sizeDNSResp(vp, Fid, TsML, Tstart, Tend) [owise] .
 
   op sizeDNSResp : NetId TimesObsList Float Float -> Nat .
 
@@ -1407,6 +1424,7 @@ mod SMC_CP3 is
   op sizePkt : TimesPkt -> Nat .
   eq sizePkt (tpkt) = getSize(tpkt) .
 
+  --- deprecated
   op sizeTCPUpload : NetId Flow TimesObsList Float Float -> Nat .
   eq sizeTCPUpload (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq sizeTCPUpload (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
@@ -1414,6 +1432,15 @@ mod SMC_CP3 is
     then sizePkt(pkt) + sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) 
     else sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) fi .
   eq sizeTCPUpload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPUpload(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  op sizeTCPDownload : NetId Flow TimesObsList Float Float -> Nat .
+  eq sizeTCPDownload (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq sizeTCPDownload (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming) --- and Fid == getFlow(pkt) 
+    then sizePkt(pkt) + sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) 
+    else sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq sizeTCPDownload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) [owise] .
+  ---
 
   op sizeTCPUpload : NetId TimesObsList Float Float -> Nat .
 
@@ -1429,14 +1456,6 @@ mod SMC_CP3 is
 
   eq sizeTCPUploadAux( vp, tpkt ;; TsPL, Tstart, Tend, Acc)
     = sizeTCPUploadAux(vp, TsPL, Tstart, Tend, Acc) [owise] .
-
-  op sizeTCPDownload : NetId Flow TimesObsList Float Float -> Nat .
-  eq sizeTCPDownload (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq sizeTCPDownload (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming) --- and Fid == getFlow(pkt) 
-    then sizePkt(pkt) + sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) 
-    else sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) fi .
-  eq sizeTCPDownload (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPDownload(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op sizeTCPDownload : NetId TimesObsList Float Float -> Nat .
 
@@ -1458,7 +1477,7 @@ mod SMC_CP3 is
   --- 08 tcp_incoming_packet_rate         Number of incoming TCP packets per second (packets/s) [2]
   --- 09 tcp_packet_upload_download_ratio Ratio of outgoing TCP packets to incoming TCP packets
   -------------------------------------------------------------------------------------------------
-
+  --- deprecated
   op countTCPOutPkt : NetId Flow TimesObsList Float Float -> Nat .
   eq countTCPOutPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq countTCPOutPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
@@ -1466,6 +1485,15 @@ mod SMC_CP3 is
     then 1 + countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) 
     else countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) fi .
   eq countTCPOutPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPOutPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  op countTCPInPkt : NetId Flow TimesObsList Float Float -> Nat .
+  eq countTCPInPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq countTCPInPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming) --- and Fid == getFlow(pkt) 
+    then 1 + countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) 
+    else countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq countTCPInPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+  ---
 
   op countTCPOutPkt : NetId TimesObsList Float Float -> Nat .
 
@@ -1481,14 +1509,6 @@ mod SMC_CP3 is
 
   eq countTCPOutPktAux( vp, tpkt ;; TsPL, Tstart, Tend, Acc)
     = countTCPOutPktAux(vp, TsPL, Tstart, Tend, Acc) [owise] .
-
-  op countTCPInPkt : NetId Flow TimesObsList Float Float -> Nat .
-  eq countTCPInPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq countTCPInPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming) --- and Fid == getFlow(pkt) 
-    then 1 + countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) 
-    else countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) fi .
-  eq countTCPInPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPInPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
 
   op countTCPInPkt : NetId TimesObsList Float Float -> Nat .
 
@@ -1510,6 +1530,7 @@ mod SMC_CP3 is
   --- 11 packet_size_mean                 Mean packet size (bytes) [3]
   -------------------------------------------------------------------------------------------------
 
+  --- deprecated
   op countTCPPkt : NetId Flow TimesObsList Float Float -> Nat .
   eq countTCPPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
   eq countTCPPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
@@ -1517,6 +1538,38 @@ mod SMC_CP3 is
     then 1 + countTCPPkt(vp, Fid, TsPL, Tstart, Tend) 
     else countTCPPkt(vp, Fid, TsPL, Tstart, Tend) fi .
   eq countTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = countTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  op sizeTCPPkt : NetId Flow TimesObsList Float Float -> Nat .
+  eq sizeTCPPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
+  eq sizeTCPPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
+    then sizePkt(pkt) + sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) 
+    else sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq sizeTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  op collectPktSize : NetId Flow TimesObsList Float Float -> List{Float} .
+  eq collectPktSize (vp, Fid, nilTO, Tstart, Tend) = nil .
+  eq collectPktSize (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
+    then float(sizePkt(pkt)) collectPktSize(vp, Fid, TsPL, Tstart, Tend) 
+    else collectPktSize(vp, Fid, TsPL, Tstart, Tend) fi .
+  eq collectPktSize (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = collectPktSize(vp, Fid, TsPL, Tstart, Tend) [owise] .
+
+  op meanPktSize : NetId Flow TimesObsList Float Float -> Float .
+  ceq meanPktSize (vp, Fid, TsPL, Tstart, Tend) =  
+    if N == 0
+    then 0.0
+    else float(sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend)) / float(N) 
+    fi 
+  if N := countTCPPkt(vp, Fid, TsPL, Tstart, Tend) . 
+
+  op stdDevPktSize : NetId Flow TimesObsList Float Float -> Float .
+  ceq stdDevPktSize (vp, Fid, TsPL, Tstart, Tend) = 
+    if N == 0
+    then 0.0
+    else sqrt(sumSquaredDiff(collectPktSize(vp, Fid, TsPL, Tstart, Tend), meanPktSize(vp, Fid, TsPL, Tstart, Tend)) / float(N)) fi   
+  if N := countTCPPkt(vp, TsPL, Tstart, Tend) .
+  ---
 
   op countTCPPkt : NetId TimesObsList Float Float -> Nat .
 
@@ -1532,15 +1585,7 @@ mod SMC_CP3 is
 
   eq countTCPPktAux( vp, tpkt ;; TsPL, Tstart, Tend, Acc)
     = countTCPPktAux(vp, TsPL, Tstart, Tend, Acc) [owise] .
-
-  op sizeTCPPkt : NetId Flow TimesObsList Float Float -> Nat .
-  eq sizeTCPPkt (vp, Fid, nilTO, Tstart, Tend) = 0 .
-  eq sizeTCPPkt (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
-    then sizePkt(pkt) + sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) 
-    else sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) fi .
-  eq sizeTCPPkt (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend) [owise] .
-
+   
   op sizeTCPPkt : NetId TimesObsList Float Float -> Nat .
 
   eq sizeTCPPkt (vp, TOL, Tstart, Tend) = sizeTCPPktAux(vp, TOL, Tstart, Tend, 0) .
@@ -1556,14 +1601,6 @@ mod SMC_CP3 is
   eq sizeTCPPktAux( vp, tpkt ;; TsPL, Tstart, Tend, Acc)
     = sizeTCPPktAux(vp, TsPL, Tstart, Tend, Acc) [owise] .
 
-  op collectPktSize : NetId Flow TimesObsList Float Float -> List{Float} .
-  eq collectPktSize (vp, Fid, nilTO, Tstart, Tend) = nil .
-  eq collectPktSize (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
-    then float(sizePkt(pkt)) collectPktSize(vp, Fid, TsPL, Tstart, Tend) 
-    else collectPktSize(vp, Fid, TsPL, Tstart, Tend) fi .
-  eq collectPktSize (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = collectPktSize(vp, Fid, TsPL, Tstart, Tend) [owise] .
-
   op collectPktSize : NetId TimesObsList Float Float -> List{Float} .
   eq collectPktSize (vp, nilTO, Tstart, Tend) = nil .
   eq collectPktSize (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
@@ -1571,14 +1608,6 @@ mod SMC_CP3 is
     then float(sizePkt(pkt)) collectPktSize(vp, TsPL, Tstart, Tend) 
     else collectPktSize(vp, TsPL, Tstart, Tend) fi .
   eq collectPktSize (vp, tpkt ;; TsPL, Tstart, Tend) = collectPktSize(vp, TsPL, Tstart, Tend) [owise] .
-
-  op meanPktSize : NetId Flow TimesObsList Float Float -> Float .
-  ceq meanPktSize (vp, Fid, TsPL, Tstart, Tend) =  
-    if N == 0
-    then 0.0
-    else float(sizeTCPPkt(vp, Fid, TsPL, Tstart, Tend)) / float(N) 
-    fi 
-  if N := countTCPPkt(vp, Fid, TsPL, Tstart, Tend) . 
 
   op meanPktSize : NetId TimesObsList Float Float -> Float .
   ceq meanPktSize (vp, TsPL, Tstart, Tend) =  
@@ -1588,72 +1617,64 @@ mod SMC_CP3 is
     fi 
   if N := countTCPPkt(vp, TsPL, Tstart, Tend) .
 
-  op stdDevPktSize : NetId Flow TimesObsList Float Float -> Float .
-  eq stdDevPktSize (vp, Fid, TsPL, Tstart, Tend) = 
-    if countTCPPkt(vp, Fid, TsPL, Tstart, Tend) == 0
-    then 0.0
-    else sqrt(sumSquaredDiff(collectPktSize(vp, Fid, TsPL, Tstart, Tend), meanPktSize(vp, Fid, TsPL, Tstart, Tend))) fi .  
-
   op stdDevPktSize : NetId TimesObsList Float Float -> Float .
-  eq stdDevPktSize (vp, TsPL, Tstart, Tend) = 
-    if countTCPPkt(vp, TsPL, Tstart, Tend) == 0
+  ceq stdDevPktSize (vp, TsPL, Tstart, Tend) = 
+    if N == 0
     then 0.0
-    else sqrt(sumSquaredDiff(collectPktSize(vp, TsPL, Tstart, Tend), meanPktSize(vp, TsPL, Tstart, Tend))) fi .  
+    else sqrt(sumSquaredDiff(collectPktSize(vp, TsPL, Tstart, Tend), meanPktSize(vp, TsPL, Tstart, Tend)) / float(N)) fi   
+  if N := countTCPPkt(vp, TsPL, Tstart, Tend) .
 
   -------------------------------------------------------------------------------------------------
   --- 12 packet_interarrival_mean         Mean time between successive packets
   -------------------------------------------------------------------------------------------------
 
-  op collectPktTime : NetId Flow TimesObsList Float Float -> List{Float} .
-  eq collectPktTime (vp, Fid, nilTO, Tstart, Tend) = nil .
-  eq collectPktTime (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) --- and Fid == getFlow(pkt) 
-    then Tx collectPktTime(vp, Fid, TsPL, Tstart, Tend) 
-    else collectPktTime(vp, Fid, TsPL, Tstart, Tend) fi .
-  eq collectPktTime (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = collectPktTime(vp, Fid, TsPL, Tstart, Tend) [owise] .
+  var fl : List{Float} .
 
   op collectPktTime : NetId TimesObsList Float Float -> List{Float} .
-  eq collectPktTime (vp, nilTO, Tstart, Tend) = nil .
-  eq collectPktTime (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)) 
-    then Tx collectPktTime(vp, TsPL, Tstart, Tend) 
-    else collectPktTime(vp, TsPL, Tstart, Tend) fi .
-  eq collectPktTime (vp, tpkt ;; TsPL, Tstart, Tend) = collectPktTime(vp, TsPL, Tstart, Tend) [owise] .
+  op collectPktTime$ : NetId TimesObsList Float Float List{Float} -> List{Float} .
+
+  eq collectPktTime (vp, TsPL, Tstart, Tend) =
+     collectPktTime$ (vp, TsPL, Tstart, Tend,nil) .
+
+  eq collectPktTime$(vp, nilTO, Tstart, Tend, fl) = fl .
+  eq collectPktTime$(vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend,fl) =
+  (if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
+    then collectPktTime$(vp, TsPL, Tstart, Tend, fl (if vp == ixpN then Tx else Tr fi))
+    else
+    collectPktTime$(vp, TsPL, Tstart, Tend,fl)
+  fi)
+  .
 
   -------------------------------------------------------------------------------------------------
   --- 13 direction_change_count           Number of times packet direction switches between incoming and outgoing [3]
   -------------------------------------------------------------------------------------------------
 
-  op collectPktDirection : NetId Flow TimesObsList Float Float -> List{Float} .
-  eq collectPktDirection (vp, Fid, nilTO, Tstart, Tend) = nil .
-  eq collectPktDirection (vp, Fid, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if Tx >= Tstart and Tx < Tend --- and Fid == getFlow(pkt) 
-    then 
-      if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
-      then 1.0 collectPktDirection(vp, Fid, TsPL, Tstart, Tend) 
-      else 
-        if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing)
-        then 0.0 collectPktDirection(vp, Fid, TsPL, Tstart, Tend) 
-        else collectPktDirection(vp, Fid, TsPL, Tstart, Tend) fi fi 
-    else collectPktDirection(vp, Fid, TsPL, Tstart, Tend) fi .    
-  eq collectPktDirection (vp, Fid, tpkt ;; TsPL, Tstart, Tend) = collectPktDirection(vp, Fid, TsPL, Tstart, Tend) [owise] .
+  vars TDTime TDTime' Dir Dir' : Float .
+
+  op insertTimedFloat : TimedFloat TimedFloatList -> TimedFloatList .
+  eq insertTimedFloat(timedFloat(TDTime, Dir), nilTimedFloatList) = timedFloat(TDTime, Dir) .
+  eq insertTimedFloat(timedFloat(TDTime, Dir), timedFloat(TDTime', Dir') TFL) = 
+    if TDTime <= TDTime' 
+    then timedFloat(TDTime, Dir) timedFloat(TDTime', Dir') TFL 
+    else timedFloat(TDTime', Dir') insertTimedFloat(timedFloat(TDTime, Dir), TFL) fi .
+
+  op collectTimedPktDirection : NetId TimesObsList Float Float -> TimedFloatList .
+  eq collectTimedPktDirection(vp, nilTO, Tstart, Tend) = nilTimedFloatList .
+  eq collectTimedPktDirection(vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
+    if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming) 
+    then insertTimedFloat(timedFloat(Tr, 1.0), collectTimedPktDirection(vp, TsPL, Tstart, Tend)) 
+    else 
+      if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) 
+      then insertTimedFloat(timedFloat(Ts, 0.0), collectTimedPktDirection(vp, TsPL, Tstart, Tend)) 
+      else collectTimedPktDirection(vp, TsPL, Tstart, Tend) fi fi .
+  eq collectTimedPktDirection(vp, tpkt ;; TsPL, Tstart, Tend) = collectTimedPktDirection(vp, TsPL, Tstart, Tend) [owise] .
+
+  op extractPktDirection : TimedFloatList -> List{Float} .
+  eq extractPktDirection(nilTimedFloatList) = nil .
+  eq extractPktDirection(timedFloat(TDTime, Dir) TFL) = Dir extractPktDirection(TFL) .
 
   op collectPktDirection : NetId TimesObsList Float Float -> List{Float} .
-  eq collectPktDirection (vp, nilTO, Tstart, Tend) = nil .
-  eq collectPktDirection (vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) = 
-    if Tx >= Tstart and Tx < Tend 
-    then 
-      if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming)
-      then 1.0 collectPktDirection(vp, TsPL, Tstart, Tend) 
-      else 
-        if visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing)
-        then 0.0 collectPktDirection(vp, TsPL, Tstart, Tend) 
-        else collectPktDirection(vp, TsPL, Tstart, Tend) fi fi 
-    else collectPktDirection(vp, TsPL, Tstart, Tend) fi .    
-  eq collectPktDirection (vp, tpkt ;; TsPL, Tstart, Tend) = collectPktDirection(vp, TsPL, Tstart, Tend) [owise] .
-
-  op countPktDirectionChange : NetId Flow TimesObsList Float Float -> Nat . 
-  eq countPktDirectionChange(vp, Fid, TsPL, Tstart, Tend) = countChange(collectPktDirection(vp, Fid, TsPL, Tstart, Tend)) .
+  eq collectPktDirection(vp, TsPL, Tstart, Tend) = extractPktDirection(collectTimedPktDirection(vp, TsPL, Tstart, Tend)) .
 
   op countPktDirectionChange : NetId TimesObsList Float Float -> Nat . 
   eq countPktDirectionChange(vp, TsPL, Tstart, Tend) = countChange(collectPktDirection(vp, TsPL, Tstart, Tend)) .
@@ -1662,9 +1683,16 @@ mod SMC_CP3 is
   --- 14 active_flow_count                Number of active TCP flows in the bin*
   -------------------------------------------------------------------------------------------------
 
+  op filterVP : NetId TimesObsList Float Float  -> TimesObsList .
+  eq filterVP(vp, nilTO, Tstart, Tend) = nilTO .
+  eq filterVP(vp, tp(Ts, Tx, Tr, pkt) ;; TsPL, Tstart, Tend) =
+    if (visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, outgoing) or visible(vp, tp(Ts, Tx, Tr, pkt), Tstart, Tend, incoming))
+    then tp(Ts, Tx, Tr, pkt) ;; filterVP(vp, TsPL, Tstart, Tend)
+    else filterVP(vp, TsPL, Tstart, Tend) fi .
+
   op countActiveFlow : NetId TimesObsList Float Float -> Nat .
   eq countActiveFlow (vp, nilTO, Tstart, Tend) = 0 .
-  eq countActiveFlow (vp, TsPL, Tstart, Tend) = len(collectObsFlow(TsPL)) .
+  eq countActiveFlow (vp, TsPL, Tstart, Tend) = len(collectObsFlow(filterVP(vp, TsPL, Tstart, Tend))) [owise] .
 
   -------------------------------------------------------------------------------------------------
   --- 15 tcp_new_conn_count               Number of new TCP connections initiated in the bin*
