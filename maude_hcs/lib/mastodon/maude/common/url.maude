@@ -45,35 +45,13 @@ mod URLS is
   sorts Url UrlList .
   subsort String < Url < UrlList .
 
-  vars currentStr : String .
-  vars currentNat seed strLen : Nat .
-
-  --- Usage: randomString(Seed, Length)
-  op randomString : Nat Nat -> String .
-  op $randomString : Nat Nat String -> String .
-
-  --- Base case: length reached
-  eq randomString(seed, strLen) = $randomString(seed, strLen, "")
-  .
-  
-  --- Recursive step: 
-  --- 1. Get a random number from the current seed
-  --- 2. Map it to a lowercase char (97-122)
-  --- 3. Use the new random number as the next seed
-  ceq $randomString(seed, s(strLen), currentStr) = 
-    $randomString(randm:Nat,
-                  strLen,
-                  currentStr + char(97 + (randm:Nat rem 26)))
-    if randm:Nat := sampleUniWithIntX(seed, seed + 26)
-    .
-
-  eq $randomString(seed, 0, currentStr) = currentStr 
-  .
+  vars seed : Nat .
 
   --- Generate a random 10char URL string from a seed.
   --- TODO: Change to something other than 10chars if needed.
   op generateRandUrlString : Nat -> String .
-  eq generateRandUrlString(seed) = "rand" + randomString(seed, 10) 
+  ceq generateRandUrlString(seed) = "rand" + randStr:String
+    if {randStr:String, dummy:Nat} := genRandomString(seed, 10)
   .
 
   op url : String -> Url .
@@ -117,7 +95,7 @@ eof
 
 ---set trace on .
 red rand .
-red generateRandUrlString .
+red generateRandUrlString(200) .
 red makeUrl .
 red makeUrl("img0.jpg") == url("randimg0.com") .
 red makeUrl("img0") == url("randimg0.com") .
