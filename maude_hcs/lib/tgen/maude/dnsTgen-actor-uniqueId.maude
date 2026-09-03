@@ -59,7 +59,7 @@ mod DNS-TGEN is
 vars n n0 j j1 i rj rj1 k l nq nq1 index retryMx : Nat . 
 vars r : Rat .
 vars str : String .
-vars name name1 : Name .
+vars name name1 name2 : Name .
 **** vars namel : NameList .
 vars fl T retryTo : Float .
 vars addr dAddr umAddr rsvAddr : Address .
@@ -190,7 +190,7 @@ op mkDnsTgenA : Address  Address Nat Float Nat
                -> Actor .
 eq mkDnsTgenA(addr,rsvAddr,l,retryTo,retryMx ) =
  < addr : DNSTgen | 
-   qnameBase: ('internet . 'com . root),
+   qnameBase: ('i . 'com . root),
    lenNameDB: l, dnsRsv: rsvAddr, 
    w4: noQuery, replyTo: null, numQ: 0,  
    ctr: 0, nRetry: 0, 
@@ -233,12 +233,25 @@ if (to dAddr from addr : actionQ(ract)) := msg0
 op tgenQuery : AttributeSet Address Nat
                  -> AttributeSetMsgsMsgsNat .
 ceq tgenQuery(attrs, dAddr, rj) 
-        = {attrs2, msg, msg1, s rj}
+        = {attrs2, msg, msg1, rj1}
 if attrs0, qnameBase: name1, lenNameDB: l, 
            dnsRsv: rsvAddr, retryTO: retryTo  := attrs
 /\ attrs1,  w4: noQuery, ctr: j := attrs
-**** /\ name := genQName(name1,"www",l,rj)
-/\ name := label(j) . name1
+--- Get a random length to map T&E TGEN. Remove 6 chars for .i.com.
+--- TODO: I do not like that this is hard coded, but .i.com  was already hard-
+--- coded so not tackling now.
+--- The CP3 DNS TGENs use testDomains.csv which has 10,000 names to resolve. The
+--- name distribution looks normal and according to Codex the best fit has a mean
+--- of 16.3 and standard deviation of 4.8.
+--- Add 0.5 to round to the nearest unit.
+/\ randLen:Float := sampleNormalWithMeanSdX(16.3 - 6.0, 4.8, rj) + 0.5
+--- Turn the random size float into a Nat.
+/\ strLen:Nat := floor(rat(if randLen:Float > 1. then randLen:Float else 1. fi))
+--- Generate a random string of requested size.
+/\ {name2as:String, rj1} := genRandomString(s rj, strLen:Nat)
+--- Make a name out of generated string.
+/\ name2 := makeName(name2as:String)
+/\ name := name2 . name1
 /\ newId := clientId(dAddr,j)
 /\ query := query(newId,name,a)
 /\ msg :=  (to rsvAddr from dAddr : query)
