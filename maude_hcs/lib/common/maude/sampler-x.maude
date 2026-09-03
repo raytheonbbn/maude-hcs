@@ -40,7 +40,7 @@ fmod SAMPLER-X is
   
 
   vars MEAN SD RAND R Min Max  A B : Float .  
-  var j n  j1 : Nat .
+  var j n  j1 seed strLen : Nat .
   var weights : Map{String,Float} .
   vars wt wtsum rnd scale : Float .
   vars sid : String .
@@ -80,7 +80,35 @@ fmod SAMPLER-X is
   op genRandomX : Nat -> [Nat] .
   eq genRandomX(j) = random(j) .
  
- 
+  sort StringNat .
+  op `{_`,_`} : String Nat -> StringNat [ctor] .
+  --- Generate a Random
+  ---               Seed  Length
+  op genRandomString : Nat   Nat -> StringNat .
+  ---                 Seed  Length  CurrentStr
+  op $randomString :  Nat   Nat     String -> String .
+
+  --- Base case: length reached
+****  eq randomString(seed, strLen) = $randomString(seed, strLen, "") .
+  ceq genRandomString(seed, strLen) =
+    {rndStr:String, newSeed:Nat}
+    if rndStr:String := $randomString(seed, strLen, "")
+      /\ newSeed:Nat := seed + length(rndStr:String)
+  .
+  
+  --- Recursive step: 
+  --- 1. Get a random number from the current seed
+  --- 2. Map it to a lowercase char (97-122)
+  --- 3. Use the new random number as the next seed
+  ceq $randomString(seed, s(strLen), currentStr:String) = 
+    $randomString(randm:Nat,
+                  strLen,
+                  currentStr:String + char(97 + (randm:Nat rem 26)))
+    if randm:Nat := sampleUniWithIntX(seed, seed + 26)
+    .
+
+  eq $randomString(seed, 0, currentStr:String) = currentStr:String .
+
  **** probabalistic version
  op chooseWt : Map{String,Float}  Nat -> String .
  op chooseWtX : Map{String,Float} Float Float
