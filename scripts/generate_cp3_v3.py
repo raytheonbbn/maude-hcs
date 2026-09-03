@@ -808,8 +808,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("    < 'ns . 'com . root, a, 360000.0, tldDnsAddr >")
     L("    < 'pwnd . 'com . root, ns, 360000.0, 'ns . 'pwnd . 'com . root >")
     L("    < 'ns . 'pwnd . 'com . root, a, 360000.0, authDnsAddr >")
-    L("    < 'internet . 'com . root, ns, 360000.0, 'ns . 'internet . 'com . root >")
-    L("    < 'ns . 'internet . 'com . root, a, 360000.0, authDnsAddr >")
+    L("    < 'i . 'com . root, ns, 360000.0, 'ns . 'i . 'com . root >")
+    L("    < 'ns . 'i . 'com . root, a, 360000.0, authDnsAddr >")
     for dns_name, corp_dns_addr in [
         ("corpMas", "corpMasDnsAddr"), ("corpRt", "corpRtDnsAddr"),
         ("corpIod", "corpIodDnsAddr"), ("corpObfs", "corpObfsDnsAddr"),
@@ -826,15 +826,15 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     # create as many ns records and names for pwnd.com as there are iodine clients
     L("  op zoneInternetCom : -> List{Record} .")
     L("  eq zoneInternetCom =")
-    L("    < 'internet . 'com . root, soa, 360000.0, soaData(360000.0) >")
-    L("    < 'internet . 'com . root, ns, 360000.0, 'ns . 'internet . 'com . root >")
-    L("    < 'ns . 'internet . 'com . root, a, 360000.0, authDnsAddr >")
-    L("    < 'tmp0 . 'internet . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >")
+    L("    < 'i . 'com . root, soa, 360000.0, soaData(360000.0) >")
+    L("    < 'i . 'com . root, ns, 360000.0, 'ns . 'i . 'com . root >")
+    L("    < 'ns . 'i . 'com . root, a, 360000.0, authDnsAddr >")
+    L("    < 'tmp0 . 'i . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >")
     for idx,clid in enumerate(hcs_client_ids["iodine"]):
         L(f"    < 't{idx+1} . 'pwnd . 'com . root, ns, 360000.0, 'ns . 't{idx+1} . 'pwnd . 'com . root >")
         L(f"    < 'ns . 't{idx+1} . 'pwnd . 'com . root, a, 360000.0, iodCl{clid}SrvNetClAddr >")
     L("    < 'mastodon . 'pwnd . 'com . root, a, 0.0, masSrvAddr >")
-    L("    < wildcard . 'internet . 'com . root, a, 0.0, 1 . 1 . 1 . 2 >")
+    L("    < wildcard . 'i . 'com . root, a, 0.0, 1 . 1 . 1 . 2 >")
     L("  .")
     L("")
     
@@ -872,8 +872,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("    cacheEntry(< 'ns . 'com . root, a, 360000.0, tldDnsAddr >, 1)")
     L("    cacheEntry(< 'pwnd . 'com . root, ns, 360000.0, 'ns . 'pwnd . 'com . root >, 1)")
     L("    cacheEntry(< 'ns . 'pwnd . 'com . root, a, 360000.0, authDnsAddr >, 1)")
-    L("    cacheEntry(< 'internet . 'com . root, ns, 360000.0, 'ns . 'internet . 'com . root >, 1)")
-    L("    cacheEntry(< 'ns . 'internet . 'com . root, a, 360000.0, authDnsAddr >, 1)")
+    L("    cacheEntry(< 'i . 'com . root, ns, 360000.0, 'ns . 'i . 'com . root >, 1)")
+    L("    cacheEntry(< 'ns . 'i . 'com . root, a, 360000.0, authDnsAddr >, 1)")
     for idx,clid in enumerate(hcs_client_ids["iodine"]):
         L(f"    cacheEntry(< 't{idx+1} . 'pwnd . 'com . root, ns, 360000.0, 'ns . 't{idx+1} . 'pwnd . 'com . root >, 1)")
         L(f"    cacheEntry(< 'ns . 't{idx+1} . 'pwnd . 'com . root, a, 360000.0, iodCl{clid}SrvNetClAddr >, 1)")        
