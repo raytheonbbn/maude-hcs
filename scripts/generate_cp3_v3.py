@@ -77,6 +77,22 @@ TOP25_FEATURE_NAMES = {
     "tcp_new_conn_count",
 }
 
+COMBO4X5_VANTAGE_POINT_NAMES = (
+    "mastodon_net",
+    "client_net_iodine",
+    "minio_net",
+    "client_net_racetunnel",
+)
+
+# dns_query_size and pkt_size_stdev use the canonical external names below.
+COMBO4X5_FEATURE_NAMES = {
+    "dns_query_rate",
+    "dns_query_size_mean",
+    "packet_interarrival_mean",
+    "tcp_new_conn_count",
+    "packet_size_std_dev",
+}
+
 
 def get_top25_vantage_points(net_id_map):
     """Translate the Top 25 network names to their generated Maude NetIds."""
@@ -96,6 +112,27 @@ def get_top25_features():
     missing = TOP25_FEATURE_NAMES.difference(selected.values())
     if missing:
         raise ValueError(f"Top 25 features have no Maude mapping: {', '.join(sorted(missing))}")
+    return selected
+
+
+def get_combo4x5_vantage_points(net_id_map):
+    """Translate the combo4x5 network names to their generated Maude NetIds."""
+    missing = [name for name in COMBO4X5_VANTAGE_POINT_NAMES if name not in net_id_map]
+    if missing:
+        raise ValueError(f"combo4x5 vantage points missing from scenario YAML: {', '.join(missing)}")
+    return [net_id_map[name] for name in COMBO4X5_VANTAGE_POINT_NAMES]
+
+
+def get_combo4x5_features():
+    """Return the five Maude feature operators selected for combo4x5."""
+    selected = {
+        operator: name
+        for operator, name in FEATURES.items()
+        if name in COMBO4X5_FEATURE_NAMES
+    }
+    missing = COMBO4X5_FEATURE_NAMES.difference(selected.values())
+    if missing:
+        raise ValueError(f"combo4x5 features have no Maude mapping: {', '.join(sorted(missing))}")
     return selected
 
 
@@ -1750,7 +1787,7 @@ def gen_baselineEq(scenario_name):
     return "\n".join(lines)
 
 # Generate baseline or run scenario file
-def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_time=None, run_time=None, feature=None, vpt=None, combos1=False, combos2=False, top25=False, ixp=False):
+def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_time=None, run_time=None, feature=None, vpt=None, combos1=False, combos2=False, combo4x5=False, top25=False, ixp=False):
     lines = []
     L = lines.append
 
@@ -1765,12 +1802,14 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
         L("")
         if not isBaseline:
             eqSuffix = ""
-            if sum((combos1, combos2, top25, ixp)) > 1:
+            if sum((combos1, combos2, combo4x5, top25, ixp)) > 1:
                 raise Exception("********For now you have to pick one feature/vp combo!!")
             if combos1:
                 eqSuffix = "-combo1"
             elif combos2:
                 eqSuffix = "-combo2"
+            elif combo4x5:
+                eqSuffix = "-combo4x5"
             elif top25:
                 eqSuffix = "-top25"
             elif ixp:
@@ -1840,6 +1879,11 @@ if __name__ == "__main__":
     combo_group = parser.add_mutually_exclusive_group()
     combo_group.add_argument("--filterVpFeatCombos", action="store_true", help="filter the combinations of VP and feature")
     combo_group.add_argument("--filterVpFeatCombos2", action="store_true", help="filter the combinations of VP and feature (different vps)")
+    combo_group.add_argument(
+        "--filterVpFeatCombo4x5",
+        action="store_true",
+        help="use the combo4x5 set of four vantage points and five features",
+    )
     combo_group.add_argument(
         "--filterVpFeatTop25",
         action="store_true",
@@ -1919,6 +1963,8 @@ if __name__ == "__main__":
         vpts_list = ["srvN"]
         for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net_mastodon") or k.startswith("client_net_racetunnel")]):
             vpts_list.append(cl_id)
+    elif args.filterVpFeatCombo4x5:
+        vpts_list = get_combo4x5_vantage_points(net_id_map)
     elif args.filterVpFeatTop25:
         vpts_list = get_top25_vantage_points(net_id_map)
     elif args.filterVpFeatIxp:
@@ -1933,6 +1979,8 @@ if __name__ == "__main__":
 
     if args.filterVpFeatTop25:
         selected_features = get_top25_features()
+    elif args.filterVpFeatCombo4x5:
+        selected_features = get_combo4x5_features()
     elif args.filterVpFeatCombos or args.filterVpFeatCombos2:
         selected_features = get_vp_feat_combo_features()
     else:
@@ -1955,7 +2003,7 @@ if __name__ == "__main__":
     print(f"Wrote {main_path} ({len(main_content.splitlines())} lines)")
 
     # Generate baseline file    
-    baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=args.perf, baseline_time=baseline_time, combos1=args.filterVpFeatCombos, combos2=args.filterVpFeatCombos2, top25=args.filterVpFeatTop25, ixp=args.filterVpFeatIxp)
+    baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=args.perf, baseline_time=baseline_time, combos1=args.filterVpFeatCombos, combos2=args.filterVpFeatCombos2, combo4x5=args.filterVpFeatCombo4x5, top25=args.filterVpFeatTop25, ixp=args.filterVpFeatIxp)
     if baseline_time is not None:
         baseline_filename = f"{scenario_name}-baseline-{baseline_time}.maude"
     else:
@@ -1999,6 +2047,7 @@ if __name__ == "__main__":
                     vpt=vpt,
                     combos1=args.filterVpFeatCombos,
                     combos2=args.filterVpFeatCombos2,
+                    combo4x5=args.filterVpFeatCombo4x5,
                     top25=args.filterVpFeatTop25,
                     ixp=args.filterVpFeatIxp,
                 )
@@ -2020,6 +2069,7 @@ if __name__ == "__main__":
     run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, perf=args.perf, run_time=run_time,
                                          combos1=args.filterVpFeatCombos,
                                          combos2=args.filterVpFeatCombos2,
+                                         combo4x5=args.filterVpFeatCombo4x5,
                                          top25=args.filterVpFeatTop25,
                                          ixp=args.filterVpFeatIxp)
     if run_time is not None:
