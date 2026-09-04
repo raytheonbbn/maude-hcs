@@ -516,7 +516,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L(f"sload {lib}/obfs4/obfs4_prob.maude")
     L(f"sload {lib}/common/maude/user-action-actor")
     L(f"sload {lib}/raceboatMastodon/maude/enc-dec-actor")
-    L(f"sload {lib}/raceboatMastodonBidir/maude/rb-cm-bidir-mas.maude")
+    L(f"sload {lib}/raceboatMastodonBidir/maude/rb-cm-bidir-mas-oneHash.maude")
     L(f"sload {lib}/mastodon/maude/probabilistic/mastodon")
     
     if "mastodon" in hcs_channel_models:
