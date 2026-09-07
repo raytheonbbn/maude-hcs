@@ -4,12 +4,20 @@
 
 set -euo pipefail
 
+<<<<<<< HEAD
 root_dir=$(pwd)
 # root_dir=/Users/lwest/Documents/pwnd2/playground-maude-hcs/
 scenario_dir=$root_dir/use-cases/challenge-problem-3/cp3_scenarios/scenario1
 
 tne_output_dir=$scenario_dir/scenario1_1811_conf_combo2_formatted
 raw_results_dir=$scenario_dir/scenario1_1811_conf_combo2_raw
+=======
+root_dir=/Users/jkhoury/Documents/Research/BBN/weirdnets/code/maude-hcs-fresh
+scenario_dir=$root_dir/use-cases/challenge-problem-3/cp3_scenarios/scenario1
+
+tne_output_dir=$scenario_dir/scenario1_910_conf_formatted
+raw_results_dir=$scenario_dir/scenario1_910_conf_raw
+>>>>>>> 48350532 (update for 910)
 dump_dir=$raw_results_dir/dumplogs
 
 scenario1_mapping=$(cat << 'EOF'
@@ -85,6 +93,10 @@ python3 ./scripts/cp3_glue/format_for_tne_v2.py \
     --dump-file $dump_dir/combined_dump.log \
     --sample-output-dir $tne_output_dir \
     --mapping "$scenario1_mapping" \
+<<<<<<< HEAD
     --net-mapping "$scenario1_net_mapping" \
     --scenario "scenario1_1811_conf_combo2"
+=======
+    --scenario "scenario1-910-conf"
+>>>>>>> 48350532 (update for 910)
 
