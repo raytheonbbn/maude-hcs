@@ -36,3 +36,22 @@ time maude-hcs --verbose scheck --query=use-cases/challenge-problem-3/cp3_scenar
 ```bash
 time maude-hcs --verbose scheck --query=/home/dylan-l/maude-hcs/use-cases/challenge-problem-3/cp3_scenarios/scenario1/pwnd_cp3_scenario_1-quatex.maude --test=/home/dylan-l/maude-hcs/use-cases/challenge-problem-3/cp3_scenarios/scenario1/pwnd_cp3_scenario_1-run.maude --file=/home/dylan-l/maude-hcs/maude_hcs/lib/smc/smc_cp3.maude -n 250-250 -j 0  --dump=dump.log --format=json &> smc.log && touch Done
 ```
+
+# after  fix
+
+```bash
+python scripts/run_cp3_scenario1_baselines.py --scenario2 --combo=combo4x5 --trials=10 --baselineTime=7211 --ecdfSizeLimit=10000
+```
+
+To convert baselines to json
+```bash
+python scripts/run_cp3_scenario1_baselines.py --scenario2 --combo=combo4x5 --trials=10 --baselineTime=7211 --ecdfSizeLimit=10000 --skipGen --skipRun
+```
+
+```bash
+ python generate_cp3_v3.py ../use-cases/challenge-problem-3/cp3_scenarios/scenario2/pwnd_cp3_scenario_2.yaml --confidentiality --quatex --filterVpFeatCombo4x5
+ ```
+
+```bash
+time maude-hcs --verbose scheck --query=./use-cases/challenge-problem-3/cp3_scenarios/scenario2/pwnd_cp3_scenario_2-quatex.maude --test=./use-cases/challenge-problem-3/cp3_scenarios/scenario2/pwnd_cp3_scenario_2-run.maude --file=./maude_hcs/lib/smc/smc_cp3.maude --seed=111 -n 256-256 -j 0  --dump=dump.log --format=json &> smc.log && touch Done
+```
