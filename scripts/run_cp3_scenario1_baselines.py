@@ -18,6 +18,31 @@ from collections import defaultdict
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 GEN_SCRIPT = os.path.join(REPO_ROOT, "scripts", "generate_cp3_v3.py")
 DEFAULT_ECDF_SIZE_LIMIT = 10_000
+SCENARIO_NET_MAPPINGS = {
+    1: {
+        "cl[1]": "client_net_mastodon",
+        "cl[2]": "client_net_racetunnel",
+        "cl[3]": "client_net_iodine",
+        "cl[4]": "client_net_obfs",
+        "cl[5]": "client_net_sky",
+        "srvN": "server_net",
+        "minN": "minio_net",
+        "masN": "mastodon_net",
+        "dnsN": "dns_net",
+        "ixpN": "ixp-router",
+    },
+    2: {
+        "cl[1]": "client_net_mastodon",
+        "cl[2]": "client_net_racetunnel",
+        "cl[3]": "client_net_obfs",
+        "cl[4]": "client_net_sky",
+        "srvN": "server_net",
+        "minN": "minio_net",
+        "masN": "mastodon_net",
+        "dnsN": "dns_net",
+        "ixpN": "ixp-router",
+    },
+}
 
 
 def configure_scenario(scenario_number, combo=None):
@@ -45,7 +70,7 @@ def configure_scenario(scenario_number, combo=None):
 configure_scenario(1)
 
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts", "cp3_glue"))
-from parse_baseline import parse_baseline, Bl, Baseline
+from parse_baseline import parse_baseline, Bl, Baseline, write_jsons
 
 
 def systematic_quantile_extraction(sorted_values, size_limit=DEFAULT_ECDF_SIZE_LIMIT):
@@ -203,7 +228,7 @@ def combine_trials_and_build_equation(
     num_trials=10,
     ecdf_size_limit=DEFAULT_ECDF_SIZE_LIMIT,
 ):
-    """Step 3: Parse baseline trial logs, combine distributions across trials, and write equation files."""
+    """Step 3: Combine trial distributions and write baseline equations and JSON files."""
     print(f"\n[3/3] Parsing trial outputs and combining distributions...", flush=True)
 
     if not os.path.exists(LOGS_DIR):
@@ -313,6 +338,24 @@ def combine_trials_and_build_equation(
     with open(OUT_MAUDE_FILE, "w") as f:
         f.write(new_data)
     print(f"      Wrote combined BL equation to {OUT_MAUDE_FILE}.", flush=True)
+
+    # Translate vantage points for JSON without changing the Maude identifiers.
+    net_mapping = SCENARIO_NET_MAPPINGS[SCENARIO_NUMBER]
+    combined_baseline = Baseline(
+        bls=[
+            Bl(
+                feat=bl.feat,
+                vantage=net_mapping.get(bl.vantage, bl.vantage),
+                k=bl.k,
+                ecdf=bl.ecdf,
+            )
+            for bl in combined_bl_list
+        ],
+        params={"binSize": 10, "tStart": 0, "winSize": 60},
+    )
+    json_output_dir = Path(OUT_MAUDE_FILE).parent
+    write_jsons(combined_baseline, json_output_dir, scenario=str(SCENARIO_NUMBER))
+    print(f"      Wrote combined baseline JSON files under {json_output_dir}/<vantage>/<feature>.json.", flush=True)
 
     return True
 

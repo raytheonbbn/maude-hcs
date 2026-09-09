@@ -113,7 +113,6 @@ class Baseline:
                 "scenario": scenario,
                 "feature": bl.feat,
                 "vantage_point": bl.vantage,
-                "scenario": SCENARIO,
                 "bin_size": self.params["binSize"],
                 "start_time": self.params["tStart"],
                 "window_size": self.params["winSize"],
