@@ -38,10 +38,13 @@ from pathlib import Path
 
 import argcomplete
 import argparse
-from maude_hcs.cli import handle_command
-from maude_hcs.lib import GLOBALS, Protocol
+from maude_hcs.lib import GLOBALS
+from .generate_cp3 import generate
+from .convert_markov_json_to_maude import convert
 
-from Maude.attack_exploration.src.zone import Record
+from umaudemc.command.scheck import scheck
+import importlib.util
+import maude
 
 logger = logging.getLogger(__name__)
 
@@ -62,183 +65,214 @@ def is_valid_file(parser, arg):
     if not os.path.exists(arg):
         parser.error("The file {} does not exist".format(arg))
 
-def add_initial_data_args(parser):
-  """Arguments for the basic input data of a model-checking problem"""
+# def add_initial_data_args(parser):
+#   """Arguments for the basic input data of a model-checking problem"""
 
-  parser.add_argument(
-    '-m', '--module',
-    help='specify the module for model checking',
-    metavar='NAME'
-  )
+#   parser.add_argument(
+#     '-m', '--module',
+#     help='specify the module for model checking',
+#     metavar='NAME'
+#   )
 
-  parser.add_argument(
-    '-M', '--metamodule',
-    help='specify a metamodule for model checking',
-    metavar='TERM'
-  )
-  parser.add_argument(
-    '--opaque',
-    help='opaque strategy names (comma-separated)',
-    metavar='LIST',
-    default=''
-  )
-  parser.add_argument(
-    '--full-matchrew',
-    help='enable full matchrew trace generation',
-    action='store_true'
-  )
-  parser.add_argument(
-    '--purge-fails',
-    help='remove states where the strategy has failed from the model',
-    choices=['default', 'yes', 'no'],
-    default='default'
-  )
-  parser.add_argument(
-    '--merge-states',
-    help='avoid artificial branching due to strategies by merging states',
-    choices=['default', 'state', 'edge', 'no'],
-    default='default'
-  )
+#   parser.add_argument(
+#     '-M', '--metamodule',
+#     help='specify a metamodule for model checking',
+#     metavar='TERM'
+#   )
+#   parser.add_argument(
+#     '--opaque',
+#     help='opaque strategy names (comma-separated)',
+#     metavar='LIST',
+#     default=''
+#   )
+#   parser.add_argument(
+#     '--full-matchrew',
+#     help='enable full matchrew trace generation',
+#     action='store_true'
+#   )
+#   parser.add_argument(
+#     '--purge-fails',
+#     help='remove states where the strategy has failed from the model',
+#     choices=['default', 'yes', 'no'],
+#     default='default'
+#   )
+#   parser.add_argument(
+#     '--merge-states',
+#     help='avoid artificial branching due to strategies by merging states',
+#     choices=['default', 'state', 'edge', 'no'],
+#     default='default'
+#   )
 
 def build_cli_parser():
     parser = argparse.ArgumentParser("maude-hcs")
     parser.add_argument('--verbose', action='store_true', help='turn on logging')
-    parser.add_argument('--protocol', dest='protocol', required=False,
-                 choices=[p.value for p in Protocol],
-                 default=Protocol.DNS.value,
-                 help=f'Choose one of the following options: {", ".join([p.value for p in Protocol])}. Default is {Protocol.DNS.value}.'
-                 )
 
-    cmd_parser = parser.add_subparsers(title='command', dest='command')
-    cmd_parser.required = True
+    cmd_subparsers = parser.add_subparsers(title="command", dest="command")
+    cmd_subparsers.required = True
 
-    markov_parser = cmd_parser.add_parser('markov')
-    markov_parser.add_argument('--json-dir', dest='json_dir',
-                                 required=True, help=f'Directory containing all of the markov json files')
-    markov_parser.add_argument('--maude-dir', dest='maude_dir',
-                               required=True, help=f'Directory where the output maude files be be placed')
+    # Maude generation command
+    generate_parser = cmd_subparsers.add_parser('generate')
 
-    image_mdata_parser = cmd_parser.add_parser('images')
-    image_mdata_parser.add_argument('--image-dir', dest='image_dir',
-                               required=True, help=f'Directory containing all of the image files to extract')
-    image_mdata_parser.add_argument('--image-out-dir', dest='image_out_dir',
-                                    required=True, help=f'Directory where to write the output')
+    generate_parser.add_argument("yaml_file", help="Path to scenario YAML")
+    generate_parser.add_argument("--baselineTime", type=float, default=None, help="Duration of baseline run")
+    generate_parser.add_argument("--runTime", type=float, default=None, help="Duration of actual run")
+    generate_parser.add_argument("--hcsDelay", type=float, default=10.0, help="When to start hcs")
+    generate_parser.add_argument("--tgenDelay", type=float, default=1.0, help="When to start tgens")
+    generate_parser.add_argument("--outDir", default=None, help="Output directory for generated Maude files (default: directory of YAML file)")
+    generate_parser.add_argument("--scenarioName", default=None, help="Scenario name for generated Maude files (default: basename of YAML without extension)")
+    generate_parser.add_argument("--parallelizeBaseline", action="store_true", help="If set, generate separate baseline files per feature and vantage point in a 'baselines' directory")
+    generate_parser.add_argument("--quatex", action="store_true", help="generate quatex file for combinations?")
+    generate_parser.add_argument("--perf", action="store_true", help="Performance mode: removes baseLineAct and sets Adversary useTcpTPL to false")    
+    generate_parser.add_argument("--confidentiality", action="store_true", help="Confidentiality mode: only quatex needed for computing confidentiality")    
+    generate_parser.add_argument("--notgens", action="store_true", help="disable tgens firing")
 
-    generate_parser = cmd_parser.add_parser('generate')
-    generate_parser.add_argument('--run-args-file',
-                                 dest='run_args_filename',
-                                 #type=lambda x: is_valid_file(parser, x),
-                                metavar='FILE',
-                                 default=None,
-                                 required=False,
-                                 help=f'File containing all of the run arguments')
-    generate_parser.add_argument("--shadow-filename",
-        dest="shadow_filename",
-        # type=lambda x: is_valid_file(parser, x),
-        metavar='FILE',
-        default=None,
-        help="Name of the shadow yaml config file, which includes the topology gml file path and other params",
-        required=False)
-
-    generate_parser.add_argument("--yml-filename",
-                                 dest="yml_filename",
-                                 # type=lambda x: is_valid_file(generate_parser, x),
-                                 metavar='FILE',
-                                 default=None,
-                                 help="Name of the global yml config file, which includes the topology, and actor information and params",
-                                 required=False)
-
-    generate_parser.add_argument('--filename', dest='filename', type=str, required=False, default=None, help=f'Name of output file')
-    generate_parser.add_argument('--model', dest='model', required=False,
-            choices=GLOBALS.MODEL_TYPES,
-            default=GLOBALS.MODEL_TYPES[0],
-            help=f'Choose one of the following options: {", ".join(GLOBALS.MODEL_TYPES)}. Default is {GLOBALS.MODEL_TYPES[0]}.'
+    combo_group = generate_parser.add_mutually_exclusive_group()
+    combo_group.add_argument("--filterVpFeatCombos", action="store_true", help="filter the combinations of VP and feature")
+    combo_group.add_argument("--filterVpFeatCombos2", action="store_true", help="filter the combinations of VP and feature (different vps)")
+    combo_group.add_argument(
+        "--filterVpFeatCombo4x5",
+        action="store_true",
+        help="use the combo4x5 set of four vantage points and five features",
     )
-    generate_parser.add_argument('--output-dir', dest='output_dir',
-                               required=False, default=None, help=f'Directory containing the output files')
+    combo_group.add_argument(
+        "--filterVpFeatTop25",
+        action="store_true",
+        help="use the Top 25 vantage-point and feature sets",
+    )
+    combo_group.add_argument(
+        "--filterVpFeatIxp",
+        action="store_true",
+        help="use ixpN as the only vantage point and retain all features",
+    )
 
-    parser_scheck = cmd_parser.add_parser('scheck')
-    parser_scheck.add_argument(
+    # Markov generation subcommands
+    markov_parser = cmd_subparsers.add_parser('markov')
+    markov_subparsers = markov_parser.add_subparsers(title="markov command", dest="markov_command")
+
+    # Batch mode (directory)
+    batch_parser = markov_subparsers.add_parser("batch", help="Batch convert a directory of JSON files.")
+    batch_parser.add_argument("protocol", help="The protocol name, for naming purposes.")
+    batch_parser.add_argument("input_dir", help="The input directory containing JSON files.")
+    batch_parser.add_argument("output_dir", help="The output directory for Maude files.")
+
+    # Single file mode
+    single_parser = markov_subparsers.add_parser("single", help="Convert a single JSON file.")
+    single_parser.add_argument("protocol", help="The protocol name, for naming purposes.")
+    single_parser.add_argument("input_file", help="The input JSON file.")
+    single_parser.add_argument("output_file", nargs="?", default=None,
+                               help="The output Maude file (default: same dir as input, with -v2.maude extension).")
+
+    # scheck command to run SMC
+    scheck_parser = cmd_subparsers.add_parser('scheck')
+    scheck_parser.add_argument(
         '--advise',
         help='do not suppress debug messages from Maude',
         dest='advise',
         action='store_true'
     )
-    parser_scheck.add_argument('--file', help='Maude source file specifying the model-checking problem', required=False)
-    parser_scheck.add_argument('--test', help='maude-hcs generated test, default=results/generated_test.maude', default='results/generated_test.maude')
-    parser_scheck.add_argument('--initial', help='initial term, default=initConfig', default='initConfig')
-    parser_scheck.add_argument('--query', help='QuaTEx query, default=smc/query.quatex', default='smc/query.quatex')
-    parser_scheck.add_argument('strategy', help='strategy expression', nargs='?')
+    scheck_parser.add_argument('--file', help='Maude source file specifying the model-checking problem', required=False)
+    scheck_parser.add_argument('--test', help='maude-hcs generated test, default=results/generated_test.maude', default='results/generated_test.maude')
+    scheck_parser.add_argument('--initial', help='initial term, default=initConfig', default='initConfig')
+    scheck_parser.add_argument('--query', help='QuaTEx query, default=smc/query.quatex', default='smc/query.quatex')
+    scheck_parser.add_argument('strategy', help='strategy expression', nargs='?')
 
-    add_initial_data_args(parser_scheck)
+    # add_initial_data_args(parser_scheck)
 
-    parser_scheck.add_argument(
-        '--assign',
-        help='Assign probabilities to the successors according to the given method, default=pmaude',
-        metavar='METHOD',
-        default='pmaude'
-    )
-    parser_scheck.add_argument(
-        '--alpha', '-a',
-        help='Complement of the confidence level (probability outside the confidence interval), default=0.05',
-        type=float,
-        default=0.05
-    )
-    parser_scheck.add_argument(
-        '--delta', '-d',
-        help='Maximum admissible radius for the confidence interval, default=0.5',
-        type=float,
-        default=0.5
-    )
-    parser_scheck.add_argument(
-        '--block', '-b',
-        help='Number of simulations before checking the confidence interval, default=30',
-        type=int,
-        default=30
-    )
-    parser_scheck.add_argument(
+    # parser_scheck.add_argument(
+    #     '--assign',
+    #     help='Assign probabilities to the successors according to the given method, default=pmaude',
+    #     metavar='METHOD',
+    #     default='pmaude'
+    # )
+    # parser_scheck.add_argument(
+    #     '--alpha', '-a',
+    #     help='Complement of the confidence level (probability outside the confidence interval), default=0.05',
+    #     type=float,
+    #     default=0.05
+    # )
+    # parser_scheck.add_argument(
+    #     '--delta', '-d',
+    #     help='Maximum admissible radius for the confidence interval, default=0.5',
+    #     type=float,
+    #     default=0.5
+    # )
+    # parser_scheck.add_argument(
+    #     '--block', '-b',
+    #     help='Number of simulations before checking the confidence interval, default=30',
+    #     type=int,
+    #     default=30
+    # )
+
+    scheck_parser.add_argument(
         '--nsims', '-n',
         help='Number of simulations (it can be a fixed number or a range min-max, where any of the limits can be omitted), default=30-',
         default='30-'
     )
-    parser_scheck.add_argument(
+    scheck_parser.add_argument(
         '--seed', '-s',
         help='Random seed',
         type=int
     )
-    parser_scheck.add_argument(
+    scheck_parser.add_argument(
         '--jobs', '-j',
         help='Number of parallel simulation threads, default=1',
         type=int,
         default=1
     )
-    parser_scheck.add_argument(
+    scheck_parser.add_argument(
       '--distribute',
       help='Distribute the computation over some machines'
     )
-    parser_scheck.add_argument(
+    scheck_parser.add_argument(
       '-D',
       action='append',
       help='Define a constant to be used in QuaTEx expressions'
     )
-    parser_scheck.add_argument(
+    scheck_parser.add_argument(
       '--dump',
       help='Dump query evaluations into the given file',
     )
-    parser_scheck.add_argument(
+    scheck_parser.add_argument(
         '--format', '-f',
         help='Output format for the simulation results, default=text',
         choices=['text', 'json'],
         default='text'
     )
-    parser_scheck.add_argument(
+    scheck_parser.add_argument(
         '--plot', '-p',
         help='Plot the results of parametric queries (using Matplotlib)',
         action='store_true'
     )
     
-    argcomplete.autocomplete(parser)
-    return parser
+    argcomplete.autocomplete(generate_parser)
+    return generate_parser
+
+def handle_command(command, parser, args: argparse.Namespace):
+    match command:
+        case "generate":
+            generate(args)
+        case "scheck":
+            handle_scheck(args)
+        case "markov":
+            print(vars(args))
+            convert(args)
+        case _:
+            if parser is not None:
+                parser.error(f"Unknown command: {command}")
+
+def handle_scheck(args):
+    logger.debug("Handle umaudemc scheck")
+
+    if not args.file:        
+        args.file = str(GLOBALS.TOPLEVELDIR.joinpath(Path(f"maude_hcs/lib/smc/smc.maude")))
+    logger.debug(f"Loaded SMC file {args.file}")
+
+    has_umaudemc = importlib.util.find_spec('umaudemc')
+    if not has_umaudemc:
+        logger.error('The umaudemc Python package is not available. It can be installed with "pip install umaudemc".')
+    maude.init(advise=args.advise)
+    maude.load(args.test)
+    scheck(args)
 
 def main():
     """Maude HCS CLI
@@ -252,7 +286,6 @@ def main():
     init_logging(args.verbose)    
     
     handle_command(args.command, parser, args)
-
 
 if __name__ == "__main__":
     main()
