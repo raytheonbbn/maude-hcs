@@ -23,8 +23,6 @@ from typing import Optional, Union
 
 from dataclasses_json import dataclass_json, config
 
-from .utils import read_env_file
-
 logger = logging.getLogger(__name__)
 
 class SetupNotFoundError(Exception):
