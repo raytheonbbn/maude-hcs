@@ -1,0 +1,31 @@
+sload ../irc/ircMonitor.maude
+
+mod TEST-UTILS is
+
+  inc IRC_MONITOR .
+
+  op all-msgs-received _ : Config -> Bool .
+  op non-zero-msgs-received _ : Config -> Bool .
+  op len-msg-timestamp-list _ : MessageTimestampList -> Nat .
+
+  var C : Config .
+  var M : MessageTimestamp .
+  vars MTL0 MTL1 : MessageTimestampList .
+
+  eq len-msg-timestamp-list nilMessageTimestampList = 0 .
+  eq len-msg-timestamp-list (M ; MTL0) = 1 + len-msg-timestamp-list MTL0 .
+
+  eq all-msgs-received (
+    < addr:Address : IrcMonitor |
+        msgSent: MTL0,
+        msgRcvd: MTL1 >
+    C
+  ) = (len-msg-timestamp-list MTL0 == len-msg-timestamp-list MTL1) .
+
+  eq non-zero-msgs-received (
+    < addr:Address : IrcMonitor |
+        msgSent: MTL0,
+        msgRcvd: MTL1 >
+    C
+  ) = (len-msg-timestamp-list MTL0 > 0) .
+endm

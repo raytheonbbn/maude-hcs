@@ -17,7 +17,10 @@ class GLOBALS:
     MODULE_NAME = 'HCS_TEST'
     MODEL_TYPES = ['nondet', 'prob']
     MONITOR_ADDRESS = 'monAddr'
-    TOPLEVELDIR = Path(os.path.dirname(__file__)).parent.parent
+    
+    TOP_LEVEL_DIR = Path(os.path.dirname(__file__)).parent.parent
+    LIB_DIR = TOP_LEVEL_DIR /  'maude_hcs' / 'lib'
+    DEPS_DIR = TOP_LEVEL_DIR /  'maude_hcs' / 'deps'
 
 
 def flatten(d, parent_key='', sep='.'):

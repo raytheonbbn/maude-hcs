@@ -264,7 +264,7 @@ def handle_scheck(args):
     logger.debug("Handle umaudemc scheck")
 
     if not args.file:        
-        args.file = str(GLOBALS.TOPLEVELDIR.joinpath(Path(f"maude_hcs/lib/smc/smc.maude")))
+        args.file = str(GLOBALS.TOP_LEVEL_DIR.joinpath(Path(f"maude_hcs/lib/smc/smc.maude")))
     logger.debug(f"Loaded SMC file {args.file}")
 
     has_umaudemc = importlib.util.find_spec('umaudemc')
