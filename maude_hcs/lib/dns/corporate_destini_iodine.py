@@ -175,7 +175,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
                         start=-1) # dont start it
 
     ## raceboat tunnel client and server with
-    rb_images = find_and_load_json(GLOBALS.TOPLEVELDIR, 'destini_covers.json')
+    rb_images = find_and_load_json(GLOBALS.TOP_LEVEL_DIR, 'destini_covers.json')
     rb_destiniobj = Destini.from_dict(rb_images)
     raceboatCl = RaceboatClient(mas_weird_network.tunnel_client_addr, mas_weird_network.sender_northbound_addr,
                                 mas_weird_network.alice_raceboat_profile,
@@ -314,7 +314,7 @@ def destini_mastodon_iodine_dns(_args, hcsconf :  HCSConfig) -> IodineDNSConfig:
         destiniobj = None
         if images_id not in seen_images:
             seen_images.append(images_id)
-            images = find_and_load_json(GLOBALS.TOPLEVELDIR, 'mastodon_images.json')
+            images = find_and_load_json(GLOBALS.TOP_LEVEL_DIR, 'mastodon_images.json')
             destiniobj = Destini.from_dict(images)
         # output this once
         tgen_clients.append(MASTGenClient(f'tgen-mas-{index}', client.client_markov_model_profile, client.start_time, False, client.client_username, client.client_hashtags, destiniobj, images_id, mastodon_server_address, True))

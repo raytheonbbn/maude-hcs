@@ -21,8 +21,6 @@ from .generate_quatex import Config, write_all_queries_to_file
 
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-lib = (GLOBALS.TOPLEVELDIR / 'maude_hcs' / 'lib').resolve()
-deps = (GLOBALS.TOPLEVELDIR / 'maude_hcs' / 'deps')
 IMAGE_SIZE = 190000
 smc_mod_name = "HCS_TEST"
 MAX_BL_SIZE = 10000.0 # max list size
@@ -512,22 +510,22 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("")
     
     L("--- Core Infrastructure")
-    L(f"sload {lib}/webtunnel/webtunnel_prob.maude")
-    L(f"sload {lib}/irc/irc_prob-v2")
-    L(f"sload {lib}/irc/ircMonitor")
-    L(f"sload {lib}/irc/irc-byteseq-interface")
-    L(f"sload {lib}/common/maude/irc-action-actor-v2.maude")
-    L(f"sload {lib}/irc/common/irc_name")
-    L(f"sload {lib}/irc/common/_aux")
-    L(f"sload {lib}/irc/common/app_chat")
-    L(f"sload {lib}/irc/_irc_aux")
-    L(f"sload {deps}/dns_formalization/Maude/common/apmaude.maude")
-    L(f"sload {lib}/obfs4/_obfs4_aux.maude")
-    L(f"sload {lib}/obfs4/obfs4_prob.maude")
-    L(f"sload {lib}/common/maude/user-action-actor")
-    L(f"sload {lib}/raceboatMastodon/maude/enc-dec-actor")
-    L(f"sload {lib}/raceboatMastodonBidir/maude/rb-cm-bidir-mas-oneHash.maude")
-    L(f"sload {lib}/mastodon/maude/probabilistic/mastodon")
+    L(f"sload {GLOBALS.LIB_DIR}/webtunnel/webtunnel_prob.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/irc/irc_prob-v2")
+    L(f"sload {GLOBALS.LIB_DIR}/irc/ircMonitor")
+    L(f"sload {GLOBALS.LIB_DIR}/irc/irc-byteseq-interface")
+    L(f"sload {GLOBALS.LIB_DIR}/common/maude/irc-action-actor-v2.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/irc/common/irc_name")
+    L(f"sload {GLOBALS.LIB_DIR}/irc/common/_aux")
+    L(f"sload {GLOBALS.LIB_DIR}/irc/common/app_chat")
+    L(f"sload {GLOBALS.LIB_DIR}/irc/_irc_aux")
+    L(f"sload {GLOBALS.DEPS_DIR}/dns_formalization/Maude/common/apmaude.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/obfs4/_obfs4_aux.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/obfs4/obfs4_prob.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/common/maude/user-action-actor")
+    L(f"sload {GLOBALS.LIB_DIR}/raceboatMastodon/maude/enc-dec-actor")
+    L(f"sload {GLOBALS.LIB_DIR}/raceboatMastodonBidir/maude/rb-cm-bidir-mas-oneHash.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/mastodon/maude/probabilistic/mastodon")
     
     if "mastodon" in hcs_channel_models:
         mas_client = hcs_channel_models["mastodon"]["client"]
@@ -535,7 +533,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"sload mastodon_action_models/{mas_client}.maude")
         L(f"sload mastodon_action_models/{mas_server}.maude")
     
-    L(f"sload {lib}/common/maude/http-overhead.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/common/maude/http-overhead.maude")
     
     if "skyhook" in hcs_channel_models:
         sky_client = hcs_channel_models["skyhook"]["client"]
@@ -543,27 +541,27 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"sload skyhook_action_models/{sky_client}.maude")
         L(f"sload skyhook_action_models/{sky_server}.maude")
     
-    L(f"sload {lib}/irc/common/irc-msg-model")
-    L(f"sload {lib}/raceboatSkyhook/maude/rb-cm-simple-bi")
-    L(f"sload {lib}/skyhook/skyhook_prob")
-    L(f"sload {lib}/s3/s3_protocol")
-    L(f"sload {lib}/dns/maude/probabilistic/iodine_dns.maude")
-    L(f"sload {lib}/dns/maude/common/_aux.maude")
-    L(f"sload {lib}/network/net_prob.maude")
-    L(f"sload {lib}/network/net-dns_prob.maude")
-    L(f"sload {lib}/common/maude/structured-addresses.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/irc/common/irc-msg-model")
+    L(f"sload {GLOBALS.LIB_DIR}/raceboatSkyhook/maude/rb-cm-simple-bi")
+    L(f"sload {GLOBALS.LIB_DIR}/skyhook/skyhook_prob")
+    L(f"sload {GLOBALS.LIB_DIR}/s3/s3_protocol")
+    L(f"sload {GLOBALS.LIB_DIR}/dns/maude/probabilistic/iodine_dns.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/dns/maude/common/_aux.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/network/net_prob.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/network/net-dns_prob.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/common/maude/structured-addresses.maude")
     L("")
     
     L("--- TGEN Actor Infrastructure")
-    L(f"sload {lib}/common/maude/tgen-action-actor-v2.maude")
-    L(f"sload {lib}/tgen/maude/ftp/ftpTgen-actor.maude")
-    L(f"sload {lib}/tgen/maude/ftp/ftpServer-actor.maude")
-    L(f"sload {lib}/tgen/maude/gorillachat/gorilla-Tgen-actor.maude")
-    L(f"sload {lib}/tgen/maude/minio/minioTgen-actor.maude")
-    L(f"sload {lib}/s3/s3_protocol.maude")
-    L(f"sload {lib}/tgen/maude/dnsTgen-actor-uniqueId.maude")
-    L(f"sload {lib}/tgen/maude/masTGen.maude")
-    L(f"sload {lib}/tgen/maude/irc/ircTgen-actor.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/common/maude/tgen-action-actor-v2.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/tgen/maude/ftp/ftpTgen-actor.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/tgen/maude/ftp/ftpServer-actor.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/tgen/maude/gorillachat/gorilla-Tgen-actor.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/tgen/maude/minio/minioTgen-actor.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/s3/s3_protocol.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/tgen/maude/dnsTgen-actor-uniqueId.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/tgen/maude/masTGen.maude")
+    L(f"sload {GLOBALS.LIB_DIR}/tgen/maude/irc/ircTgen-actor.maude")
     L("")
     
     L("--- HCS IRC User Models (v2)")
@@ -617,7 +615,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         if inst.tgen_type == "dnsTgen":
             dns_profiles.add(inst.profile)
     for p in sorted(dns_profiles):
-        L(f"sload {lib}/tgen/maude/dnsprofiles/markov/config_{p}.maude")
+        L(f"sload {GLOBALS.LIB_DIR}/tgen/maude/dnsprofiles/markov/config_{p}.maude")
     L("")
     
     L("--- Mastodon TGEN Profiles (v1 from library)")
@@ -626,7 +624,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         if inst.tgen_type == "masTgen":
             mas_profiles.add(inst.profile)
     for p in sorted(mas_profiles):
-        L(f"sload {lib}/tgen/maude/mastodonprofiles/markov/config_{p}.maude")
+        L(f"sload {GLOBALS.LIB_DIR}/tgen/maude/mastodonprofiles/markov/config_{p}.maude")
     L("")
 
     L("--- Address mapping")
@@ -634,12 +632,12 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("")
     
     L("--- Visibility map (needed for SMC)")
-    L(f"sload {lib}/smc/visibility-plain")
+    L(f"sload {GLOBALS.LIB_DIR}/smc/visibility-plain")
     L("")
 
     L("--- load the baseline actor (simplifies how we add baseline data)")
-    L(f"sload {lib}/smc/smc-baseline-shared")
-    L(f"sload {lib}/smc-baseline/baseline-actor")
+    L(f"sload {GLOBALS.LIB_DIR}/smc/smc-baseline-shared")
+    L(f"sload {GLOBALS.LIB_DIR}/smc-baseline/baseline-actor")
     L("")
 
     mod_name = scenario_name.upper().replace("_", "-")    
@@ -649,8 +647,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     if "skyhook" in hcs_channel_models:
         sky_client = hcs_channel_models["skyhook"]["client"]
         sky_server = hcs_channel_models["skyhook"]["server"]
-        L(f"  inc {sky_client.upper().replace('_', '-')}-MAMODEL .")
-        L(f"  inc {sky_server.upper().replace('_', '-')}-MAMODEL .")
+        L(f"  inc SKYHOOK-{sky_client.upper().replace('_', '-')}-MAMODEL-V2 .")
+        L(f"  inc SKYHOOK-{sky_server.upper().replace('_', '-')}-MAMODEL-V2 .")
 
     L("  pr IRC-V2 .")
     L("  pr IRC-USER-ACTION-ACTOR-V2 .")
@@ -663,8 +661,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     if "mastodon" in hcs_channel_models:
         mas_client = hcs_channel_models["mastodon"]["client"]
         mas_server = hcs_channel_models["mastodon"]["server"]
-        L(f"  inc {mas_client.upper().replace('_', '-')}-MAMODEL .")
-        L(f"  inc {mas_server.upper().replace('_', '-')}-MAMODEL .")
+        L(f"  inc MASTODON-{mas_client.upper().replace('_', '-')}-MAMODEL-V2 .")
+        L(f"  inc MASTODON-{mas_server.upper().replace('_', '-')}-MAMODEL-V2 .")
     L("  pr SKYHOOK .")
     L("  pr S3_PROTOCOL .")
     L("  pr IRC_MONITOR .")
@@ -1779,7 +1777,7 @@ def gen_baselineEq(scenario_name):
     endm
     eof
     """
-    L(f"sload {lib}/smc/smc-baseline-shared")
+    L(f"sload {GLOBALS.LIB_DIR}/smc/smc-baseline-shared")
     L("")
     L("")
     
@@ -1807,7 +1805,7 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
         prefix = "../"
     
     L(f"sload {prefix}{scenario_name}")
-    L(f"sload {prefix}{lib}/smc/smc_cp3-refactored")
+    L(f"sload {prefix}{GLOBALS.LIB_DIR}/smc/smc_cp3-refactored")
     if not perf:
         L("")
         if not isBaseline:

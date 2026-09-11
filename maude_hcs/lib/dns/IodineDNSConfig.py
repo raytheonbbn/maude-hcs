@@ -150,14 +150,14 @@ class IodineDNSConfig(DNSConfig):
                         key = 'mastodonprofiles'
                     elif isinstance(tc, DNSTGenClient):
                         key = 'dnsprofiles'
-                    file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude', key=key)
+                    file = find_recursively(GLOBALS.TOP_LEVEL_DIR, f'{mod}.maude', key=key)
                     tgen_loads.add(f'sload {self.to_relative_path(file)}')
             rb_loads = set()
             for actor in self.tunnels:
                 if isinstance(actor, RaceboatClient) or isinstance(actor, RaceboatServer):
                     mod = '_'.join(actor.profile.replace('-', '_').split('_')[1:])
                     try:
-                        file = find_recursively(GLOBALS.TOPLEVELDIR, f'{mod}.maude')
+                        file = find_recursively(GLOBALS.TOP_LEVEL_DIR, f'{mod}.maude')
                         rb_loads.add(f'sload {self.to_relative_path(file)}')
                     except:
                         logger.warning(f'Could not find {mod}.maude. Exception {traceback.format_exc()}')

@@ -99,7 +99,7 @@ class Output:
             "set print attribute off .",
             "set show advisories off ."
         ]
-        out.smc_directory = str(Path(find_recursively(GLOBALS.TOPLEVELDIR, 'adversary_param.j2')).parent)
+        out.smc_directory = str(Path(find_recursively(GLOBALS.TOP_LEVEL_DIR, 'adversary_param.j2')).parent)
         return out
 
 @dataclass
