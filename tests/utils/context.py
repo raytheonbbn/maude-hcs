@@ -63,7 +63,7 @@ class TestConfig(object):
 
 @dataclass_json
 @dataclass(frozen=True)
-class Setup(object):
+class Context(object):
     """Represents a testing setup in which we can run our actual tests. In particular, self.directory contains the files and context
     we need to run the tests defined by the runargs within that directory.
 
@@ -87,54 +87,50 @@ class Setup(object):
 class TestManager(object):
     __test__ = False
 
-    def __init__(self, directory: Path = Path('./tests/setups'), file: str = 'setups.json'):
-        self._setups_directory = directory.resolve()
-        self._setups_file = file
-        self._setups = self._get_setups()
+    def __init__(self, directory: Path = Path('./tests/contexts')):
+        self._contexts_directory = directory.resolve()
+        self._contexts = self._get_setups()
         self._test_cfgs_by_setup = self._get_test_cfgs_by_setup()
 
     @property
-    def setups(self) -> list[Setup]:
+    def contexts(self) -> list[Context]:
         """ List of all setups"""
-        return self._setups
+        return self._contexts
 
     @property
-    def test_cfgs_by_setup(self) -> dict[Setup, list[TestConfig]]:
+    def test_cfgs_by_setup(self) -> dict[Context, list[TestConfig]]:
         return self._test_cfgs_by_setup
 
     @property
-    def test_pairs(self) -> list[tuple[Setup, TestConfig]]:
-        return [(setup, cfg) for setup in self.test_cfgs_by_setup for cfg in self.test_cfgs_by_setup[setup]]
+    def test_pairs(self) -> list[tuple[Context, TestConfig]]:
+        return [(ctx, cfg) for ctx in self.test_cfgs_by_setup for cfg in self.test_cfgs_by_setup[ctx]]
     
-    def setup_names(self) -> list[str]:
+    def context_names(self) -> list[str]:
         """ List of all setups"""
-        result = [u.name for u in self._setups]
+        result = [u.name for u in self._contexts]
         return result
 
     @property
-    def setups_dir(self) -> Path:
-        return self._setups_directory
+    def contexts_dir(self) -> Path:
+        return self._contexts_directory
 
     @property
     def directories(self) ->list[str]:
-        """List of all the known directories in the setup repo"""
-        return list(set([str(setup.directory) for setup in self._setups]))
+        """List of all the known context directories"""
+        return list(set([str(setup.directory) for setup in self._contexts]))
 
-    def _get_test_cfgs_by_setup(self) -> dict[Setup, list[TestConfig]]:
+    def _get_test_cfgs_by_setup(self) -> dict[Context, list[TestConfig]]:
         cfgs = {}
-        for setup in self._setups:
-            cfgs[setup] = setup.get_test_cfgs()
+        for ctx in self._contexts:
+            cfgs[ctx] = ctx.get_test_cfgs()
         return cfgs
 
-    def _get_setups(self) -> list[Setup]:
-        setups = []
+    def _get_setups(self) -> list[Context]:
+        ctxs = []
 
-        with open(self._setups_directory / self._setups_file, 'r') as fio:
-            data = json.load(fio)
+        for ctx_dir_name in os.listdir(self._contexts_directory):
+            ctx_dir = self._contexts_directory / ctx_dir_name
+            if os.path.isdir(ctx_dir):
+                ctxs.append(Context(ctx_dir_name, ctx_dir))
 
-        for d in data:
-            # The json files have relative paths, but it's preferable to work with absolute paths
-            d["directory"] = self._setups_directory / d["directory"]
-            setups.append(Setup.from_dict(d)) # type: ignore[attr-defined]
-
-        return setups
+        return ctxs

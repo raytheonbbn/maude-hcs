@@ -6,7 +6,7 @@ import maude
 from pathlib import Path
 from pytest_regressions.file_regression import FileRegressionFixture
 
-from ..utils.setups import TestManager, Setup, TestConfig
+from ..utils.context import TestManager, Context, TestConfig
 from ..runners.maude_runner import maude_runner
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ def json_check_fn(obtained_filename: Path, expected_filename: Path):
 
     assert obtained_json == expected_json
 
-@pytest.mark.parametrize(["setup", "cfg"], manager.test_pairs)
-def test(file_regression: FileRegressionFixture, setup: Setup, cfg: TestConfig):
-    out = maude_runner(setup, **cfg.args)
+@pytest.mark.parametrize(["ctx", "cfg"], manager.test_pairs)
+def test(file_regression: FileRegressionFixture, ctx: Context, cfg: TestConfig):
+    out = maude_runner(ctx, **cfg.args)
     file_regression.check(out, extension=".json", check_fn=json_check_fn)
