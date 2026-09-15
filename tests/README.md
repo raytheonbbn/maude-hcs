@@ -1,7 +1,5 @@
 # How to use the new test framework
 
-The framework currently only supports regression (snapshot) tests, normal tests are almost ready.
-
 ## Updating environment
 
 Reinstall `maude-hcs` (including the test dependencies group!), since there have been changes to `pyproject.toml`:
@@ -10,26 +8,34 @@ Reinstall `maude-hcs` (including the test dependencies group!), since there have
 
 ## Create a context
 
-A context directory controls the filesystem context for a test, i.e. it determines which files will be present alongside the test.maude file actually being tested.
-Many different tests can share the same context, that just means they require the same supporting files. Before each test, the framework initializes a new temporary directory
-with the files from the given context. *Contexts should only include files that are likely to be different for different tests*, otherwise it makes more sense to just
-have those files under maude_hcs/lib, which test.maude still links to using absolute paths.
+A context directory controls the (static) filesystem context for a test, i.e. it determines which files will always be present in the test environment.
+Additional files will be added during the build step of a test. The context directory also stores the tests to be executed in that context, 
+and build configurations for the tests.  *Contexts should only include files that are test-specific, or likely to be different for different tests*, 
+otherwise it makes more sense to just have those files under maude_hcs/lib, which files can still link to using absolute paths.
 
-In practice, the context will mostly consist of action models defined in json files, and yaml configurations.
+Before each test, the framework initializes a new temporary directory with the files from the given context.
+Then, depending on the test runner, it will run a build step that adds additional files to the environment.
+
+*BUILDS ARE CACHED, so running a second test with the same build configuration will reuse the built environment from the first test. This means it's critical that
+tests do not alter their environment in any way that could affect future tests*.
+
+In practice, the context will mostly consist of json action models, yaml configurations, test definitions, and build configurations.
 
 Each context directory must be placed under tests/contexts. The name of the context directory will become part of the name of the test.
 
-## Create a config
+## Create a test
 
-A test config file defines an individual test to run, using JSON. For a given context directory named `ctx`, the corresponding config files are found under `ctx/test_cfgs`.
+For a given context directory named `ctx`, the tests to run in that context are found under `ctx/tests`, grouped into files by which function they use to execute.
 
-Each config must define four top-level attributes: `name`, `runner`, `regression`, and `args`. `name` is just the name of the test. Currently, `runner` should always be set to `"maude_runner"` and `regression` should always be set to `true`.
+For example, `ctx/tests/maude.json`, if present, must contain a list of tests that run using the standard `maude_runner` function, while `ctx/tests/smc.json` would use the `smc_runner` function.
 
-`args` defines the arguments passed to the selected `runner`. For `maude_runner`, you must define these arguments:
+Regardless of the test runner, every test object has the same attributes:
 
-- `markov_dirs` is a list of objects, each of which identifies a directory of markov model JSON files that need to be converted to maude. Each object must have a `path` attribute that identifies the directory relative to the context directory root, and a `proto` key defining which protocol the markov models are for.
-- `gen_args` is an object defining the arguments to be passed to the maude model generation script.
-- `test` is the maude expression that should be evaluated, and the result compared against the known snapshot (or saved if there is no snapshot yet)
+- `name`: The name for this test
+- `desc`: A description of the purpose and implementation of this test
+- `expected`: The expected result for this test. If absent, this is a regression test that will create a snapshot the first time it is run
+- `build_cfg`: Which JSON file from `ctx/build_cfgs` to use as a source of arguments to the markov_json_to_maude converter and the test.maude generator. Setting this to `foo` selects the build config `ctx/build_cfgs/foo.json`.
+- `arg`: An arbitrary JSON expression to be passed to the test runner function. This generally includes a predicate or expression to be evaluated as part of the test, with the result compared to `expected`.
 
 ## Run pytest
 
