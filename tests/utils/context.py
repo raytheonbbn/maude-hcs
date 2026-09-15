@@ -89,6 +89,7 @@ class Context:
                     ctx=self,
                     name=test["name"],
                     desc=test["desc"],
+                    expected=test.get("expected", None),
                     runner=runner,
                     build_cfg=build_cfgs[test["build_cfg"]],
                     arg=test["arg"]
@@ -151,10 +152,17 @@ class TestManager:
             self.test_cfgs.extend(ctx.get_test_cfgs())
     
     def regression_test_cfgs(self) -> list[TestConfig]:
-        return [cfg for cfg in self.test_cfgs if cfg.expected is None]
+        ret = [cfg for cfg in self.test_cfgs if cfg.expected is None]
+        for cfg in ret:
+            logger.info(cfg.name)
+            logger.info(cfg.runner)
+        logger.info(f"\n\nn_cfgs: {len(ret)}\n{ret}\n\n")
+        return ret
 
-    def expected_test_pairs(self) -> list[TestConfig]:
-        return [cfg for cfg in self.test_cfgs if cfg.expected is not None]
+    def expected_test_cfgs(self) -> list[TestConfig]:
+        ret = [cfg for cfg in self.test_cfgs if cfg.expected is not None]
+        logger.info(f"\n\nn_cfgs: {len(ret)}\n{ret}\n\n")
+        return ret
 
     def _get_contexts(self) -> list[Context]:
         ctxs = []

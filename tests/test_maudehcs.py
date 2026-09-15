@@ -8,7 +8,7 @@ from pathlib import Path
 from pytest_regressions.file_regression import FileRegressionFixture
 
 from .utils.context import TestManager, Context, TestConfig
-from .runners.maude_runner import regression_maude_runner #, expected_maude_runner
+from .runners.maude_runner import maude_runner #, expected_maude_runner
 
 logger = logging.getLogger(__name__)
 manager = TestManager()
@@ -30,10 +30,10 @@ def json_check_fn(obtained_filename: Path, expected_filename: Path):
 
 @pytest.mark.parametrize("cfg", manager.regression_test_cfgs())
 def test_regressions(file_regression: FileRegressionFixture, cfg: TestConfig):
-    out = regression_maude_runner(cfg, Path(temp_dir))
+    out = maude_runner(cfg, Path(temp_dir))
     file_regression.check(out, extension=".json", check_fn=json_check_fn)
 
-# @pytest.mark.parametrize(["ctx", "cfg"], manager.expected_test_pairs)
-# def test_expected(ctx: Context, cfg: TestConfig):
-#     out = expected_maude_runner(ctx, **cfg.args)
-#     assert out == cfg.expected
+@pytest.mark.parametrize("cfg", manager.expected_test_cfgs())
+def test_expected(cfg: TestConfig):
+    out = maude_runner(cfg, Path(temp_dir))
+    assert out == cfg.expected
