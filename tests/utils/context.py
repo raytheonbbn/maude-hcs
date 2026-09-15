@@ -12,125 +12,157 @@
 #
 #  The U.S. Government retains unlimited data/computer software rights to this item unless this item is identified as technical data or computer software to be furnished with restrictions in the above identified contract.
 #  Notice: Markings. Any reproduction of this computer software, computer software documentation, or portions thereof must also reproduce the markings contained herein
+
 import json
 import logging
 import os
-from dataclasses import dataclass, field
-from enum import Enum, auto
+
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+from typing import Any
 
-from typing import Optional, Union
-
-from dataclasses_json import dataclass_json, config
+from dataclasses_json import dataclass_json
 
 logger = logging.getLogger(__name__)
 
-class SetupNotFoundError(Exception):
-    def __init__(self, message="A setup could not be find with the provided information."):
-        super().__init__(message)
-
 class TestRunner(Enum):
-    MAUDE = "MAUDE"
-    SMC = "SMC"
-    PYTHON = "PYTHON"
-
-@dataclass_json
-@dataclass
-class TestConfig(object):
-    """Defines a configuration for running a specific test within some Setup. So, a completely unambiguous test case can be
-    represented with a tuple (Setup, TestConfig)
-
-    Args:
-        name (str): A human-readable name for this test. This is used for display and for labeling regression test files
-        runner (TestRunner): which python function to use to run the test. This is only an enum identifier for the real function to use.
-        args (dict): which args to pass to the runner function for this test. They are passed along with the setup directory.
-        regression (bool): Whether to include this test in regression testing
-        expected (dict | None): expected value for this test, if not a regression test
-    """
-    name:       str
-    runner:     TestRunner
-    regression: bool = False
-    expected:   dict | None = None
-    args:       dict = field(default_factory=dict)
-    __test__ = False
-
-    def __post_init__(self):
-        assert self.regression or (self.expected is not None), \
-            "a TestConfig must be either a regression test, or contain an expected result"
-
-        assert not (self.regression and (self.expected is not None)), \
-            "regression tests use past result files stored by pytest-regression, not json-specified expected values"
+    MAUDE = "maude"
+    SMC = "smc"
 
 @dataclass_json
 @dataclass(frozen=True)
-class Context(object):
-    """Represents a testing setup in which we can run our actual tests. In particular, self.directory contains the files and context
-    we need to run the tests defined by the runargs within that directory.
+class GenArgs:
+    yaml_file:      str
+    baseline_time:  float
+    run_time:       float
+    hcs_delay:      float
+    tgen_delay:     float
+    no_tgens:       bool
+
+    filter_vp_feat_combos:      bool
+    filter_vp_feat_combos_2:    bool
+    filter_vp_top_25:           bool
+    filter_vp_feat_combo_4x5:   bool
+    filter_vp_feat_ixp:         bool
+
+    parallelize_baseline:       bool
+    confidentiality:            bool
+    performance:                bool
+
+
+@dataclass_json
+@dataclass(frozen=True)
+class BuildConfig:
+    """Contains the arguments we need to generate a full testing environment from a starting context.
 
     Args:
-        name (str): A human-readable name for the setup. This is used for display and for labeling regression test files
-        directory (str): The directory where the setup resides relative to setups
+        name (str): A human-readable name for this config, which is taken directly from the filename
+        markov_dirs (list[str]): All the directories that should have their markov json files converted to maude
+        gen_args (dict): Arguments for cp3 maude generation
+    """
+
+    name: str
+    markov_dirs: tuple[tuple[str, str], ...]
+    gen_args: GenArgs
+
+@dataclass_json
+@dataclass(frozen=True)
+class Context:
+    """Represents a testing context in which we can run our actual tests. In particular, self.directory contains the files and context
+    we need to run the tests defined by the tests.json within that directory.
+
+    Args:
+        name (str): A human-readable name for the context. This is used for display and for labeling regression test files
+        directory (str): The directory where the context resides relative to <repo_root>/tests/contexts
     """
     name:               str
     directory:          Path
 
-    def get_test_cfgs(self) -> list[TestConfig]:
-        cfgs = []
+    def _load_test_cfgs_by_runner(self, runner: TestRunner, build_cfgs: dict[str, BuildConfig]) -> list["TestConfig"]:
+        test_cfgs = []
+        path = self.directory / "tests" / f"{runner.value}.json"
+        if path.is_file():
+            tests = json.loads(path.read_text())
+            for test in tests:
+                test_cfgs.append(TestConfig(
+                    ctx=self,
+                    name=test["name"],
+                    desc=test["desc"],
+                    runner=runner,
+                    build_cfg=build_cfgs[test["build_cfg"]],
+                    arg=test["arg"]
+                ))
+        return test_cfgs
 
-        for root, _, files in os.walk(os.path.join(self.directory, 'test_cfgs')):
+    def get_test_cfgs(self) -> list["TestConfig"]:
+        build_cfgs = {}
+        test_cfgs = []
+
+        for root, _, files in os.walk(os.path.join(self.directory, 'build_cfgs')):
             for file in files:
-                contents = (Path(root) / file).read_text()
-                json_dict = json.loads(contents)
-                cfgs.append(TestConfig.from_dict(json_dict)) # type: ignore[attr-defined]
-        return cfgs
+                path = Path(root) / file
+                d = json.loads(path.read_text())
+                build_cfgs[path.stem] = BuildConfig(
+                    path.stem,
+                    tuple([tuple(l) for l in d["markov_dirs"]]),
+                    GenArgs.from_dict(d["gen_args"]) # type: ignore
+                )
 
-class TestManager(object):
+        test_cfgs.extend(self._load_test_cfgs_by_runner(TestRunner.MAUDE, build_cfgs))
+        # test_cfgs.extend(self._load_test_cfgs_by_runner(TestRunner.SMC, build_cfgs))
+
+        return test_cfgs
+
+@dataclass_json
+@dataclass
+class TestConfig:
+    """Defines a configuration for running a specific Maude test (regression or expected) within some Context.
+
+    Args:
+        ctx (Context): the Context within which this test is defined
+        name (str): A human-readable name for this test. This is used for display and for labeling regression test files
+        desc (str): A human-readable description for the purpose and implementation of this test
+        runner (TestRunner): which python function to use to run the test. This is only an enum identifier for the real function to use.
+        build_cfg (dict): args to use when generating markov maude files and the main maude test file
+        arg (str): arbitrary object to be passed to the maude runner. Typically includes a predicate or expression to evaluate for the test.
+        expected (dict | None): expected value for this test, or None if this is a regression test
+    """
+    ctx:        Context
+    name:       str
+    desc:       str 
+    runner:     TestRunner
+    build_cfg:  BuildConfig
+    arg:        Any
+    expected:   dict | None = None
+
+    # Prevent pytest from collecting this class
+    __test__:   bool = False
+
+class TestManager:
     __test__ = False
 
     def __init__(self, directory: Path = Path('./tests/contexts')):
-        self._contexts_directory = directory.resolve()
-        self._contexts = self._get_setups()
-        self._test_cfgs_by_setup = self._get_test_cfgs_by_setup()
+        self.contexts_directory = directory.resolve()
+        self.contexts = self._get_contexts()
+        self.test_cfgs = []
 
-    @property
-    def contexts(self) -> list[Context]:
-        """ List of all setups"""
-        return self._contexts
-
-    @property
-    def test_cfgs_by_setup(self) -> dict[Context, list[TestConfig]]:
-        return self._test_cfgs_by_setup
-
-    @property
-    def test_pairs(self) -> list[tuple[Context, TestConfig]]:
-        return [(ctx, cfg) for ctx in self.test_cfgs_by_setup for cfg in self.test_cfgs_by_setup[ctx]]
+        for ctx in self.contexts:
+            self.test_cfgs.extend(ctx.get_test_cfgs())
     
-    def context_names(self) -> list[str]:
-        """ List of all setups"""
-        result = [u.name for u in self._contexts]
-        return result
+    def regression_test_cfgs(self) -> list[TestConfig]:
+        return [cfg for cfg in self.test_cfgs if cfg.expected is None]
 
-    @property
-    def contexts_dir(self) -> Path:
-        return self._contexts_directory
+    def expected_test_pairs(self) -> list[TestConfig]:
+        return [cfg for cfg in self.test_cfgs if cfg.expected is not None]
 
-    @property
-    def directories(self) ->list[str]:
-        """List of all the known context directories"""
-        return list(set([str(setup.directory) for setup in self._contexts]))
-
-    def _get_test_cfgs_by_setup(self) -> dict[Context, list[TestConfig]]:
-        cfgs = {}
-        for ctx in self._contexts:
-            cfgs[ctx] = ctx.get_test_cfgs()
-        return cfgs
-
-    def _get_setups(self) -> list[Context]:
+    def _get_contexts(self) -> list[Context]:
         ctxs = []
 
-        for ctx_dir_name in os.listdir(self._contexts_directory):
-            ctx_dir = self._contexts_directory / ctx_dir_name
+        for ctx_dir_name in os.listdir(self.contexts_directory):
+            ctx_dir = self.contexts_directory / ctx_dir_name
             if os.path.isdir(ctx_dir):
-                ctxs.append(Context(ctx_dir_name, ctx_dir))
+                if (ctx_dir / "tests").is_dir():
+                    ctxs.append(Context(ctx_dir_name, ctx_dir))
 
         return ctxs
