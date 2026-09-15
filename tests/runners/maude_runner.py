@@ -86,7 +86,7 @@ def build_module(build_cfg: BuildConfig, src_dir: Path, temp_dir: Path) -> Path:
     handle_command(args.command, None, args)
     return build_dir
 
-def regression_maude_runner(cfg: TestConfig, temp_dir: Path):
+def maude_runner(cfg: TestConfig, temp_dir: Path):
     build_dir = build_module(cfg.build_cfg, cfg.ctx.directory, temp_dir)
 
     with open(build_dir / 'test-env.maude', 'w') as f:
