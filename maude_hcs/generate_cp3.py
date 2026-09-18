@@ -1274,8 +1274,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
 
     sky_client_ma = ("skyhook-" + sky_client.replace('_', '-') + "-ma") if sky_client else ""
     sky_server_ma = ("skyhook-" + sky_server.replace('_', '-') + "-ma") if sky_server else ""
-    mas_client_ma = (mas_client.replace('_', '-') + "-ma") if mas_client else ""
-    mas_server_ma = (mas_server.replace('_', '-') + "-ma") if mas_server else ""        
+    mas_client_ma = ("mastodon-" + mas_client.replace('_', '-') + "-ma") if mas_client else ""
+    mas_server_ma = ("mastodon-" + mas_server.replace('_', '-') + "-ma") if mas_server else ""        
     hcs_quantity_by_channel = {}
     
     for channel, net_name, qty, profs in hcs_nodes:
