@@ -647,8 +647,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     if "skyhook" in hcs_channel_models:
         sky_client = hcs_channel_models["skyhook"]["client"]
         sky_server = hcs_channel_models["skyhook"]["server"]
-        L(f"  inc SKYHOOK-{sky_client.upper().replace('_', '-')}-MAMODEL-V2 .")
-        L(f"  inc SKYHOOK-{sky_server.upper().replace('_', '-')}-MAMODEL-V2 .")
+        L(f"  inc SKYHOOK-{sky_client.upper().replace('_', '-')}-MAMODEL .")
+        L(f"  inc SKYHOOK-{sky_server.upper().replace('_', '-')}-MAMODEL .")
 
     L("  pr IRC-V2 .")
     L("  pr IRC-USER-ACTION-ACTOR-V2 .")
@@ -661,8 +661,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     if "mastodon" in hcs_channel_models:
         mas_client = hcs_channel_models["mastodon"]["client"]
         mas_server = hcs_channel_models["mastodon"]["server"]
-        L(f"  inc MASTODON-{mas_client.upper().replace('_', '-')}-MAMODEL-V2 .")
-        L(f"  inc MASTODON-{mas_server.upper().replace('_', '-')}-MAMODEL-V2 .")
+        L(f"  inc MASTODON-{mas_client.upper().replace('_', '-')}-MAMODEL .")
+        L(f"  inc MASTODON-{mas_server.upper().replace('_', '-')}-MAMODEL .")
     L("  pr SKYHOOK .")
     L("  pr S3_PROTOCOL .")
     L("  pr IRC_MONITOR .")
@@ -1272,8 +1272,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     mas_client = hcs_channel_models.get("mastodon", {}).get("client", "")
     mas_server = hcs_channel_models.get("mastodon", {}).get("server", "")
 
-    sky_client_ma = ("skyhook-" + sky_client.replace('_', '-') + "-ma-v2") if sky_client else ""
-    sky_server_ma = ("skyhook-" + sky_server.replace('_', '-') + "-ma-v2") if sky_server else ""
+    sky_client_ma = ("skyhook-" + sky_client.replace('_', '-') + "-ma") if sky_client else ""
+    sky_server_ma = ("skyhook-" + sky_server.replace('_', '-') + "-ma") if sky_server else ""
     mas_client_ma = (mas_client.replace('_', '-') + "-ma") if mas_client else ""
     mas_server_ma = (mas_server.replace('_', '-') + "-ma") if mas_server else ""        
     hcs_quantity_by_channel = {}
@@ -1842,7 +1842,7 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
             L(f"  eq slimit = {baseline_time} .")
         elif not isBaseline and run_time is not None:
             L(f"  eq slimit = {run_time} .")        
-    L("  ----eq slimit = 100.0 . ---- redefine if needed")
+    L("eq slimit = 100.0 . ---- redefine if needed")
     
     if not perf:
         if feature and vpt:
@@ -2001,7 +2001,7 @@ def generate(args: argparse.Namespace):
 
     # Write queries to chosen quatex file path
     if args.quatex:
-        quatex_filename = f"{scenario_name}-quatex.maude"    
+        quatex_filename = f"{scenario_name}.quatex"    
         quatex_path = os.path.join(out_dir, quatex_filename)
         max_win = math.floor(duration/analysis_window_size)
         write_all_queries_to_file(Config(selected_features, vpts_list, all_clients, window_size=int(analysis_window_size), max_win=max_win, hcs_delay=hcs_delay, perf_only=args.perf, conf_only=args.confidentiality), Path(quatex_path))

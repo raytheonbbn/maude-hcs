@@ -33,16 +33,19 @@
 import logging
 import os
 import sys
+import argparse
+import argcomplete
+import io
 
 from pathlib import Path
+from contextlib import redirect_stdout, redirect_stderr
 
-import argcomplete
-import argparse
 from maude_hcs.lib import GLOBALS
-from .generate_cp3 import generate
-from .convert_markov_json_to_maude import convert
-
+from maude_hcs.generate_cp3 import generate
 from umaudemc.command.scheck import scheck
+from maude_hcs import convert_markov_json_to_maude_v2
+from maude_hcs import convert_markov_json_to_maude_v1
+
 import importlib.util
 import maude
 
@@ -146,21 +149,36 @@ def build_cli_parser():
     )
 
     # Markov generation subcommands
-    markov_parser = cmd_subparsers.add_parser('markov')
-    markov_subparsers = markov_parser.add_subparsers(title="markov command", dest="markov_command")
+    markov_v2_parser = cmd_subparsers.add_parser('markov-v2')
+    markov_v2_subparsers = markov_v2_parser.add_subparsers(title="markov-v2 command", dest="markov_v2_command")
 
     # Batch mode (directory)
-    batch_parser = markov_subparsers.add_parser("batch", help="Batch convert a directory of JSON files.")
+    batch_parser = markov_v2_subparsers.add_parser("batch", help="Batch convert a directory of JSON files.")
     batch_parser.add_argument("protocol", help="The protocol name, for naming purposes.")
     batch_parser.add_argument("input_dir", help="The input directory containing JSON files.")
     batch_parser.add_argument("output_dir", help="The output directory for Maude files.")
 
     # Single file mode
-    single_parser = markov_subparsers.add_parser("single", help="Convert a single JSON file.")
+    single_parser = markov_v2_subparsers.add_parser("single", help="Convert a single JSON file.")
     single_parser.add_argument("protocol", help="The protocol name, for naming purposes.")
     single_parser.add_argument("input_file", help="The input JSON file.")
     single_parser.add_argument("output_file", nargs="?", default=None,
                                help="The output Maude file (default: same dir as input, with -v2.maude extension).")
+
+
+    markov_v1_parser = cmd_subparsers.add_parser('markov-v1')
+    markov_v1_parser.add_argument(
+        "protocol",
+        help="The Raceboat protocol, for naming purposes."
+    )
+    markov_v1_parser.add_argument(
+        "input_dir",
+        help="The input directory."
+    )
+    markov_v1_parser.add_argument(
+        "output_dir",
+        help="The output directory."
+    )
 
     # scheck command to run SMC
     scheck_parser = cmd_subparsers.add_parser('scheck')
@@ -252,27 +270,34 @@ def handle_command(command, parser, args: argparse.Namespace):
         case "generate":
             generate(args)
         case "scheck":
-            handle_scheck(args)
-        case "markov":
+            run_scheck(args)
+        case "markov-v2":
             print(vars(args))
-            convert(args)
+            convert_markov_json_to_maude_v2.convert(args)
+        case "markov-v1":
+            pass
+            convert_markov_json_to_maude_v1.convert(args)
         case _:
             if parser is not None:
                 parser.error(f"Unknown command: {command}")
 
-def handle_scheck(args):
-    logger.debug("Handle umaudemc scheck")
+def run_scheck(args: argparse.Namespace, init_maude: bool = True) -> tuple[str, str]:
+    """Returns the stdout and stderr captured from running umaudemc.scheck"""
 
-    if not args.file:        
-        args.file = str(GLOBALS.TOP_LEVEL_DIR.joinpath(Path(f"maude_hcs/lib/smc/smc.maude")))
+    logger.debug("Running umaudemc scheck")
     logger.debug(f"Loaded SMC file {args.file}")
-
     has_umaudemc = importlib.util.find_spec('umaudemc')
     if not has_umaudemc:
         logger.error('The umaudemc Python package is not available. It can be installed with "pip install umaudemc".')
-    maude.init(advise=args.advise)
+
+    # If used from a test-case, maude may already have been initialized
+    if init_maude: maude.init(advise=args.advise)
     maude.load(args.test)
-    scheck(args)
+
+    with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
+        scheck(args)
+
+    return (out.getvalue(), err.getvalue())
 
 def main():
     """Maude HCS CLI
