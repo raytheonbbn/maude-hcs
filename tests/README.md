@@ -9,7 +9,7 @@ Reinstall `maude-hcs` (including the test dependencies group!), since there have
 If this doesn't work, there may be an issue with dependency resolution. Try deleting your environment or creating a new one, and reinstalling from scratch.
 Don't forget to install the dependencies for `maude_hcs/deps/dns_formalization` as well!
 
-## Create a context
+## Create a context (or use an existing context)
 
 A context directory controls the (static) filesystem context for a test, i.e. it determines which files will always be present in the test environment.
 Additional files will be added during the build step of a test. The context directory also stores the tests to be executed in that context, 
@@ -28,7 +28,7 @@ Each context directory must be placed under tests/contexts. The name of the cont
 
 For the rest of this README, I'll refer to the context directory you're working in as `ctx`.
 
-## Create a build
+## Create a build (or use an existing build)
 
 Within `ctx`, builds are json files placed in the `build_cfgs` directory. There are three parts to a build config:
 
