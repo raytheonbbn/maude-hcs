@@ -8,12 +8,21 @@ mod TEST-UTILS is
   op non-zero-msgs-received _ : Config -> Bool .
   op len-msg-timestamp-list _ : MessageTimestampList -> Nat .
 
+  vars attrs : AttributeSet .
   var C : Config .
   var M : MessageTimestamp .
   vars MTL0 MTL1 : MessageTimestampList .
+  vars sum : Nat .
 
   eq len-msg-timestamp-list nilMessageTimestampList = 0 .
   eq len-msg-timestamp-list (M ; MTL0) = 1 + len-msg-timestamp-list MTL0 .
+
+  op $sumBytes : MessageTimestampList Nat -> Nat .
+  eq $sumBytes((messageTimestamp(T:Float, SRC:Address, DST:Address, SIZE:Nat, NAME:IrcName, ID:Nat)
+                  ; MTL0),
+                sum) = $sumBytes(MTL0, sum + SIZE:Nat)
+  .
+  eq $sumBytes(nilMessageTimestampList, sum) = sum .
 
   eq all-msgs-received (
     < addr:Address : IrcMonitor |
@@ -28,4 +37,27 @@ mod TEST-UTILS is
         msgRcvd: MTL1 >
     C
   ) = (len-msg-timestamp-list MTL0 > 0) .
+
+  --- Get the total number of bytes sent.
+  --- TODO: This currently includes messages repeated by the Server.  A test 
+  --- will need to filter these out.
+  ---                     ExperimentConfig
+  op getTotalBytesSent :  Config -> Nat .
+  ceq getTotalBytesSent (
+    < addr:Address : IrcMonitor | attrs, msgSent: MTL0 > C) = TOTAL_BYTES:Nat
+    if TOTAL_BYTES:Nat := $sumBytes(MTL0, 0)
+    [print "Total Bytes: " TOTAL_BYTES:Nat "B"]
+  .
 endm
+
+mod TEST-UTILS_TEST is
+  inc TEST-UTILS .
+
+  ops SRC-ADDR DST-ADDR : -> Address .
+endm
+
+rew getTotalBytesSent(< MON:Address : IrcMonitor |
+                          msgSent: (messageTimestamp(1.0, SRC-ADDR, DST-ADDR, 90, makeIrcChannelName("BBN"), 44354)
+                                    ; messageTimestamp(2.0, SRC-ADDR, DST-ADDR, 10, makeIrcChannelName("BBN"), 44355))
+                      >) 
+ == 100 .
