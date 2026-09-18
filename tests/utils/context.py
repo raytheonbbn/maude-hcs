@@ -27,8 +27,32 @@ from dataclasses_json import dataclass_json
 logger = logging.getLogger(__name__)
 
 class TestRunner(Enum):
+    """Enum to indicate which test runner a TestConfig should use"""
     MAUDE = "maude"
     SMC = "smc"
+
+    __test__ = False
+
+@dataclass_json
+@dataclass(frozen=True)
+class RunConfig:
+    """Args for the entire test run, mostly set through command-line args"""
+    temp_dir: Path
+
+    runner: TestRunner | None
+
+    regression: bool = False
+    expected: bool = False
+
+    log_level: None = None
+    log_filter: None = None
+    pp: bool = False
+
+    build_only: bool = False
+    persist: bool = False
+
+    def __post_init__(self):
+        assert not (self.regression and self.expected), "cannot select both regression and expected-value tests for isolation"
 
 @dataclass_json
 @dataclass(frozen=True)
@@ -50,7 +74,6 @@ class GenArgs:
     confidentiality:            bool
     performance:                bool
 
-
 @dataclass_json
 @dataclass(frozen=True)
 class BuildConfig:
@@ -63,7 +86,8 @@ class BuildConfig:
     """
 
     name: str
-    markov_dirs: tuple[tuple[str, str], ...]
+    markov_v1_dirs: tuple[tuple[str, str], ...]
+    markov_v2_dirs: tuple[tuple[str, str], ...]
     gen_args: GenArgs
 
 @dataclass_json
@@ -83,8 +107,10 @@ class Context:
         test_cfgs = []
         path = self.directory / "tests" / f"{runner.value}.json"
         if path.is_file():
+            logger.info(path.read_text())
             tests = json.loads(path.read_text())
             for test in tests:
+                assert isinstance(test, dict)
                 test_cfgs.append(TestConfig(
                     ctx=self,
                     name=test["name"],
@@ -92,7 +118,7 @@ class Context:
                     expected=test.get("expected", None),
                     runner=runner,
                     build_cfg=build_cfgs[test["build_cfg"]],
-                    arg=test["arg"]
+                    arg=test.get("arg", {})
                 ))
         return test_cfgs
 
@@ -106,12 +132,13 @@ class Context:
                 d = json.loads(path.read_text())
                 build_cfgs[path.stem] = BuildConfig(
                     path.stem,
-                    tuple([tuple(l) for l in d["markov_dirs"]]),
+                    tuple([tuple(l) for l in d["markov_v1_dirs"]]),
+                    tuple([tuple(l) for l in d["markov_v2_dirs"]]),
                     GenArgs.from_dict(d["gen_args"]) # type: ignore
                 )
 
         test_cfgs.extend(self._load_test_cfgs_by_runner(TestRunner.MAUDE, build_cfgs))
-        # test_cfgs.extend(self._load_test_cfgs_by_runner(TestRunner.SMC, build_cfgs))
+        test_cfgs.extend(self._load_test_cfgs_by_runner(TestRunner.SMC, build_cfgs))
 
         return test_cfgs
 
@@ -174,3 +201,6 @@ class TestManager:
                     ctxs.append(Context(ctx_dir_name, ctx_dir))
 
         return ctxs
+    
+def mk_id(val: TestConfig):
+    return f"{val.ctx.name}:{val.runner.value}:{val.name}"

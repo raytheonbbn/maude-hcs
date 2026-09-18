@@ -6,6 +6,9 @@ Reinstall `maude-hcs` (including the test dependencies group!), since there have
 
 `pip install -e ".[test]"`
 
+If this doesn't work, there may be an issue with dependency resolution. Try deleting your environment or creating a new one, and reinstalling from scratch.
+Don't forget to install the dependencies for `maude_hcs/deps/dns_formalization` as well!
+
 ## Create a context
 
 A context directory controls the (static) filesystem context for a test, i.e. it determines which files will always be present in the test environment.

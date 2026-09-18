@@ -1,25 +1,73 @@
 import json
-import logging
-import pytest
-import maude
-import tempfile
+import math
 
+from typing import Any
+from collections.abc import Callable
 from pathlib import Path
 from pytest_regressions.file_regression import FileRegressionFixture
 
-from .utils.context import TestManager, Context, TestConfig
-from .runners.maude_runner import maude_runner #, expected_maude_runner
+from .utils.context import TestConfig, TestRunner, RunConfig, mk_id
+from .runners.maude_runner import maude_runner
+from .runners.smc_runner import smc_runner
 
-logger = logging.getLogger(__name__)
-manager = TestManager()
-temp_dir = Path(tempfile.mkdtemp()).resolve()
-maude.init()
+SMC_THRESHOLD = 10.0
+
+def feat_distance(feat0: dict, feat1: dict) -> float:
+    """Provides a metric for the distance between two feature distributions
+    feat0 and feat1 should have keys "mean", "std", and "radius"
+    """
+    return math.sqrt(
+        (feat0["mean"] - feat1["mean"]) ** 2.0 +
+        (feat0["std"] - feat1["std"]) ** 2.0 +
+        (feat0["radius"] - feat1["radius"]) ** 2.0
+    )
+
+def run(test_cfg: TestConfig, run_cfg: RunConfig) -> Any:
+    """Run this TestConfig with its designated runner, returning the results for comparison.
+    The result could be any type serializable into JSON"""
+    match test_cfg.runner:
+        case TestRunner.MAUDE: return maude_runner(test_cfg, run_cfg)
+        case TestRunner.SMC: return smc_runner(test_cfg, run_cfg)
+        case _: raise Exception("invalid TestRunner")
+
+def checker(runner: TestRunner) -> Callable[[Path, Path], None]:
+    match runner:
+        case TestRunner.MAUDE: return json_check_fn
+        case TestRunner.SMC: return smc_check_fn
+        case _: raise Exception("invalid TestRunner")
 
 def smc_check_fn(obtained_filename: Path, expected_filename: Path):
-    # Make sure distribution are close enough
-    pass
+    """Compare the results of an SMC run to a known "good" reference run.
+    Both files should contain json of the form {queries: [{"mean": X, "std": Y, "radius": Z}, ...], ...}
+    where X Y and Z are floats.
+    
+    The comparison is made by averaging the "distance" between each pair of queries, interpreting X Y and Z as 3d coordinates.
+    This is a kinda silly method, but I'm not yet sure of a better metric on distributions without ECDFs."""
+
+    obtained_str = obtained_filename.read_text()
+    obtained_json = json.loads(obtained_str)
+    obtained_queries = obtained_json["queries"]
+
+    expected_str = expected_filename.read_text()
+    expected_json = json.loads(expected_str)
+    expected_queries = expected_json["queries"]
+
+    if not isinstance(obtained_queries, list):
+        raise Exception("obtained queries should be a list of objects")
+    
+    if not isinstance(expected_queries, list):
+        raise Exception("obtained queries should be a list of objects")
+
+    n_queries = len(obtained_queries)
+    assert n_queries == len(expected_queries)
+
+    total_distance = sum([feat_distance(feat0, feat1) for feat0, feat1 in zip(obtained_queries, expected_queries)])
+    avg_distance = total_distance / n_queries
+
+    assert avg_distance <= SMC_THRESHOLD
 
 def json_check_fn(obtained_filename: Path, expected_filename: Path):
+    """Just compare two json files for equality when interpreted as Python objects"""
     obtained_str = obtained_filename.read_text()
     obtained_json = json.loads(obtained_str)
 
@@ -28,12 +76,19 @@ def json_check_fn(obtained_filename: Path, expected_filename: Path):
 
     assert obtained_json == expected_json
 
-@pytest.mark.parametrize("cfg", manager.regression_test_cfgs())
-def test_regressions(file_regression: FileRegressionFixture, cfg: TestConfig):
-    out = maude_runner(cfg, Path(temp_dir))
-    file_regression.check(out, extension=".json", check_fn=json_check_fn)
+# parametrization for the tests is handled in conftest.py to allow for selecting different tests based on command-line args
 
-@pytest.mark.parametrize("cfg", manager.expected_test_cfgs())
-def test_expected(cfg: TestConfig):
-    out = maude_runner(cfg, Path(temp_dir))
-    assert out == cfg.expected
+def test_regressions(test_cfg: TestConfig, pytestconfig, file_regression: FileRegressionFixture):
+    """Run this test_cfg and compare results to a saved reference result, or save the results if this is the first time"""
+    out = run(test_cfg, pytestconfig.run_cfg)
+
+    file_regression.check(
+        json.dumps(out, indent=4),
+        extension=".json",
+        check_fn=checker(test_cfg.runner),
+        basename=mk_id(test_cfg)
+    )
+
+def test_expected(test_cfg: TestConfig, pytestconfig):
+    out = run(test_cfg, pytestconfig.run_cfg)
+    assert out == test_cfg.expected
