@@ -1,4 +1,4 @@
-import json
+import shutil
 import logging
 import pytest
 import maude
@@ -82,3 +82,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc):
 
 # def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus, config: pytest.Config):
 #     terminalreporter.write_line("\nbsadlfjhasdifluashdnflkhashdfialushdfalisdufh\n")
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus):
+    if not session.config.run_cfg.persist: shutil.rmtree(session.config.run_cfg.temp_dir) #type: ignore
