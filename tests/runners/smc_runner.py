@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 def smc_runner(test_cfg: TestConfig, run_cfg: RunConfig) -> dict:
     build_dir = build(test_cfg.build_cfg, run_cfg, test_cfg.ctx.directory)
+    if run_cfg.build_only: assert(False)
+    
     run_file = f"test-run-{test_cfg.build_cfg.gen_args.run_time}.maude"
     arg = test_cfg.arg
 
