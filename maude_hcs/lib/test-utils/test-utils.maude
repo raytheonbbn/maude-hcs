@@ -1,15 +1,17 @@
 sload ../irc/ircMonitor.maude
+sload ../irc/common/_aux.maude
 
 mod TEST-UTILS is
 
   inc IRC_MONITOR .
+  inc IRC_NODE .
 
   op all-msgs-received _ : Config -> Bool .
   op non-zero-msgs-received _ : Config -> Bool .
   op len-msg-timestamp-list _ : MessageTimestampList -> Nat .
 
   vars attrs : AttributeSet .
-  var C : Config .
+  vars C : Config .
   var M : MessageTimestamp .
   vars MTL0 MTL1 : MessageTimestampList .
   vars sum : Nat .
@@ -17,12 +19,42 @@ mod TEST-UTILS is
   eq len-msg-timestamp-list nilMessageTimestampList = 0 .
   eq len-msg-timestamp-list (M ; MTL0) = 1 + len-msg-timestamp-list MTL0 .
 
-  op $sumBytes : MessageTimestampList Nat -> Nat .
+  ****            List of messages     CurrentCount
+  op $sumBytes  : MessageTimestampList Nat -> Nat .
   eq $sumBytes((messageTimestamp(T:Float, SRC:Address, DST:Address, SIZE:Nat, NAME:IrcName, ID:Nat)
                   ; MTL0),
-                sum) = $sumBytes(MTL0, sum + SIZE:Nat)
-  .
+                sum) = $sumBytes(MTL0, sum + SIZE:Nat) .
   eq $sumBytes(nilMessageTimestampList, sum) = sum .
+
+  **** Function that combines summing the packet sizes and filtering by source.
+  **** (logically it would make sense to keep them separate but it would incur
+  **** more passes through the data).
+  ****                List of messages      FromAddr  CurrentCount
+  op $sumBytesFrom :  MessageTimestampList  Address   Nat -> Nat .
+  eq $sumBytesFrom((messageTimestamp(T:Float, SRC:Address, DST:Address, SIZE:Nat, NAME:IrcName, ID:Nat)
+                      ; MTL0),
+                    SRC:Address,
+                    sum) = $sumBytesFrom(MTL0, SRC:Address, SIZE:Nat + sum)
+  .
+  eq $sumBytesFrom((M ; MTL0), SRC:Address, sum)
+    = $sumBytesFrom(MTL0, SRC:Address, sum) [owise]
+  .
+  eq $sumBytesFrom(nilMessageTimestampList, SRC:Address, sum) = sum .
+
+  **** Function that combines summing the packet sizes and filtering by dest.
+  **** (logically it would make sense to keep them separate but it would incur
+  **** more passes through the data).
+  ****              List of messages      ToAddr  CurrentCount
+  op $sumBytesTo  : MessageTimestampList  Address Nat -> Nat .
+  eq $sumBytesTo((messageTimestamp(T:Float, SRC:Address, DST:Address, SIZE:Nat, NAME:IrcName, ID:Nat)
+                      ; MTL0),
+                    DST:Address,
+                    sum) = $sumBytesTo(MTL0, DST:Address, SIZE:Nat + sum)
+  .
+  eq $sumBytesTo((M ; MTL0), DST:Address, sum)
+    = $sumBytesTo(MTL0, DST:Address, sum) [owise]
+  .
+  eq $sumBytesTo(nilMessageTimestampList, DST:Address, sum) = sum .
 
   eq all-msgs-received (
     < addr:Address : IrcMonitor |
@@ -43,10 +75,31 @@ mod TEST-UTILS is
   --- will need to filter these out.
   ---                     ExperimentConfig
   op getTotalBytesSent :  Config -> Nat .
-  ceq getTotalBytesSent (
-    < addr:Address : IrcMonitor | attrs, msgSent: MTL0 > C) = TOTAL_BYTES:Nat
-    if TOTAL_BYTES:Nat := $sumBytes(MTL0, 0)
-    [print "Total Bytes: " TOTAL_BYTES:Nat "B"]
+  eq getTotalBytesSent (
+    < ircCl1:Address : IrcClient | attrs1:AttributeSet >
+    < ircCl2:Address : IrcClient | attrs2:AttributeSet >
+    < addr:Address : IrcMonitor | attrs, msgSent: MTL0 >
+    C)
+    =  $sumBytesFrom(MTL0, ircCl1:Address, 0)
+        + $sumBytesFrom(MTL0, ircCl2:Address, 0)
+  .
+  eq getTotalBytesSent (
+    < addr:Address : IrcMonitor | attrs, msgSent: MTL0 > C) = $sumBytes(MTL0, 0)
+    [owise]
+  .
+
+  op getTotalBytesRcvd : Config -> Nat .
+  eq getTotalBytesRcvd(
+    < ircCl1:Address : IrcClient | attrs1:AttributeSet >
+    < ircCl2:Address : IrcClient | attrs2:AttributeSet >
+    < addr:Address : IrcMonitor | attrs, msgRcvd: MTL0 >
+    C)
+    =  $sumBytesTo(MTL0, ircCl1:Address, 0)
+        + $sumBytesTo(MTL0, ircCl2:Address, 0)
+  .
+  eq getTotalBytesRcvd(
+    < addr:Address : IrcMonitor | attrs, msgRcvd: MTL0 > C) = $sumBytes(MTL0, 0)
+    [owise]
   .
 endm
 
@@ -60,4 +113,19 @@ rew getTotalBytesSent(< MON:Address : IrcMonitor |
                           msgSent: (messageTimestamp(1.0, SRC-ADDR, DST-ADDR, 90, makeIrcChannelName("BBN"), 44354)
                                     ; messageTimestamp(2.0, SRC-ADDR, DST-ADDR, 10, makeIrcChannelName("BBN"), 44355))
                       >) 
- == 100 .
+ == 100
+.
+rew $sumBytesFrom(messageTimestamp(1.0, SRC-ADDR, DST-ADDR, 90, makeIrcChannelName("BBN"), 44354)
+                                      ; messageTimestamp(2.0, DST-ADDR, DST-ADDR, 10, makeIrcChannelName("BBN"), 44355)
+                                      ; messageTimestamp(2.0, SRC-ADDR, DST-ADDR, 110, makeIrcChannelName("BBN"), 44356),
+                  SRC-ADDR, 0) .
+
+rew getTotalBytesSent(< SRC-ADDR : IrcClient | attrs1:AttributeSet >
+                      < DST-ADDR : IrcClient | attrs2:AttributeSet >
+                      < MON:Address : IrcMonitor |
+                             msgSent: (messageTimestamp(1.0, SRC-ADDR, DST-ADDR, 90, makeIrcChannelName("BBN"), 44354)
+                                      ; messageTimestamp(2.0, SERVER:Address, DST-ADDR, 10, makeIrcChannelName("BBN"), 44355)
+                                      ; messageTimestamp(2.0, SRC-ADDR, DST-ADDR, 110, makeIrcChannelName("BBN"), 44356))
+                      >)
+  == 200
+.
