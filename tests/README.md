@@ -84,11 +84,11 @@ If the expected behavior of a test has changed, you can force pytest to replace 
 
 ### Custom flags
 
-`--build`: Just run the build commands for each test, don't actually execute them.
+`--build`: Just run the build commands for each test, don't actually execute them. Will fail every test.
 
 `--persist`: don't delete the temporary build directory when test suite completes
 
-`--runner RUNNER`: only run tests from the selected runner
+`--runner=RUNNER`: only run tests from the selected runner. Note: ALWAYS use the equals sign for this flag, DO NOT try to pass it as `--runner RUNNER`.
 
 `--regression`: only run regression tests
 
