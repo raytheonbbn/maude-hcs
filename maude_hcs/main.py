@@ -285,7 +285,6 @@ def capture_scheck(args: argparse.Namespace) -> tuple[str, str]:
     """Returns the stdout and stderr captured from running umaudemc.scheck"""
     with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
         run_scheck(args)
-    print(out.getvalue())
     return (out.getvalue(), err.getvalue())
 
 def run_scheck(args: argparse.Namespace):

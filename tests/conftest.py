@@ -23,7 +23,6 @@ def pytest_addoption(parser):
 
     test_runner_ty = lambda x: TestRunner(str.lower(x))
     parser.addoption("--runner", help="only run tests using the specified runner", type=test_runner_ty)
-    # parser.addoption("--runner", help="only run tests using the specified runner", type=TestRunner)
     parser.addoption("--regression", action="store_true", help="only run regression tests")
     parser.addoption("--expected", action="store_true", help="only run expected-value tests")
 
