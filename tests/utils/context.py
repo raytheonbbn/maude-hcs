@@ -188,15 +188,10 @@ class TestManager:
     
     def regression_test_cfgs(self) -> list[TestConfig]:
         ret = [cfg for cfg in self.test_cfgs if cfg.expected is None]
-        for cfg in ret:
-            logger.info(cfg.name)
-            logger.info(cfg.runner)
-        logger.info(f"\n\nn_cfgs: {len(ret)}\n{ret}\n\n")
         return ret
 
     def expected_test_cfgs(self) -> list[TestConfig]:
         ret = [cfg for cfg in self.test_cfgs if cfg.expected is not None]
-        logger.info(f"\n\nn_cfgs: {len(ret)}\n{ret}\n\n")
         return ret
 
     def _get_contexts(self) -> list[Context]:
