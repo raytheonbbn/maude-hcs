@@ -60,6 +60,11 @@ Remember to manually inspect the test results the first time, and make sure they
 
 If the expected behavior of a test has changed, you can force pytest to replace the snapshot by running it with the `--force-regen` flag.
 
+To run the tests faster in parallel,
+``` shell
+pytest -n auto 
+```
+
 ## Useful flags
 
 ### pytest flags
