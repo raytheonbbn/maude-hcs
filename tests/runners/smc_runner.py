@@ -11,11 +11,11 @@ from maude_hcs.parse_dump import parse_dump
 from maude_hcs.query import parse_quatex, Query, IntegrityQuery, ConfidentialityQuery
 from maude_hcs.result import SimResult, FeatResult
 
+from dataclasses import asdict
+
 # prevents circular import
 if TYPE_CHECKING:
     from ..utils.context import TestConfig, RunConfig
-
-# fix generate_cp3 to always look in correct spot for all model imports
 
 from maude_hcs.main import capture_scheck
 from maude_hcs.lib import GLOBALS
@@ -94,36 +94,19 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig") ->
     dump = parse_dump((dump_dir / "all_dumps").read_text())
     queries = parse_quatex((build_dir / "test.quatex").read_text())
 
-    def mk_result(stats: dict, query: Query, ecdf: list[float]) -> tuple[str, dict]:
-        result = {
-            "type": query.typ,
-            "feat": query.name,
-            "start": query.start,
-            "end": query.end
-        }
-
-        if isinstance(query, IntegrityQuery):
-            result["client"] = query.client
-        if isinstance(query, ConfidentialityQuery):
-            result["vantage"] = query.vantage
-
-        result["mean"] = stats["mean"]
-        result["stddev"] = stats["std"]
-        result["samples"] = ecdf
-
-        return query.to_name(), result 
-
-    results = map(mk_result, smc_format_json, queries, dump)
+    mk_feat_result = lambda query, stats, ecdf: (query.to_name(), FeatResult(query, stats["mean"], stats["std"], ecdf))
+    results = map(mk_feat_result, queries, smc_format_json, dump)
 
     gen_args = test_cfg.build_cfg.gen_args
 
-    result_json = {
-        "yaml_filename": gen_args.yaml_file,
-        "baseline_time": gen_args.baseline_time,
-        "run_time": gen_args.run_time,
-        "hcs_delay": gen_args.hcs_delay,
-        "tgen_delay": gen_args.tgen_delay,
-        "no_tgens": gen_args.no_tgens,
-        "results": {name: result for name, result in results}
-    }
-    return result_json
+    sim_result = SimResult(
+        gen_args.yaml_file,
+        gen_args.baseline_time,
+        gen_args.run_time,
+        gen_args.hcs_delay,
+        gen_args.tgen_delay,
+        gen_args.no_tgens,
+        dict(results)
+    )
+
+    return asdict(sim_result)
