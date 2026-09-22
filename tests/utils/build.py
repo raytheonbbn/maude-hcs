@@ -1,6 +1,7 @@
 import functools
 import shutil
 import random
+import uuid
 
 from pathlib import Path
 from argparse import Namespace
@@ -53,7 +54,7 @@ def batch_convert_dir_v2(dir: Path, proto: str):
 
 def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path) -> Path:
     gen_args = build_cfg.gen_args
-    build_dir = (Path(run_cfg.temp_dir) / f"{build_cfg.name}-{random.randint(0, 10000000)}").resolve()
+    build_dir = (Path(run_cfg.temp_dir) / f"{build_cfg.name}-{uuid.uuid4().hex}").resolve()
     shutil.copytree(src_dir, build_dir)
 
     for dir, proto in build_cfg.markov_v1_dirs:
