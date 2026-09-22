@@ -761,8 +761,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     
     L("  --- how much to delay the HCS and TGENs")
     L("  ops hcsDelay tgenDelay ksWindowDelay : -> Float .")
-    L(f"  eq hcsDelay  = {hcs_delay} [owise] .")
-    L(f"  eq tgenDelay = {tgen_delay} [owise] .")
+    L(f"  eq hcsDelay  = {hcs_delay:.1f} [owise] .")
+    L(f"  eq tgenDelay = {tgen_delay:.1f} [owise] .")
     L(f"  eq ksWindowDelay = slimit + slimit [owise] .")
     L(f"  eq MaxBLSize = {MAX_BL_SIZE} [owise] .")
     L("")

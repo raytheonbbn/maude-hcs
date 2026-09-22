@@ -66,10 +66,10 @@ class RunConfig:
 @dataclass(frozen=True)
 class GenArgs:
     yaml_file:      str
-    baseline_time:  float
-    run_time:       float
-    hcs_delay:      float
-    tgen_delay:     float
+    baseline_time:  int
+    run_time:       int
+    hcs_delay:      int
+    tgen_delay:     int
     no_tgens:       bool
 
     filter_vp_feat_combos:      bool
