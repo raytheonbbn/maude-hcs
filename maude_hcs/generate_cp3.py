@@ -609,22 +609,22 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"sload tgen_user_models/gorilla/{p}.maude")
     L("")
     
-    L("--- DNS TGEN Profiles (v1 from library)")
+    L("--- DNS TGEN Profiles (v1)")
     dns_profiles = set()
     for inst in tgen_instances:
         if inst.tgen_type == "dnsTgen":
             dns_profiles.add(inst.profile)
     for p in sorted(dns_profiles):
-        L(f"sload {GLOBALS.LIB_DIR}/tgen/maude/dnsprofiles/markov/config_{p}.maude")
+        L(f"sload tgen_user_models/dns/{p}.maude")
     L("")
     
-    L("--- Mastodon TGEN Profiles (v1 from library)")
+    L("--- Mastodon TGEN Profiles (v1)")
     mas_profiles = set()
     for inst in tgen_instances:
         if inst.tgen_type == "masTgen":
             mas_profiles.add(inst.profile)
     for p in sorted(mas_profiles):
-        L(f"sload {GLOBALS.LIB_DIR}/tgen/maude/mastodonprofiles/markov/config_{p}.maude")
+        L(f"sload tgen_user_models/mastodon/{p}.maude")
     L("")
 
     L("--- Address mapping")
@@ -724,13 +724,13 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     
     L("  --- DNS Profile Modules (v1)")
     for p in sorted(dns_profiles):
-        mod = f"DNS-CONFIG-{p.upper().replace('_', '-')}-MAMODEL"
+        mod = f"DNS-TGEN-{p.upper().replace('_', '-')}-MAMODEL"
         L(f"  inc {mod} .")
     L("")
     
     L("  --- Mastodon TGEN Profile Modules (v1)")
     for p in sorted(mas_profiles):
-        mod = f"MASTODON-CONFIG-{p.upper().replace('_', '-')}-MAMODEL"
+        mod = f"MASTODON-TGEN-{p.upper().replace('_', '-')}-MAMODEL"
         L(f"  inc {mod} .")
     L("")
     
@@ -1581,7 +1581,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
             L("")
             
         elif inst.tgen_type == "dnsTgen":
-            dns_model = f"dns-config-{inst.profile.replace('_', '-')}-ma"
+            dns_model = f"dns-tgen-{inst.profile.replace('_', '-')}-ma"
             dns_rsv = get_corp_dns_addr_name(net) if net in NET_TO_DNS_NAME else "publicDnsAddr"
             L(f"  --- DNS TGEN: {bn} (profile={inst.profile}, network={net})")
             L(f"  ops {bn}Act {bn}UmAct : -> Actor .")
@@ -1590,7 +1590,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
             L("")
             
         elif inst.tgen_type == "masTgen":
-            mas_model = f"mastodon-config-{inst.profile.replace('_', '-')}-ma"
+            mas_model = f"mastodon-tgen-{inst.profile.replace('_', '-')}-ma"
             L(f"  --- Mastodon TGEN: {bn} (profile={inst.profile}, network={net})")
             L(f"  ops {bn}Act {bn}UmAct {bn}McAct {bn}NetClAct : -> Actor .")
             L(f"  eq {bn}Act     = mkMasTGenActor({bn}TgAddr, {bn}McAddr, ed-images, {mas_model}) .")
@@ -2004,7 +2004,7 @@ def generate(args: argparse.Namespace):
         quatex_filename = f"{scenario_name}.quatex"    
         quatex_path = os.path.join(out_dir, quatex_filename)
         max_win = math.floor(duration/analysis_window_size)
-        write_all_queries_to_file(Config(selected_features, vpts_list, all_clients, window_size=int(analysis_window_size), max_win=max_win, hcs_delay=hcs_delay, perf_only=args.perf, conf_only=args.confidentiality), Path(quatex_path))
+        write_all_queries_to_file(Config(selected_features, vpts_list, all_clients, window_size=int(analysis_window_size), max_win=int(max_win), hcs_delay=int(hcs_delay), perf_only=args.perf, conf_only=args.confidentiality), Path(quatex_path))
         print(f"Wrote quatex queries to {quatex_path}: max_win: {max_win}, hcs_delay: {hcs_delay}")
 
     # Generate parallelized baseline files if flag is set
