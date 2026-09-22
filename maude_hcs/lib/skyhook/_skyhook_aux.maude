@@ -43,7 +43,7 @@ mod SKYHOOK_AUX is
   op _::_ : StringList StringList -> StringList [ctor assoc id: emptyStringList] .
   
   op sha256 : String -> String .
-  eq sha256(STR:String) = STR:String + "-hash" . --- simulate hashing
+  eq sha256(STR:String) = STR:String + "-#" . --- simulate hashing
 
   op listLen : StringList -> Nat .
   eq listLen(emptyStringList) = 0 .
@@ -161,65 +161,6 @@ mod SKYHOOK_AUX is
     >
   .
   
-
-**** clt making openObjects a parameter
-  op mkSkyhookAH  : Address  Address Address 
-                      String  String String String String 
-                      Nat -> Actor .
-  eq mkSkyhookAH(ahAddr:Address,
-                   rbAddr:Address,
-                   s3StoreAddr:Address,
-                   fetchBucketName,
-                   postBucketName,
-                   fetchUuid,
-                   initialPostUuid,
-                   postUuid,
-                   j:Nat) =
-    < ahAddr:Address : SkyhookAccountHolder |
-        thisAddr: ahAddr:Address,
-        raceboatAddr: rbAddr:Address,
-        awsAddr: s3StoreAddr:Address,
-        fetchBucket: fetchBucketName,
-        postBucket: postBucketName,
-        puttableUuids: emptyStringList,
-        fetchableUuids: emptyStringList,
-        initialFetchObjUuid: fetchUuid,
-        initialPostObjUuid: initialPostUuid,
-        openObjects: j:Nat,
-        postObjUuid: postUuid
-    >
-  .
-  
-
----------- AH constructor iwht openObjects parameter ----
-  op mkSkyhookAH  : Address Address Address 
-                    String String String String String 
-                    Nat -> Actor .
-  eq mkSkyhookAH(ahAddr:Address,
-                   rbAddr:Address,
-                   s3StoreAddr:Address,
-                   fetchBucketName:String,
-                   postBucketName:String,
-                   fetchUuid:String,
-                   initialPostUuid:String,
-                   postUuid:String,
-                   j:Nat) =
-    < ahAddr:Address : SkyhookAccountHolder |
-        thisAddr: ahAddr:Address,
-        raceboatAddr: rbAddr:Address,
-        awsAddr: s3StoreAddr:Address,
-        fetchBucket: fetchBucketName:String,
-        postBucket: postBucketName:String,
-        puttableUuids: emptyStringList,
-        fetchableUuids: emptyStringList,
-        initialFetchObjUuid: fetchUuid:String,
-        initialPostObjUuid: initialPostUuid:String,
-        openObjects: j:Nat,
-        postObjUuid: postUuid:String
-    >
-  .
-  
-
   op getRaceboatAddr : AttributeSet -> Address .
   eq getRaceboatAddr(ATTRS:AttributeSet, raceboatAddr: RB:Address) = RB:Address .
 
@@ -231,6 +172,16 @@ mod SKYHOOK_AUX is
 
   --- 
   op AwsS3 : -> ActorType [ctor] .
+
+  --- Prepopulate a string of objects, allowing to write to at least N objects.
+  ---                       ListOfObjects NumToAdd
+  op $prepopulateObjects :  StringList    Nat -> StringList .
+  eq $prepopulateObjects(emptyStringList, j:Nat) = emptyStringList .
+  eq $prepopulateObjects((currentList:StringList :: lastUuid:String), s (j:Nat))
+    = $prepopulateObjects((currentList:StringList :: lastUuid:String :: sha256(lastUuid:String)),
+                          j:Nat)
+  .
+  eq $prepopulateObjects(currentList:StringList, 0) = currentList:StringList .
 
   --- Skyhook Messages (S3 API)
   op S3PutObjReq : String String String -> Content . --- bucket uuid object_data

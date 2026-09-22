@@ -46,7 +46,7 @@ mod SKYHOOK is
   vars OPEN_OBJECTS : Nat .
   vars T : Float .
   vars msg : Msg .
-  vars j j1 :  Nat .
+  vars j j1 n :  Nat .
   vars smsgs msgs : Config .
   
   ---------------------------------
@@ -158,15 +158,17 @@ mod SKYHOOK is
       fetchBucket: FETCH_BUCKET, 
       postBucket: POST_BUCKET, 
       puttableUuids: emptyStringList, 
-      initialFetchObjUuid: INITIAL_FETCH_UUID >
+      initialFetchObjUuid: INITIAL_FETCH_UUID,
+      openObjects: n >
   {T, (to SKYHOOK_AH_ADDR from ADDR : SkyhookStartCmd)}
   =>
   rCtr(j1)
   < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, 
       fetchBucket: FETCH_BUCKET, 
       postBucket: POST_BUCKET, 
-      puttableUuids: sha256(INITIAL_FETCH_UUID),
-      initialFetchObjUuid: INITIAL_FETCH_UUID >
+      puttableUuids: $prepopulateObjects(sha256(INITIAL_FETCH_UUID), n),
+      initialFetchObjUuid: INITIAL_FETCH_UUID,
+      openObjects: n >
     smsgs
   if msgs :=      
     (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : 
@@ -231,7 +233,7 @@ mod SKYHOOK is
         (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR : SkyhookFetchAck(DATA))
     /\ {smsgs,j1} := delayMsgsX(j,msgs,null)
      
-  [ print "(" T ") Skyhook AccountHolder " SKYHOOK_AH_ADDR " fetched " OLD_UUID "; rolling puttable Uuid queue, pushing data back to Raceboat." ]
+  [ print "(" T ") Skyhook AccountHolder " SKYHOOK_AH_ADDR " fetched " OLD_UUID "; rolling puttable Uuid queue, adding " newUuid " , pushing data back to Raceboat." ]
   .
 
   --- Post on Action Thread
