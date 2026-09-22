@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 from dataclasses_json import dataclass_json
+from ..runners.maude_runner import maude_runner
+from ..runners.smc_runner import smc_runner
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,12 @@ class TestRunner(Enum):
     SMC = "smc"
 
     __test__ = False
+
+    def to_func(self):
+        match self:
+            case TestRunner.MAUDE: return maude_runner
+            case TestRunner.SMC: return smc_runner
+            case _: raise Exception("invalid TestRunner")
 
 @dataclass_json
 @dataclass(frozen=True)
@@ -151,7 +159,7 @@ class TestConfig:
         ctx (Context): the Context within which this test is defined
         name (str): A human-readable name for this test. This is used for display and for labeling regression test files
         desc (str): A human-readable description for the purpose and implementation of this test
-        runner (TestRunner): which python function to use to run the test. This is only an enum identifier for the real function to use.
+        runner (TestRunner): which python function to use to run the test.
         build_cfg (dict): args to use when generating markov maude files and the main maude test file
         arg (str): arbitrary object to be passed to the maude runner. Typically includes a predicate or expression to evaluate for the test.
         expected (dict | None): expected value for this test, or None if this is a regression test

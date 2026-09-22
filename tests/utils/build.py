@@ -10,8 +10,6 @@ from maude_hcs.lib import GLOBALS
 
 from .context import BuildConfig, RunConfig
 
-# class Build
-
 # We just need this so we can have a module to execute tests in where both TEST and TEST-UTILS are available,
 # without having TEST directly include TEST-UTILS or vice versa (which would be impossible in this setup)
 TEST_ENV = f"""
@@ -53,7 +51,7 @@ def batch_convert_dir_v2(dir: Path, proto: str):
 
     handle_command(markov_args.command, None, markov_args)
 
-# @functools.cache
+@functools.cache
 def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path) -> Path:
     gen_args = build_cfg.gen_args
     build_dir = (Path(run_cfg.temp_dir) / f"{build_cfg.name}-{random.randint(0, 10000000)}").resolve()

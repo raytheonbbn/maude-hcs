@@ -68,43 +68,43 @@ def is_valid_file(parser, arg):
     if not os.path.exists(arg):
         parser.error("The file {} does not exist".format(arg))
 
-# def add_initial_data_args(parser):
-#   """Arguments for the basic input data of a model-checking problem"""
+def add_initial_data_args(parser):
+  """Arguments for the basic input data of a model-checking problem"""
 
-#   parser.add_argument(
-#     '-m', '--module',
-#     help='specify the module for model checking',
-#     metavar='NAME'
-#   )
+  parser.add_argument(
+    '-m', '--module',
+    help='specify the module for model checking',
+    metavar='NAME'
+  )
 
-#   parser.add_argument(
-#     '-M', '--metamodule',
-#     help='specify a metamodule for model checking',
-#     metavar='TERM'
-#   )
-#   parser.add_argument(
-#     '--opaque',
-#     help='opaque strategy names (comma-separated)',
-#     metavar='LIST',
-#     default=''
-#   )
-#   parser.add_argument(
-#     '--full-matchrew',
-#     help='enable full matchrew trace generation',
-#     action='store_true'
-#   )
-#   parser.add_argument(
-#     '--purge-fails',
-#     help='remove states where the strategy has failed from the model',
-#     choices=['default', 'yes', 'no'],
-#     default='default'
-#   )
-#   parser.add_argument(
-#     '--merge-states',
-#     help='avoid artificial branching due to strategies by merging states',
-#     choices=['default', 'state', 'edge', 'no'],
-#     default='default'
-#   )
+  parser.add_argument(
+    '-M', '--metamodule',
+    help='specify a metamodule for model checking',
+    metavar='TERM'
+  )
+  parser.add_argument(
+    '--opaque',
+    help='opaque strategy names (comma-separated)',
+    metavar='LIST',
+    default=''
+  )
+  parser.add_argument(
+    '--full-matchrew',
+    help='enable full matchrew trace generation',
+    action='store_true'
+  )
+  parser.add_argument(
+    '--purge-fails',
+    help='remove states where the strategy has failed from the model',
+    choices=['default', 'yes', 'no'],
+    default='default'
+  )
+  parser.add_argument(
+    '--merge-states',
+    help='avoid artificial branching due to strategies by merging states',
+    choices=['default', 'state', 'edge', 'no'],
+    default='default'
+  )
 
 def build_cli_parser():
     parser = argparse.ArgumentParser("maude-hcs")
@@ -194,32 +194,32 @@ def build_cli_parser():
     scheck_parser.add_argument('--query', help='QuaTEx query, default=smc/query.quatex', default='smc/query.quatex')
     scheck_parser.add_argument('strategy', help='strategy expression', nargs='?')
 
-    # add_initial_data_args(parser_scheck)
+    add_initial_data_args(scheck_parser)
 
-    # parser_scheck.add_argument(
-    #     '--assign',
-    #     help='Assign probabilities to the successors according to the given method, default=pmaude',
-    #     metavar='METHOD',
-    #     default='pmaude'
-    # )
-    # parser_scheck.add_argument(
-    #     '--alpha', '-a',
-    #     help='Complement of the confidence level (probability outside the confidence interval), default=0.05',
-    #     type=float,
-    #     default=0.05
-    # )
-    # parser_scheck.add_argument(
-    #     '--delta', '-d',
-    #     help='Maximum admissible radius for the confidence interval, default=0.5',
-    #     type=float,
-    #     default=0.5
-    # )
-    # parser_scheck.add_argument(
-    #     '--block', '-b',
-    #     help='Number of simulations before checking the confidence interval, default=30',
-    #     type=int,
-    #     default=30
-    # )
+    scheck_parser.add_argument(
+        '--assign',
+        help='Assign probabilities to the successors according to the given method, default=pmaude',
+        metavar='METHOD',
+        default='pmaude'
+    )
+    scheck_parser.add_argument(
+        '--alpha', '-a',
+        help='Complement of the confidence level (probability outside the confidence interval), default=0.05',
+        type=float,
+        default=0.05
+    )
+    scheck_parser.add_argument(
+        '--delta', '-d',
+        help='Maximum admissible radius for the confidence interval, default=0.5',
+        type=float,
+        default=0.5
+    )
+    scheck_parser.add_argument(
+        '--block', '-b',
+        help='Number of simulations before checking the confidence interval, default=30',
+        type=int,
+        default=30
+    )
 
     scheck_parser.add_argument(
         '--nsims', '-n',
@@ -262,8 +262,8 @@ def build_cli_parser():
         action='store_true'
     )
     
-    argcomplete.autocomplete(generate_parser)
-    return generate_parser
+    argcomplete.autocomplete(parser)
+    return parser
 
 def handle_command(command, parser, args: argparse.Namespace):
     match command:
@@ -281,23 +281,21 @@ def handle_command(command, parser, args: argparse.Namespace):
             if parser is not None:
                 parser.error(f"Unknown command: {command}")
 
-def run_scheck(args: argparse.Namespace, init_maude: bool = True) -> tuple[str, str]:
+def capture_scheck(args: argparse.Namespace) -> tuple[str, str]:
     """Returns the stdout and stderr captured from running umaudemc.scheck"""
+    with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
+        run_scheck(args)
+    print(out.getvalue())
+    return (out.getvalue(), err.getvalue())
 
+def run_scheck(args: argparse.Namespace):
     logger.debug("Running umaudemc scheck")
     logger.debug(f"Loaded SMC file {args.file}")
     has_umaudemc = importlib.util.find_spec('umaudemc')
     if not has_umaudemc:
         logger.error('The umaudemc Python package is not available. It can be installed with "pip install umaudemc".')
-
-    # If used from a test-case, maude may already have been initialized
-    if init_maude: maude.init(advise=args.advise)
     maude.load(args.test)
-
-    with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
-        scheck(args)
-
-    return (out.getvalue(), err.getvalue())
+    scheck(args)
 
 def main():
     """Maude HCS CLI
@@ -314,3 +312,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

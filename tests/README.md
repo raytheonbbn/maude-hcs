@@ -19,8 +19,8 @@ otherwise it makes more sense to just have those files under maude_hcs/lib, whic
 Before each test, the framework initializes a new temporary directory with the files from the given context.
 Then, depending on the test runner, it will run a build step that adds additional files to the environment.
 
-*BUILDS ARE CACHED, so running a second test with the same build configuration will reuse the built environment from the first test. This means it's critical that
-tests do not alter their environment in any way that could affect future tests*.
+~~*BUILDS ARE CACHED, so running a second test with the same build configuration will reuse the built environment from the first test. This means it's critical that
+tests do not alter their environment in any way that could affect future tests*.~~ (This caching is disabled while I work out a bug)
 
 In practice, the context will mostly consist of json action models, yaml configurations, test definitions, and build configurations.
 
