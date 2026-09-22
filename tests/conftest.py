@@ -4,6 +4,8 @@ import pytest
 import maude
 import tempfile
 import pyperclip
+import os
+import multiprocessing
 
 from pathlib import Path
 from pytest_regressions.file_regression import FileRegressionFixture
@@ -24,13 +26,24 @@ def pytest_addoption(parser):
     parser.addoption("--expected", action="store_true", help="only run expected-value tests")
 
     parser.addoption("--copy", action="store_true", help="copy the path to the temp directory to system clipboard")
+    parser.addoption("--tempdir", help="manually choose a directory to store built environments. Implies `--persist`.")
 
     # pytest by default has many useful flags, especially -k for selecting tests. See also --log-level, --log-cli-level, -s, 
     # pytest-regressions also adds the flags --force-regen and --regen-all
 
 def pytest_configure(config):
+    td_opt = config.getoption("--tempdir")
+    persist = config.getoption("--persist")
+
+    if td_opt is not None:
+        temp_dir = Path(td_opt).resolve()
+        os.mkdir(temp_dir)
+        persist=True
+    else:
+        temp_dir = Path(tempfile.mkdtemp()).resolve()
+
     run_cfg = RunConfig(
-        temp_dir=Path(tempfile.mkdtemp()).resolve(),
+        temp_dir=temp_dir,
 
         runner=config.getoption("--runner"),
 
@@ -42,7 +55,7 @@ def pytest_configure(config):
         pp=config.getoption("--pp"), # type: ignore
 
         build_only=config.getoption("--build"), # type: ignore
-        persist=config.getoption("--persist") # type: ignore
+        persist=persist
     )
 
     if config.getoption("--copy"):
