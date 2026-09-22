@@ -51,7 +51,6 @@ def batch_convert_dir_v2(dir: Path, proto: str):
 
     handle_command(markov_args.command, None, markov_args)
 
-@functools.cache
 def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path) -> Path:
     gen_args = build_cfg.gen_args
     build_dir = (Path(run_cfg.temp_dir) / f"{build_cfg.name}-{random.randint(0, 10000000)}").resolve()
