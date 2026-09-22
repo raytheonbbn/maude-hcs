@@ -83,13 +83,17 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig") ->
     )
 
     (out, err) = capture_scheck(args)
-    logger.info(out)
     logger.warning(err)
 
     concat_dumps(dump_dir)
 
-    smc_format_json = json.loads(out)["queries"]
-    # assert smc_format_json is sorted by line number
+    smc_format_json: list = json.loads(out)["queries"]
+
+    # If query results arrive out of order that's a disaster
+    line_key = lambda q: q["line"]
+    line_numbers = list(map(line_key, smc_format_json))
+    assert sorted(line_numbers) == line_numbers
+    smc_format_json.sort(key=line_key)
 
     dump = parse_dump((dump_dir / "all_dumps").read_text())
     queries = parse_quatex((build_dir / "test.quatex").read_text())

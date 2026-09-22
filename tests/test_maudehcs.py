@@ -33,8 +33,11 @@ def euclid_feat_distance(feat0: dict, feat1: dict) -> float:
     )
 
 def proc_target(run: Callable, sender: Connection, test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig):
-    result = run(test_cfg, build_dir, run_cfg)
-    sender.send(result)
+    try:
+        result = run(test_cfg, build_dir, run_cfg)
+        sender.send(result)
+    except Exception as e:
+        sender.send(e)
 
 def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
     """Run this TestConfig with its designated runner, returning the results for comparison.
@@ -50,7 +53,14 @@ def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
 
     run_proc.start()
     run_proc.join()
-    return receiver.recv()
+
+    if not receiver.poll(5):
+        assert False, "no message from testing subprocess after waiting 5 seconds from termination, something went wrong!"
+
+    result = receiver.recv()
+    if isinstance(result, Exception):
+        raise Exception(f"testing subprocess raised Exception: {result}")
+    return result
 
 def get_checker(cfg: TestConfig) -> Callable[[Path, Path], None]:
     match cfg.runner:
