@@ -20,8 +20,6 @@ if TYPE_CHECKING:
 from maude_hcs.main import capture_scheck
 from maude_hcs.lib import GLOBALS
 
-logger = logging.getLogger(__name__)
-
 def concat_dumps(dump_dir: Path):
     """No guaranteed ordering BETWEEN LINES of resulting dump file.
     Individual features on a single line are still ordered left-to-right."""
@@ -38,7 +36,7 @@ def concat_dumps(dump_dir: Path):
     for path in paths:
         os.remove(path)
 
-def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig") -> dict:
+def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", logger: logging.Logger) -> dict:
     # Have to initialize maude even though umaudemc does it again, because we need to pre-load
     # test file so umaudemc will see it as most recent
     maude.init()
