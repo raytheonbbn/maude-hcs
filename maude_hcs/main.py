@@ -272,7 +272,6 @@ def handle_command(command, parser, args: argparse.Namespace):
         case "scheck":
             run_scheck(args)
         case "markov-v2":
-            print(vars(args))
             convert_markov_json_to_maude_v2.convert(args)
         case "markov-v1":
             pass
