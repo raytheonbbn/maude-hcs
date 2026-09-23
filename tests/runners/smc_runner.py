@@ -41,12 +41,15 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
     # test file so umaudemc will see it as most recent
     maude.init()
 
-    run_file = f"test-run-{test_cfg.build_cfg.gen_args.run_time}.maude"
+    arg = test_cfg.arg
+
+    if arg.get("baseline", False):
+        run_file = f"test-baseline-{test_cfg.build_cfg.gen_args.run_time}.maude"
+    else:
+        run_file = f"test-run-{test_cfg.build_cfg.gen_args.run_time}.maude"
 
     dump_dir = build_dir / "dumps"
     os.mkdir(dump_dir)
-
-    arg = test_cfg.arg
 
     args = Namespace(
 
@@ -81,23 +84,32 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
     )
 
     (out, err) = capture_scheck(args)
-    logger.warning(err)
+    if err.strip(): logger.warning(err)
 
     concat_dumps(dump_dir)
 
-    smc_format_json: list = json.loads(out)["queries"]
+    smc_format_json = json.loads(out)
+    smc_format_queries_json: list = smc_format_json["queries"]
+    n_sims = smc_format_json["nsims"]
+
+    queries = parse_quatex((build_dir / "test.quatex").read_text())
+    n_queries = len(queries)
+
+    assert n_queries == len(smc_format_queries_json)
 
     # If query results arrive out of order that's a disaster
     line_key = lambda q: q["line"]
-    line_numbers = list(map(line_key, smc_format_json))
+    line_numbers = list(map(line_key, smc_format_queries_json))
     assert sorted(line_numbers) == line_numbers
-    smc_format_json.sort(key=line_key)
+    smc_format_queries_json.sort(key=line_key)
 
-    dump = parse_dump((dump_dir / "all_dumps").read_text())
-    queries = parse_quatex((build_dir / "test.quatex").read_text())
+    dump_str = (dump_dir / "all_dumps").read_text()
+    query_samples = parse_dump(dump_str, n_sims=n_sims, n_queries=n_queries) # query_samples[i] is all results of query[i] across all sims
+    assert len(query_samples) == n_queries
+    assert len(query_samples[0]) == n_sims
 
     mk_feat_result = lambda query, stats, ecdf: (query.to_name(), FeatResult(query, stats["mean"], stats["std"], ecdf))
-    results = map(mk_feat_result, queries, smc_format_json, dump)
+    results = map(mk_feat_result, queries, smc_format_queries_json, query_samples)
 
     gen_args = test_cfg.build_cfg.gen_args
 

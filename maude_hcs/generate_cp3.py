@@ -1826,7 +1826,8 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
         L("")
     
     mod_name = scenario_name.upper().replace("_", "-")    
-    suffix = "-BASELINE" if isBaseline else ""
+    # suffix = "-BASELINE" if isBaseline else ""
+    suffix = ""
     if feature and vpt:
         mod_name_ext = f"{smc_mod_name}{suffix}-{feature.upper()}-{vpt.upper().replace("[","").replace("]","")}".replace("_", "-")
         L(f"mod {mod_name_ext} is")
@@ -1862,12 +1863,12 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
         L("")
     L("endm")
     L("")
-    if isBaseline:
-        L("rew run({0.0 | nil} initState(counter) [tgenDelay, (to baseLineAddr from baseLineAddr : initBase),0], slimit) .")
-        L("q")
-    else:
-        L("---rew initConfig .")
-        L("---q")
+    # if isBaseline:
+    #     L("rew run({0.0 | nil} initState(counter) [tgenDelay, (to baseLineAddr from baseLineAddr : initBase),0], slimit) .")
+    #     L("q")
+    # else:
+        # L("---rew initConfig .")
+        # L("---q")
     
     return "\n".join(lines)
 
