@@ -2,6 +2,7 @@ import functools
 import shutil
 import random
 import uuid
+import os
 
 from pathlib import Path
 from argparse import Namespace
@@ -89,5 +90,7 @@ def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path) -> Path:
 
     with open(build_dir / 'test-env.maude', 'w') as f:
         f.write(TEST_ENV)
+
+    os.mkdir(build_dir / "logs")
 
     return build_dir

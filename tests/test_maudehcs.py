@@ -3,6 +3,11 @@ import math
 import pytest
 import multiprocessing
 import logging
+import logging.handlers
+import os
+import io
+import uuid
+import time
 
 from scipy.stats import ks_2samp
 from multiprocessing import Process, Pipe
@@ -19,6 +24,15 @@ from .runners.smc_runner import smc_runner
 
 logger = logging.getLogger(__name__)
 
+# just make each process log to its own file, some uuid in build_dir / logs probably
+# just get rid of independent, cumulative only
+# Just shove in smc tests for the other 4
+# remove maude install from tests, use 1.6.1
+# No need for nix yet
+# I'm making the tests, but I'm consulting with him about the results.
+# Make sure I'm doing --perf
+# Make sure I know how much time this takes
+
 SMC_THRESHOLD = 10.0
 KS_THRESHOLD = 10.0
 
@@ -33,9 +47,48 @@ def euclid_feat_distance(feat0: dict, feat1: dict) -> float:
     )
 
 def proc_target(run: Callable, sender: Connection, test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig):
+
+    def readpipe(fd: int) -> str:
+        with os.fdopen(fd, 'r', closefd=True) as f:
+            try:
+                return f.read()
+            except:
+                return ""
+
     try:
-        result = run(test_cfg, build_dir, run_cfg)
+        # Close and reopen file descriptor 1 (previously stdout) so it now targets a StringIO object
+        # This is necessary to capture maude printouts as logs
+        new_stdout_read, new_stdout_target = os.pipe()
+        os.set_blocking(new_stdout_target, False)
+        os.set_blocking(new_stdout_read, False)
+        os.dup2(new_stdout_target, 1)
+
+        new_stderr_read, new_stderr_target = os.pipe()
+        os.set_blocking(new_stderr_target, False)
+        os.set_blocking(new_stderr_read, False)
+        os.dup2(new_stdout_target, 2)
+
+        # Custom logger to write to file in build directory, so they don't stream raw (uninterceptible) text
+        # to our stdout (which is now a StringIO)
+        child_logger = logging.getLogger("TestSubProcess")
+        child_logger.setLevel(logging.INFO)
+        log_filename = mk_id(test_cfg) + str(uuid.uuid4)
+        child_logger.addHandler(logging.FileHandler(build_dir / "logs" / log_filename))
+
+        result = run(test_cfg, build_dir, run_cfg, child_logger)
+        time.sleep(0.1) # Give maude a tiny bit of time to finish all writes to "stdout"
+
+        maude_stdout = readpipe(new_stdout_read)
+        maude_stderr = readpipe(new_stderr_read)
+
+        if maude_stdout.strip():
+            child_logger.info(maude_stdout)
+
+        if maude_stderr.strip():
+            child_logger.error(maude_stderr)
+
         sender.send(result)
+
     except Exception as e:
         sender.send(e)
 
@@ -58,8 +111,9 @@ def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
         assert False, "no message from testing subprocess after waiting 5 seconds from termination, something went wrong!"
 
     result = receiver.recv()
+    logger.info(result)
     if isinstance(result, Exception):
-        raise Exception(f"testing subprocess raised Exception: {result}")
+        raise result
     return result
 
 def get_checker(cfg: TestConfig) -> Callable[[Path, Path], None]:
