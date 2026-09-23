@@ -1,6 +1,9 @@
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 # WINDOW_SIZE = 60
 # SLIDING_WINDOW_SIZE = 60
@@ -110,7 +113,7 @@ def mk_latency_query_chunk(cfg: Config, win: int, cum: bool) -> Lines:
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     if win == 0 and not cum:
         # this indep is a duplicate of cum 
-        print(f"skipping independent win {win}: {prefix}")
+        logger.info("skipping independent win %s: %s", win, prefix)
         return Lines()
     return Lines(
         f'eval E[s.rval("getMinLatency(getMonitor(C), {start}, {end})")]; // {prefix} latency0 {i_start} {i_end}',
@@ -128,7 +131,7 @@ def mk_global_integrity_chunk(cfg: Config, win: int, cum: bool) -> Lines:
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     if win == 0 and not cum:
         # this indep is a duplicate of cum 
-        print(f"skipping independent win {win}: {prefix}")
+        logger.info("skipping independent win %s: %s", win, prefix)
         return Lines()
     return Lines(
         f'eval E[s.rval("getSystemIntegrity(getMonitor(C), getIrcSrv(C), {start}, {end})")]; // {prefix} integrity {i_start} {i_end}',
@@ -141,7 +144,7 @@ def mk_client_integrity_chunk(cfg: Config, win: int, cum: bool, client: str) -> 
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     if win == 0 and not cum:
         # this indep is a duplicate of cum 
-        print(f"skipping independent win {win}: {prefix}")
+        logger.info("skipping independent win %s: %s", win, prefix)
         return Lines()
     return Lines(
         f'eval E[s.rval("getClientIntegrity(getMonitor(C), getIrcSrv(C), {client}, {start}, {end})")]; // {prefix} integrity {i_start} {i_end} {client}',
@@ -154,7 +157,7 @@ def mk_availability_chunk(cfg: Config, win: int, cum: bool) -> Lines:
     start, end = int_to_float_str(i_start), int_to_float_str(i_end)
     if win == 0 and not cum:
         # this indep is a duplicate of cum 
-        print(f"skipping independent win {win}: {prefix}")
+        logger.info("skipping independent win %s: %s", win, prefix)
         return Lines()
     return Lines(
         f'eval E[s.rval("getMTBF(getMonitor(C), 16.0, {start}, {end})")]; // {prefix} availability {i_start} {i_end}',
@@ -170,7 +173,7 @@ def mk_vantage_point_chunk(cfg: Config, win: int, cum: bool, vantage: str, feat:
     tag = f'// {prefix} {tag_name} {i_start} {i_end} {vantage}'
     if win == 0 and not cum:
        # this indep is a duplicate of cum 
-       print(f"skipping independent win {win}: {tag}")
+       logger.info("skipping independent win %s: %s", win, tag)
        return Lines()
     return Lines(
         f'eval E[s.rval("getCUSUMZt(getAdversary(C), {vantage}, {feat}, {start}, {end}, {slide_win}, {bin_size})")]; {tag}'

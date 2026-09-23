@@ -412,7 +412,7 @@ def convert_single_file(args):
     with open(output_path, 'w') as f:
         f.write(maude_content)
 
-    print(f"Generated: {output_path}")
+    logger.info(f"Generated: {output_path}")
 
 
 def convert(args):

@@ -964,7 +964,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     dns_net_latency_ms, dns_net_loss_profile = networks["dns_net"]
     for net_name, (latency_ms, loss_profile_name) in networks.items():
         if not loss_profile_name in loss_profiles:
-            logger.warning(f'Loss profile {loss_profile_name} does exists, reverting to default')
+            logger.warning('Loss profile %s does exists, reverting to default', loss_profile_name)
         lp = loss_profiles[loss_profile_name]
         ld_dns = loss_profiles[dns_net_loss_profile]
         one_way_delay = latency_ms / 1000.0
@@ -1893,16 +1893,16 @@ def generate(args: argparse.Namespace):
     lib = os.path.join(rel_to_ancestor, "maude_hcs", "lib").replace(os.sep, "/")
     deps = os.path.join(rel_to_ancestor, "maude_hcs", "deps").replace(os.sep, "/")
 
-    print("Execution Arguments:")
+    logger.info("Execution Arguments:")
     for arg, value in vars(args).items():
-        print(f"  {arg}: {value}")
-    print(f"  effective out_dir: {out_dir}")
-    print(f"  effective scenario_name: {scenario_name}")
-    print(f"  effective lib path relative to output dir: {lib}")
-    print(f"  effective deps path relative to output dir: {deps}")
-    print("-" * 40)
+        logger.info("  %s: %s", arg, value)
+    logger.info("  effective out_dir: %s", out_dir)
+    logger.info("  effective scenario_name: %s", scenario_name)
+    logger.info("  effective lib path relative to output dir: %s", lib)
+    logger.info("  effective deps path relative to output dir: %s", deps)
+    logger.info("-" * 40)
     
-    print(f"Parsing scenario YAML from: {yaml_file}")
+    logger.info("Parsing scenario YAML from: %s", yaml_file)
     duration, analysis_window_size, networks, net_id_map, net_short, loss_profiles, hcs_nodes, hcs_profiles_by_channel, tgen_defs, hcs_channel_models = parse_scenario_yaml(yaml_file)
 
     if args.notgens:
@@ -1910,13 +1910,13 @@ def generate(args: argparse.Namespace):
 
     tgen_instances = generate_all_tgen_instances(tgen_defs, net_id_map, net_short)
     
-    print(f"Loaded duration: {duration}s")
-    print(f"Parsed {len(networks)} networks")
-    print(f"Parsed {len(loss_profiles)} loss profiles")
-    print(f"Generated {len(tgen_instances)} TGEN instances")
+    logger.info("Loaded duration: %ss", duration)
+    logger.info("Parsed %s networks", len(networks))
+    logger.info("Parsed %s loss profiles", len(loss_profiles))
+    logger.info("Generated %s TGEN instances", len(tgen_instances))
     for ttype in ["masTgen", "ftpTgen", "dnsTgen", "minTgen", "gorTgen", "ircTgen"]:
         count = sum(1 for i in tgen_instances if i.tgen_type == ttype)
-        print(f"  {ttype}: {count}")
+        logger.info("  %s: %s", ttype, count)
     
     os.makedirs(out_dir, exist_ok=True)
 
@@ -1925,9 +1925,9 @@ def generate(args: argparse.Namespace):
     addr_path = os.path.join(out_dir, f"{scenario_name}_addresses.maude")
     with open(addr_path, "w") as f:
         f.write(addr_content)
-    print(f"\nWrote {addr_path} ({len(addr_content.splitlines())} lines)")
+    logger.info("\nWrote %s (%s) lines)", addr_path, len(addr_content.splitlines()))
 
-    print(f"Net id mapping: {json.dumps(net_id_map, indent=4)}")
+    logger.info("Net id mapping: %s", json.dumps(net_id_map, indent=4))
 
     # Dynamically build Vpts list
     if args.filterVpFeatCombos:
@@ -1976,7 +1976,7 @@ def generate(args: argparse.Namespace):
     main_path = os.path.join(out_dir, f"{scenario_name}.maude")
     with open(main_path, "w") as f:
         f.write(main_content)
-    print(f"Wrote {main_path} ({len(main_content.splitlines())} lines)")
+    logger.info("Wrote %s %s lines", main_path, len(main_content.splitlines()))
 
     # Generate baseline file    
     baseline_content = gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=args.perf, baseline_time=baseline_time, combos1=args.filterVpFeatCombos, combos2=args.filterVpFeatCombos2, combo4x5=args.filterVpFeatCombo4x5, top25=args.filterVpFeatTop25, ixp=args.filterVpFeatIxp)
@@ -1987,7 +1987,7 @@ def generate(args: argparse.Namespace):
     baseline_path = os.path.join(out_dir, baseline_filename)
     with open(baseline_path, "w") as f:
         f.write(baseline_content)
-    print(f"Wrote {baseline_path} ({len(baseline_content.splitlines())} lines)")
+    logger.info("Wrote %s (%s) lines", baseline_path, len(baseline_content.splitlines()))
         
 
     
@@ -1995,9 +1995,9 @@ def generate(args: argparse.Namespace):
 
     all_clients = get_client_lst(hcs_client_ids)
 
-    print("Features: ", selected_features)
-    print("Vantage points: ", vpts_list)
-    print("Clients: ", all_clients)
+    logger.info("Features: %s", selected_features)
+    logger.info("Vantage points: %s", vpts_list)
+    logger.info("Clients: %s", all_clients)
 
     # Write queries to chosen quatex file path
     if args.quatex:
@@ -2005,7 +2005,7 @@ def generate(args: argparse.Namespace):
         quatex_path = os.path.join(out_dir, quatex_filename)
         max_win = math.floor(duration/analysis_window_size)
         write_all_queries_to_file(Config(selected_features, vpts_list, all_clients, window_size=int(analysis_window_size), max_win=int(max_win), hcs_delay=int(hcs_delay), perf_only=args.perf, conf_only=args.confidentiality), Path(quatex_path))
-        print(f"Wrote quatex queries to {quatex_path}: max_win: {max_win}, hcs_delay: {hcs_delay}")
+        logger.info("Wrote quatex queries to %s: max_win: %s, hcs_delay: %s", quatex_path, max_win, hcs_delay)
 
     # Generate parallelized baseline files if flag is set
     if args.parallelizeBaseline:
@@ -2031,7 +2031,7 @@ def generate(args: argparse.Namespace):
                 p_path = os.path.join(baselines_dir, p_filename)
                 with open(p_path, "w") as f:
                     f.write(p_content)
-        print(f"Wrote {len(selected_features) * len(vpts_list)} parallel baseline files to {baselines_dir}/")
+        logger.info("Wrote %s parallel baseline files to %s", len(selected_features) * len(vpts_list), baselines_dir)
 
     # Generate the baseline eq
     baselin_eq_content = gen_baselineEq(scenario_name)
@@ -2039,7 +2039,7 @@ def generate(args: argparse.Namespace):
     eq_path = os.path.join(out_dir, eq_filename)
     with open(eq_path, "w") as f:
         f.write(baselin_eq_content)    
-    print(f"Wrote {eq_path} ({len(baselin_eq_content.splitlines())} lines)")
+    logger.info("Wrote %s (%s) lines", eq_path, len(baselin_eq_content.splitlines()))
 
     # Generate run file    
     run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, perf=args.perf, run_time=run_time,
@@ -2055,4 +2055,4 @@ def generate(args: argparse.Namespace):
     run_path = os.path.join(out_dir, run_filename)
     with open(run_path, "w") as f:
         f.write(run_content)    
-    print(f"Wrote {run_path} ({len(run_content.splitlines())} lines)")
+    logger.info("Wrote %s (%s) lines", run_path, len(run_content.splitlines()))
