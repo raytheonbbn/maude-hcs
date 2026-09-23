@@ -24,15 +24,6 @@ from .runners.smc_runner import smc_runner
 
 logger = logging.getLogger(__name__)
 
-# just make each process log to its own file, some uuid in build_dir / logs probably
-# just get rid of independent, cumulative only
-# Just shove in smc tests for the other 4
-# remove maude install from tests, use 1.6.1
-# No need for nix yet
-# I'm making the tests, but I'm consulting with him about the results.
-# Make sure I'm doing --perf
-# Make sure I know how much time this takes
-
 SMC_THRESHOLD = 10.0
 KS_THRESHOLD = 10.0
 
@@ -105,15 +96,13 @@ def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
     )
 
     run_proc.start()
+    result = receiver.recv() # CANNOT be delayed until after the join, or send will block
     run_proc.join()
 
-    if not receiver.poll(5):
-        assert False, "no message from testing subprocess after waiting 5 seconds from termination, something went wrong!"
-
-    result = receiver.recv()
     logger.info(result)
     if isinstance(result, Exception):
         raise result
+    
     return result
 
 def get_checker(cfg: TestConfig) -> Callable[[Path, Path], None]:
