@@ -184,13 +184,12 @@ def all_queries(cfg: Config) -> Lines:
     bool_range = [True, False]
 
     return Lines(
-       *[mk_latency_query_chunk(cfg, win, b) for win in win_range for b in bool_range],
-       *[mk_global_integrity_chunk(cfg, win, b) for win in win_range for b in bool_range],
-       *[mk_client_integrity_chunk(cfg, win, b, client) for win in win_range for b in bool_range for client in cfg.clients],
-       *[mk_availability_chunk(cfg, win, b) for win in win_range for b in bool_range],
-       *[mk_vantage_point_chunk(cfg, win, b, vant, feat, tag)
+       *[mk_latency_query_chunk(cfg, win, True) for win in win_range],
+       *[mk_global_integrity_chunk(cfg, win, True) for win in win_range],
+       *[mk_client_integrity_chunk(cfg, win, True, client) for win in win_range for client in cfg.clients],
+       *[mk_availability_chunk(cfg, win, True) for win in win_range],
+       *[mk_vantage_point_chunk(cfg, win, True, vant, feat, tag)
             for win in win_range
-            for b in bool_range
             for vant in cfg.vants
             for (feat, tag) in cfg.feats.items()],
     )
