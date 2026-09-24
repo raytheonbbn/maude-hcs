@@ -163,12 +163,23 @@ def naive_smc_check_fn(obtained_filename: Path, expected_filename: Path):
 
 def smc_check_fn(obtained_filename: Path, expected_filename: Path):
     obtained_str = obtained_filename.read_text()
-    obtained_json = json.loads(obtained_str)
+    obtained_json: dict = json.loads(obtained_str)
     obtained_results: dict = obtained_json["results"]
 
     expected_str = expected_filename.read_text()
-    expected_json = json.loads(expected_str)
+    expected_json: dict = json.loads(expected_str)
     expected_results: dict = expected_json["results"]
+
+    shared_top_keys = set(obtained_json.keys()).intersection(expected_json.keys()).difference(set("results"))
+
+    for key in shared_top_keys:
+        obt_val = obtained_json[key]
+        exp_val = expected_json[key]
+
+        if obt_val != exp_val:
+            logger.warning("Obtained run parameters don't match expected parameters! Comparing the two runs might not be meaningful.")
+            logger.warning("Obtained %s: %s", key, obt_val)
+            logger.warning("Expected %s: %s", key, exp_val)
 
     assert len(obtained_results) == len(expected_results)
     assert obtained_results.keys() == expected_results.keys()
