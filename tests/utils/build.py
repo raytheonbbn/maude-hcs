@@ -76,11 +76,10 @@ def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path) -> Path:
         outDir=str(build_dir),
         scenarioName='test',
         notgens=gen_args.no_tgens,
-        filterVpFeatCombos=gen_args.filter_vp_feat_combos,
-        filterVpFeatCombos2=gen_args.filter_vp_feat_combos_2,
-        filterVpFeatTop25=gen_args.filter_vp_top_25,
-        filterVpFeatCombo4x5=gen_args.filter_vp_feat_combo_4x5,
-        filterVpFeatIxp=gen_args.filter_vp_feat_ixp,
+
+        feats=gen_args.feats,
+        vpts=gen_args.vpts,
+
         parallelizeBaseline=gen_args.parallelize_baseline,
         confidentiality=gen_args.confidentiality,
         perf=gen_args.performance,

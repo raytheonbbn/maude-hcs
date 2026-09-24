@@ -8,6 +8,7 @@ import os
 import io
 import uuid
 import time
+import traceback
 
 from scipy.stats import ks_2samp
 from multiprocessing import Process, Pipe
@@ -26,6 +27,38 @@ logger = logging.getLogger(__name__)
 
 SMC_THRESHOLD = 10.0
 KS_THRESHOLD = 0.5
+
+class ChildProcessErrorWrapper(Exception):
+    """Custom exception used to format and output the traceback of a child process."""
+    def __init__(self, exception: Exception, tb_string: str):
+        self.exception = exception
+        self.tb_string = tb_string
+
+    def __str__(self):
+        return f"\n\n--- Child Process Traceback ---\n{self.tb_string}{type(self.exception).__name__}: {self.exception}"
+
+def worker_target(queue):
+    try:
+        # Simulate a child process failure
+        result = 1 / 0
+    except Exception as e:
+        # 1. Capture the traceback as a string (which IS picklable)
+        tb_string = traceback.format_exc()
+        # 2. Put both the exception and the stringified traceback in the queue
+        queue.put((e, tb_string))
+
+if __name__ == "__main__":
+    queue = multiprocessing.Queue()
+    process = multiprocessing.Process(target=worker_target, args=(queue,))
+    
+    process.start()
+    process.join()
+
+    if not queue.empty():
+        exc, tb_string = queue.get()
+        # 3. Re-raise by chaining the original error inside our wrapper
+        raise ChildProcessErrorWrapper(exc, tb_string) from exc
+
 
 def euclid_feat_distance(feat0: dict, feat1: dict) -> float:
     """Provides a metric for the distance between two feature distributions
@@ -67,7 +100,9 @@ def proc_target(run: Callable, sender: Connection, test_cfg: TestConfig, build_d
         sender.send(result)
 
     except Exception as e:
-        sender.send(e)
+
+        # Send back an exception wrapper that still includes the traceback string
+        sender.send(ChildProcessErrorWrapper(e, traceback.format_exc()))
 
 def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
     """Run this TestConfig with its designated runner, returning the results for comparison.

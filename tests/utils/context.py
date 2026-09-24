@@ -66,21 +66,18 @@ class RunConfig:
 @dataclass(frozen=True)
 class GenArgs:
     yaml_file:      str
-    baseline_time:  int
     run_time:       int
-    hcs_delay:      int
-    tgen_delay:     int
-    no_tgens:       bool
+    baseline_time:  int = 0
+    hcs_delay:      int = 0
+    tgen_delay:     int = 0
+    no_tgens:       bool = False
 
-    filter_vp_feat_combos:      bool
-    filter_vp_feat_combos_2:    bool
-    filter_vp_top_25:           bool
-    filter_vp_feat_combo_4x5:   bool
-    filter_vp_feat_ixp:         bool
+    feats:  list[str] | None = None
+    vpts:   list[str] | None = None
 
-    parallelize_baseline:       bool
-    confidentiality:            bool
-    performance:                bool
+    parallelize_baseline:       bool = False
+    confidentiality:            bool = False
+    performance:                bool = False
 
 @dataclass_json
 @dataclass(frozen=True)
