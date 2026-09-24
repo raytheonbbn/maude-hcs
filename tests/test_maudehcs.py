@@ -39,44 +39,30 @@ def euclid_feat_distance(feat0: dict, feat1: dict) -> float:
 
 def proc_target(run: Callable, sender: Connection, test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig):
 
-    def readpipe(fd: int) -> str:
-        with os.fdopen(fd, 'r', closefd=True) as f:
-            try:
-                return f.read()
-            except:
-                return ""
-
     try:
-        # Close and reopen file descriptor 1 (previously stdout) so it now targets a StringIO object
-        # This is necessary to capture maude printouts as logs
-        new_stdout_read, new_stdout_target = os.pipe()
-        os.set_blocking(new_stdout_target, False)
-        os.set_blocking(new_stdout_read, False)
-        os.dup2(new_stdout_target, 1)
+        log_stdout_filename = mk_id(test_cfg) + ":stdout:" + str(uuid.uuid4())
+        log_stderr_filename = mk_id(test_cfg) + ":stderr:" + str(uuid.uuid4())
+        log_stdout_path = build_dir / "logs" / log_stdout_filename
+        log_stderr_path = build_dir / "logs" / log_stderr_filename
+        log_stdout_path.touch()
+        log_stderr_path.touch()
 
-        new_stderr_read, new_stderr_target = os.pipe()
-        os.set_blocking(new_stderr_target, False)
-        os.set_blocking(new_stderr_read, False)
-        os.dup2(new_stdout_target, 2)
+        out_fd = os.open(log_stdout_path, os.O_WRONLY)
+        err_fd = os.open(log_stderr_path, os.O_WRONLY)
+        os.set_blocking(out_fd, False)
+        os.set_blocking(err_fd, False)
+        os.dup2(out_fd, 1)
+        os.dup2(err_fd, 2)
 
         # Custom logger to write to file in build directory, so they don't stream raw (uninterceptible) text
         # to our stdout (which is now a StringIO)
         child_logger = logging.getLogger("TestSubProcess")
         child_logger.setLevel(logging.INFO)
-        log_filename = mk_id(test_cfg) + str(uuid.uuid4)
+        log_filename = mk_id(test_cfg) + str(uuid.uuid4())
         child_logger.addHandler(logging.FileHandler(build_dir / "logs" / log_filename))
 
         result = run(test_cfg, build_dir, run_cfg, child_logger)
         time.sleep(0.1) # Give maude a tiny bit of time to finish all writes to "stdout"
-
-        maude_stdout = readpipe(new_stdout_read)
-        maude_stderr = readpipe(new_stderr_read)
-
-        if maude_stdout.strip():
-            child_logger.info(maude_stdout)
-
-        if maude_stderr.strip():
-            child_logger.error(maude_stderr)
 
         sender.send(result)
 
@@ -99,7 +85,6 @@ def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
     result = receiver.recv() # CANNOT be delayed until after the join, or send will block
     run_proc.join()
 
-    logger.info(result)
     if isinstance(result, Exception):
         raise result
     
