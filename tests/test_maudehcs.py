@@ -25,7 +25,7 @@ from .runners.smc_runner import smc_runner
 logger = logging.getLogger(__name__)
 
 SMC_THRESHOLD = 10.0
-KS_THRESHOLD = 10.0
+KS_THRESHOLD = 0.5
 
 def euclid_feat_distance(feat0: dict, feat1: dict) -> float:
     """Provides a metric for the distance between two feature distributions
@@ -135,8 +135,7 @@ def smc_check_fn(obtained_filename: Path, expected_filename: Path):
     expected_json = json.loads(expected_str)
     expected_results: dict = expected_json["results"]
 
-    n_feats = len(obtained_results)
-    assert n_feats == len(expected_results)
+    assert len(obtained_results) == len(expected_results)
     assert obtained_results.keys() == expected_results.keys()
 
     for key in obtained_results.keys():
