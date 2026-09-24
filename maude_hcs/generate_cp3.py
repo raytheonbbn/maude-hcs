@@ -1938,6 +1938,7 @@ def generate(args: argparse.Namespace):
         quatex_filename = f"{scenario_name}.quatex"    
         quatex_path = os.path.join(out_dir, quatex_filename)
         max_win = math.floor(run_time/analysis_window_size)
+        assert max_win > 0, "max_win is zero, so no quatex queries would be generated! Are you sure you set the experiment duration high enough?"
         write_all_queries_to_file(Config(selected_feats, maude_vpts, all_clients, window_size=int(analysis_window_size), max_win=int(max_win), hcs_delay=int(hcs_delay), perf_only=args.perf, conf_only=args.confidentiality), Path(quatex_path))
         logger.info("Wrote quatex queries to %s: max_win: %s, hcs_delay: %s", quatex_path, max_win, hcs_delay)
 
