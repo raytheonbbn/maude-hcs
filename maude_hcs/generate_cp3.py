@@ -1742,7 +1742,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  eq IRC-PING-INTV-S = 1200000. [owise]  .")
     L("  ")
     L("  op slimit : -> Float .")
-    L(f"  eq slimit = {duration} [owise] .")
+    L(f"  eq slimit = {duration:.1f} [owise] .")
     L("")
     L("  op initConfig : -> Config .")
     L("  rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .")
@@ -1799,6 +1799,8 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
     lines = []
     L = lines.append
 
+    assert (baseline_time is not None) or (run_time is not None)
+
     prefix = ""
     if feature and vpt:
         # we are generating baselines insside <out_dir>/baselines so we need ../ in paths
@@ -1839,11 +1841,11 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
         if not isBaseline:
             L(f"  inc {mod_name}-BASELINE-EQ . ")
         L("  ")
-        if isBaseline and baseline_time is not None:
-            L(f"  eq slimit = {baseline_time} .")
-        elif not isBaseline and run_time is not None:
-            L(f"  eq slimit = {run_time} .")        
-    L("eq slimit = 100.0 . ---- redefine if needed")
+
+    if baseline_time is not None and isBaseline:
+        L(f"eq slimit = {baseline_time:.1f} .")
+    else:
+        L(f"eq slimit = {run_time:.1f} .")
     
     if not perf:
         if feature and vpt:
