@@ -129,24 +129,8 @@ def build_cli_parser():
     generate_parser.add_argument("--confidentiality", action="store_true", help="Confidentiality mode: only quatex needed for computing confidentiality")    
     generate_parser.add_argument("--notgens", action="store_true", help="disable tgens firing")
 
-    combo_group = generate_parser.add_mutually_exclusive_group()
-    combo_group.add_argument("--filterVpFeatCombos", action="store_true", help="filter the combinations of VP and feature")
-    combo_group.add_argument("--filterVpFeatCombos2", action="store_true", help="filter the combinations of VP and feature (different vps)")
-    combo_group.add_argument(
-        "--filterVpFeatCombo4x5",
-        action="store_true",
-        help="use the combo4x5 set of four vantage points and five features",
-    )
-    combo_group.add_argument(
-        "--filterVpFeatTop25",
-        action="store_true",
-        help="use the Top 25 vantage-point and feature sets",
-    )
-    combo_group.add_argument(
-        "--filterVpFeatIxp",
-        action="store_true",
-        help="use ixpN as the only vantage point and retain all features",
-    )
+    generate_parser.add_argument("--feats", help="select particular feature queries to enable", type=lambda x: x.split(','))
+    generate_parser.add_argument("--vpts", help="select particular vantage points that the adversary can observe", type=lambda x: x.split(','))
 
     # Markov generation subcommands
     markov_v2_parser = cmd_subparsers.add_parser('markov-v2')
@@ -214,6 +198,7 @@ def build_cli_parser():
         type=float,
         default=0.5
     )
+
     scheck_parser.add_argument(
         '--block', '-b',
         help='Number of simulations before checking the confidence interval, default=30',
@@ -299,16 +284,12 @@ def main():
     """Maude HCS CLI
 
     Run 'maude-hcs --help' for command line usage information.
-
     """
 
     parser = build_cli_parser()
     args = parser.parse_args()
     init_logging(args.verbose)    
-    
     handle_command(args.command, parser, args)
 
 if __name__ == "__main__":
     main()
-
-

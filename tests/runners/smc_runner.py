@@ -44,9 +44,9 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
     arg = test_cfg.arg
 
     if arg.get("baseline", False):
-        run_file = f"test-baseline-{test_cfg.build_cfg.gen_args.run_time}.maude"
+        run_file = f"test-baseline.maude"
     else:
-        run_file = f"test-run-{test_cfg.build_cfg.gen_args.run_time}.maude"
+        run_file = f"test-run.maude"
 
     dump_dir = build_dir / "dumps"
     os.mkdir(dump_dir)
