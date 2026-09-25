@@ -1,0 +1,207 @@
+sload ./byteseq.maude
+
+fmod GENERAL_BYTESEQ_TEST is
+  inc GENERAL_BYTESEQ .
+  
+  ops TEST-BYTESEQ : -> ByteSeq .
+  ops TEST-BYTESEQLIST : -> ByteSeqL .
+  ops makeByteSeq : Nat String -> ByteSeq .
+  eq getSize(makeByteSeq(size:Nat, description:String)) = size:Nat .
+endfm
+
+set print attribute on .
+rew getByteSeqFromChunk(makeByteSeqChunk(TEST-BYTESEQ, 100, 0))
+  == TEST-BYTESEQ
+.
+
+rew getSize(makeByteSeqChunk(TEST-BYTESEQ, 100, 0)) == 100 .
+rew getSize(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")) == 3000 .
+rew makeByteSeqChunk(makeByteSeqChunk(TEST-BYTESEQ, 1000, 7), 500, 0)
+  == makeByteSeqChunk(TEST-BYTESEQ, 500, 7)
+.
+rew getExpectedSize(makeByteSeqChunk(makeByteSeq(4000, "testFile"), 1000, 7))
+  == 4000
+.
+
+rew $encode({(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
+              nilBS},
+            4000)
+  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
+      nilBS}
+.
+
+rew $encode({nilBS,
+              (makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2"))},
+            4000)
+  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
+      nilBS}
+.
+rew $encode({makeByteSeq(1000, "File1"),
+               (makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3"))},
+            5000)
+  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3")),
+      nilBS}
+.
+rew $encode({makeByteSeq(1000, "File1"),
+               (makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3"))},
+            4000)
+  == {(makeByteSeq(1000, "File1")
+        :: makeByteSeq(2000, "ccFile2")
+        :: makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 2000, 0)),
+      makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 1000, 1)}
+.
+rew $encode({nilBS,
+              makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 2000, 1)},
+            1000)
+  == {makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 1000, 1),
+      makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 1000, 2)}
+. 
+rew encode(makeByteSeq(1000, "File1")
+            :: makeByteSeq(2000, "ccFile2")
+            :: makeByteSeq(3000, "ccFile3"),
+            4000)
+  == {(makeByteSeq(1000, "File1")
+        :: makeByteSeq(2000, "ccFile2")
+        :: makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 1000, 0)),
+      makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 2000, 1)}
+.
+rew encode(makeByteSeq(1000, "File1")
+            :: makeByteSeq(2000, "ccFile2")
+            :: makeByteSeq(3000, "ccFile3"),
+            9000)
+  == {(makeByteSeq(1000, "File1")
+        :: makeByteSeq(2000, "ccFile2")
+        :: makeByteSeq(3000, "ccFile3")),
+      nilBS}
+.
+rew $combineChunks(makeByteSeq(3000, "file"), nilBS)
+  == {makeByteSeq(3000, "file"), nilBS}
+.
+rew $combineChunks(noBytes, TEST-BYTESEQLIST) == {noBytes, TEST-BYTESEQLIST} .
+rew $combineChunks(makeByteSeq(3000, "file"), TEST-BYTESEQLIST)
+  == {makeByteSeq(3000, "file"), TEST-BYTESEQLIST}
+.
+rew $combineChunks(makeByteSeqChunk(makeByteSeq(3000, "data"),
+                                    2000,
+                                    0),
+                    makeByteSeqChunk(makeByteSeq(3000, "data"),
+                                      1000,
+                                      1))
+  == {makeByteSeq(3000, "data"), nilBS}
+.
+rew $combineChunks(makeByteSeqChunk(makeByteSeq(3000, "data"),
+                                    2000,
+                                    0),
+                    (makeByteSeqChunk(makeByteSeq(3000, "data"),
+                                      1000,
+                                      1)
+                      :: TEST-BYTESEQLIST))
+  == {makeByteSeq(3000, "data"), TEST-BYTESEQLIST}
+.
+rew $combineChunks(makeByteSeqChunk(makeByteSeq(3000, "data"),
+                                    2000,
+                                    0),
+                    (makeByteSeqChunk(makeByteSeq(5000, "otherData"),
+                                      1000,
+                                      5)
+                      :: makeByteSeqChunk(makeByteSeq(3000, "data"),
+                                           1000,
+                                           1)
+                      :: TEST-BYTESEQLIST))
+== {makeByteSeq(3000, "data"),
+    (makeByteSeqChunk(makeByteSeq(5000, "otherData"),
+                      1000,
+                      5)
+    :: TEST-BYTESEQLIST)}
+.
+rew $combineChunks(makeByteSeqChunk(makeByteSeq(3000, "data"),
+                                    2000,
+                                    0),
+                    (makeByteSeqChunk(makeByteSeq(5000, "otherData"),
+                                      1000,
+                                      5)
+                      :: TEST-BYTESEQLIST))
+== {makeByteSeqChunk(makeByteSeq(3000, "data"),
+                                    2000,
+                                    0),
+    (makeByteSeqChunk(makeByteSeq(5000, "otherData"),
+                      1000,
+                      5)
+    :: TEST-BYTESEQLIST)}
+.
+rew $decode(nilBS, makeByteSeq(3000, "data"), TEST-BYTESEQLIST)
+  == {makeByteSeq(3000, "data"), TEST-BYTESEQLIST}
+.
+rew $decode(makeByteSeq(3000, "data"), nilBS, nilBS)
+  == {makeByteSeq(3000, "data"), nilBS}
+.
+rew $decode((makeByteSeqChunk(makeByteSeq(3000, "data"),
+                              1000,
+                              0)
+            :: makeByteSeqChunk(makeByteSeq(3000, "data"),
+                                2000,
+                                1)),
+            nilBS,
+            nilBS)
+  == {makeByteSeq(3000, "data"), nilBS}
+.
+rew $decode((makeByteSeqChunk(makeByteSeq(3000, "data0"),
+                              1000,
+                              0)
+            :: makeByteSeqChunk(makeByteSeq(3000, "data0"),
+                                2000,
+                                1)
+            :: makeByteSeq(5000, "data1")
+            :: makeByteSeq(2000, "data2")),
+            nilBS,
+            nilBS)
+  == {(makeByteSeq(3000, "data0")
+        :: makeByteSeq(5000, "data1")
+        :: makeByteSeq(2000, "data2")),
+      nilBS}
+.
+rew $decode((makeByteSeqChunk(makeByteSeq(3000, "data0"),
+                              1000,
+                              0)
+            :: makeByteSeqChunk(makeByteSeq(3000, "data0"),
+                                2000,
+                                1)
+            :: makeByteSeq(5000, "data1")
+            :: makeByteSeqChunk(makeByteSeq(2000, "data2"),
+                                1000,
+                                0)),
+            nilBS,
+            nilBS)
+  == {(makeByteSeq(3000, "data0")
+        :: makeByteSeq(5000, "data1")),
+      makeByteSeqChunk(makeByteSeq(2000, "data2"),
+                        1000,
+                        0)}
+.
+rew $decode((makeByteSeqChunk(makeByteSeq(3000, "data0"),
+                              1000,
+                              0)
+            :: makeByteSeqChunk(makeByteSeq(3000, "data0"),
+                                2000,
+                                1)
+            :: makeByteSeq(5000, "data1")
+            :: makeByteSeqChunk(makeByteSeq(2000, "data2"),
+                                1000,
+                                0)),
+            makeByteSeq(3000, "data10"),
+            nilBS)
+  == {(makeByteSeq(3000, "data10")
+        :: makeByteSeq(3000, "data0")
+        :: makeByteSeq(5000, "data1")),
+      makeByteSeqChunk(makeByteSeq(2000, "data2"),
+                        1000,
+                        0)}
+.
+
+rew $decode(getFirst(encode(makeByteSeq(3000, "data"), 3000)),
+            nilBS,
+            nilBS)
+  == {makeByteSeq(3000, "data"), nilBS}
+.
+
+q

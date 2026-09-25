@@ -78,12 +78,21 @@ fmod GENERAL_BYTESEQ is
 
   op noBytes : -> ByteSeq [ctor] .
 
+  ops getFirst getSecond : TwoByteSeqL -> ByteSeqL .
+  eq getFirst({first:ByteSeqL, second:ByteSeqL}) = first:ByteSeqL .
+  eq getSecond({first:ByteSeqL, second:ByteSeqL}) = second:ByteSeqL .
+
   --- Make a ByteSeqList into a ByteSeq.
   op pack : ByteSeqL -> ByteSeq [ctor] .
   eq pack(pack(data:ByteSeqL)) = pack(data:ByteSeqL) .
   eq pack(dataL:ByteSeq :: pack(data:ByteSeqL) :: dataR:ByteSeq)
     = pack(dataL:ByteSeq :: data:ByteSeqL :: dataR:ByteSeq)
   .
+  eq pack(nilBS) = noBytes .
+  op unpack : ByteSeq -> ByteSeqL [ctor] .
+  eq unpack(pack(data:ByteSeqL)) = data:ByteSeqL .
+  eq unpack(data:ByteSeq) = data:ByteSeq [owise] .
+  eq unpack(noBytes) = nilBS .
 
   op getSize : ByteSeq -> Nat .
   op getSize : ByteSeqL -> Nat .
@@ -97,6 +106,11 @@ fmod GENERAL_BYTESEQ is
   .
   eq getSize(pack(bytes:ByteSeqL)) = getSize(bytes:ByteSeqL) .
   eq getSize(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat)) = size:Nat .
+  op getExpectedSize : ByteSeqChunk -> Nat .
+  eq getExpectedSize(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat))
+    = getSize(data:ByteSeq)
+  .
+  eq getExpectedSize(data:ByteSeq) = getSize(data:ByteSeq) [ owise ] .
   
   ---                   Data    Size  Index
   op makeByteSeqChunk : ByteSeq Nat   Nat -> ByteSeqChunk .
@@ -104,6 +118,7 @@ fmod GENERAL_BYTESEQ is
   ceq makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat) = data:ByteSeq
     if getSize(data:ByteSeq) <= size:Nat
   .
+  --- Chunking a chunk is still just a chunk.
   ceq makeByteSeqChunk(makeByteSeqChunk(data:ByteSeq, size0:Nat, index0:Nat),
                         size1:Nat,
                         index1:Nat)
@@ -112,14 +127,67 @@ fmod GENERAL_BYTESEQ is
   .
   eq makeByteSeqChunk(data:ByteSeq, 0, index:Nat) = noBytes .
 
+  --- Decode a list of received byteseqs. It will recombine chunks if it can.
+  --- !!! This expects the list to be ordered with unique chunks !!!
+  --- Pending: List of byteseqs that have been received and are currently pending.
+  --- Decoded: List of byteseqs that have been decoded, removed from pendings,
+  ---           and need to be passed to the application.
+  --- Processed: List of byteseqs that have been processed and can go back in
+  ---             the pending list for later processing.
+  ---           Pending   Decoded   Processed   {ReceivedAndDecoded, Leftovers}
+  op $decode :  ByteSeqL  ByteSeqL  ByteSeqL -> TwoByteSeqL .
+  ceq $decode((reference:ByteSeq :: pendingRest:ByteSeqL),
+                decoded:ByteSeqL,
+                done:ByteSeqL)
+    = (if (getExpectedSize(combinedChunk:ByteSeq) == getSize(combinedChunk:ByteSeq))
+        then $decode(pendingProcessed:ByteSeqL,
+                      (decoded:ByteSeqL :: combinedChunk:ByteSeq),
+                      done:ByteSeqL)
+        else $decode(pendingProcessed:ByteSeqL,
+                      decoded:ByteSeqL,
+                      (done:ByteSeqL :: combinedChunk:ByteSeq))
+      fi)
+    if {combinedChunk:ByteSeq, pendingProcessed:ByteSeqL} :=
+      $combineChunks(reference:ByteSeq, pendingRest:ByteSeqL)
+  .
+  eq $decode(nilBS, decoded:ByteSeqL, done:ByteSeqL)
+    = {decoded:ByteSeqL, done:ByteSeqL}
+  .
+
+  --- Combine chunks together to make a (big) byteseq.
+  --- Assumes the chunks are ordered and unique.
+  ---                 RefChnk Candidates
+  op $combineChunks : ByteSeq ByteSeqL    -> TwoByteSeqL .
+  eq $combineChunks(makeByteSeqChunk(data:ByteSeq, size0:Nat, index0:Nat),
+                    (dataL:ByteSeqL
+                      :: makeByteSeqChunk(data:ByteSeq, size1:Nat, s index0:Nat)
+                      :: dataR:ByteSeqL))
+    = $combineChunks(makeByteSeqChunk(data:ByteSeq,
+                                      size0:Nat + size1:Nat,
+                                      s index0:Nat),
+                    dataL:ByteSeqL :: dataR:ByteSeqL)
+  .
+  ceq $combineChunks(reference:ByteSeqChunk, candidates:ByteSeqL)
+    = {reference:ByteSeqChunk, candidates:ByteSeqL}
+    if getExpectedSize(reference:ByteSeqChunk)
+        == getSize(reference:ByteSeqChunk)
+  .
+  eq $combineChunks(reference:ByteSeqChunk, nilBS)
+    = {reference:ByteSeqChunk, nilBS}
+  .
+  eq $combineChunks(nonChunkedData:ByteSeq, data:ByteSeqL)
+    = {nonChunkedData:ByteSeq, data:ByteSeqL}
+    [ owise ]
+  .
+  eq $combineChunks(noBytes, data:ByteSeqL) = {noBytes, data:ByteSeqL}
+    [ print "ERROR: Reference chunk in combination is empty." ]
+  .
+
   op getByteSeqFromChunk : ByteSeqChunk -> ByteSeq .
   eq getByteSeqFromChunk(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat))
     = data:ByteSeq
   .
   eq getByteSeqFromChunk(data:ByteSeqChunk) = noBytes [ owise ] .
-
-  op recomposeChunks : ByteSeqL -> ByteSeqL .
-
 
   --- Encode the pending bytes into a ByteSeq, splitting elements that are too 
   --- big and combining the other ones.
@@ -158,69 +226,6 @@ fmod GENERAL_BYTESEQ is
     = {current:ByteSeqL, pending:ByteSeqL}
   .
 endfm
-
-fmod GENERAL_BYTESEQ_TEST is
-  inc GENERAL_BYTESEQ .
-  
-  ops TEST-BYTESEQ : -> ByteSeq .
-  ops makeByteSeq : Nat String -> ByteSeq .
-  eq getSize(makeByteSeq(size:Nat, description:String)) = size:Nat .
-
-endfm
-
-set print attribute on .
-rew getByteSeqFromChunk(makeByteSeqChunk(TEST-BYTESEQ, 100, 0))
-  == TEST-BYTESEQ
-.
-
-rew getSize(makeByteSeqChunk(TEST-BYTESEQ, 100, 0)) == 100 .
-rew getSize(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")) == 3000 .
-rew makeByteSeqChunk(makeByteSeqChunk(TEST-BYTESEQ, 1000, 7), 500, 0)
-.
-
-rew $encode({(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
-              nilBS},
-            4000)
-  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
-      nilBS}
-.
-
-rew $encode({nilBS,
-              (makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2"))},
-            4000)
-  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
-      nilBS}
-.
-rew $encode({makeByteSeq(1000, "File1"),
-               (makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3"))},
-            5000)
-  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3")),
-      nilBS}
-.
-rew $encode({makeByteSeq(1000, "File1"),
-               (makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3"))},
-            4000)
-  == {(makeByteSeq(1000, "File1")
-        :: makeByteSeq(2000, "ccFile2")
-        :: makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 2000, 0)),
-      makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 1000, 1)}
-.
-rew $encode({nilBS,
-              makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 2000, 1)},
-            1000)
-  == {makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 1000, 1),
-      makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 1000, 2)}
-. 
-rew encode(makeByteSeq(1000, "File1")
-            :: makeByteSeq(2000, "ccFile2")
-            :: makeByteSeq(3000, "ccFile3"),
-            4000)
-  == {(makeByteSeq(1000, "File1")
-        :: makeByteSeq(2000, "ccFile2")
-        :: makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 1000, 0)),
-      makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 2000, 1)}
-.
-
 
 fmod BYTESEQ is
   inc GENERAL_BYTESEQ .
