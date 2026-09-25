@@ -63,10 +63,167 @@ TBD
 
 sload ../../../deps/dns_formalization/Maude/common/actor
 
-fmod BYTESEQ is    
+fmod GENERAL_BYTESEQ is    
   inc CONVERSION .
   inc ACTOR-MODEL .
   
+  sorts ByteSeq ByteSeqL ByteSeqChunk TwoByteSeqL .
+  subsorts ByteSeq < Content .
+  subsort ByteSeq < ByteSeqL .
+  subsort ByteSeqChunk < ByteSeq .
+  op nilBS : ->   ByteSeqL [ctor] .
+  op emptyFileList : -> ByteSeqL [ctor] .
+  op _::_ : ByteSeqL ByteSeqL -> ByteSeqL [ctor assoc id: nilBS] .
+  op `{_`,_`} : ByteSeqL ByteSeqL -> TwoByteSeqL [ctor] .
+
+  op noBytes : -> ByteSeq [ctor] .
+
+  --- Make a ByteSeqList into a ByteSeq.
+  op pack : ByteSeqL -> ByteSeq [ctor] .
+  eq pack(pack(data:ByteSeqL)) = pack(data:ByteSeqL) .
+  eq pack(dataL:ByteSeq :: pack(data:ByteSeqL) :: dataR:ByteSeq)
+    = pack(dataL:ByteSeq :: data:ByteSeqL :: dataR:ByteSeq)
+  .
+
+  op getSize : ByteSeq -> Nat .
+  op getSize : ByteSeqL -> Nat .
+  eq getSize(noBytes) = 0 .
+  eq getSize(nilBS) = 0 .
+  ceq getSize(bytes:ByteSeq :: restOfBytes:ByteSeqL)
+    = getSize(bytes:ByteSeq) + getSize(restOfBytes:ByteSeqL)
+    --- Because ByteSeqChunk is also a ByteSeq, it could send this into an 
+    --- infinite recursion, so make sure no op for nilBS.
+    if restOfBytes:ByteSeqL =/= nilBS
+  .
+  eq getSize(pack(bytes:ByteSeqL)) = getSize(bytes:ByteSeqL) .
+  eq getSize(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat)) = size:Nat .
+  
+  ---                   Data    Size  Index
+  op makeByteSeqChunk : ByteSeq Nat   Nat -> ByteSeqChunk .
+  --- Chunking a byteSeq for at least its original size is a noop.
+  ceq makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat) = data:ByteSeq
+    if getSize(data:ByteSeq) <= size:Nat
+  .
+  ceq makeByteSeqChunk(makeByteSeqChunk(data:ByteSeq, size0:Nat, index0:Nat),
+                        size1:Nat,
+                        index1:Nat)
+    = makeByteSeqChunk(data:ByteSeq, size1:Nat, index0:Nat + index1:Nat)
+    if size0:Nat > size1:Nat
+  .
+  eq makeByteSeqChunk(data:ByteSeq, 0, index:Nat) = noBytes .
+
+  op getByteSeqFromChunk : ByteSeqChunk -> ByteSeq .
+  eq getByteSeqFromChunk(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat))
+    = data:ByteSeq
+  .
+  eq getByteSeqFromChunk(data:ByteSeqChunk) = noBytes [ owise ] .
+
+  op recomposeChunks : ByteSeqL -> ByteSeqL .
+
+
+  --- Encode the pending bytes into a ByteSeq, splitting elements that are too 
+  --- big and combining the other ones.
+  ---         Data      CapacityBytes
+  op encode : ByteSeqL  Nat -> TwoByteSeqL .
+  ceq encode(pending:ByteSeqL, capacity:Nat) =
+    (if pendingSize:Nat > capacity:Nat
+      --- Not all pending will fit in capacity. Break up.
+      then $encode({nilBS, pending:ByteSeqL}, capacity:Nat)
+      --- Else everything fits, done.
+      else {pending:ByteSeqL, nilBS}
+    fi)
+    if pendingSize:Nat := getSize(pending:ByteSeqL)
+    [ print "Encode found size " pendingSize:Nat " cap: " capacity:Nat ]
+  .
+
+  ---           Current,Pending RemCapacity
+  op $encode :  TwoByteSeqL     Nat -> TwoByteSeqL .
+  ceq $encode({current:ByteSeqL, (firstPending:ByteSeq :: pending:ByteSeqL)},
+              remainingCapacity:Nat)
+    = (if firstPendingSize:Nat > remainingCapacity:Nat
+        --- The first element does not all fit, chunk and stop.
+        then {(current:ByteSeqL :: makeByteSeqChunk(firstPending:ByteSeq, remainingCapacity:Nat, 0)),
+              (makeByteSeqChunk(firstPending:ByteSeq, firstPendingSize:Nat - remainingCapacity:Nat, 1))}
+        --- Else the first element fits, continue.
+        else $encode({(current:ByteSeqL :: firstPending:ByteSeq), pending:ByteSeqL},
+                      remainingCapacity:Nat - firstPendingSize:Nat)
+      fi)
+      if firstPendingSize:Nat := getSize(firstPending:ByteSeq)
+    [ print "$encode current: " current:ByteSeqL " remainingCap: " remainingCapacity:Nat "B." ]
+  .
+  eq $encode({current:ByteSeqL, nilBS}, remainingCapacity:Nat)
+    = {current:ByteSeqL, nilBS}
+  .
+  eq $encode({current:ByteSeqL, pending:ByteSeqL}, 0)
+    = {current:ByteSeqL, pending:ByteSeqL}
+  .
+endfm
+
+fmod GENERAL_BYTESEQ_TEST is
+  inc GENERAL_BYTESEQ .
+  
+  ops TEST-BYTESEQ : -> ByteSeq .
+  ops makeByteSeq : Nat String -> ByteSeq .
+  eq getSize(makeByteSeq(size:Nat, description:String)) = size:Nat .
+
+endfm
+
+set print attribute on .
+rew getByteSeqFromChunk(makeByteSeqChunk(TEST-BYTESEQ, 100, 0))
+  == TEST-BYTESEQ
+.
+
+rew getSize(makeByteSeqChunk(TEST-BYTESEQ, 100, 0)) == 100 .
+rew getSize(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")) == 3000 .
+rew makeByteSeqChunk(makeByteSeqChunk(TEST-BYTESEQ, 1000, 7), 500, 0)
+.
+
+rew $encode({(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
+              nilBS},
+            4000)
+  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
+      nilBS}
+.
+
+rew $encode({nilBS,
+              (makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2"))},
+            4000)
+  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
+      nilBS}
+.
+rew $encode({makeByteSeq(1000, "File1"),
+               (makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3"))},
+            5000)
+  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3")),
+      nilBS}
+.
+rew $encode({makeByteSeq(1000, "File1"),
+               (makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3"))},
+            4000)
+  == {(makeByteSeq(1000, "File1")
+        :: makeByteSeq(2000, "ccFile2")
+        :: makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 2000, 0)),
+      makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 1000, 1)}
+.
+rew $encode({nilBS,
+              makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 2000, 1)},
+            1000)
+  == {makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 1000, 1),
+      makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 1000, 2)}
+. 
+rew encode(makeByteSeq(1000, "File1")
+            :: makeByteSeq(2000, "ccFile2")
+            :: makeByteSeq(3000, "ccFile3"),
+            4000)
+  == {(makeByteSeq(1000, "File1")
+        :: makeByteSeq(2000, "ccFile2")
+        :: makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 1000, 0)),
+      makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 2000, 1)}
+.
+
+
+fmod BYTESEQ is
+  inc GENERAL_BYTESEQ .
 vars id i j j1 k k1 l l0 n n0 n1 last last0 r d ix ix0 cap : Nat .
 vars tot bpf nf : Nat .
 vars d1 : Rat .
@@ -74,17 +231,6 @@ vars d1 : Rat .
 vars bytes bytes0 bs : ByteSeq .
 vars file efrag efile image key ef ef0 : ByteSeq .
 vars efl efl1 efl0 bsl bsl0 bsl1 bytesl : ByteSeqL .
-
-sorts ByteSeq ByteSeqL .
-subsorts ByteSeq < Content .
-subsort ByteSeq < ByteSeqL .
-op nilBS : ->   ByteSeqL [ctor] .
-op emptyFileList : -> ByteSeqL [ctor] .
-op _::_ : ByteSeqL ByteSeqL -> ByteSeqL [ctor assoc id: nilBS] .
-
-op noBytes : -> ByteSeq [ctor] .
-op nilBytes : -> ByteSeq [ctor] .
-
 
 op lenBSL : ByteSeqL -> Nat .
 op lenBSLX : ByteSeqL Nat -> Nat .
@@ -198,9 +344,7 @@ eq nbytes(file(id,n)) = n .
 eq nbytes(ccFile(key:Nat, hash:Nat, hashtag:String)) = getSize(ccFile(key:Nat, hash:Nat, hashtag:String)) .
 eq nbytes(text(id,n)) = n .
 
-op getSize : ByteSeq -> Nat .
 **** reducing to nbytes 
-eq getSize(noBytes) = nbytes(noBytes) .
 eq getSize(key(j,k)) = nbytes(key(j,k)) .
 eq getSize(file(id,n)) = nbytes(file(id,n)) .
 eq getSize(text(id,n)) = nbytes(text(id,n)) .
@@ -253,7 +397,7 @@ eq getHash(ccFile(key:Nat, hash:Nat, hashtag:String)) = hash:Nat .
 --- TODO: Create a hash match function.
 op readHash : ByteSeq -> ByteSeq .
 eq readHash(ccFile(key:ByteSeq, hash:ByteSeq, hashtag:ByteSeq)) = hash:ByteSeq .
-eq readHash(CC_FILE:ByteSeq) = nilBytes [owise] .
+eq readHash(CC_FILE:ByteSeq) = noBytes [owise] .
 
 --- Get a key from a CcFile.
 op getKey : ByteSeq -> Nat .
@@ -262,7 +406,7 @@ eq getKey(ccFile(key(index:Nat, length:Nat), hash:ByteSeq, hashtag:ByteSeq)) = i
 
 op readKey : ByteSeq -> ByteSeq .
 eq readKey(ccFile(key:ByteSeq, hash:ByteSeq, hashtag:ByteSeq)) = key:ByteSeq .
-eq readKey(CC_FILE:ByteSeq) = nilBytes [owise] .
+eq readKey(CC_FILE:ByteSeq) = noBytes [owise] .
 
 ***(
 --- Get a fragment number from an image.
