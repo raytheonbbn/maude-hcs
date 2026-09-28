@@ -61,11 +61,6 @@ mod OBFS4_AUX is
     >
   .
 
-  --- Abstract serialization to/from ByteSequence
-  op toByteseq : Content -> ByteSeq [ctor] .
-  op fromByteseq : ByteSeq -> Content [ctor] .
-  eq fromByteseq(toByteseq(MSG:Content)) = MSG:Content .
-
   --- Encapsulate ByteSeq into an Obfs4Frame with random padding length.
   ---           payload paddingLen
   op obfs4Frame : ByteSeq Nat -> Content [ctor] .
@@ -74,9 +69,7 @@ mod OBFS4_AUX is
   --- Size evaluation mapping abstract Content to byte length
   --- Obfs4 Framing Overhead is 19 bytes per frame: 2 (length) + 1 (type) + 16 (MAC)
   --- Total = 3 + payload size + padding + 16 = payload size + padding + 19.
-  eq getSize(obfs4Frame(payload:ByteSeq, pad:Nat)) = nbytes(payload:ByteSeq) + pad:Nat + 19 .
+  eq getSize(obfs4Frame(payload:ByteSeq, pad:Nat)) = getSize(payload:ByteSeq) + pad:Nat + 19 .
   
-  eq nbytes(toByteseq(MSG:Content)) = getSize(MSG:Content) .
-
   eq getSize(AnyContent:Content) = 0 [owise] .
 endm
