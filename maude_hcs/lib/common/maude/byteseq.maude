@@ -52,7 +52,7 @@ various kinds of byte sequence and equations to
 extract information. I think the only thing Mastadon
 should care about is that it gets requests
 with parameters of sort ByteSeq  and the size
-computed by the function nbytes.
+computed by the function getSize.
 
 In addition to the file/image related data structures
 we need to agree on content exchanged in messages
@@ -106,7 +106,7 @@ fmod GENERAL_BYTESEQ is
   .
   eq getSize(pack(bytes:ByteSeqL)) = getSize(bytes:ByteSeqL) .
   eq getSize(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat)) = size:Nat .
-  op getExpectedSize : ByteSeqChunk -> Nat .
+  op getExpectedSize : ByteSeq -> Nat .
   eq getExpectedSize(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat))
     = getSize(data:ByteSeq)
   .
@@ -191,6 +191,8 @@ fmod GENERAL_BYTESEQ is
 
   --- Encode the pending bytes into a ByteSeq, splitting elements that are too 
   --- big and combining the other ones.
+  --- It returns the list of byteseqs that need to go out and fit in capacity,
+  --- and the remaining byteseqs (even split) that did not fit.
   ---         Data      CapacityBytes
   op encode : ByteSeqL  Nat -> TwoByteSeqL .
   ceq encode(pending:ByteSeqL, capacity:Nat) =
@@ -204,6 +206,9 @@ fmod GENERAL_BYTESEQ is
     [ print "Encode found size " pendingSize:Nat " cap: " capacity:Nat ]
   .
 
+  --- Encode pending byteseqs into a current bag of byteseqs given a remaining
+  --- capacity.
+  --- It returns the next current list of byteseqs and what was lefover.
   ---           Current,Pending RemCapacity
   op $encode :  TwoByteSeqL     Nat -> TwoByteSeqL .
   ceq $encode({current:ByteSeqL, (firstPending:ByteSeq :: pending:ByteSeqL)},
@@ -211,12 +216,14 @@ fmod GENERAL_BYTESEQ is
     = (if firstPendingSize:Nat > remainingCapacity:Nat
         --- The first element does not all fit, chunk and stop.
         then {(current:ByteSeqL :: makeByteSeqChunk(firstPending:ByteSeq, remainingCapacity:Nat, 0)),
-              (makeByteSeqChunk(firstPending:ByteSeq, firstPendingSize:Nat - remainingCapacity:Nat, 1))}
+              (makeByteSeqChunk(firstPending:ByteSeq, firstPendingSize:Nat - remainingCapacity:Nat, 1)
+                :: pending:ByteSeqL)}
         --- Else the first element fits, continue.
         else $encode({(current:ByteSeqL :: firstPending:ByteSeq), pending:ByteSeqL},
                       remainingCapacity:Nat - firstPendingSize:Nat)
       fi)
-      if firstPendingSize:Nat := getSize(firstPending:ByteSeq)
+      if remainingCapacity:Nat > 0
+        /\ firstPendingSize:Nat := getSize(firstPending:ByteSeq)
     [ print "$encode current: " current:ByteSeqL " remainingCap: " remainingCapacity:Nat "B." ]
   .
   eq $encode({current:ByteSeqL, nilBS}, remainingCapacity:Nat)
@@ -323,9 +330,9 @@ hash(file:ByteSeq)
 ccFile
 ackFile
 image
-getSize equated explicitly to nbytes for missing cases
+getSize equated explicitly to getSize for missing cases
 
-nbytes defined for
+getSize defined for
 noBytes
 key(j,k)
 file(id,n)
@@ -339,23 +346,10 @@ image(j,n,k)
 )
 
 **** computing len/size of ByteSeq terms
-op nbytes : ByteSeq -> Nat .
-
-eq nbytes(noBytes) = 0 .
-eq nbytes(key(j,k)) = k .
-eq nbytes(file(id,n)) = n .
-
-
-eq nbytes(ccFile(key:Nat, hash:Nat, hashtag:String)) = getSize(ccFile(key:Nat, hash:Nat, hashtag:String)) .
-eq nbytes(text(id,n)) = n .
-
-**** reducing to nbytes 
-eq getSize(key(j,k)) = nbytes(key(j,k)) .
-eq getSize(file(id,n)) = nbytes(file(id,n)) .
-eq getSize(text(id,n)) = nbytes(text(id,n)) .
-eq getSize(efile(id,n,j,k)) = nbytes(efile(id,n,j,k)) .
-eq getSize(efrag(bytes,last,ix,l)) 
-         = nbytes(efrag(bytes,last,ix,l)) .
+eq getSize(noBytes) = 0 .
+eq getSize(key(j, k)) = k .
+eq getSize(file(id, n)) = n .
+eq getSize(text(id,n)) = n .
 
 eq getSize(restToByteSeq(TEXT:String)) = length(TEXT:String) .
 --- TODO: Change when hashtags are strings.
@@ -422,9 +416,9 @@ eq getFragmentNumber(image(fragNum:Nat, cap:Nat, size:Nat)) = fragNum:Nat .
 *** we need to know the encryption algorithm overhead
 *** give input size and key length
 op encOH : Nat Nat -> Nat .
-eq nbytes(efile(id,n,j,k))  = n + encOH(n,k) .
-eq nbytes(hash(file(id,n),k)) = k .
-eq nbytes(hash(bytes,k)) = k [owise].
+eq getSize(efile(id,n,j,k))  = n + encOH(n,k) .
+eq getSize(hash(file(id,n),k)) = k .
+eq getSize(hash(bytes,k)) = k [owise].
 
 ****  efile fragment constructor
 ***(  
@@ -438,13 +432,13 @@ op efrag : ByteSeq Nat Nat Nat -> ByteSeq [ctor] .
 --- overhead of file metadata in efrag --- TBD
 op efragOH : ByteSeq -> Nat .  
 eq efragOH(bytes) = 0 [owise] .
-eq nbytes(efrag(bytes,last,ix,l)) = l + efragOH(bytes) .
+eq getSize(efrag(bytes,last,ix,l)) = l + efragOH(bytes) .
 
 *********  image sorts functions ********************
 **** image(j,n,k)  image j with cap k size n
 
 op image : Nat Nat Nat -> ByteSeq .
-eq nbytes(image(j,n,k)) = n .
+eq getSize(image(j,n,k)) = n .
 
 ***(
 *******     image  efrag  rand density
@@ -454,7 +448,7 @@ op encode : ByteSeq ByteSeq Nat Nat -> ByteSeq .
 op decode : ByteSeq Nat Nat -> ByteSeq .
 eq decode(encode(image,efrag, r,d),r,d) = efrag .
 
-eq nbytes(encode(image(j,k,n),
+eq getSize(encode(image(j,k,n),
          efrag(efile(id,n1,j,k),n0,ix,l),r,d))
      =  n + bloat(k,n,l) .
 )
@@ -477,7 +471,7 @@ op isWeird : ByteSeq -> Bool .
 eq isWeird(encode(img:ByteSeq, noBytes, bpf, nf, d1)) = false .
 eq isWeird(encodedImg:ByteSeq) = true [owise] .
 
-eq nbytes(encode(image(j,n,k),
+eq getSize(encode(image(j,n,k),
          efrag(efile,n0,ix,l),bpf,nf,d1))
      =  n + bloat(n,k,l) .
 
