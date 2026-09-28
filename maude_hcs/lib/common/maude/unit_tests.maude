@@ -15,7 +15,7 @@ rew getByteSeqFromChunk(makeByteSeqChunk(TEST-BYTESEQ, 100, 0))
 .
 
 rew getSize(makeByteSeqChunk(TEST-BYTESEQ, 100, 0)) == 100 .
-rew getSize(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")) == 3000 .
+rew getSize(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "File2")) == 3000 .
 rew makeByteSeqChunk(makeByteSeqChunk(TEST-BYTESEQ, 1000, 7), 500, 0)
   == makeByteSeqChunk(TEST-BYTESEQ, 500, 7)
 .
@@ -23,55 +23,69 @@ rew getExpectedSize(makeByteSeqChunk(makeByteSeq(4000, "testFile"), 1000, 7))
   == 4000
 .
 
-rew $encode({(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
+rew $encode({makeByteSeq(1000, "File1"),
+              makeByteSeq(2000, "File2")},
+            0)
+  == {makeByteSeq(1000, "File1"),
+      makeByteSeq(2000, "File2")}
+.
+rew $encode({(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "File2")),
               nilBS},
             4000)
-  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
+  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "File2")),
       nilBS}
 .
 
 rew $encode({nilBS,
-              (makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2"))},
+              (makeByteSeq(1000, "File1") :: makeByteSeq(2000, "File2"))},
             4000)
-  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2")),
+  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "File2")),
       nilBS}
 .
 rew $encode({makeByteSeq(1000, "File1"),
-               (makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3"))},
+               (makeByteSeq(2000, "File2") :: makeByteSeq(3000, "File3"))},
             5000)
-  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3")),
+  == {(makeByteSeq(1000, "File1") :: makeByteSeq(2000, "File2") :: makeByteSeq(3000, "File3")),
       nilBS}
 .
 rew $encode({makeByteSeq(1000, "File1"),
-               (makeByteSeq(2000, "ccFile2") :: makeByteSeq(3000, "ccFile3"))},
+               (makeByteSeq(2000, "File2") :: makeByteSeq(3000, "File3"))},
             4000)
   == {(makeByteSeq(1000, "File1")
-        :: makeByteSeq(2000, "ccFile2")
-        :: makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 2000, 0)),
-      makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 1000, 1)}
+        :: makeByteSeq(2000, "File2")
+        :: makeByteSeqChunk(makeByteSeq(3000, "File3"), 2000, 0)),
+      makeByteSeqChunk(makeByteSeq(3000, "File3"), 1000, 1)}
+.
+rew $encode({makeByteSeq(1000, "File1"),
+               (makeByteSeq(2000, "File2") :: makeByteSeq(3000, "File3"))},
+            1500)
+  == {(makeByteSeq(1000, "File1")
+        :: makeByteSeqChunk(makeByteSeq(2000, "File2"), 1500, 0)),
+      (makeByteSeqChunk(makeByteSeq(2000, "File2"), 500, 1)
+        :: makeByteSeq(3000, "File3"))}
 .
 rew $encode({nilBS,
-              makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 2000, 1)},
+              makeByteSeqChunk(makeByteSeq(3000, "File1"), 2000, 1)},
             1000)
-  == {makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 1000, 1),
-      makeByteSeqChunk(makeByteSeq(3000, "ccFile1"), 1000, 2)}
+  == {makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1),
+      makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2)}
 . 
 rew encode(makeByteSeq(1000, "File1")
-            :: makeByteSeq(2000, "ccFile2")
-            :: makeByteSeq(3000, "ccFile3"),
+            :: makeByteSeq(2000, "File2")
+            :: makeByteSeq(3000, "File3"),
             4000)
   == {(makeByteSeq(1000, "File1")
-        :: makeByteSeq(2000, "ccFile2")
-        :: makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 1000, 0)),
-      makeByteSeqChunk(makeByteSeq(3000, "ccFile3"), 2000, 1)}
+        :: makeByteSeq(2000, "File2")
+        :: makeByteSeqChunk(makeByteSeq(3000, "File3"), 1000, 0)),
+      makeByteSeqChunk(makeByteSeq(3000, "File3"), 2000, 1)}
 .
 rew encode(makeByteSeq(1000, "File1")
-            :: makeByteSeq(2000, "ccFile2")
-            :: makeByteSeq(3000, "ccFile3"),
+            :: makeByteSeq(2000, "File2")
+            :: makeByteSeq(3000, "File3"),
             9000)
   == {(makeByteSeq(1000, "File1")
-        :: makeByteSeq(2000, "ccFile2")
-        :: makeByteSeq(3000, "ccFile3")),
+        :: makeByteSeq(2000, "File2")
+        :: makeByteSeq(3000, "File3")),
       nilBS}
 .
 rew $combineChunks(makeByteSeq(3000, "file"), nilBS)
