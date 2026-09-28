@@ -139,8 +139,7 @@ mod CONTENT-MANAGER-SIMPLE-BI is
   rCtr(j1)
   < cmAddr : CMSimpleBi | cmAttrs1  >
   smsgs
-   if attrs0, w4c: (to tunnelAddr from cmAddr : 
-                    SkyhookPostCmd(bytes)),
+   if attrs0, w4c: (to tunnelAddr from cmAddr : SkyhookPostCmd(bytes)),
      replyTo: (to cmAddr from umAddr : actionQ(ract))       := cmAttrs
   /\ msg := (to umAddr from cmAddr : actionR("ok"))
   /\ cmAttrs1 := attrs0, w4c: null, replyTo: null
@@ -150,8 +149,7 @@ mod CONTENT-MANAGER-SIMPLE-BI is
 
   crl [rbc-rcv-fetch-ack] :
   rCtr(j)
-  {T,(to cmAddr from tunnelAddr :
-       SkyhookFetchAck(bytes) )}
+  {T,(to cmAddr from tunnelAddr : SkyhookFetchAck(bytes))}
   < cmAddr : CMSimpleBi | cmAttrs  >
   =>
   rCtr(j1)
@@ -174,14 +172,14 @@ mod CONTENT-MANAGER-SIMPLE-BI is
 
   ceq rbrcvActionQ(attrs, "post", msg0) = {attrs2,msg}
   if (to cmAddr from umAddr : actionQ(ract)) := msg0
-  /\ attrs0, (w4c: null), (replyTo: null),
-     (pendingFiles: (bytes :: byteseql ))
+  /\ attrs0, (w4c: null), (replyTo: null), pendingFiles: byteseql
     := attrs
   /\ attrs1, (tunnelAddress: tunnelAddr) := attrs
-  /\ msg := (to tunnelAddr from cmAddr : 
-     SkyhookPostCmd(bytes))
-  /\ attrs2 := attrs0, (w4c: msg), (replyTo: msg0),
-               (pendingFiles: byteseql)
+  --- Assume that the S3 object has very large capacity (can store any IRC msg)
+  --- so can just pack all the byte seqs without calling encode, which is meant
+  --- for splitting data that may not fit.
+  /\ msg := (to tunnelAddr from cmAddr : SkyhookPostCmd(pack(byteseql)))
+  /\ attrs2 := attrs0, (w4c: msg), (replyTo: msg0), pendingFiles: nilBS
   .
 
   ceq rbrcvActionQ(attrs, "fetch", msg0) = {attrs2,msg}
@@ -215,10 +213,7 @@ mod CONTENT-MANAGER-SIMPLE-BI is
        := attrs
   /\ attrs1, appAddress: appAddr := attrs
   /\ msg := (to umAddr from cmAddr : actionR("ok"))
-  /\ msgs := (if getSize(bytes) > 0
-             then (to appAddr from cmAddr : bytes)
-             else null
-             fi)
+  /\ msgs := unpackToMsgs(bytes, appAddr, cmAddr)
   /\ cmAttrs1 := attrs0, w4c: null, replyTo: null
   .       
 

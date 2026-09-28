@@ -94,6 +94,32 @@ fmod GENERAL_BYTESEQ is
   eq unpack(data:ByteSeq) = data:ByteSeq [owise] .
   eq unpack(noBytes) = nilBS .
 
+  --- Unpack a ByteSeq that may have been packed directly to messages.
+  ---               Data    To      From
+  op unpackToMsgs : ByteSeq Address Address -> Config .
+  --- Keep this first, otherwise other eqs will match on empty byteSeqs.
+  eq unpackToMsgs(noBytes, to:Address, from:Address) = null .
+  eq unpackToMsgs(pack(data:ByteSeqL),
+                  to:Address,
+                  from:Address)
+    = unpackToMsgs(data:ByteSeqL, to:Address, from:Address)
+  .
+  eq unpackToMsgs(data:ByteSeq, to:Address, from:Address)
+    = (to to:Address from from:Address : data:ByteSeq)
+  .
+
+  --- Unpack a ByteSeq list directly to messages.
+  ---               Data    To      From
+  op unpackToMsgs : ByteSeqL  Address Address -> Config .
+  --- Keep this first, otherwise other eqs will match on empty byteSeqs.
+  eq unpackToMsgs(nilBS, to:Address, from:Address) = null .
+  eq unpackToMsgs((first:ByteSeq :: rest:ByteSeqL),
+                  to:Address,
+                  from:Address)
+    = (to to:Address from from:Address : first:ByteSeq)
+      unpackToMsgs(rest:ByteSeqL, to:Address, from:Address)
+  .
+
   op getSize : ByteSeq -> Nat .
   op getSize : ByteSeqL -> Nat .
   eq getSize(noBytes) = 0 .
