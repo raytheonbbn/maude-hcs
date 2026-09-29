@@ -1,0 +1,114 @@
+sload rb-cm-bidir-mas
+
+mod RB-BYTE-STREAM-TEST is
+  inc CONTENT-MANAGER-BIDIR .
+  inc ENC-DEC .
+
+  ops cm ed mc app um : -> Address .
+  ops firstImage secondImage thirdImage : -> TwoByteSeqL .
+  ops firstReceive secondReceive : -> TwoByteSeqL .
+  ops sender receiver : -> AttributeSet .
+  op download : -> Map{String,JV} .
+  eq download = "type" |-> js("download") .
+  eq sender = edAddress: ed, sndHashTagAtts: initHashtagAttrs("snd"),
+              pendingFiles: (file(1,100) :: file(2,1100) :: file(3,100)),
+              currentFrags: nilBS, weirdFileRcvTimes: (0.0 :: 1.0 :: 9.0) .
+  eq receiver = edAddress: ed, mcAddress: mc, sndrcvAddress: app,
+                rcvHashTagAtts: initHashtagAttrs("snd") .
+
+  --- The first toot holds two 500-byte images, ending partway through file 2.
+  eq firstImage = encode(file(1,100) :: file(2,1100) :: file(3,100), 500) .
+  eq secondImage = encode(getSecond(firstImage), 500) .
+  eq thirdImage = encode(getSecond(secondImage), 500) .
+  eq firstReceive = $decode(getFirst(firstImage) :: getFirst(secondImage), nilBS, nilBS) .
+  eq secondReceive = $decode(getSecond(firstReceive) :: getFirst(thirdImage), nilBS, nilBS) .
+endm
+
+set print attribute off .
+
+--- Respect readiness per message, while appending after the previous tail.
+red prepareBytes(sender, 6.0) ==
+  (edAddress: ed, sndHashTagAtts: initHashtagAttrs("snd"),
+   pendingFiles: file(3,100), currentFrags: (file(1,100) :: file(2,1100)),
+   weirdFileRcvTimes: 9.0) .
+red prepareBytes((pendingFiles: file(3,100),
+                  currentFrags: makeByteSeqChunk(file(2,1100),200,2),
+                  weirdFileRcvTimes: 9.0), 14.0) ==
+  (pendingFiles: nilBS,
+   currentFrags: (makeByteSeqChunk(file(2,1100),200,2) :: file(3,100)),
+   weirdFileRcvTimes: nilFL) .
+
+--- Fill available capacity and preserve the exact unsent suffix.
+red crcvCapR((currentFrags: (file(1,100) :: file(2,1100) :: file(3,100)),
+              w4c: (to ed from cm : capQ(1300))),
+             (to cm from ed : capR(500))) ==
+  {currentFrags: getSecond(firstImage),
+   w4c: (to ed from cm : encQ(pack(getFirst(firstImage)))),
+   (to ed from cm : encQ(pack(getFirst(firstImage))))} .
+red getSize(getFirst(firstImage)) == 500 .
+red getSize(getFirst(secondImage)) == 500 .
+red getSize(getFirst(thirdImage)) == 300 .
+red getSecond(thirdImage) == nilBS .
+red encode(file(1,100), 0) == {nilBS, file(1,100)} .
+red encode(file(1,100), 100) == {file(1,100), nilBS} .
+
+--- One complete message now; two more when the following toot arrives.
+red firstReceive == {file(1,100), makeByteSeqChunk(file(2,1100),900,1)} .
+red secondReceive == {file(2,1100) :: file(3,100), nilBS} .
+red $decode(getSecond(firstReceive), nilBS, nilBS) ==
+  {nilBS, getSecond(firstReceive)} .
+
+--- Encoding an image preserves its physical size and unwraps its byte bag.
+red getSize(encode(image(7,2000,500), pack(getFirst(firstImage)),1,1,1/6)) == 2000 .
+red imageId(encode(image(7,2000,500), pack(getFirst(firstImage)),1,1,1/6)) == 7 .
+red makeMediaFilename(encode(image(7,2000,500), pack(getFirst(firstImage)),1,1,1/6)) ==
+  "eimage:I-7-2000-500" .
+red extractFragl((density: 1/6, bpf: 1, nfreq: 1),
+      encode(image(7,2000,500), pack(getFirst(firstImage)),1,1,1/6)
+      :: image(8,2000,500)
+      :: encode(image(9,2000,500), pack(getFirst(secondImage)),1,1,1/6), nilBS) ==
+  (getFirst(firstImage) :: getFirst(secondImage)) .
+
+--- Consume a toot's tag even if it ends with an incomplete message.
+red srcvDecR((receiver, currentFragsR: nilBS,
+              w4c: (to ed from cm : decQ(image(7,2000,500))),
+              replyTo: (to cm from um : actionQ(download))),
+             (to cm from ed : decR(getFirst(firstImage) :: getFirst(secondImage)))) ==
+  {setRcvHashTagAttrs(receiver, nextWHashtag(initHashtagAttrs("snd"))),
+   currentFragsR: getSecond(firstReceive),
+   w4c: (to mc from cm : fetchQ(hashTag("sndW1"))),
+   replyTo: (to cm from um : actionQ(download)),
+   (to mc from cm : translateFetchQ(fetchQ(hashTag("sndW1"))))
+   (to app from cm : file(1,100))} .
+red srcvDecR((receiver, currentFragsR: getSecond(firstReceive),
+              w4c: (to ed from cm : decQ(image(7,2000,500))),
+              replyTo: (to cm from um : actionQ(download))),
+             (to cm from ed : decR(getFirst(thirdImage)))) ==
+  {setRcvHashTagAttrs(receiver, nextWHashtag(initHashtagAttrs("snd"))),
+   currentFragsR: nilBS,
+   w4c: (to mc from cm : fetchQ(hashTag("sndW1"))),
+   replyTo: (to cm from um : actionQ(download)),
+   (to mc from cm : translateFetchQ(fetchQ(hashTag("sndW1"))))
+   (to app from cm : file(2,1100)) (to app from cm : file(3,100))} .
+
+--- Empty and benign receives neither lose the tail nor advance the tag.
+red srcvDecR((receiver, currentFragsR: getSecond(firstReceive),
+              w4c: (to ed from cm : decQ(image(7,2000,500))),
+              replyTo: (to cm from um : actionQ(download))),
+             (to cm from ed : decR(nilBS))) ==
+  {receiver, currentFragsR: getSecond(firstReceive), w4c: null, replyTo: null,
+   (to um from cm : actionR("ok"))} .
+red srcvFetchR((receiver, currentFragsR: getSecond(firstReceive),
+                w4c: (to mc from cm : fetchQ(hashTag("sndW0"))),
+                replyTo: (to cm from um : actionQ(download))),
+               (to cm from mc : fetchR(nilBS,hashTag("sndW0")))) ==
+  {receiver, currentFragsR: getSecond(firstReceive), w4c: null, replyTo: null,
+   (to um from cm : actionR("ok"))} .
+
+--- A completely drained send queue still posts under the current weird tag.
+red getNextHashtag((sndHashTagAtts: initHashtagAttrs("snd"),
+                    currentFrags: nilBS, pendingFiles: nilBS,
+                    postingWeird: true, cachedTag: hashTag("old"))) == hashTag("sndW0") .
+red moveToNextFrag((sndHashTagAtts: initHashtagAttrs("snd"), postingWeird: true)) ==
+  (sndHashTagAtts: nextWHashtag(initHashtagAttrs("snd")), postingWeird: false) .
+q
