@@ -29,9 +29,10 @@ def concat_dumps(dump_dir: Path):
 
     with open(dump_dir / "all_dumps", "w") as f:
         for path in paths:
-            dump_str = path.read_text().strip()
-            f.write(dump_str)
-            f.write("\n")
+            stripped = path.read_text().strip()
+            if stripped != "":
+                f.write(stripped)
+                f.write("\n")
         f.flush()
 
     for path in paths:
@@ -91,7 +92,7 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
         file=str((GLOBALS.TOP_LEVEL_DIR / arg.get("file", "maude_hcs/lib/smc/smc_cp3.maude")).resolve()),
         nsims=arg.get("nsims", "1-1"),
         seed=arg.get("seed", None),
-        jobs=arg.get("jobs", 1),
+        jobs=arg.get("jobs", 0),
         D=arg.get("D", None),
         assign=arg.get("assign", "pmaude"),
         alpha=arg.get("alpha", 0.05),
