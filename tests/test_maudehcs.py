@@ -37,29 +37,6 @@ class ChildProcessErrorWrapper(Exception):
     def __str__(self):
         return f"\n\n--- Child Process Traceback ---\n{self.tb_string}{type(self.exception).__name__}: {self.exception}"
 
-def worker_target(queue):
-    try:
-        # Simulate a child process failure
-        result = 1 / 0
-    except Exception as e:
-        # 1. Capture the traceback as a string (which IS picklable)
-        tb_string = traceback.format_exc()
-        # 2. Put both the exception and the stringified traceback in the queue
-        queue.put((e, tb_string))
-
-if __name__ == "__main__":
-    queue = multiprocessing.Queue()
-    process = multiprocessing.Process(target=worker_target, args=(queue,))
-    
-    process.start()
-    process.join()
-
-    if not queue.empty():
-        exc, tb_string = queue.get()
-        # 3. Re-raise by chaining the original error inside our wrapper
-        raise ChildProcessErrorWrapper(exc, tb_string) from exc
-
-
 def euclid_feat_distance(feat0: dict, feat1: dict) -> float:
     """Provides a metric for the distance between two feature distributions
     feat0 and feat1 should have keys "mean", "std", and "radius"
@@ -112,7 +89,7 @@ def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
 
     multiprocessing.set_start_method("spawn", force=True)
     receiver, sender = Pipe(duplex=False)
-    
+
     with receiver, sender:
 
         run_proc = Process(
