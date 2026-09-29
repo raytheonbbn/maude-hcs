@@ -98,11 +98,13 @@ def proc_target(run: Callable, sender: Connection, test_cfg: TestConfig, build_d
         time.sleep(0.1) # Give maude a tiny bit of time to finish all writes to "stdout"
 
         sender.send(result)
+        sender.close()
 
     except Exception as e:
 
         # Send back an exception wrapper that still includes the traceback string
         sender.send(ChildProcessErrorWrapper(e, traceback.format_exc()))
+        sender.close()
 
 def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
     """Run this TestConfig with its designated runner, returning the results for comparison.
@@ -110,20 +112,25 @@ def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
 
     multiprocessing.set_start_method("spawn", force=True)
     receiver, sender = Pipe(duplex=False)
-
-    run_proc = Process(
-        target=proc_target,
-        args=(test_cfg.runner.to_func(), sender, test_cfg, build_dir, run_cfg)
-    )
-
-    run_proc.start()
-    result = receiver.recv() # CANNOT be delayed until after the join, or send will block
-    run_proc.join()
-
-    if isinstance(result, Exception):
-        raise result
     
-    return result
+    with receiver, sender:
+
+        run_proc = Process(
+            target=proc_target,
+            args=(test_cfg.runner.to_func(), sender, test_cfg, build_dir, run_cfg)
+        )
+
+        run_proc.start()
+        result = receiver.recv() # CANNOT be delayed until after the join, or send will block
+        run_proc.join()
+
+        if run_proc.exitcode != 0:
+            raise Exception(f"child process finished with nonzero exit code! sent: {result}")
+
+        if isinstance(result, Exception):
+            raise result
+        
+        return result
 
 def get_checker(cfg: TestConfig) -> Callable[[Path, Path], None]:
     match cfg.runner:
