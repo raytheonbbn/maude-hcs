@@ -38,29 +38,35 @@ def concat_dumps(dump_dir: Path):
 
 def format_cmd(nspace_args: Namespace, test_arg: dict):
 
+    def get_opt(s: str, newline=True) -> str:
+        return f"    --{s} {vars(nspace_args)[s]}"
+
+    def get_opt_if_present(s: str) -> str:
+        return f"    --{s} {vars(nspace_args)[s]} \\\n" if s in test_arg else ""
+
     return "".join([
         f"maude-hcs scheck \\\n",
-        (f"    --file {nspace_args.file} \\\n" if "file" in test_arg else ""),
-        (f"    --nsims {nspace_args.nsims} \\\n" if "nsims" in test_arg else ""),
-        (f"    --seed {nspace_args.seed} \\\n" if "seed" in test_arg else ""),
-        (f"    --jobs {nspace_args.jobs} \\\n" if "jobs" in test_arg else ""),
-        (f"    --D {nspace_args.D} \\\n" if "D" in test_arg else ""),
-        (f"    --assign {nspace_args.assign} \\\n" if "assign" in test_arg else ""),
-        (f"    --alpha {nspace_args.alpha} \\\n" if "alpha" in test_arg else ""),
-        (f"    --delta {nspace_args.delta} \\\n" if "delta" in test_arg else ""),
-        (f"    --block {nspace_args.block} \\\n" if "block" in test_arg else ""),
-        (f"    --distribute {nspace_args.distribute} \\\n" if "distribute" in test_arg else ""),
-        (f"    --advise {nspace_args.advise} \\\n" if "advise" in test_arg else ""),
-        (f"    --module {nspace_args.module} \\\n" if "module" in test_arg else ""),
-        (f"    --metamodule {nspace_args.metamodule} \\\n" if "metamodule" in test_arg else ""),
-        (f"    --strategy {nspace_args.strategy} \\\n" if "strategy" in test_arg else ""),
-        (f"    --opaque {nspace_args.opaque} \\\n" if "opaque" in test_arg else ""),
-        (f"    --full_matchrew {nspace_args.full_matchrew} \\\n" if "full_matchrew" in test_arg else ""),
-        f"    --dump {nspace_args.dump} \\\n",
-        f"    --test {nspace_args.test} \\\n",
-        f"    --query {nspace_args.query} \\\n",
-        f"    --initial {nspace_args.initial} \\\n",
-        f"    --format {nspace_args.format} ",
+        get_opt_if_present("file"),
+        get_opt_if_present("nsims"),
+        get_opt_if_present("seed"),
+        get_opt_if_present("jobs"),
+        get_opt_if_present("D"),
+        get_opt_if_present("assign"),
+        get_opt_if_present("alpha"),
+        get_opt_if_present("delta"),
+        get_opt_if_present("block"),
+        get_opt_if_present("distribute"),
+        get_opt_if_present("advise"),
+        get_opt_if_present("module"),
+        get_opt_if_present("metamodule"),
+        get_opt_if_present("strategy"),
+        get_opt_if_present("opaque"),
+        get_opt_if_present("full_matchrew"),
+        get_opt("dump"),
+        get_opt("test"),
+        get_opt("query"),
+        get_opt("initial"),
+        get_opt("format", newline=False),
     ])
 
 def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", logger: logging.Logger) -> dict:
