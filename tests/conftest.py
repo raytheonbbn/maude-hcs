@@ -30,6 +30,8 @@ def pytest_addoption(parser):
     parser.addoption("--tempdir", help="manually choose a directory to store built environments. Implies `--persist`")
     parser.addoption("--save", help="save test results under specified directory (different from snapshot!)")
 
+    # parser.addoption("--build-override", help="override build configs for all selected tests using given json-parsable string")
+    parser.addoption("--override-run-time", help="override run time for all selected tests", type=int)
 
     # pytest by default has many useful flags, especially -k for selecting tests. See also --log-level, --log-cli-level, -s, 
     # pytest-regressions also adds the flags --force-regen and --regen-all
@@ -59,6 +61,8 @@ def pytest_configure(config):
         build_only=config.getoption("--build"), # type: ignore
         persist=persist,
         save=config.getoption("--save"),
+
+        override_run_time=config.getoption("--override-run-time"),
     )
 
     if config.getoption("--copy"):
