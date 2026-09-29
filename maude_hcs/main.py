@@ -277,6 +277,7 @@ def run_scheck(args: argparse.Namespace):
     has_umaudemc = importlib.util.find_spec('umaudemc')
     if not has_umaudemc:
         logger.error('The umaudemc Python package is not available. It can be installed with "pip install umaudemc".')
+    maude.init()
     maude.load(args.test)
     scheck(args)
 
