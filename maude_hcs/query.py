@@ -21,10 +21,17 @@ class Query:
 class IntegrityQuery(Query):
     client: str
 
+    def to_name(self):
+        # Global and per-client queries used to overwrite each other in results.
+        return f"{super().to_name()}:client={self.client}"
+
 @dataclass_json
 @dataclass(frozen=True)
 class ConfidentialityQuery(Query):
     vantage: str
+
+    def to_name(self):
+        return f"{super().to_name()}:vantage={self.vantage}"
 
 def parse_query(q: str) -> Query:
     """Parses a Query from a line of quatex produced as in generate_quatex.py, using the comment after the line"""
@@ -49,5 +56,5 @@ def parse_quatex(quatex: str) -> list[Query]:
     return [
         parse_query(line.strip())
         for line in quatex.splitlines()
-        if line.strip() is not None
+        if line.strip()
     ]
