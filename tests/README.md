@@ -101,8 +101,8 @@ pytest -n auto
 
 `--copy`: copy the path to the temporary build directory to system clipboard, for faster debugging
 
-`--tempdir`: use the specified directory as the root of the build directories, rather than using tempfile
+`--temp-dir`: use the specified directory as the root of the build directories, rather than using tempfile
 
-`--save`: given a directory path, store the results of each test under that directory (without necessarily snapshotting anything!)
+`--results-dir`: given a directory path, store the results of each test under that directory (without necessarily snapshotting anything!)
 
 `--override-run-time`: provide a new run-time value to override whatever is present in the build configs for the selected tests
