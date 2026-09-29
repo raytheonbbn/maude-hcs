@@ -31,6 +31,7 @@ def concat_dumps(dump_dir: Path):
         for path in paths:
             dump_str = path.read_text().strip()
             f.write(dump_str)
+            f.write("\n")
         f.flush()
 
     for path in paths:
