@@ -67,7 +67,7 @@ class Config:
     window_size: int = 900
     sliding_window_size: int = 60
     bin_size: int = 10
-    hcs_delay: int = 0
+    delay: int = 0
     max_win: int = 12
 
     perf_only: bool = False
@@ -94,7 +94,8 @@ class Lines:
 
 def int_to_float_str(i: int) -> str:
    return f"{i:.1f}"
-   
+
+# return real start, real end, then what? just start ad end i guess
 def get_prefix_start_end(cfg: Config, win: int, cum: bool) -> tuple[str, int, int]:
     if cum:
         prefix = "cumulative"
@@ -104,70 +105,70 @@ def get_prefix_start_end(cfg: Config, win: int, cum: bool) -> tuple[str, int, in
         prefix = "independent"
         start = win * cfg.window_size
         end = (win+1) * cfg.window_size
-    return (prefix, start + cfg.hcs_delay, end + cfg.hcs_delay)
+    return (prefix, start, end)
 
 def mk_latency_query_chunk(cfg: Config, win: int, cum: bool) -> Lines:
     if cfg.conf_only:
         return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
-    start, end = int_to_float_str(i_start), int_to_float_str(i_end)
+    real_start, real_end = int_to_float_str(i_start + cfg.delay), int_to_float_str(i_end + cfg.delay)
     if win == 0 and not cum:
         # this indep is a duplicate of cum 
         logger.info("skipping independent win %s: %s", win, prefix)
         return Lines()
     return Lines(
-        f'eval E[s.rval("getMinLatency(getMonitor(C), {start}, {end})")]; // {prefix} latency0 {i_start} {i_end}',
-        f'eval E[s.rval("getPercentileLatency(getMonitor(C), {start}, {end}, 25)")]; // {prefix} latency25 {i_start} {i_end}',
-        f'eval E[s.rval("getPercentileLatency(getMonitor(C), {start}, {end}, 50)")]; // {prefix} latency50 {i_start} {i_end}',
-        f'eval E[s.rval("getPercentileLatency(getMonitor(C), {start}, {end}, 75)")]; // {prefix} latency75 {i_start} {i_end}',
-        f'eval E[s.rval("getMaxLatency(getMonitor(C), {start}, {end})")]; // {prefix} latency100 {i_start} {i_end}',
-        f'eval E[s.rval("getGoodput(getMonitor(C), {start}, {end})")]; // {prefix} goodput {i_start} {i_end}',
+        f'eval E[s.rval("getMinLatency(getMonitor(C), {real_start}, {real_end})")]; // {prefix} latency0 {i_start} {i_end}',
+        f'eval E[s.rval("getPercentileLatency(getMonitor(C), {real_start}, {real_end}, 25)")]; // {prefix} latency25 {i_start} {i_end}',
+        f'eval E[s.rval("getPercentileLatency(getMonitor(C), {real_start}, {real_end}, 50)")]; // {prefix} latency50 {i_start} {i_end}',
+        f'eval E[s.rval("getPercentileLatency(getMonitor(C), {real_start}, {real_end}, 75)")]; // {prefix} latency75 {i_start} {i_end}',
+        f'eval E[s.rval("getMaxLatency(getMonitor(C), {real_start}, {real_end})")]; // {prefix} latency100 {i_start} {i_end}',
+        f'eval E[s.rval("getGoodput(getMonitor(C), {real_start}, {real_end})")]; // {prefix} goodput {i_start} {i_end}',
     )
 
 def mk_global_integrity_chunk(cfg: Config, win: int, cum: bool) -> Lines:
     if cfg.conf_only:
         return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
-    start, end = int_to_float_str(i_start), int_to_float_str(i_end)
+    real_start, real_end = int_to_float_str(i_start + cfg.delay), int_to_float_str(i_end + cfg.delay)
     if win == 0 and not cum:
         # this indep is a duplicate of cum 
         logger.info("skipping independent win %s: %s", win, prefix)
         return Lines()
     return Lines(
-        f'eval E[s.rval("getSystemIntegrity(getMonitor(C), getIrcSrv(C), {start}, {end})")]; // {prefix} integrity {i_start} {i_end}',
+        f'eval E[s.rval("getSystemIntegrity(getMonitor(C), getIrcSrv(C), {real_start}, {real_end})")]; // {prefix} integrity {i_start} {i_end}',
     )
    
 def mk_client_integrity_chunk(cfg: Config, win: int, cum: bool, client: str) -> Lines:
     if cfg.conf_only:
         return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
-    start, end = int_to_float_str(i_start), int_to_float_str(i_end)
+    real_start, real_end = int_to_float_str(i_start + cfg.delay), int_to_float_str(i_end + cfg.delay)
     if win == 0 and not cum:
         # this indep is a duplicate of cum 
         logger.info("skipping independent win %s: %s", win, prefix)
         return Lines()
     return Lines(
-        f'eval E[s.rval("getClientIntegrity(getMonitor(C), getIrcSrv(C), {client}, {start}, {end})")]; // {prefix} integrity {i_start} {i_end} {client}',
+        f'eval E[s.rval("getClientIntegrity(getMonitor(C), getIrcSrv(C), {client}, {real_start}, {real_end})")]; // {prefix} integrity {i_start} {i_end} {client}',
     )
 
 def mk_availability_chunk(cfg: Config, win: int, cum: bool) -> Lines:
     if cfg.conf_only:
         return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
-    start, end = int_to_float_str(i_start), int_to_float_str(i_end)
+    real_start, real_end = int_to_float_str(i_start + cfg.delay), int_to_float_str(i_end + cfg.delay)
     if win == 0 and not cum:
         # this indep is a duplicate of cum 
         logger.info("skipping independent win %s: %s", win, prefix)
         return Lines()
     return Lines(
-        f'eval E[s.rval("getMTBF(getMonitor(C), 16.0, {start}, {end})")]; // {prefix} availability {i_start} {i_end}',
+        f'eval E[s.rval("getMTBF(getMonitor(C), 16.0, {real_start}, {real_end})")]; // {prefix} availability {i_start} {i_end}',
     )
 
 def mk_vantage_point_chunk(cfg: Config, win: int, cum: bool, vantage: str, feat: str, tag_name: str) -> Lines:
     if cfg.perf_only:
        return Lines()
     prefix, i_start, i_end = get_prefix_start_end(cfg, win, cum)
-    start, end = int_to_float_str(i_start), int_to_float_str(i_end)
+    real_start, real_end = int_to_float_str(i_start + cfg.delay), int_to_float_str(i_end + cfg.delay)
     slide_win = f"{cfg.sliding_window_size:.1f}"
     bin_size = f"{cfg.bin_size:.1f}"
     tag = f'// {prefix} {tag_name} {i_start} {i_end} {vantage}'
@@ -176,7 +177,7 @@ def mk_vantage_point_chunk(cfg: Config, win: int, cum: bool, vantage: str, feat:
        logger.info("skipping independent win %s: %s", win, tag)
        return Lines()
     return Lines(
-        f'eval E[s.rval("getCUSUMZt(getAdversary(C), {vantage}, {feat}, {start}, {end}, {slide_win}, {bin_size})")]; {tag}'
+        f'eval E[s.rval("getCUSUMZt(getAdversary(C), {vantage}, {feat}, {real_start}, {real_end}, {slide_win}, {bin_size})")]; {tag}'
     )
 
 def all_queries(cfg: Config) -> Lines:
@@ -200,5 +201,5 @@ def write_all_queries_to_file(cfg: Config, path: Path):
 
 if __name__ == "__main__":
     output_file = sys.argv[1]
-    cfg = Config(FEATS, VANTAGES, CLIENTS, hcs_delay=10, max_win=4)
+    cfg = Config(FEATS, VANTAGES, CLIENTS, delay=10, max_win=4)
     write_all_queries_to_file(cfg, Path(output_file))
