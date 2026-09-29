@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING
 from pathlib import Path
 from argparse import Namespace
 
-from maude_hcs.parse_dump import parse_dump
+from maude_hcs.parse_dump import parse_dump, parse_dump_rows
+from ..utils.provenance import provenance
 from maude_hcs.query import parse_quatex, Query, IntegrityQuery, ConfidentialityQuery
 from maude_hcs.result import SimResult, FeatResult
 
@@ -24,17 +25,22 @@ def concat_dumps(dump_dir: Path):
     """No guaranteed ordering BETWEEN LINES of resulting dump file.
     Individual features on a single line are still ordered left-to-right."""
 
-    filenames = os.listdir(dump_dir)
-    paths = map(lambda x: dump_dir / x, filenames)
-
-    with open(dump_dir / "all_dumps", "w") as f:
-        for path in paths:
-            dump_str = path.read_text().strip()
-            f.write(dump_str)
-        f.flush()
-
+    # Restrict inputs to worker dumps, excluding the aggregate on repeated calls.
+    paths = sorted(path for path in dump_dir.glob("dump*") if path.is_file())
+    if not paths:
+        raise ValueError(f"No worker dumps found in {dump_dir}")
+    rows, run_ids = [], []
     for path in paths:
-        os.remove(path)
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if line.strip():
+                rows.append(line.strip())
+                run_ids.append(f"{path.name}:{number}")
+    if not rows:
+        raise ValueError("Worker dumps contain no samples")
+    (dump_dir / "all_dumps").write_text("\n".join(rows) + "\n")
+    # Preserve source dumps for debugging and stable worker/row identifiers.
+    return run_ids
+
 
 def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", logger: logging.Logger) -> dict:
     # Have to initialize maude even though umaudemc does it again, because we need to pre-load
@@ -42,12 +48,19 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
     maude.init()
 
     arg = test_cfg.arg
+    supported = {"baseline", "file", "nsims", "seed", "jobs", "D", "assign", "alpha", "delta", "block", "distribute", "advise", "module", "metamodule", "strategy", "opaque", "full_matchrew"}
+    if not isinstance(arg, dict) or set(arg) - supported:
+        raise ValueError(f"Unsupported SMC runner arguments: {arg}")
 
     if arg.get("baseline", False):
-        run_file = f"test-baseline.maude"
+        # The generator normally includes the baseline duration in its filename.
+        legacy = build_dir / "test-baseline.maude"
+        run_file = legacy.name if legacy.is_file() else f"test-baseline-{test_cfg.build_cfg.gen_args.baseline_time}.maude"
     else:
         run_file = f"test-run.maude"
 
+    if not (build_dir / run_file).is_file():
+        raise FileNotFoundError(f"Generated SMC input is missing: {build_dir / run_file}")
     dump_dir = build_dir / "dumps"
     os.mkdir(dump_dir)
 
@@ -83,16 +96,22 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
         verbose=False,
     )
 
+    # Validate query identities before paying for simulation, rather than
+    # discovering after a long run that dict(results) would drop observations.
+    queries = parse_quatex((build_dir / "test.quatex").read_text())
+    names = [query.to_name() for query in queries]
+    if not names or len(set(names)) != len(names):
+        raise ValueError("Empty or duplicate query names would lose SMC results")
+
     (out, err) = capture_scheck(args)
     if err.strip(): logger.warning(err)
 
-    concat_dumps(dump_dir)
+    run_ids = concat_dumps(dump_dir)
 
     smc_format_json = json.loads(out)
     smc_format_queries_json: list = smc_format_json["queries"]
     n_sims = smc_format_json["nsims"]
 
-    queries = parse_quatex((build_dir / "test.quatex").read_text())
     n_queries = len(queries)
 
     assert n_queries == len(smc_format_queries_json)
@@ -104,6 +123,7 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
     smc_format_queries_json.sort(key=line_key)
 
     dump_str = (dump_dir / "all_dumps").read_text()
+    sample_rows = parse_dump_rows(dump_str, n_sims=n_sims, n_queries=n_queries)
     query_samples = parse_dump(dump_str, n_sims=n_sims, n_queries=n_queries) # query_samples[i] is all results of query[i] across all sims
     assert len(query_samples) == n_queries
     assert len(query_samples[0]) == n_sims
@@ -123,4 +143,7 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
         dict(results)
     )
 
-    return asdict(sim_result)
+    result = asdict(sim_result)
+    result.update(schema_version=2, provenance=provenance(test_cfg, build_dir, args),
+                  sample_rows=sample_rows, run_ids=run_ids, query_order=names)
+    return result

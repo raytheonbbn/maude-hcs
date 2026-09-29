@@ -14,10 +14,11 @@
 #  Notice: Markings. Any reproduction of this computer software, computer software documentation, or portions thereof must also reproduce the markings contained herein
 
 import json
+import math
 import logging
 import os
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -58,8 +59,11 @@ class RunConfig:
 
     build_only: bool = False
     persist: bool = False
+    timeout: float = 300.0
 
     def __post_init__(self):
+        if not math.isfinite(self.timeout) or self.timeout <= 0:
+            raise ValueError("timeout must be positive")
         assert not (self.regression and self.expected), "cannot select both regression and expected-value tests for isolation"
 
 @dataclass_json
@@ -114,8 +118,14 @@ class Context:
         if path.is_file():
             logger.info(path.read_text())
             tests = json.loads(path.read_text())
+            seen = set()
             for test in tests:
-                assert isinstance(test, dict)
+                unknown = set(test) - {"name", "desc", "expected", "build_cfg", "arg", "comparison"}
+                if unknown:
+                    raise ValueError(f"{path}: unknown test fields: {sorted(unknown)}")
+                if test["name"] in seen:
+                    raise ValueError(f"{path}: duplicate test name: {test['name']}")
+                seen.add(test["name"])
                 test_cfgs.append(TestConfig(
                     ctx=self,
                     name=test["name"],
@@ -123,7 +133,8 @@ class Context:
                     expected=test.get("expected", None),
                     runner=runner,
                     build_cfg=build_cfgs[test["build_cfg"]],
-                    arg=test.get("arg", {})
+                    arg=test.get("arg", {}),
+                    comparison=test.get("comparison"),
                 ))
         return test_cfgs
 
@@ -132,9 +143,16 @@ class Context:
         test_cfgs = []
 
         for root, _, files in os.walk(os.path.join(self.directory, 'build_cfgs')):
-            for file in files:
+            for file in sorted(files):
+                if not file.endswith('.json'):
+                    continue
                 path = Path(root) / file
                 d = json.loads(path.read_text())
+                unknown = set(d["gen_args"]) - {f.name for f in fields(GenArgs)}
+                if unknown:
+                    raise ValueError(f"{path}: unsupported generation arguments: {sorted(unknown)}")
+                if path.stem in build_cfgs:
+                    raise ValueError(f"Duplicate build configuration: {path.stem}")
                 build_cfgs[path.stem] = BuildConfig(
                     path.stem,
                     tuple([tuple(l) for l in d["markov_v1_dirs"]]),
@@ -167,7 +185,8 @@ class TestConfig:
     runner:     TestRunner
     build_cfg:  BuildConfig
     arg:        Any
-    expected:   dict | None = None
+    expected:   Any = None
+    comparison: dict | None = None
 
     # Prevent pytest from collecting this class
     __test__:   bool = False
@@ -194,7 +213,7 @@ class TestManager:
     def _get_contexts(self) -> list[Context]:
         ctxs = []
 
-        for ctx_dir_name in os.listdir(self.contexts_directory):
+        for ctx_dir_name in sorted(os.listdir(self.contexts_directory)):
             ctx_dir = self.contexts_directory / ctx_dir_name
             if os.path.isdir(ctx_dir):
                 if (ctx_dir / "tests").is_dir():

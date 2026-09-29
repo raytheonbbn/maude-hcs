@@ -1,22 +1,20 @@
 import shutil
 import logging
 import pytest
-import maude
 import tempfile
 import pyperclip
-import os
-import multiprocessing
 
 from pathlib import Path
-from pytest_regressions.file_regression import FileRegressionFixture
-from maude_hcs.lib import GLOBALS
 
-from .utils.context import TestManager, Context, TestConfig, TestRunner, RunConfig, BuildConfig, mk_id
+from .utils.context import TestManager, TestRunner, RunConfig, mk_id
 
 logger = logging.getLogger(__name__)
-manager = TestManager()
+# Discover contexts only when the integration harness is collected. Framework
+# unit tests must remain runnable even when a model definition is broken.
+manager = None
 
 def pytest_addoption(parser):
+    parser.addoption("--timeout", type=float, default=300.0, help="maximum seconds per model execution")
     parser.addoption("--pp", action="store_true", help="attempt to pretty-print the return value for each selected test")
     parser.addoption("--build", action="store_true", help="only run build commands, don't test")
     parser.addoption("--persist", action="store_true", help="persist the temporary build directory after tests complete")
@@ -37,8 +35,11 @@ def pytest_configure(config):
     persist = config.getoption("--persist")
 
     if td_opt is not None:
-        temp_dir = Path(td_opt).resolve()
-        os.mkdir(temp_dir)
+        # A distinct worker directory avoids xdist workers racing over the same
+        # user-supplied directory. Never delete an existing user directory.
+        root = Path(td_opt).resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        temp_dir = Path(tempfile.mkdtemp(prefix="pytest-", dir=root))
         persist=True
     else:
         temp_dir = Path(tempfile.mkdtemp()).resolve()
@@ -56,7 +57,8 @@ def pytest_configure(config):
         pp=config.getoption("--pp"), # type: ignore
 
         build_only=config.getoption("--build"), # type: ignore
-        persist=persist
+        persist=persist,
+        timeout=config.getoption("--timeout"),
     )
 
     if config.getoption("--copy"):
@@ -65,20 +67,29 @@ def pytest_configure(config):
     assert "run_cfg" not in dir(config)
     config.run_cfg = run_cfg
 
-    maude.init()
+    config.addinivalue_line("markers", "smoke: fixed-seed quantitative smoke test")
+    config.addinivalue_line("markers", "statistical: distributional regression test")
+    config.addinivalue_line("markers", "correctness: explicit model correctness assertion")
 
 def pytest_collection_modifyitems(session, config, items):
     reg_only = config.run_cfg.regression
     exp_only = config.run_cfg.expected
 
-    def item_filter(item):
-        if reg_only: return item.name == "test_regression"
-        if exp_only: return item.name == "test_expected"
-        return True
+    selected, deselected = [], []
+    for item in items:
+        name = getattr(item, "originalname", item.name.split("[", 1)[0])
+        keep = (not reg_only or name == "test_regressions") and (not exp_only or name == "test_expected")
+        (selected if keep else deselected).append(item)
+    config.hook.pytest_deselected(items=deselected)
+    items[:] = selected
 
-    items[:] = list(filter(item_filter, items))
 
 def pytest_generate_tests(metafunc: pytest.Metafunc):
+    global manager
+    if metafunc.definition.name not in {"test_regressions", "test_expected"}:
+        return
+    if manager is None:
+        manager = TestManager(Path(__file__).parent / "contexts")
     config = metafunc.config
     run_cfg = config.run_cfg # type: ignore
 
@@ -89,13 +100,27 @@ def pytest_generate_tests(metafunc: pytest.Metafunc):
         ))
     
     if metafunc.definition.name == "test_regressions":
-        metafunc.parametrize("test_cfg", filter_runner(manager.regression_test_cfgs()), ids=mk_id)
+        configs = filter_runner(manager.regression_test_cfgs())
+        params = []
+        for cfg in configs:
+            if cfg.runner == TestRunner.SMC:
+                from .utils.comparison import validate_policy
+                validate_policy(cfg.comparison)
+                mark = pytest.mark.smoke if cfg.comparison["mode"] == "smoke" else pytest.mark.statistical
+                params.append(pytest.param(cfg, marks=mark))
+            else:
+                params.append(cfg)
+        metafunc.parametrize("test_cfg", params, ids=mk_id)
 
     if metafunc.definition.name == "test_expected":
-        metafunc.parametrize("test_cfg", filter_runner(manager.expected_test_cfgs()), ids=mk_id)
-
-# def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus, config: pytest.Config):
-#     terminalreporter.write_line("\nbsadlfjhasdifluashdnflkhashdfialushdfalisdufh\n")
+        metafunc.parametrize("test_cfg", [pytest.param(cfg, marks=pytest.mark.correctness) for cfg in filter_runner(manager.expected_test_cfgs())], ids=mk_id)
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus):
-    if not session.config.run_cfg.persist: shutil.rmtree(session.config.run_cfg.temp_dir) #type: ignore
+    cfg = session.config.run_cfg
+    # Failure logs are useful precisely when the caller forgot --persist.
+    if not cfg.persist and exitstatus == 0:
+        shutil.rmtree(cfg.temp_dir)
+    elif exitstatus != 0 or cfg.persist:
+        reporter = session.config.pluginmanager.getplugin("terminalreporter")
+        if reporter:
+            reporter.write_line(f"Test builds/logs retained at: {cfg.temp_dir}")
