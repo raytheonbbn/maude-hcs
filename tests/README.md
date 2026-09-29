@@ -46,7 +46,7 @@ Regardless of the test runner, every test object has the same attributes:
 
 - `name`: The name for this test
 - `desc`: A description of the purpose and implementation of this test
-- `expected`: The expected result for this test. If absent, this is a regression test that will create a snapshot the first time it is run
+- `expected`: The expected result for this test. If absent, this is a regression test that requires an approved snapshot; creating one requires an explicit regeneration flag
 - `build_cfg`: Which JSON file from `ctx/build_cfgs` to use as a source of arguments to the markov_json_to_maude converter and the test.maude generator. Setting this to `foo` selects the build config `ctx/build_cfgs/foo.json`.
 - `arg`: An arbitrary JSON expression to be passed to the test runner function. This generally includes a predicate or expression to be evaluated as part of the test, with the result compared to `expected`.
     - for Maude tests, this is a Maude expression that will be rewritten in the test environment, with the final result taken for comparison to the expected value or stored snapshot.
@@ -89,7 +89,7 @@ pytest -n auto
 
 ### Custom flags
 
-`--build`: Just run the build commands for each test, don't actually execute them. Will fail every test.
+`--build`: Just run the build commands for each test, don't actually execute them. Execution is reported as skipped.
 
 `--persist`: don't delete the temporary build directory when test suite completes
 
@@ -100,3 +100,104 @@ pytest -n auto
 `--expected`: only run expected-value tests (not regression tests)
 
 `--copy`: copy the path to the temporary build directory to system clipboard, for faster debugging
+
+## Correctness assertions and snapshot review
+
+Correctness cases should declare `"expected": "true"` (a string, matching the
+Maude runner output). Use the two-step form:
+
+```json
+{
+  "name": "delivery",
+  "desc": "Check the final configuration",
+  "build_cfg": "obfs_isolated",
+  "arg": {
+    "initial": "initConfig",
+    "predicate": "getTotalBytesSent(FINAL:Config) == 168448"
+  },
+  "expected": "true"
+}
+```
+
+The runner finishes rewriting `initial`, substitutes its result for
+`FINAL:Config`, then reduces the predicate. Embedding `initConfig` directly in a
+Boolean equality can evaluate the equality before the execution is complete.
+String `arg` remains supported for arbitrary-term regression tests.
+
+The previous five correctness snapshots recorded `"false"`. These cases now
+assert true; failures must be investigated, not accepted by regenerating a false
+reference. No model-level byte-count expectations were changed.
+
+## SMC comparison policies
+
+Every SMC regression explicitly selects a policy:
+
+```json
+"arg": {"nsims": "1-1", "seed": 0, "jobs": 1},
+"comparison": {"mode": "smoke"}
+```
+
+Smoke tests require exact fixed-seed results, including joint sample rows. They
+are fast quantitative regression checks, not evidence of distributional
+agreement. The existing isolated-channel SMC cases use this mode.
+
+A distributional test can instead declare:
+
+```json
+"arg": {"nsims": "20000-20000", "seed": 0, "jobs": 1},
+"comparison": {"mode": "distribution", "delta": 0.05,
+               "alpha": 0.05, "min_samples": 20000}
+```
+
+The checker uses the empirical KS distance plus two one-sample DKW error bounds,
+allocating alpha across all queries. It passes only when the upper bound is below
+delta. Insufficient evidence fails with the query name, distance, bound, and
+sample sizes; it never interprets a large p-value as equivalence. Counts in the
+example are illustrative: the required sample budget depends on query count,
+tolerance and observed distance. This is a fixed-look comparison of independent
+simulation runs, not a sequential stopping rule. Query marginals do not certify
+temporal or cross-feature dependence.
+
+Schema 2 snapshots include model/library/dependency/query hashes, effective
+build and SMC settings, tool versions, complete query identities, raw joint rows,
+and worker-file/row run identifiers. Those identifiers preserve within-run
+pairing; they are not independent per-run random seeds. The existing sorted
+`parse_dump` API is unchanged; new joint analyses use `parse_dump_rows`.
+Per-client and per-vantage query names now include the client/vantage so results
+cannot silently overwrite each other. In the inspected Obfs case this preserves
+all 600 queries where the old result dictionary retained only 480.
+
+Legacy SMC snapshots fail before simulation with a migration message. Review the
+new output and use `--force-regen` or `--regen-all` deliberately; neither missing
+nor old references are silently approved. The historical references have not
+been rewritten as part of the framework fixes.
+
+## Diagnostics and fast framework tests
+
+```shell
+pytest tests/test_framework.py
+pytest tests/test_maudehcs.py --expected --runner=maude --timeout=300
+pytest tests/test_maudehcs.py --regression --runner=smc -m smoke
+pytest tests/test_maudehcs.py -m statistical
+```
+
+`--timeout` bounds each model execution (default 300 seconds), including child
+shutdown. It does not bound scenario generation. Worker crashes and Python
+exceptions fail with diagnostics. On POSIX, timeout/interruption cleanup also
+terminates the worker's process group, including SMC descendants.
+
+Failed sessions automatically retain builds and logs and print their location;
+`--persist` also retains successful builds. Each build has `logs/stdout.log`,
+`logs/stderr.log`, and `logs/runner.log`. `--tempdir` creates a unique subdirectory
+under the supplied directory, including when using pytest-xdist.
+
+Unknown generation/test/runner arguments are errors. Obsolete `filter_vp_*`
+settings, which were not forwarded to the current generator, have been removed
+from the five correctness build definitions; use supported `feats`/`vpts` fields.
+
+The fast harness tests cover worker success/crash/timeout, native diagnostics,
+Maude final-state evaluation, sample merging/validation, query identity, joint
+samples, comparison policies, collection filtering, provenance, and missing or
+legacy references. They do not run the large CP3 scenarios. Broader baseline,
+confidentiality, interaction, and scalability scenarios remain separate coverage
+work; no new performance or decomposition guarantee is claimed here.
