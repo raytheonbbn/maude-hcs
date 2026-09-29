@@ -211,6 +211,12 @@ def test_regressions(test_cfg: TestConfig, pytestconfig, file_regression: FileRe
     else:
         out = run(test_cfg, build_dir, pytestconfig.run_cfg)
 
+    if pytestconfig.run_cfg.save is not None:
+        if not os.path.isdir(pytestconfig.run_cfg.save):
+            os.mkdir(pytestconfig.run_cfg.save)
+        with open(Path(pytestconfig.run_cfg.save) / f"{mk_id(test_cfg)}.json", 'w') as f:
+            json.dump(out, f, indent=4)
+
     file_regression.check(
         json.dumps(out, indent=4),
         extension=".json",
@@ -225,5 +231,11 @@ def test_expected(test_cfg: TestConfig, pytestconfig):
         pytest.skip("user requested builds only, skipping test")
     else:
         out = run(test_cfg, build_dir, pytestconfig.run_cfg)
+
+    if pytestconfig.run_cfg.save is not None:
+        if not os.path.isdir(pytestconfig.run_cfg.save):
+            os.mkdir(pytestconfig.run_cfg.save)
+        with open(Path(pytestconfig.run_cfg.save) / f"{mk_id(test_cfg)}.json", 'w') as f:
+            json.dump(out, f, indent=4)
 
     assert out == test_cfg.expected
