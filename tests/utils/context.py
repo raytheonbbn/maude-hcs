@@ -58,7 +58,7 @@ class RunConfig:
 
     build_only: bool = False
     persist: bool = False
-    save: str | None = None
+    results_dir: str | None = None
 
     override_run_time: int | None = None
 

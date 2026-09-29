@@ -1,12 +1,12 @@
 from parse import parse
-from dataclasses import dataclass
-from dataclasses_json import dataclass_json
+from dataclasses import dataclass, field
+from dataclasses_json import dataclass_json, config
 
 @dataclass_json
 @dataclass(frozen=True)
 class Query:
-    typ: str # independent or cumulative
-    name: str
+    type: str = field(metadata=config(field_name="type")) # independent or cumulative
+    feat: str
     start: int
     end: int
 
@@ -14,17 +14,23 @@ class Query:
         return f"t{self.start}_t{self.end}"
 
     def to_name(self):
-        return f"{self.typ}:{self.name}:{self.to_win_str()}"
+        return f"{self.type}:{self.feat}:{self.to_win_str()}"
 
 @dataclass_json
 @dataclass(frozen=True)
-class IntegrityQuery(Query):
+class ClientIntegrityQuery(Query):
     client: str
+
+    def to_name(self):
+        return f"{self.type}:{self.feat}_{self.client}:{self.to_win_str()}"
 
 @dataclass_json
 @dataclass(frozen=True)
 class ConfidentialityQuery(Query):
     vantage: str
+    
+    def to_name(self):
+        return f"{self.type}:{self.feat}_{self.vantage}:{self.to_win_str()}"
 
 def parse_query(q: str) -> Query:
     """Parses a Query from a line of quatex produced as in generate_quatex.py, using the comment after the line"""
@@ -37,7 +43,7 @@ def parse_query(q: str) -> Query:
 
     if try_five is not None:
         if try_five[1] == "integrity":
-            return IntegrityQuery(*try_five)
+            return ClientIntegrityQuery(*try_five)
         else:
             return ConfidentialityQuery(*try_five)
 

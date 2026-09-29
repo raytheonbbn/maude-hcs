@@ -8,7 +8,7 @@ from pathlib import Path
 from argparse import Namespace
 
 from maude_hcs.parse_dump import parse_dump
-from maude_hcs.query import parse_quatex, Query, IntegrityQuery, ConfidentialityQuery
+from maude_hcs.query import parse_quatex, Query, ClientIntegrityQuery, ConfidentialityQuery
 from maude_hcs.result import SimResult, FeatResult
 
 from dataclasses import asdict
@@ -158,4 +158,14 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
         dict(results)
     )
 
-    return asdict(sim_result)
+    def dict_factory(tups: list[tuple]) -> dict:
+        res = {}
+
+        for k, v in tups:
+            if k == "typ":
+                k = "type"
+            res[k] = v
+
+        return res
+
+    return asdict(sim_result, dict_factory=dict_factory)

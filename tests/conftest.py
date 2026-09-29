@@ -27,8 +27,8 @@ def pytest_addoption(parser):
     parser.addoption("--expected", action="store_true", help="only run expected-value tests")
 
     parser.addoption("--copy", action="store_true", help="copy the path to the temp directory to system clipboard")
-    parser.addoption("--tempdir", help="manually choose a directory to store built environments. Implies `--persist`")
-    parser.addoption("--save", help="save test results under specified directory (different from snapshot!)")
+    parser.addoption("--temp-dir", help="manually choose a directory to store built environments. Implies `--persist`")
+    parser.addoption("--results-dir", help="save test results under specified directory (different from snapshot!)")
 
     # parser.addoption("--build-override", help="override build configs for all selected tests using given json-parsable string")
     parser.addoption("--override-run-time", help="override run time for all selected tests", type=int)
@@ -37,7 +37,7 @@ def pytest_addoption(parser):
     # pytest-regressions also adds the flags --force-regen and --regen-all
 
 def pytest_configure(config):
-    td_opt = config.getoption("--tempdir")
+    td_opt = config.getoption("--temp-dir")
     persist = config.getoption("--persist")
 
     if td_opt is not None:
@@ -60,7 +60,7 @@ def pytest_configure(config):
 
         build_only=config.getoption("--build"), # type: ignore
         persist=persist,
-        save=config.getoption("--save"),
+        results_dir=config.getoption("--results-dir"),
 
         override_run_time=config.getoption("--override-run-time"),
     )
