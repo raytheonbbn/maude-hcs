@@ -64,13 +64,18 @@ def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path) -> Path:
     for dir, proto in build_cfg.markov_v2_dirs:
         batch_convert_dir_v2(build_dir / dir, proto)
 
+    if run_cfg.override_run_time is not None:
+        slimit = run_cfg.override_run_time
+    else:
+        slimit = gen_args.run_time
+
     args = Namespace(
         verbose=True,
         command='generate',
         yaml_file=str(build_dir / gen_args.yaml_file),
         quatex=True,
         baselineTime=gen_args.baseline_time,
-        runTime=gen_args.run_time,
+        runTime=slimit,
         hcsDelay=gen_args.hcs_delay,
         tgenDelay=gen_args.tgen_delay,
         outDir=str(build_dir),
