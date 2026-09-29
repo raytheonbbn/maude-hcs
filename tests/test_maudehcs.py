@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 SMC_THRESHOLD = 10.0
 KS_THRESHOLD = 0.5
+TIMEOUT = 60 * 60 * 6 # 6 hours
 
 class ChildProcessErrorWrapper(Exception):
     """Custom exception used to format and output the traceback of a child process."""
@@ -98,7 +99,14 @@ def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
         )
 
         run_proc.start()
+
+        # If test doesn't complete within 6 hours, shut it down and raise Exception
+        if not receiver.poll(TIMEOUT):
+            run_proc.terminate() # interrupt doesn't seem to work, have to use at least terminate
+            raise Exception(f"child process didn't complete within {TIMEOUT} seconds ({TIMEOUT / (60 * 60)} hours)")
+        
         result = receiver.recv() # CANNOT be delayed until after the join, or send will block
+        
         run_proc.join()
 
         if run_proc.exitcode != 0:
