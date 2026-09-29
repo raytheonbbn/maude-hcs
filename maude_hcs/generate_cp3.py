@@ -1806,10 +1806,13 @@ def generate(args: argparse.Namespace):
     yaml_file = os.path.abspath(args.yaml_file)
     baseline_time = args.baselineTime
     run_time = args.runTime
-    hcs_delay = args.hcsDelay
-    tgen_delay = args.tgenDelay    
+    hcs_delay: int = args.hcsDelay
+    tgen_delay: int = args.tgenDelay    
     out_dir = os.path.abspath(args.outDir) if args.outDir is not None else os.path.dirname(yaml_file)
     scenario_name = args.scenarioName if args.scenarioName is not None else os.path.splitext(os.path.basename(yaml_file))[0]
+
+    if hcs_delay is not None and tgen_delay is not None:
+        assert tgen_delay <= hcs_delay
 
     if args.parallelizeBaseline:
         assert args.baseline_time is not None
@@ -1824,30 +1827,26 @@ def generate(args: argparse.Namespace):
     else:
         selected_vpts = VANTAGE_POINTS
 
-    # Dynamically determine the directory depth for lib and deps relative to the out_dir
-    #Find the common ancestor directory of the executing script and the output directory
-    script_path = os.path.abspath(__file__)
-    ancestor_dir = os.path.commonpath([script_path, out_dir])
-
-    # Find the relative path FROM the output directory back TO the ancestor
-    rel_to_ancestor = os.path.relpath(ancestor_dir, out_dir)
-
-    # Build the final lib/deps paths, ensuring forward slashes for the generated Maude files
-    lib = os.path.join(rel_to_ancestor, "maude_hcs", "lib").replace(os.sep, "/")
-    deps = os.path.join(rel_to_ancestor, "maude_hcs", "deps").replace(os.sep, "/")
+    delay = max(hcs_delay, tgen_delay)
 
     logger.info("Execution Arguments:")
     for arg, value in vars(args).items():
         logger.info("  %s: %s", arg, value)
     logger.info("  effective out_dir: %s", out_dir)
     logger.info("  effective scenario_name: %s", scenario_name)
-    logger.info("  effective lib path relative to output dir: %s", lib)
-    logger.info("  effective deps path relative to output dir: %s", deps)
     logger.info("-" * 40)
     
     logger.info("Parsing scenario YAML from: %s", yaml_file)
     yaml_duration, analysis_window_size, networks, net_id_map, net_short, loss_profiles, hcs_nodes, hcs_profiles_by_channel, tgen_defs, hcs_channel_models = parse_scenario_yaml(yaml_file)
 
+
+    logger.info("hcs_nodes: %s", hcs_nodes)
+    logger.info("Net id mapping: %s", json.dumps(net_id_map, indent=4))
+
+
+    valid_vpts = filter(lambda x: x in net_id_map, selected_vpts)
+    maude_vpts = list(map(lambda vpt: net_id_map[vpt], valid_vpts))
+    
     if run_time is None:
         logger.info("Loaded duration: %ss", yaml_duration)
         run_time = yaml_duration
@@ -1874,12 +1873,6 @@ def generate(args: argparse.Namespace):
     with open(addr_path, "w") as f:
         f.write(addr_content)
     logger.info("\nWrote %s (%s) lines)", addr_path, len(addr_content.splitlines()))
-
-    logger.info("Net id mapping: %s", json.dumps(net_id_map, indent=4))
-
-    valid_vpts = filter(lambda x: x in net_id_map, selected_vpts)
-    maude_vpts = list(map(lambda vpt: net_id_map[vpt], valid_vpts))
-    print(maude_vpts)
 
     # # Dynamically build Vpts list
     # if args.filterVpFeatCombos:
@@ -1939,8 +1932,8 @@ def generate(args: argparse.Namespace):
         quatex_path = os.path.join(out_dir, quatex_filename)
         max_win = math.floor(run_time/analysis_window_size)
         assert max_win > 0, "max_win is zero, so no quatex queries would be generated! Are you sure you set the experiment duration high enough?"
-        write_all_queries_to_file(Config(selected_feats, maude_vpts, all_clients, window_size=int(analysis_window_size), max_win=int(max_win), hcs_delay=int(hcs_delay), perf_only=args.perf, conf_only=args.confidentiality), Path(quatex_path))
-        logger.info("Wrote quatex queries to %s: max_win: %s, hcs_delay: %s", quatex_path, max_win, hcs_delay)
+        write_all_queries_to_file(Config(selected_feats, maude_vpts, all_clients, window_size=int(analysis_window_size), max_win=int(max_win), delay=int(delay), perf_only=args.perf, conf_only=args.confidentiality), Path(quatex_path))
+        logger.info("Wrote quatex queries to %s: max_win: %s, delay: %s", quatex_path, max_win, delay)
 
     # Generate baseline file    
     if baseline_time is not None:
@@ -1982,8 +1975,7 @@ def generate(args: argparse.Namespace):
                 f.write(baselin_eq_content)    
             logger.info("Wrote %s (%s) lines", eq_path, len(baselin_eq_content.splitlines()))
     
-    # Generate run file    
-    print(run_time)
+    # Generate run file
     run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, perf=args.perf, run_time=run_time)
 
     run_filename = f"{scenario_name}-run.maude"    
