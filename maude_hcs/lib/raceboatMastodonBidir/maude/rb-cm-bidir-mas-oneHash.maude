@@ -140,7 +140,7 @@ rl [rbc-rcv-file] :
 < cmcAddr : CMSndRcv | cmcAtts, 
        sndrcvAddress: aAddr,
        pendingFiles: (efilel :: bytes),
-       cachedTag: getWHashtag(getSndHashTagAttrs(cmcAtts)),
+       cachedTag: cachedhashtagl,
        weirdFileRcvTimes: (rcvTimes:FloatList :: T) >
 [print "(" T ") Raceboat client " cmcAddr " got " bytes " from " aAddr " adding to pending " efilel ", setting weirdFileRcvTime if pending was empty."]
 .
@@ -173,16 +173,10 @@ eq cmRcvActionQ(attrs, "media",T, msg) = {attrs,null} [owise] .
 
 ceq cmRcvActionQ(attrs, "media", T, msg)
    =  crcvActionQ(attrsTrans,"media",msg)       
-if attrs0, weirdFileRcvTimes: rcvTimes:FloatList,
-           postingWeird: b:Bool,
-           pendingFiles: efilel
-           := attrs
-/\ rcvTime:Float := getEarliestRcvTime(rcvTimes:FloatList)
-/\ b0:Bool :=  rcvTime:Float + 5.0 <= T and efilel =/= nilBS  --- no file ready
-/\ attrsTrans := attrs0,
-                 (weirdFileRcvTimes: (rcvTime:Float :: rcvTimes:FloatList)),
-                 postingWeird: b0:Bool,
-                 pendingFiles: efilel
+if attrs0, postingWeird: b:Bool, currentFrags: efragl
+     := prepareBytes(attrs, T)
+/\ attrsTrans := attrs0, postingWeird: (efragl =/= nilBS),
+                          currentFrags: efragl
  .
 
 eq cmRcvActionQ(attrs, "download", T, msg)
