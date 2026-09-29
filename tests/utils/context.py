@@ -58,18 +58,22 @@ class RunConfig:
 
     build_only: bool = False
     persist: bool = False
+    save: str | None = None
+
+    override_run_time: int | None = None
 
     def __post_init__(self):
-        assert not (self.regression and self.expected), "cannot select both regression and expected-value tests for isolation"
+        assert not (self.regression and self.expected), "cannot select both only regression and only expected-value"
 
 @dataclass_json
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class GenArgs:
+    """Arguments passed to generate_cp3"""
     yaml_file:      str
     run_time:       int
     baseline_time:  int = 0
-    hcs_delay:      int = 0
-    tgen_delay:     int = 0
+    hcs_delay:      int = 10
+    tgen_delay:     int = 1
     no_tgens:       bool = False
 
     feats:  list[str] | None = None
@@ -121,6 +125,7 @@ class Context:
                     name=test["name"],
                     desc=test["desc"],
                     expected=test.get("expected", None),
+                    expected_file=test.get("expected_file", None),
                     runner=runner,
                     build_cfg=build_cfgs[test["build_cfg"]],
                     arg=test.get("arg", {})
@@ -161,16 +166,20 @@ class TestConfig:
         arg (str): arbitrary object to be passed to the maude runner. Typically includes a predicate or expression to evaluate for the test.
         expected (dict | None): expected value for this test, or None if this is a regression test
     """
-    ctx:        Context
-    name:       str
-    desc:       str 
-    runner:     TestRunner
-    build_cfg:  BuildConfig
-    arg:        Any
-    expected:   dict | None = None
+    ctx:            Context
+    name:           str
+    desc:           str 
+    runner:         TestRunner
+    build_cfg:      BuildConfig
+    arg:            Any
+    expected:       dict | None = None
+    expected_file:  str | None = None
 
     # Prevent pytest from collecting this class
     __test__:   bool = False
+
+    def __post_init__(self):
+        assert self.expected is None or self.expected_file is None, "TestConfig should not set both expected and expected_file"
 
 class TestManager:
     __test__ = False
@@ -184,11 +193,11 @@ class TestManager:
             self.test_cfgs.extend(ctx.get_test_cfgs())
     
     def regression_test_cfgs(self) -> list[TestConfig]:
-        ret = [cfg for cfg in self.test_cfgs if cfg.expected is None]
+        ret = [cfg for cfg in self.test_cfgs if (cfg.expected is None and cfg.expected_file is None)]
         return ret
 
     def expected_test_cfgs(self) -> list[TestConfig]:
-        ret = [cfg for cfg in self.test_cfgs if cfg.expected is not None]
+        ret = [cfg for cfg in self.test_cfgs if (cfg.expected is not None or cfg.expected_file is not None)]
         return ret
 
     def _get_contexts(self) -> list[Context]:
