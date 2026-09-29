@@ -170,7 +170,7 @@ def smc_check_fn(obtained_filename: Path, expected_filename: Path):
     expected_json: dict = json.loads(expected_str)
     expected_results: dict = expected_json["results"]
 
-    shared_top_keys = set(obtained_json.keys()).intersection(expected_json.keys()).difference(set("results"))
+    shared_top_keys = set(obtained_json.keys()).intersection(expected_json.keys()).difference(set(["results"]))
 
     for key in shared_top_keys:
         obt_val = obtained_json[key]
