@@ -6,6 +6,7 @@ import tempfile
 import pyperclip
 import os
 import multiprocessing
+import random
 
 from pathlib import Path
 from pytest_regressions.file_regression import FileRegressionFixture
@@ -17,7 +18,6 @@ logger = logging.getLogger(__name__)
 manager = TestManager()
 
 def pytest_addoption(parser):
-    parser.addoption("--pp", action="store_true", help="attempt to pretty-print the return value for each selected test")
     parser.addoption("--build", action="store_true", help="only run build commands, don't test")
     parser.addoption("--persist", action="store_true", help="persist the temporary build directory after tests complete")
 
@@ -27,7 +27,9 @@ def pytest_addoption(parser):
     parser.addoption("--expected", action="store_true", help="only run expected-value tests")
 
     parser.addoption("--copy", action="store_true", help="copy the path to the temp directory to system clipboard")
-    parser.addoption("--tempdir", help="manually choose a directory to store built environments. Implies `--persist`.")
+    parser.addoption("--tempdir", help="manually choose a directory to store built environments. Implies `--persist`")
+    parser.addoption("--save", help="save test results under specified directory (different from snapshot!)")
+
 
     # pytest by default has many useful flags, especially -k for selecting tests. See also --log-level, --log-cli-level, -s, 
     # pytest-regressions also adds the flags --force-regen and --regen-all
@@ -53,10 +55,10 @@ def pytest_configure(config):
 
         log_level=None,
         log_filter=None,
-        pp=config.getoption("--pp"), # type: ignore
 
         build_only=config.getoption("--build"), # type: ignore
-        persist=persist
+        persist=persist,
+        save=config.getoption("--save"),
     )
 
     if config.getoption("--copy"):
