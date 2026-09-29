@@ -70,57 +70,30 @@ vars natstr : Map{Nat,String} .
 vars mamodel : MAModel .
 
 
---- Get the capacity need the current fragment.
+--- Move ready messages into the byte stream, after any unsent tail.
+--- Keep the five-second delay for each newly queued message.
+op prepareBytes : AttributeSet Float -> AttributeSet .
+ceq prepareBytes((attrs, pendingFiles: (bytes :: FILES),
+                         currentFrags: efragl,
+                         weirdFileRcvTimes: (T :: times:FloatList)),
+                 now:Float)
+  = prepareBytes((attrs, pendingFiles: FILES,
+                         currentFrags: (efragl :: bytes),
+                         weirdFileRcvTimes: times:FloatList), now:Float)
+  if T + 5.0 <= now:Float .
+eq prepareBytes(attrs, T) = attrs [owise] .
+
 op getEncodingSizeNeed : AttributeSet -> Nat .
-eq getEncodingSizeNeed(attrs, currentFrags: efrag(efile, tot, ix, n0)) = n0 .
-eq getEncodingSizeNeed(attrs) = 0 [owise] .
+eq getEncodingSizeNeed(attrs, currentFrags: efragl) = getSize(efragl) .
 
---- Get the next encoded fragment to send.
-op getNextEncodedFrag : AttributeSet -> AttributeSet .
-**** case have efile that is ready to exfile
-eq getNextEncodedFrag(attrs,
-                      (postingWeird: true),
-                      (pendingFiles: (efile :: efilel)),
-                      (currentFrags: nilBS))
-  = attrs,
-    (postingWeird: true),  
-    pendingFiles: (efile :: efilel),
-    currentFrags: efrag(efile, 0, 0, getSize(efile))
-[print "getNextEncodedFrag: postingWeird true currentFrags nilBS"]    
-  .
-
-**** postingWeird is true and frags is set
-**** or postingWeird is false
-eq getNextEncodedFrag(attrs) = attrs 
-[owise] .  --- ready to continue
-
-
----- called when MC confirms Toot
----- moveToNextFrag(resetTxState(attrs) 
+--- One weird hashtag identifies one toot, independently of message boundaries.
 op moveToNextFrag : AttributeSet -> AttributeSet .
-
---- Default, which also includes A WEIRD TRANSMISSION that is NOT FINISHED.
-eq moveToNextFrag(attrs) = attrs [owise] .
-
---- Move hashtag for benign case (no pending weird transmission).
-ceq moveToNextFrag(attrs) = setSndHashTagAttrs(attrs,hattrs)
-  if (attrsTrans, currentFrags: nilBS, pendingFiles: nilBS)
-   := attrs
-  /\ hattrs := nextBHashtag(getSndHashTagAttrs(attrs))
-  .
-
---- Move at end of current file for weird case.
---- Only if frags are done (note: 0):
-ceq moveToNextFrag(attrs,
-                   currentFrags: efrag(efile, tot, ix, 0),
-                   pendingFiles: (efile :: efilel),
-                   weirdFileRcvTimes: (rcvTime:Float :: rcvTimes:FloatList))
-  = setSndHashTagAttrs(attrs,hattrs),  
-                 currentFrags: nilBS,
-                 pendingFiles: efilel,
-                 weirdFileRcvTimes: (rcvTimes:FloatList)
-  if hattrs := nextWHashtag(getSndHashTagAttrs(attrs))
-  . 
+eq moveToNextFrag(attrs, postingWeird: true)
+  = setSndHashTagAttrs(attrs, nextWHashtag(getSndHashTagAttrs(attrs))),
+    postingWeird: false .
+eq moveToNextFrag(attrs, postingWeird: false)
+  = setSndHashTagAttrs(attrs, nextBHashtag(getSndHashTagAttrs(attrs))),
+    postingWeird: false .
 
 --- Reset the transmit state of the client.
 op resetTxState : AttributeSet -> AttributeSet .
@@ -128,14 +101,10 @@ eq resetTxState(attrs) = attrs [owise] .
 --- Clear fields related to sending one batch of images.
 eq resetTxState(attrs,
                 (numPendingImages: n),
-                (encodedImages: images),
-                (w4c: msg),
-                (replyTo: msg0))
+                (encodedImages: images))
   = attrs,
     (numPendingImages: 0),
-    (encodedImages: nilBS),
-    (w4c: null),
-    (replyTo: null)
+    (encodedImages: nilBS)
   .
 
 --- Send a request to encode media with bytes.
@@ -162,13 +131,6 @@ ceq requestMediaEncode((attrs, w4c: null, postingWeird: true), cmcAddr)
 op getNextHashtag : AttributeSet -> ByteSeq .
 ***--- Benign case 
 ****26mar04 clt used cachedTag if any
-eq getNextHashtag(attrs, (currentFrags: nilBS), (pendingFiles: nilBS), cachedTag: cachedhashtagl)
-= (if (cachedhashtagl :: ByteSeq)
-   then cachedhashtagl
-   else getBHashtag(getSndHashTagAttrs(attrs))
-   fi)
-  [ print "Posting with benign hashtag" ]   .
-  
 eq getNextHashtag(attrs, postingWeird: false,
                   cachedTag: cachedhashtagl)
 = (if (cachedhashtagl :: ByteSeq)
@@ -246,7 +208,7 @@ ceq crcvActionQ((attrs,
                 (to cmcAddr from umAddr : actionQ(ract)) )
   = requestMediaEncode(attrsTrans, cmcAddr)
     if n0 := getNumImages(ract)
-    /\ attrsTrans := getNextEncodedFrag(attrs),
+    /\ attrsTrans := attrs,
                         (numPendingImages: n0),
                         (encodedImages: nilBS),
                  (replyTo: (to cmcAddr from umAddr : actionQ(ract)))
@@ -266,23 +228,12 @@ op crcvCapR : AttributeSet Msg -> AttributeSetMsgs .
 ----- assume this only happens if postingWeird: true 
 eq crcvCapR(attrs,msg) = {attrs,null} [owise] .
 
-ceq crcvCapR(attrs,(to cmcAddr from edAddr : capR(cap)))
-    = {attrs1,msg}
-if w4c: (to edAddr from cmcAddr : capQ(n0)), 
-   pendingFiles: (efile :: efilel), 
-   currentFrags: efrag(efile,tot,ix,n0),  
-   attrs0  := attrs
-/\ l := min(cap,n0)
-/\ efrag0 := efrag(efile,tot + l,ix,l)
-/\ n1 := (if cap < n0 
-                then n0 + (- cap)
-                else 0 fi)
-/\ efrag1 := efrag(efile,tot + l,s ix,n1)
-/\ msg := (to edAddr from cmcAddr : encQ(efrag0))
-/\ attrs1 := attrs0,  w4c: msg,
-        pendingFiles: (efile :: efilel) ,
-        currentFrags: efrag1
-.        
+ceq crcvCapR(attrs, (to cmcAddr from edAddr : capR(cap)))
+  = {attrs0, w4c: msg, currentFrags: FILES, msg}
+  if attrs0, w4c: (to edAddr from cmcAddr : capQ(n0)),
+             currentFrags: efragl := attrs
+  /\ {efragl0:ByteSeqL, FILES} := encode(efragl, cap)
+  /\ msg := (to edAddr from cmcAddr : encQ(pack(efragl0:ByteSeqL))) .
 
 op crcvEncR : AttributeSet Msg -> AttributeSetMsgs .
 
@@ -307,11 +258,12 @@ eq crcvMCResponse(attrs, msg) = {attrs,null} [owise] .
 --- Clear context.
 eq crcvMCResponse((attrs,
           (w4c: (to mcAddr from cmcAddr : tootQ(ht, IMAGES))),
-          (replyTo: (to cmcAddr from umAddr : c1:Content))),
+          (replyTo: (to cmcAddr from umAddr : c1:Content)),
+          cachedTag: cachedhashtagl),
          (to cmcAddr from mcAddr :
            mkRequestResponse(str)))
   = { moveToNextFrag(resetTxState(attrs,
-                     (w4c: null), (replyTo: null))),
+                     (w4c: null), (replyTo: null), cachedTag: ht)),
      (to umAddr from cmcAddr : actionR("ok")) }
   [ print "Raceboat cm handling toot response, ready for next action." ]
   .
