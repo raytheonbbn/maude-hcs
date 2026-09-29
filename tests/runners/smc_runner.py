@@ -36,6 +36,33 @@ def concat_dumps(dump_dir: Path):
     for path in paths:
         os.remove(path)
 
+def format_cmd(nspace_args: Namespace, test_arg: dict):
+
+    return "".join([
+        f"maude-hcs scheck \\\n",
+        (f"    --file {nspace_args.file} \\\n" if "file" in test_arg else ""),
+        (f"    --nsims {nspace_args.nsims} \\\n" if "nsims" in test_arg else ""),
+        (f"    --seed {nspace_args.seed} \\\n" if "seed" in test_arg else ""),
+        (f"    --jobs {nspace_args.jobs} \\\n" if "jobs" in test_arg else ""),
+        (f"    --D {nspace_args.D} \\\n" if "D" in test_arg else ""),
+        (f"    --assign {nspace_args.assign} \\\n" if "assign" in test_arg else ""),
+        (f"    --alpha {nspace_args.alpha} \\\n" if "alpha" in test_arg else ""),
+        (f"    --delta {nspace_args.delta} \\\n" if "delta" in test_arg else ""),
+        (f"    --block {nspace_args.block} \\\n" if "block" in test_arg else ""),
+        (f"    --distribute {nspace_args.distribute} \\\n" if "distribute" in test_arg else ""),
+        (f"    --advise {nspace_args.advise} \\\n" if "advise" in test_arg else ""),
+        (f"    --module {nspace_args.module} \\\n" if "module" in test_arg else ""),
+        (f"    --metamodule {nspace_args.metamodule} \\\n" if "metamodule" in test_arg else ""),
+        (f"    --strategy {nspace_args.strategy} \\\n" if "strategy" in test_arg else ""),
+        (f"    --opaque {nspace_args.opaque} \\\n" if "opaque" in test_arg else ""),
+        (f"    --full_matchrew {nspace_args.full_matchrew} \\\n" if "full_matchrew" in test_arg else ""),
+        f"    --dump {nspace_args.dump} \\\n",
+        f"    --test {nspace_args.test} \\\n",
+        f"    --query {nspace_args.query} \\\n",
+        f"    --initial {nspace_args.initial} \\\n",
+        f"    --format {nspace_args.format} ",
+    ])
+
 def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", logger: logging.Logger) -> dict:
     # Have to initialize maude even though umaudemc does it again, because we need to pre-load
     # test file so umaudemc will see it as most recent
@@ -56,7 +83,7 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
         # Configurable by test
         file=str((GLOBALS.TOP_LEVEL_DIR / arg.get("file", "maude_hcs/lib/smc/smc_cp3.maude")).resolve()),
         nsims=arg.get("nsims", "1-1"),
-        seed=arg.get("seed", 0),
+        seed=arg.get("seed", None),
         jobs=arg.get("jobs", 1),
         D=arg.get("D", None),
         assign=arg.get("assign", "pmaude"),
@@ -82,6 +109,8 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
         plot=False,
         verbose=False,
     )
+
+    logger.info(format_cmd(args, arg))
 
     (out, err) = capture_scheck(args)
     if err.strip(): logger.warning(err)
