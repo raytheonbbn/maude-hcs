@@ -89,8 +89,8 @@ class JsonToMaudeV2Parser:
             "markov": {
                 "noop": {"noop": 1.0}
             },
-            "burst_prob": 0.0,
-            "burst_steps": {"random": "gaussian", "mean": 0.0, "std": 0.0},
+            "burst_prob": 1.0,
+            "burst_steps": {"random": "gaussian", "mean": 1.0, "std": 0.0},
             "inter_burst_delay": sleep,
             "intra_burst_delay": {"random": "gaussian", "mean": 0.0, "std": 0.0}
         }
@@ -198,8 +198,14 @@ class JsonToMaudeV2Parser:
             else:
                 # Ensure all required v2 fields have defaults for non-idle states
                 sdata = dict(sdata)  # copy to avoid mutating input
-                if "burst_prob" not in sdata:
-                    sdata["burst_prob"] = 0.0
+                # Match the testbed's state-block burst defaults. Explicit
+                # burst_prob=0 still disables both automatic burst delays.
+                sdata.setdefault("burst_prob", 1.0)
+                for key, value in (("burst_steps", 3),
+                                   ("inter_burst_delay", 1),
+                                   ("intra_burst_delay", 1)):
+                    sdata.setdefault(key, {"random": "uniform",
+                                           "min": value, "max": value})
                 # Auto-populate initial_action if missing — the UM-V2 framework
                 # calls getInitialAction(stateBlock) which returns "none" when
                 # this key is absent, and "none" won't match any action.
@@ -228,6 +234,8 @@ class JsonToMaudeV2Parser:
 
         result = dict(state_data)
         for dk in dist_keys:
+            if isinstance(result.get(dk), (int, float)):
+                result[dk] = float(result[dk])
             if dk in result and isinstance(result[dk], dict) and "random" in result[dk]:
                 dist = dict(result[dk])
                 for pk in float_params:
@@ -260,6 +268,9 @@ class JsonToMaudeV2Parser:
         if not states_data and "actions" in data:
             states_data = {}
             for aname, adef in data["actions"].items():
+                if adef.get("type") == "wait":
+                    states_data[aname] = self.expand_idle_state(adef)
+                    continue
                 sleep_val = adef.get("sleep", {"random": "gaussian", "mean": 0.0, "std": 0.0})
                 states_data[aname] = {
                     "type": "state",
@@ -267,10 +278,10 @@ class JsonToMaudeV2Parser:
                     "dwell_steps": {"random": "gaussian", "mean": 1.0, "std": 0.0},
                     "actions": {aname: adef},
                     "markov": {aname: {aname: 1.0}},
-                    "burst_prob": 0.0,
-                    "burst_steps": {"random": "gaussian", "mean": 0.0, "std": 0.0},
-                    "inter_burst_delay": sleep_val,
-                    "intra_burst_delay": {"random": "gaussian", "mean": 0.0, "std": 0.0}
+                    "burst_prob": 1.0,
+                    "burst_steps": {"random": "gaussian", "mean": 1.0, "std": 0.0},
+                    "inter_burst_delay": {"random": "gaussian", "mean": 0.0, "std": 0.0},
+                    "intra_burst_delay": sleep_val
                 }
 
         # Convert sections
