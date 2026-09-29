@@ -89,14 +89,20 @@ pytest -n auto
 
 ### Custom flags
 
-`--build`: Just run the build commands for each test, don't actually execute them. Will fail every test.
+`--build`: Just run the build commands for each test, don't actually execute them
 
 `--persist`: don't delete the temporary build directory when test suite completes
 
-`--runner=RUNNER`: only run tests from the selected runner. Note: ALWAYS use the equals sign for this flag, DO NOT try to pass it as `--runner RUNNER`.
+`--runner=RUNNER`: only run tests from the selected runner. Note: ALWAYS use the equals sign for this flag, DO NOT try to pass it as `--runner RUNNER`
 
 `--regression`: only run regression tests
 
 `--expected`: only run expected-value tests (not regression tests)
 
 `--copy`: copy the path to the temporary build directory to system clipboard, for faster debugging
+
+`--tempdir`: use the specified directory as the root of the build directories, rather than using tempfile
+
+`--save`: given a directory path, store the results of each test under that directory (without necessarily snapshotting anything!)
+
+`--override-run-time`: provide a new run-time value to override whatever is present in the build configs for the selected tests
