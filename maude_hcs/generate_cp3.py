@@ -1264,7 +1264,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  eq skyCl{i}Iface     = mkIrcByteSeqIface(skyCl{i}IfaceAddr, skyCl{i}IrcAddr, skyCl{i}CmacAddr) .")
         L(f"  eq skyCl{i}UmacAct   = mkUMactor(skyCl{i}UmacAddr, {sky_client_ma}, skyCl{i}CmacAddr) .")
         L(f"  eq skyCl{i}CmacAct   = mkCMSimpleBi(skyCl{i}CmacAddr, skyCl{i}IfaceAddr, skyCl{i}PuaAddr) .")
-        L(f"  eq skyCl{i}PuaAct    = makeSkyhookPU(skyCl{i}PuaAddr, skyCl{i}CmacAddr, skyCl{i}SdkacAddr, \"s_to_c_bucket_{i}\", \"c_to_s_bucket_{i}\", \"s_to_c_uuid_{i}\", \"c_to_s_uuid_{i}-hash\") .")
+        L(f"  eq skyCl{i}PuaAct    = makeSkyhookPU(skyCl{i}PuaAddr, skyCl{i}CmacAddr, skyCl{i}SdkacAddr, \"s_to_c_bucket_{i}\", \"c_to_s_bucket_{i}\", \"s_to_c_uuid_{i}\", \"c_to_s_uuid_{i}-#\") .")
         L(f"  eq skyCl{i}SdkacAct  = makeS3Client(skyCl{i}SdkacAddr, s3SrvAddr) .")
         L(f"  eq skyCl{i}SrvIface  = mkIrcByteSeqIface(skyCl{i}SrvIfaceAddr, ircServerAddr, skyCl{i}CmasAddr) .")
         L(f"  eq skyCl{i}UmasAct   = mkUMactor(skyCl{i}UmasAddr, {sky_server_ma}, skyCl{i}CmasAddr) .")
