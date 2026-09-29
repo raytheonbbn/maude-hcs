@@ -51,81 +51,10 @@ UM <actionR("ok")- CMC
     (replyTo: null)
 )
 
-fmod RB-DEFRAGMENT is
-  inc BYTESEQ .
-
-vars bytes bytes0 efrag ef efile : ByteSeq .
-vars efl efl1 efl0 : ByteSeqL .
-vars id n j k l l0 cap tot tot0 oh ix ix0  : Nat .
-vars fragMx last accum : Nat .
-
-
----- accumulate efragments in sorted list
----- if efl is sorted by increasing ix
----- then addEfrags(efl0,efl) is sorted
-op addEfrags : ByteSeqL ByteSeqL -> ByteSeqL .
-op addEfrag : ByteSeq ByteSeqL ByteSeqL -> ByteSeqL .
-
-eq addEfrags(nilBS,efl) = efl . 
-eq addEfrags(ef :: efl0, efl) =
-      addEfrags(efl0, addEfrag(ef,efl,nilBS)) .
-
-eq addEfrag(ef,nilBS,efl) =  efl :: ef .
-eq addEfrag(efrag(bytes,tot,ix,l),
-            efrag(bytes,tot0,ix0,l0) :: efl0,efl)  = 
- (if ix < ix0
- then  efl :: efrag(bytes,tot,ix,l) ::
-       efrag(bytes,tot0,ix0,l0) :: efl0
- else (if ix == ix0   ---- drop duplicates
-       then efl :: efrag(bytes,tot0,ix0,l0) :: efl0
-       else addEfrag(efrag(bytes,tot,ix,l), efl0, 
-               efl :: efrag(bytes,tot0,ix0,l0) ) 
-     fi) fi)
-.
-
-**** What if frags mixed from different files?
-eq addEfrag(efrag(bytes,tot,ix,l),
-          efrag(bytes0,tot0,ix0,l0) :: efl0,
-          efl)  = 
-         efl :: efrag(bytes0,tot0,ix0,l0) :: efl0 
- [owise print "Bad frag dropped " bytes " expected " bytes0]
-  .
-
-
----- efl is sorted by ix,  should have 0 1 ... last
-op efraglComplete? : ByteSeqL -> ByteSeqL . --- nil or efile
-op efraglComplete?X : ByteSeqL Nat -> Bool .
-op hasLastFrag : ByteSeqL -> ByteSeqL .
-
-eq efraglComplete?(efl) = 
-   (if efraglComplete?X(efl,0) 
-    then hasLastFrag(efl) 
-    else nilBS
-    fi) .
-   
-eq efraglComplete?X(efrag(efile,tot,ix,l) :: efl, ix)
-     =  efraglComplete?X(efl, s ix) .
-eq  efraglComplete?X(nilBS, ix) = true .
-eq  efraglComplete?X(efl,ix) = false [owise] .
-
-eq hasLastFrag(efl :: efrag(efile,tot,ix,l)) 
-   =
-   (if tot >= getSize(efile) 
-    then efile
-    else nilBS
-    fi )
-   .   
-   
-eq hasLastFrag(efl) = nilBS [owise] .
-
-endfm
-
-
 mod CONTENT-MANAGER-RECEIVER-AUX is
   inc CONTENT-MANAGER .
   inc CP2_SORTS .  ---- AttributeSetMsgs from _aux
   inc CP2-COMMON .
-  inc RB-DEFRAGMENT .
   inc MC-INTERFACE  .
   inc ED-INTERFACE .
   inc TGEN-INTERFACE .
@@ -206,40 +135,28 @@ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht))
 var efileX : ByteSeqL .
  
 op srcvDecR : AttributeSet  Msg -> AttributeSetMsgs .
- ---- add efragl to current frags
- ----  clear w4c, clear replyTO
- ---- msg0 - status to umAddr
- ---- msg1 -- if frags complete efile to Bob ow null
- -----  if msg1 not null pop pendingHashTags
- eq srcvDecR(attrs, msg) = {attrs,null}
-[owise print "srcvDecR no match for msg " msg] .
-
- ceq srcvDecR(attrs, 
-            (to cmsAddr from edAddr : decR(efragl))) 
-    = {attrs2, msg0 msgs0}
-if attrs0, w4c: (to edAddr from cmsAddr : decQ(imagel)),
-   replyTo: (to cmsAddr from umAddr : actionQ(ract)),
-   currentFragsR: efragl0 := attrs    
-/\ efragl1 := addEfrags(efragl,efragl0)
-/\ efileX := efraglComplete?(efragl1)
-/\ efragl3 := (if efileX == nilBS
-               then efragl1 else nilBS fi)
-/\ msg0 := (to umAddr from cmsAddr : actionR("ok"))
-/\ msgs0 :=
-    (if efileX == nilBS 
-     then null
-     else (to getReceiverAddress(attrs) from cmsAddr
-              : efileX )
-    fi)
-/\ hattrs := (if efileX == nilBS 
-              then getRcvHashTagAttrs(attrs0)
-              else nextWHashtag(getRcvHashTagAttrs(attrs0))
-               fi)
-              
-/\ attrs2 := setRcvHashTagAttrs(attrs0,hattrs),
-             w4c: null, replyTo: null,
-             currentFragsR: efragl3
-       .        
+--- Deliver complete messages and retain the unfinished tail across fetches.
+eq srcvDecR(attrs, msg) = {attrs, null} [owise] .
+ceq srcvDecR(attrs, (to cmsAddr from edAddr : decR(efragl)))
+  = {attrs2,
+     msgs0 unpackToMsgs(efileX, getReceiverAddress(attrs), cmsAddr)}
+  if attrs0, w4c: (to edAddr from cmsAddr : decQ(imagel)),
+             replyTo: (to cmsAddr from umAddr : actionQ(ract)),
+             currentFragsR: efragl0 := attrs
+  /\ {efileX, efragl3} := $decode(efragl0 :: efragl, nilBS, nilBS)
+  /\ hattrs := (if efragl == nilBS
+                then getRcvHashTagAttrs(attrs0)
+                else nextWHashtag(getRcvHashTagAttrs(attrs0)) fi)
+  --- Drain already published toots during this download opportunity.
+  --- An empty fetch (or benign-only images) completes the user action.
+  /\ {attrs2, msgs0} :=
+      (if efragl == nilBS
+       then {attrs0, w4c: null, replyTo: null, currentFragsR: efragl3,
+             (to umAddr from cmsAddr : actionR("ok"))}
+       else srcvActionQ((setRcvHashTagAttrs(attrs0, hattrs),
+                         w4c: null, replyTo: null, currentFragsR: efragl3),
+                        "download",
+                        (to cmsAddr from umAddr : actionQ(ract))) fi) .
 
 endm
 
