@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 manager = TestManager()
 
 def pytest_addoption(parser):
+    parser.addoption("--tgen-statistical", action="store_true", help="run the DNS composition experiment")
+    parser.addoption("--tgen-samples", type=int, default=None, help="fixed DNS comparison sample budget")
     parser.addoption("--build", action="store_true", help="only run build commands, don't test")
     parser.addoption("--persist", action="store_true", help="persist the temporary build directory after tests complete")
 
