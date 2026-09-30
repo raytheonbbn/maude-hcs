@@ -26,7 +26,7 @@ from .runners.smc_runner import smc_runner
 logger = logging.getLogger(__name__)
 
 SMC_THRESHOLD = 10.0
-KS_THRESHOLD = 2.0
+KS_THRESHOLD = 0.6
 TIMEOUT = 60 * 60 * 6 # 6 hours
 
 def make_check_fn(f: Callable[[str, str], None]) -> Callable[[Path, Path], None]:
