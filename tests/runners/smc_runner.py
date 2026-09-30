@@ -41,14 +41,22 @@ def concat_dumps(dump_dir: Path):
 def format_cmd(nspace_args: Namespace, test_arg: dict):
 
     def get_opt(s: str, newline=True) -> str:
-        return f"    --{s} {vars(nspace_args)[s]}"
+        if newline:
+            terminator = " \\\n"
+        else:
+            terminator = ""
+        return f"    --{s} {vars(nspace_args)[s]}{terminator}"
 
-    def get_opt_if_present(s: str) -> str:
-        return f"    --{s} {vars(nspace_args)[s]} \\\n" if s in test_arg else ""
+    def get_opt_if_present(s: str, newline=True) -> str:
+        if newline:
+            terminator = " \\\n"
+        else:
+            terminator = ""
+        return f"    --{s} {vars(nspace_args)[s]}{terminator}" if s in test_arg else ""
 
     return "".join([
         f"maude-hcs scheck \\\n",
-        get_opt_if_present("file"),
+        f"    --file {(GLOBALS.TOP_LEVEL_DIR / test_arg.get("file", "maude_hcs/lib/smc/smc_cp3.maude")).resolve()} \\\n",
         get_opt_if_present("nsims"),
         get_opt_if_present("seed"),
         get_opt_if_present("jobs"),
