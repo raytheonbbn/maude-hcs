@@ -64,5 +64,5 @@ def parse_quatex(quatex: str) -> list[Query]:
     return [
         parse_query(line.strip())
         for line in quatex.splitlines()
-        if line.strip() is not None
+        if line.strip()
     ]
