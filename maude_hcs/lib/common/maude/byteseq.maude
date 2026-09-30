@@ -88,6 +88,7 @@ fmod GENERAL_BYTESEQ is
   eq pack(dataL:ByteSeq :: pack(data:ByteSeqL) :: dataR:ByteSeq)
     = pack(dataL:ByteSeq :: data:ByteSeqL :: dataR:ByteSeq)
   .
+  eq pack(data:ByteSeq) = data:ByteSeq .
   eq pack(nilBS) = noBytes .
   op unpack : ByteSeq -> ByteSeqL [ctor] .
   eq unpack(pack(data:ByteSeqL)) = data:ByteSeqL .
@@ -152,6 +153,14 @@ fmod GENERAL_BYTESEQ is
     if size0:Nat > size1:Nat
   .
   eq makeByteSeqChunk(data:ByteSeq, 0, index:Nat) = noBytes .
+
+  op getData : ByteSeq -> ByteSeq .
+  eq getData(pack(data:ByteSeq)) = data:ByteSeq .
+  eq getData(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat)) = data:ByteSeq .
+
+  op getIndex : ByteSeq -> Nat .
+  eq getIndex(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat)) = index:Nat .
+  eq getIndex(data:ByteSeq) = 0 .
 
   --- Decode a list of received byteseqs. It will recombine chunks if it can.
   --- !!! This expects the list to be ordered with unique chunks !!!
@@ -219,7 +228,7 @@ fmod GENERAL_BYTESEQ is
   --- big and combining the other ones.
   --- It returns the list of byteseqs that need to go out and fit in capacity,
   --- and the remaining byteseqs (even split) that did not fit.
-  ---         Data      CapacityBytes
+  ---         Data      CapacityBytes 
   op encode : ByteSeqL  Nat -> TwoByteSeqL .
   ceq encode(pending:ByteSeqL, capacity:Nat) =
     (if pendingSize:Nat > capacity:Nat
@@ -419,6 +428,19 @@ eq getHashtagAsByteSeq(ccFile(key:ByteSeq, hash:ByteSeq, hashtag:ByteSeq)) = has
 --- Get a hash from a CcFile.
 op getHash : ByteSeq -> Nat .
 eq getHash(ccFile(key:Nat, hash:Nat, hashtag:String)) = hash:Nat .
+eq getHash(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat)) = getHash(data:ByteSeq) .
+eq getHash(data:ByteSeq) = 0 [owise] .
+op getHashString : ByteSeq -> String .
+eq getHashString(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat))
+  = getHashString(data:ByteSeq)
+    + "-" + string(size:Nat, 10)
+    + "-" + string(index:Nat, 10)
+.
+eq getHashString(pack(first:ByteSeq :: data:ByteSeqL))
+  = getHashString(first:ByteSeq) + ":" + getHashString(data:ByteSeqL)
+.
+eq getHashString(pack(nilBS)) = "" .
+eq getHashString(noBytes) = "" .
 --- TODO: Create a hash match function.
 op readHash : ByteSeq -> ByteSeq .
 eq readHash(ccFile(key:ByteSeq, hash:ByteSeq, hashtag:ByteSeq)) = hash:ByteSeq .
@@ -498,8 +520,10 @@ eq isWeird(encode(img:ByteSeq, noBytes, bpf, nf, d1)) = false .
 eq isWeird(encodedImg:ByteSeq) = true [owise] .
 
 eq getSize(encode(image(j,n,k),
-         efrag(efile,n0,ix,l),bpf,nf,d1))
-     =  n + bloat(n,k,l) .
+         bytes, bpf, nf, d1))
+  =  n + bloat(n, k, getSize(bytes))
+.
+
 
 **** bloat(k,n,l) is the increase in size of an image of
     ----size n with capacity k when l bytes are embedded.
@@ -511,7 +535,7 @@ eq bloat(n,k,l) = 0 [owise] .
 op imageId : ByteSeq -> Nat .
 eq imageId(image(j,n,k)) = j .
 eq imageId(encode(image(j,n,k),
-                   efrag(efile,n0,ix,l),bpf,nf,d))
+                   bytes, bpf, nf, d1))
      = j .
 eq imageId(bytes)  = 0 [owise] .
 

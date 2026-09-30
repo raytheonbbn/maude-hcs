@@ -61,7 +61,11 @@ ops CMSndRcv  : -> ActorType .
 **** Attributes
 ---- for sending
 op sndHashTagAtts:_ : AttributeSet -> Attribute [ctor] .
+--- The list of pending messages to be sent. Can be partial.
 op pendingFiles:_ : ByteSeqL -> Attribute [ctor] .
+--- The list of messages ready to go out.
+op readyFiles:_ : ByteSeqL -> Attribute [ctor] .
+--- The list of messages (can be partial) that will be encoded and sent next.
 op currentFrags:_  : ByteSeqL -> Attribute [ctor] .
 ---- 
 --- The number of images that have still to be encoded in the batch.
@@ -91,6 +95,24 @@ op postingWeird:_ : Bool -> Attribute [ctor] .
 op weirdFileRcvTimes:_ : FloatList -> Attribute [ctor] .
 
 
+--- Get pending files (that we want to send but may not get to.)
+op getPendingFiles : AttributeSet -> ByteSeqL .
+eq getPendingFiles(attrs, pendingFiles: FILES:ByteSeqL) = FILES:ByteSeqL .
+eq getPendingFiles(attrs) = nilBS [owise] .
+
+--- Get pending files (that we want to send and are ready but may not get to.)
+op getReadyFiles : AttributeSet -> ByteSeqL .
+eq getReadyFiles(attrs, readyFiles: FILES:ByteSeqL) = FILES:ByteSeqL .
+eq getReadyFiles(attrs) = nilBS [owise] .
+
+--- Get original request.
+op getW4c : AttributeSet -> Config .
+eq getW4c(attrs, w4c: REQUEST:Config) = REQUEST:Config .
+eq getW4c(attrs) = null [owise] .
+
+op getPostingWeird : AttributeSet -> Bool .
+eq getPostingWeird(attrs, postingWeird: WEIRD:Bool) = WEIRD:Bool .
+eq getPostingWeird(attrs) = false [owise] .
 **********  CM BIDIR
 
 ----                        Destini MasClient sndrcv 
@@ -103,6 +125,7 @@ eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr,
    --- sending attributes
    sndHashTagAtts: initHashtagAttrs(hashSnd),
    pendingFiles: nilBS,
+   readyFiles: nilBS,
    currentFrags: nilBS,
    numPendingImages: 0,
    encodedImages: nilBS,
