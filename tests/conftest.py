@@ -30,7 +30,6 @@ def pytest_addoption(parser):
     parser.addoption("--temp-dir", help="manually choose a directory to store built environments. Implies `--persist`")
     parser.addoption("--results-dir", help="save test results under specified directory (different from snapshot!)")
 
-    # parser.addoption("--build-override", help="override build configs for all selected tests using given json-parsable string")
     parser.addoption("--override-run-time", help="override run time for all selected tests", type=int)
 
     # pytest by default has many useful flags, especially -k for selecting tests. See also --log-level, --log-cli-level, -s, 
@@ -78,10 +77,10 @@ def pytest_collection_modifyitems(session, config, items):
     exp_only = config.run_cfg.expected
 
     def item_filter(item):
-        if reg_only: return item.name == "test_regression"
-        if exp_only: return item.name == "test_expected"
+        if reg_only: return item.name.startswith("test_regression")
+        if exp_only: return item.name.startswith("test_expected")
         return True
-
+    
     items[:] = list(filter(item_filter, items))
 
 def pytest_generate_tests(metafunc: pytest.Metafunc):
@@ -93,8 +92,8 @@ def pytest_generate_tests(metafunc: pytest.Metafunc):
             lambda test_cfg: (run_cfg.runner is None) or test_cfg.runner == run_cfg.runner,
             test_cfgs
         ))
-    
-    if metafunc.definition.name == "test_regressions":
+
+    if metafunc.definition.name == "test_regression":
         metafunc.parametrize("test_cfg", filter_runner(manager.regression_test_cfgs()), ids=mk_id)
 
     if metafunc.definition.name == "test_expected":
