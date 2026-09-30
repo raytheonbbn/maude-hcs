@@ -1874,40 +1874,6 @@ def generate(args: argparse.Namespace):
         f.write(addr_content)
     logger.info("\nWrote %s (%s) lines)", addr_path, len(addr_content.splitlines()))
 
-    # # Dynamically build Vpts list
-    # if args.filterVpFeatCombos:
-    #     vpts_list = ["ixpN"]
-    #     for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net_sky")]):
-    #         vpts_list.append(cl_id)
-    #     # vpts_list.extend(["srvN"])
-    # elif args.filterVpFeatCombos2:
-    #     vpts_list = ["srvN"]
-    #     for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net_mastodon") or k.startswith("client_net_racetunnel")]):
-    #         vpts_list.append(cl_id)
-    # elif args.filterVpFeatCombo4x5:
-    #     vpts_list = get_combo4x5_vantage_points(net_id_map)
-    # elif args.filterVpFeatTop25:
-    #     vpts_list = get_top25_vantage_points(net_id_map)
-    # elif args.filterVpFeatIxp:
-    #     vpts_list = ["ixpN"]
-    # else:
-    #     vpts_list = ["ixpN"]
-    #     for cl_id in sorted([v for k, v in net_id_map.items() if k.startswith("client_net")]):
-    #         vpts_list.append(cl_id)
-    #     for srv in ["srvN", "masN"]:
-    #         if srv in net_id_map.values():
-    #             vpts_list.append(srv)
-
-    # if args.filterVpFeatTop25:
-    #     selected_features = get_top25_features()
-    # elif args.filterVpFeatCombo4x5:
-    #     selected_features = get_combo4x5_features()
-    # elif args.filterVpFeatCombos or args.filterVpFeatCombos2:
-    #     selected_features = get_vp_feat_combo_features()
-    # else:
-    #     selected_features = FEATURES
-    
-
     # Generate main file
     main_content = gen_main_file(
         tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, run_time,
