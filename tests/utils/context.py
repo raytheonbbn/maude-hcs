@@ -115,12 +115,14 @@ class Context:
     def _load_test_cfgs_by_runner(self, runner: TestRunner, build_cfgs: dict[str, BuildConfig]) -> list["TestConfig"]:
         test_cfgs = []
         path = self.directory / "tests" / f"{runner.value}.json"
+
         if path.is_file():
             logger.info(path.read_text())
             tests = json.loads(path.read_text())
+
             for test in tests:
                 assert isinstance(test, dict)
-                test_cfgs.append(TestConfig(
+                cfg = TestConfig(
                     ctx=self,
                     name=test["name"],
                     desc=test["desc"],
@@ -129,7 +131,13 @@ class Context:
                     runner=runner,
                     build_cfg=build_cfgs[test["build_cfg"]],
                     arg=test.get("arg", {})
-                ))
+                )
+                assert isinstance(cfg.name, str)
+                assert isinstance(cfg.desc, str)
+                assert isinstance(cfg.expected, str | None)
+                assert isinstance(cfg.expected_file, str | None)
+                test_cfgs.append(cfg)
+
         return test_cfgs
 
     def get_test_cfgs(self) -> list["TestConfig"]:
@@ -172,7 +180,7 @@ class TestConfig:
     runner:         TestRunner
     build_cfg:      BuildConfig
     arg:            Any
-    expected:       dict | None = None
+    expected:       str | None = None
     expected_file:  str | None = None
 
     # Prevent pytest from collecting this class

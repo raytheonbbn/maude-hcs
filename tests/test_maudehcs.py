@@ -29,12 +29,17 @@ SMC_THRESHOLD = 10.0
 KS_THRESHOLD = 0.5
 TIMEOUT = 60 * 60 * 6 # 6 hours
 
+def make_check_fn(f: Callable[[str, str], None]) -> Callable[[Path, Path], None]:
+    """Given a comparison function `f` between two strings, returns a comparison function between filenames
+    that just invokes `f` on the contents of those files."""
+    return lambda n0, n1: f(n0.read_text(), n1.read_text())
+
 class ChildProcessErrorWrapper(Exception):
     """Custom exception used to format and output the traceback of a child process."""
     def __init__(self, exception: Exception, tb_string: str):
         self.exception = exception
         self.tb_string = tb_string
-
+    
     def __str__(self):
         return f"\n\n--- Child Process Traceback ---\n{self.tb_string}{type(self.exception).__name__}: {self.exception}"
 
@@ -51,8 +56,8 @@ def euclid_feat_distance(feat0: dict, feat1: dict) -> float:
 def proc_target(run: Callable, sender: Connection, test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig):
 
     try:
-        log_stdout_filename = mk_id(test_cfg) + ":stdout:" + str(uuid.uuid4())
-        log_stderr_filename = mk_id(test_cfg) + ":stderr:" + str(uuid.uuid4())
+        log_stdout_filename = mk_id(test_cfg) + ":stdout"
+        log_stderr_filename = mk_id(test_cfg) + ":stderr"
         log_stdout_path = build_dir / "logs" / log_stdout_filename
         log_stderr_path = build_dir / "logs" / log_stderr_filename
         log_stdout_path.touch()
@@ -69,7 +74,7 @@ def proc_target(run: Callable, sender: Connection, test_cfg: TestConfig, build_d
         # to our stdout (which is now a StringIO)
         child_logger = logging.getLogger("TestSubProcess")
         child_logger.setLevel(logging.INFO)
-        log_filename = mk_id(test_cfg) + str(uuid.uuid4())
+        log_filename = mk_id(test_cfg) + ":log"
         child_logger.addHandler(logging.FileHandler(build_dir / "logs" / log_filename))
 
         result = run(test_cfg, build_dir, run_cfg, child_logger)
@@ -117,26 +122,26 @@ def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
         
         return result
 
-def get_checker(cfg: TestConfig) -> Callable[[Path, Path], None]:
+def get_comp(cfg: TestConfig) -> Callable[[str, str], None]:
+    """Get appropriate comparison function for this config"""
+
     match cfg.runner:
-        case TestRunner.MAUDE: return json_check_fn
-        case TestRunner.SMC: return smc_check_fn
+        case TestRunner.MAUDE: return json_comp
+        case TestRunner.SMC: return smc_comp
         case _: raise Exception("invalid TestRunner")
 
-def naive_smc_check_fn(obtained_filename: Path, expected_filename: Path):
+def naive_smc_comp(obtained: str, expected: str):
     """Compare the results of an SMC run to a known "good" reference run.
-    Both files should contain json of the form {queries: [{"mean": X, "std": Y, "radius": Z}, ...], ...}
+    Both strings should contain json of the form {queries: [{"mean": X, "std": Y, "radius": Z}, ...], ...}
     where X Y and Z are floats.
     
     The comparison is made by averaging the "distance" between each pair of queries, interpreting X Y and Z as 3d coordinates.
     This is a kinda silly method, but I'm not yet sure of a better metric on distributions without ECDFs."""
 
-    obtained_str = obtained_filename.read_text()
-    obtained_json = json.loads(obtained_str)
+    obtained_json = json.loads(obtained)
     obtained_queries = obtained_json["queries"]
 
-    expected_str = expected_filename.read_text()
-    expected_json = json.loads(expected_str)
+    expected_json = json.loads(expected)
     expected_queries = expected_json["queries"]
 
     if not isinstance(obtained_queries, list):
@@ -153,13 +158,11 @@ def naive_smc_check_fn(obtained_filename: Path, expected_filename: Path):
 
     assert avg_distance <= SMC_THRESHOLD
 
-def smc_check_fn(obtained_filename: Path, expected_filename: Path):
-    obtained_str = obtained_filename.read_text()
-    obtained_json: dict = json.loads(obtained_str)
+def smc_comp(obtained: str, expected: str):
+    obtained_json: dict = json.loads(obtained)
     obtained_results: dict = obtained_json["results"]
 
-    expected_str = expected_filename.read_text()
-    expected_json: dict = json.loads(expected_str)
+    expected_json: dict = json.loads(expected)
     expected_results: dict = expected_json["results"]
 
     shared_top_keys = set(obtained_json.keys()).intersection(expected_json.keys()).difference(set(["results"]))
@@ -182,19 +185,15 @@ def smc_check_fn(obtained_filename: Path, expected_filename: Path):
             expected_results[key]["samples"]
         ).statistic <= KS_THRESHOLD # type: ignore
 
-def json_check_fn(obtained_filename: Path, expected_filename: Path):
+def json_comp(obtained: str, expected: str):
     """Just compare two json files for equality when interpreted as Python objects"""
-    obtained_str = obtained_filename.read_text()
-    obtained_json = json.loads(obtained_str)
-
-    expected_str = expected_filename.read_text()
-    expected_json = json.loads(expected_str)
-
+    obtained_json = json.loads(obtained)
+    expected_json = json.loads(expected)
     assert obtained_json == expected_json
 
 # parametrization for the tests is handled in conftest.py to allow for selecting different tests based on command-line args
 
-def test_regressions(test_cfg: TestConfig, pytestconfig, file_regression: FileRegressionFixture):
+def test_regression(test_cfg: TestConfig, pytestconfig, file_regression: FileRegressionFixture):
     """Run this test_cfg and compare results to a saved reference result, or save the results if this is the first time"""
     build_dir = build(test_cfg.build_cfg, pytestconfig.run_cfg, test_cfg.ctx.directory)
 
@@ -209,10 +208,11 @@ def test_regressions(test_cfg: TestConfig, pytestconfig, file_regression: FileRe
         with open(Path(pytestconfig.run_cfg.results_dir) / f"{mk_id(test_cfg)}.json", 'w') as f:
             json.dump(out, f, indent=4)
 
+
     file_regression.check(
         json.dumps(out, indent=4),
         extension=".json",
-        check_fn=get_checker(test_cfg),
+        check_fn=make_check_fn(get_comp(test_cfg)),
         basename=mk_id(test_cfg)
     )
 
@@ -230,4 +230,13 @@ def test_expected(test_cfg: TestConfig, pytestconfig):
         with open(Path(pytestconfig.run_cfg.results_dir) / f"{mk_id(test_cfg)}.json", 'w') as f:
             json.dump(out, f, indent=4)
 
-    assert out == test_cfg.expected
+    if isinstance(out, dict):
+        out = json.dumps(out, indent=4)
+
+    if test_cfg.expected is not None:
+        get_comp(test_cfg)(out, test_cfg.expected)
+    elif test_cfg.expected_file is not None:
+        exp_file = test_cfg.ctx.directory / "expected" / f"{test_cfg.expected_file}.json"
+        get_comp(test_cfg)(out, exp_file.read_text())
+    else:
+        raise RuntimeError("test_cfg passed to test_expected must set either expected or expected_file attributes")
