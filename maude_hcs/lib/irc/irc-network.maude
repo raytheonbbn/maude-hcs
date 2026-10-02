@@ -1,0 +1,149 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+---- adapted from irc/irc-byteseq-interface.maude
+
+set show advisories off .
+
+sload ../../deps/dns_formalization/Maude/common/actor.maude
+sload ../common/maude/byteseq
+sload ../common/maude/delay-drop-x
+sload ../common/maude/cp2-interfaces
+sload _irc_aux
+sload ircMonitor
+
+mod IRC-NETWORK is
+  inc ACTOR-MODEL .
+  inc BYTESEQ .
+  inc CP2-COMMON .
+  inc DELAY-X .
+  inc IRC_MONITOR .
+  inc IRC_AUX  .
+  
+vars j j1 : Nat .
+vars attrs attrs0 mattrs mattrs1 : AttributeSet .
+vars ifAddr ircAddr epAddr monAddr : Address .
+vars msg msg0 : Msg .
+vars ircMsg : IrcMsg .
+vars byteseq : ByteSeq .
+vars T : Float .
+vars smsgs : Config .
+
+****!!! need a place to put the protocol constructors
+**** And bytseq converters
+
+op irc : Address -> Address [ctor] .
+
+op ircToByteseq : IrcMsg -> ByteSeq [ctor] .
+op ircFromByteseq : ByteSeq -> IrcMsg .
+eq ircFromByteseq(ircToByteseq(ircMsg)) = ircMsg .
+
+**** op getSize : Content -> Nat .
+eq getSize(ircToByteseq(ircMsg)) = getSize(ircMsg) .
+eq nbytes(ircToByteseq(ircMsg)) = getSize(ircMsg) .
+
+op IrcNetwork : -> ActorType .
+
+op mkIrcNetActor : Address -> Actor .
+eq mkIrcNetActor(ifAddr)
+   =
+   < ifAddr : IrcNetwork | noneAS  >  .
+
+crl [fromIrc2ep]:
+  rCtr(j)
+  {T, (to irc(epAddr) from ircAddr : ircMsg)}
+  < ifAddr : IrcNetwork | attrs >
+  < monAddr : IrcMonitor | mattrs >
+ =>
+  rCtr(s j)
+  < ifAddr : IrcNetwork | attrs >
+  < monAddr : IrcMonitor | mattrs1 >
+  smsgs
+  if msg := (to epAddr from irc(ircAddr) 
+             : ircToByteseq(ircMsg))
+  /\ msg0 := (to epAddr from ircAddr
+             : ircToByteseq(ircMsg))
+  /\ smsgs := [delayParamdX(j,msg0),msg,0]          
+  /\ mattrs1 := 
+       ircLogSent(mattrs,T, epAddr, ircAddr,ircMsg)
+[print "(" T ") " "IrcNetwork " ifAddr " transforms " ircMsg]  
+.
+
+crl [fromEp2Irc]:
+  rCtr(j)
+  {T, (to irc(ircAddr) from epAddr : byteseq)}
+  < ifAddr : IrcNetwork | attrs >
+  < monAddr : IrcMonitor | mattrs >
+ =>
+  rCtr(s j)
+  smsgs
+  < ifAddr : IrcNetwork |  attrs >
+  < monAddr : IrcMonitor | mattrs1 >
+ if ircMsg := ircFromByteseq(byteseq)
+ /\ msg := (to ircAddr from irc(epAddr) : ircMsg )
+ /\ msg0 := (to ircAddr from epAddr : ircMsg )
+ /\ smsgs := [delayParamdX(j,msg0),msg,0]          
+ /\ mattrs1 :=
+      ircLogRcvd(mattrs,T,ircAddr, epAddr,ircMsg)
+[print "(" T ") " "IrcNetwork " ifAddr "  rcvd " byteseq ]  .
+
+endm
+
+mod TEST-IRC-NETWORK is
+  inc IRC-NETWORK .
+  
+ops ifAd ircAd epAd  monAd : -> Address .
+op ircNetAct : -> Actor .
+eq ircNetAct =
+       mkIrcNetActor(ifAd) .
+
+op ircMonAct : -> Actor .
+eq ircMonAct = mkIrcMonitor(monAd,ircAd,epAd,"#xxx") .
+
+op ircM : -> IrcMsg .
+eq getSize(ircM) = 150 .
+eq nbytes(ircM) = 150 .
+
+ops ircM0 ircM1 ircM2 ircM3 : -> IrcMsg .
+eq ircM0 = PrivMsgReq(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircAd),"msg 0") .
+eq ircM1 = PrivMsgRes(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircAd),"msg 0") .
+eq ircM2 = PrivMsgReq(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircAd),"msg 1") .
+eq ircM3 = PrivMsgRes(makeIrcChannelName("bbn"),
+                      makeIrcUserName(ircAd),"msg 1") .
+
+endm  
+eof
+
+rew rCtr(9) ircMonAct ircNetAct {1.0, (to irc(epAd) from ircAd : ircM0)} .
+
+rew rCtr(10) ircMonAct ircNetAct {1.1,(to irc(ircAd) from epAd : ircToByteseq(ircM1))} .
