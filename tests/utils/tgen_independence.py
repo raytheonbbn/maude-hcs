@@ -1,23 +1,26 @@
-"""One narrow experiment: do two DNS sources compose by adding their rates?"""
-from dataclasses import dataclass, asdict
+"""Shared TGEN composition experiments using the existing generator and SMC runner."""
+from dataclasses import dataclass, asdict, replace
+from pathlib import Path
+from urllib.parse import quote
+import hashlib
 import json
 import logging
 import math
-from pathlib import Path
+import re
 import shutil
 import statistics
 import tempfile
-import hashlib
 import uuid
 
 import numpy as np
+import yaml
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
-
 from scipy.stats import ks_2samp
 
-import yaml
-
+from maude_hcs.generate_cp3 import FEATURES
+from maude_hcs.lib import GLOBALS
+from maude_hcs.query import parse_quatex
 from .build import build
 from .context import BuildConfig, Context, GenArgs, TestConfig, TestRunner
 from ..test_maudehcs import run
@@ -26,118 +29,285 @@ CONTEXT = Path(__file__).parents[1] / 'contexts' / 'tgen_independence'
 
 
 @dataclass(frozen=True)
+class Tgen:
+    yaml_key: str
+    directory: str
+    converter: str
+    version: int
+    actor_label: str
+    log: str
+
+
+TGENS = {
+    'dnsTgen': Tgen('tgen_type_dns', 'dns', 'dns-tgen', 1, 'DNS', 'dns'),
+    'masTgen': Tgen('tgen_type_mastodon', 'mastodon', 'mastodon-tgen', 1, 'Mastodon', 'tcp'),
+    'ftpTgen': Tgen('tgen_type_ftp', 'ftp', 'ftp-tgen', 2, 'FTP', 'tcp'),
+    'minTgen': Tgen('tgen_type_minio', 'minio', 'minio-tgen', 2, 'MinIO', 'tcp'),
+    'gorTgen': Tgen('tgen_type_gorilla', 'gorilla', 'gorilla-tgen', 2, 'Gorilla', 'tcp'),
+    'ircTgen': Tgen('tgen_type_irc', 'irc', 'irc-tgen', 2, 'IRC', 'tcp'),
+}
+
+
+@dataclass(frozen=True)
+class Recipe:
+    log: str
+    count: str
+    size: str | None = None
+
+    @property
+    def units(self):
+        return 'bytes/packet' if self.size else 'packets/second'
+
+
+# These are the same selectors used by compObsFeatureX. In particular, total
+# TCP count/size uses an OR over directions, not the sum of the two directions.
+RECIPES = {
+    'dnsQueryRate': Recipe('dns', 'countDNSQuery'),
+    'dnsQuerySize': Recipe('dns', 'countDNSQuery', 'sizeDNSQuery'),
+    'dnsRespSize': Recipe('dns', 'countDNSResp', 'sizeDNSResp'),
+    'tcpOutPktRate': Recipe('tcp', 'countTCPOutPkt'),
+    'tcpInPktRate': Recipe('tcp', 'countTCPInPkt'),
+    'tcpPktSize': Recipe('tcp', 'countTCPPkt', 'sizeTCPPkt'),
+}
+
+
+@dataclass(frozen=True)
 class Experiment:
-    feature: str
-    vantage: str
-    network: str
+    id: str
+    tgen_type: str
     profile: str
-    window_start: int
-    window_size: int
-    population: int
-    samples: int
+    network: str
     single_seed: int
     joint_seed: int
-    delta: float
-    alpha: float
-    method: str = 'p-value'
+    features: list[str]
+    vantage_points: list[str]
 
-    def __post_init__(self):
-        if self.method not in {'p-value', 'bound'}:
-            raise ValueError('method must be p-value or bound')
-        # Deliberately reject unsupported observables rather than silently using
-        # addition for a mean, per-flow ECDF, or non-additive feature.
-        if (self.feature, self.vantage, self.network, self.profile, self.population) != (
-                'dnsQueryRate', 'cl[1]', 'client_net_mastodon', 'normal_1', 2):
-            raise ValueError('This first experiment supports two DNS normal_1 sources at cl[1] only')
-        if self.window_start != 0 or self.window_size != 60:
-            raise ValueError('This experiment observes the fixed window [0, 60] using existing visibility semantics')
-        if type(self.samples) is not int or self.samples < 2:
-            raise ValueError('samples must be an integer >= 2')
-        if self.single_seed == self.joint_seed or any(type(s) is not int or s < 0 for s in (self.single_seed, self.joint_seed)):
-            raise ValueError('Use distinct nonnegative seeds for the two simulation streams')
+    def cases(self):
+        return [(feature, vantage) for feature in self.features for vantage in self.vantage_points]
+
+    def case_id(self, feature, vantage):
+        return f'{self.id}__{self.tgen_type}__{feature}__{vantage}'
+
+    def group_key(self):
+        # Features do not affect source behavior. Entries differing only in their
+        # query selection can share the same pair of simulations in this suite.
+        return (self.tgen_type, self.profile, self.network, self.single_seed, self.joint_seed)
+
+
+@dataclass(frozen=True)
+class Suite:
+    experiments: list[Experiment]
+    schema_version: int = 2
+    scenario: str = 'scenario1'
+    scenario_file: str = 'scenario.yaml'
+    window_start: int = 0
+    window_size: int = 60
+    population: int = 2
+    samples: int = 5000
+    method: str = 'p-value'
+    alpha: float = .05
+    delta: float = .05
+    multiplicity: str = 'none'
+
+    @property
+    def family_size(self):
+        return sum(len(e.cases()) for e in self.experiments)
+
+    @property
+    def effective_alpha(self):
+        return self.alpha / self.family_size if self.multiplicity == 'bonferroni' else self.alpha
+
+    def validate(self, context=CONTEXT):
+        if self.schema_version != 2 or self.scenario != 'scenario1':
+            raise ValueError('Expected schema_version=2 and scenario1')
+        if self.window_start != 0:
+            raise ValueError('window_start must be zero')
+        for name, minimum in (('window_size', 1), ('population', 2), ('samples', 2)):
+            value = getattr(self, name)
+            if type(value) is not int or value < minimum:
+                raise ValueError(f'{name} must be an integer >= {minimum}')
+        if self.method not in {'p-value', 'bound'} or self.multiplicity not in {'bonferroni', 'none'}:
+            raise ValueError('Invalid comparison method or multiplicity policy')
         if not 0 < self.alpha < 1 or not 0 < self.delta < 1:
             raise ValueError('alpha and delta must be between 0 and 1')
+        if not self.experiments:
+            raise ValueError('Select at least one experiment')
+        # Paths and IDs are local names, not arbitrary paths or Maude fragments.
+        if Path(self.scenario_file).name != self.scenario_file:
+            raise ValueError('scenario_file must be a filename in the context')
+        scenario = yaml.safe_load((context / self.scenario_file).read_text())
+        if scenario['nodes']:
+            raise ValueError('Composition fixture must have no HCS clients')
+        ids, identities = set(), set()
+        for e in self.experiments:
+            if not re.fullmatch(r'[A-Za-z0-9_-]+', e.id) or e.id in ids:
+                raise ValueError(f'Invalid or duplicate experiment ID: {e.id}')
+            ids.add(e.id)
+            if e.tgen_type not in TGENS:
+                raise ValueError(f'Unknown TGEN type: {e.tgen_type}')
+            if not re.fullmatch(r'[A-Za-z0-9_-]+', e.profile):
+                raise ValueError('Invalid profile name')
+            adapter = TGENS[e.tgen_type]
+            if not (context / 'tgen_user_models' / adapter.directory / f'{e.profile}.json').is_file():
+                raise ValueError(f'Missing profile: {e.tgen_type}/{e.profile}')
+            if e.network not in scenario['network'] or scenario['network'][e.network]['network'] != 'client':
+                raise ValueError(f'Expected a configured client placement network: {e.network}')
+            if e.single_seed == e.joint_seed or any(type(s) is not int or s < 0 for s in (e.single_seed, e.joint_seed)):
+                raise ValueError('Use distinct nonnegative seeds per pair of arms')
+            if not e.features or not e.vantage_points or set(e.vantage_points) != {'ixpN'}:
+                raise ValueError('Explicit features and ixpN-only vantage_points are required')
+            for feature, vantage in e.cases():
+                if feature not in FEATURES:
+                    raise ValueError(f'Unknown feature: {feature}')
+                identity = (e.tgen_type, e.profile, e.network, feature, vantage)
+                if identity in identities:
+                    raise ValueError(f'Duplicate observable configuration: {identity}')
+                identities.add(identity)
+        return self
 
 
-def compose_rates(single, population=2):
-    """Consume each independent single-source run exactly once, in raw row order."""
-    if population != 2 or len(single) == 0 or len(single) % population:
-        raise ValueError('Expected disjoint pairs of single-source samples')
-    if any(not math.isfinite(x) or x < 0 for x in single):
-        raise ValueError('Packet rates must be finite and nonnegative')
-    counts = [packet_count(rate) for rate in single]
-    return [sum(counts[i:i + population]) / 60 for i in range(0, len(counts), population)]
+def load_suite(path=CONTEXT / 'experiment.json'):
+    data = json.loads(Path(path).read_text())
+    data['experiments'] = [Experiment(**e) for e in data['experiments']]
+    return Suite(**data).validate(Path(path).parent)
 
 
-def packet_count(rate):
-    """Recover the integer count behind this fixed 60-second rate observable."""
-    count = round(rate * 60)
-    if not math.isclose(rate * 60, count, rel_tol=0, abs_tol=1e-9):
-        raise ValueError('DNS rate must represent an integer count over 60 seconds')
-    return count
+def select_suite(suite, *, tgen_type=None, window_size=None):
+    """Apply CLI selection before sampling and computing the statistical family."""
+    if tgen_type is not None:
+        aliases = {alias.lower(): kind for kind, adapter in TGENS.items()
+                   for alias in (kind, adapter.directory)}
+        kind = aliases.get(tgen_type.lower())
+        if kind is None:
+            raise ValueError(f'Unknown TGEN type: {tgen_type}; use ' + ', '.join(TGENS))
+        entries = [entry for entry in suite.experiments if entry.tgen_type == kind]
+        if not entries:
+            raise ValueError(f'No configured experiments for {kind}')
+        suite = replace(suite, experiments=entries)
+    if window_size is not None:
+        suite = replace(suite, window_size=window_size)
+    return suite.validate()
 
 
-def install_observation(build_dir):
-    # Note: we are editing the config directly because if we instead set perf = false in the experiment
-    #   the -run will have baseline in it which we are avoiding in this case
-    #   we instead remove baseline timer and actor and keep adversary measuring
-    """Use the generated DNS observer, with no calibration or log pruning."""
-    path = build_dir / 'test.maude'
+def recipe_for(experiment, feature):
+    recipe = RECIPES.get(feature)
+    return recipe if recipe and recipe.log == TGENS[experiment.tgen_type].log else None
+
+
+def query_manifest(entries, suite):
+    """Deduplicate summaries while keeping each feature's direct reference query."""
+    columns = {}
+    for e in entries:
+        for feature, vantage in e.cases():
+            recipe = recipe_for(e, feature)
+            if recipe is None:
+                continue
+            log = 'getTsML' if recipe.log == 'dns' else 'getTsPL'
+            args = f'{vantage}, {log}(getAdversary(C)), 0.0, {suite.window_size}.0'
+            columns[f'{feature}:{vantage}'] = dict(
+                name=feature, vantage=vantage, integer=False,
+                expression=f'compObsFeatureX({vantage}, {feature}, {log}(getAdversary(C)), 0.0, {suite.window_size}.0)')
+            for operator in (recipe.count, recipe.size):
+                if operator:
+                    name = f'summary_{operator}'
+                    columns[f'{name}:{vantage}'] = dict(
+                        name=name, vantage=vantage, integer=True, expression=f'float({operator}({args}))')
+    return list(columns.values())
+
+
+def install_observation(directory, manifest, window_size):
+    """Retain passive DNS/TCP logs without baseline collection or pruning."""
+    path = directory / 'test.maude'
     lines = path.read_text().splitlines(keepends=True)
-    # Performance mode removes baseline collection but also disables DNS logging.
-    # Restore passive observation and remove the orphan calibration timer;
-    # guard these local adaptations against changes in generated structure.
     timers = [line for line in lines if '(to baseLineAddr from baseLineAddr : initKs)' in line]
     if len(timers) != 1 or any(line.strip() == 'baseLineAct' for line in lines):
-        raise ValueError('Expected observation-only generated model with one unused KS timer')
+        raise ValueError('Expected performance-mode model with one unused KS timer')
     generated = ''.join(line for line in lines if line not in timers)
     observer = 'mkAdversaryCp3(advAddr, false)'
     if generated.count(observer) != 1:
-        raise ValueError('Expected one disabled observer in performance mode')
+        raise ValueError('Expected one disabled observer')
     path.write_text(generated.replace(observer, 'mkAdversaryCp3(advAddr, true)'))
-    # PMaude restarts by rewriting initConfig to completion before rval runs.
-    # This is the all-flow scalar, not the per-flow/bin ECDF used by detectors.
-    (build_dir / 'test.quatex').write_text(
-        'eval E[s.rval("compObsFeatureX(cl[1], dnsQueryRate, '
-        'getTsML(getAdversary(C)), 0.0, 60.0)")]; // cumulative dnsQueryRate 0 60\n'
-    )
+    # Five-field comments already carry vantage identity in the existing parser.
+    query = ''.join(f'eval E[s.rval("{c["expression"]}")]; // cumulative {c["name"]} 0 {window_size} {c["vantage"]}\n'
+                    for c in manifest)
+    names = [q.to_name() for q in parse_quatex(query)]
+    if len(names) != len(manifest) or len(set(names)) != len(names):
+        raise ValueError('Query identities must be unique')
+    (directory / 'test.quatex').write_text(query)
 
 
-def prepare_arm(root, population, samples, seed, experiment, run_cfg):
+def prepare_arm(root, group, population, samples, seed, suite, run_cfg, manifest):
+    e = group[0]
+    adapter = TGENS[e.tgen_type]
     source = root / f'source-{population}'
-    shutil.copytree(root / 'fixture', source)
-    path = source / 'scenario.yaml'
-    scenario = yaml.safe_load(path.read_text())
-    if scenario['nodes'] or set(scenario['tgen']) != {'tgen_type_dns'}:
-        raise ValueError('The experiment requires a DNS-only scenario with no HCS clients')
-    networks = scenario['tgen']['tgen_type_dns']['tgen_per_network']
-    if set(networks) != {experiment.network} or networks[experiment.network]['profiles'] != {experiment.profile: 1.0}:
-        raise ValueError('Expected one network and one identical user profile')
-    networks[experiment.network]['quantity'] = population
-    path.write_text(yaml.safe_dump(scenario, sort_keys=False))
-    cfg = BuildConfig(f'dns-{population}', (('tgen_user_models/dns', 'dns-tgen'),), (),
-                      GenArgs('scenario.yaml', run_time=60, hcs_delay=0, tgen_delay=0, performance=True))
+    shutil.copytree(root.parent / 'fixture', source)
+    scenario = yaml.safe_load((source / suite.scenario_file).read_text())
+    scenario.update(conversation_duration=suite.window_size, analysis_window_size=suite.window_size)
+    # Keep shared services, but replace source populations rather than appending
+    # them to the original DNS-only fixture. No autonomous monitor UM is added.
+    scenario['tgen'] = {adapter.yaml_key: {'tgen_per_network': {
+        e.network: {'quantity': population, 'profiles': {e.profile: 1.0}}}}}
+    (source / suite.scenario_file).write_text(yaml.safe_dump(scenario, sort_keys=False))
+    conversion = ((f'tgen_user_models/{adapter.directory}', adapter.converter),)
+    cfg = BuildConfig(f'{e.id}-{population}', conversion if adapter.version == 1 else (),
+                      conversion if adapter.version == 2 else (),
+                      GenArgs(suite.scenario_file, run_time=suite.window_size,
+                              hcs_delay=0, tgen_delay=0, performance=True))
     directory = build(cfg, run_cfg, source)
     generated = (directory / 'test.maude').read_text()
-    if generated.count('--- DNS TGEN:') != population or 'eq allClientsAddr = nil .' not in generated:
-        raise ValueError('Generated configuration does not match the requested populations')
-    install_observation(directory)
-    test = TestConfig(Context('tgen_independence', source), f'dns-{population}',
-                      'DNS-only additive observable experiment', TestRunner.SMC, cfg,
+    if generated.count(f'--- {adapter.actor_label} TGEN:') != population or 'eq allClientsAddr = nil .' not in generated:
+        raise ValueError('Generated model has an unexpected TGEN/HCS population')
+    install_observation(directory, manifest, suite.window_size)
+    test = TestConfig(Context('tgen_independence', source), f'{e.id}-{population}',
+                      'TGEN observable composition', TestRunner.SMC, cfg,
                       {'nsims': f'{samples}-{samples}', 'seed': seed, 'jobs': 0})
     return test, directory, scenario
 
 
-def read_rates(directory, expected):
-    """Use the existing runner's raw dump, never its sorted marginal samples."""
-    rows = (directory / 'dumps' / 'all_dumps').read_text().splitlines()
-    if len(rows) != expected or any(len(row.split()) != 1 for row in rows):
-        raise ValueError('Expected one DNS rate per simulation, with the exact sample budget')
-    rates = [float(row) for row in rows]
-    if any(not math.isfinite(x) or x < 0 for x in rates) or not any(rates):
-        raise ValueError('Invalid or entirely inactive DNS traffic')
-    # Canonicalize through counts so equal discrete values have identical floats.
-    return [packet_count(rate) / 60 for rate in rates]
+def read_rows(directory, expected, manifest):
+    """Preserve run-level pairing; never use the runner's sorted marginal samples."""
+    rows = [[float(value) for value in row.split()]
+            for row in (directory / 'dumps' / 'all_dumps').read_text().splitlines()]
+    if len(rows) != expected or any(len(row) != len(manifest) for row in rows):
+        raise ValueError('Unexpected raw sample dimensions')
+    for row in rows:
+        for i, column in enumerate(manifest):
+            value = row[i]
+            if not math.isfinite(value) or value < 0:
+                raise ValueError('Expected finite nonnegative observations')
+            if column['integer']:
+                if value > 2**53 or not math.isclose(value, round(value), rel_tol=0, abs_tol=1e-9):
+                    raise ValueError('Count/byte summary is not an exactly representable integer')
+                row[i] = round(value)
+    return rows
+
+
+def reconstruct(rows, manifest, feature, vantage, window_size, population=1):
+    """Sum sufficient statistics in disjoint blocks before taking rates/means."""
+    if not rows or len(rows) % population:
+        raise ValueError('Samples must form disjoint complete population blocks')
+    recipe = RECIPES[feature]
+    index = {(c['name'], c['vantage']): i for i, c in enumerate(manifest)}
+    count_index = index[(f'summary_{recipe.count}', vantage)]
+    size_index = index[(f'summary_{recipe.size}', vantage)] if recipe.size else None
+    values, counts = [], []
+    for start in range(0, len(rows), population):
+        block = rows[start:start + population]
+        count = sum(row[count_index] for row in block)
+        size = sum(row[size_index] for row in block) if size_index is not None else None
+        if count == 0 and size not in (None, 0):
+            raise ValueError('Nonzero byte total with zero packets')
+        values.append((size / count if count else 0.) if size is not None else count / window_size)
+        counts.append(count)
+    return values, counts
+
+
+def check_direct(rows, manifest, feature, vantage, window_size):
+    values, _ = reconstruct(rows, manifest, feature, vantage, window_size)
+    index = next(i for i, c in enumerate(manifest) if (c['name'], c['vantage']) == (feature, vantage))
+    if any(not math.isclose(value, row[index], rel_tol=1e-10, abs_tol=1e-12)
+           for value, row in zip(values, rows)):
+        raise ValueError('Summary reconstruction disagrees with direct model feature')
 
 
 def ks_equivalence(x, y, *, delta, alpha, method='p-value'):
@@ -171,7 +341,7 @@ def ks_equivalence(x, y, *, delta, alpha, method='p-value'):
     return result
 
 
-def plot_cdfs(joint, composed, comparison, root):
+def plot_cdfs(joint, composed, comparison, root, *, case_id, feature, vantage, population, window_size):
     """Plot right-continuous ECDFs and the vertical gap at the KS location."""
     joint, composed = np.sort(joint), np.sort(composed)
     support = np.unique(np.concatenate((joint, composed)))
@@ -180,7 +350,7 @@ def plot_cdfs(joint, composed, comparison, root):
     fig = Figure(figsize=(9, 5.5))
     FigureCanvasAgg(fig)  # Render in workers/headless test environments without a GUI.
     ax = fig.subplots()
-    for values, label in ((joint, 'Two TGENs together'), (composed, 'Sum of independent single-TGEN runs')):
+    for values, label in ((joint, f'{population} TGENs together'), (composed, 'Composed independent single-TGEN runs')):
         ax.step(grid, np.searchsorted(values, grid, side='right') / len(values),
                 where='post', label=f'{label} (n={len(values)})', linewidth=1.8)
     location = comparison['statistic_location']
@@ -189,67 +359,153 @@ def plot_cdfs(joint, composed, comparison, root):
     ax.axvline(location, color='0.4', linestyle=':', label=f'KS location = {location:.6g}')
     ax.plot([location, location], heights, color='crimson', marker='o', linewidth=2.5,
             label=f"KS gap = {comparison['distance']:.4g}")
-    ax.set(xlabel='DNS query rate at cl[1] (queries/second; window 0–60 s)',
+    ax.set(xlabel=f'{feature} at {vantage} ({RECIPES[feature].units}; window 0–{window_size} s)',
            ylabel='Empirical cumulative probability', ylim=(-.025, 1.025),
-           title=('DNS composition: two TGENs vs. independent sum\n'
+           title=(f'{case_id}\n'
                   f"KS statistic={comparison['distance']:.6g}, p-value={comparison['pvalue']:.6g}, "
                   f"location={location:.6g}\n"
                   f"Decision mode: {comparison['method']} | outcome: {comparison['outcome']}"))
     ax.grid(alpha=.2)
     ax.legend(loc='best', fontsize=9)
     fig.tight_layout()
-    filename = f'dns-cdfs-{uuid.uuid4().hex}.png'
+    filename = f'{quote(case_id, safe="")}-{uuid.uuid4().hex}.png'
     fig.savefig(root / filename, dpi=160, bbox_inches='tight')
     return filename
 
 
-def run_experiment(experiment, run_cfg, *, smoke=False):
-    if run_cfg.override_run_time not in (None, 60):
-        raise ValueError('DNS composition requires the full fixed 60-second window')
-    root = Path(tempfile.mkdtemp(prefix='dns-independence-', dir=run_cfg.temp_dir))
-    report = dict(experiment=asdict(experiment), mode='smoke' if smoke else 'statistical',
-                  outcome='error', arms={}, report_path=str(root / 'report.json'))
-    # Freeze the source fixture once; both arms must use identical model inputs.
-    shutil.copytree(CONTEXT, root / 'fixture')
-    rates = {}
+def write_json(path, data):
+    path.write_text(json.dumps(data, indent=2, allow_nan=False) + '\n')
+
+
+def fingerprint(directory):
+    """Hash model inputs, excluding generated reports, logs and documentation."""
+    digest = hashlib.sha256()
+    for path in sorted(directory.rglob('*')):
+        if path.is_file() and path.suffix in {'.json', '.yaml', '.maude'}:
+            digest.update(str(path.relative_to(directory)).encode() + b'\0' + path.read_bytes())
+    return digest.hexdigest()
+
+
+def analyze_case(case, single, joint, manifest, suite, root, smoke):
+    feature, vantage = case['feature'], case['vantage']
+    # Test the summary semantics on both arms, independently of the KS decision.
+    for rows in (single, joint):
+        check_direct(rows, manifest, feature, vantage, suite.window_size)
+    observed, observed_counts = reconstruct(joint, manifest, feature, vantage, suite.window_size)
+    composed, composed_counts = reconstruct(single, manifest, feature, vantage, suite.window_size, suite.population)
+    case['activity'] = dict(joint_nonempty=sum(n > 0 for n in observed_counts),
+                            composed_nonempty=sum(n > 0 for n in composed_counts))
+    case['summaries'] = {name: dict(n=len(values), mean=statistics.mean(values), variance=statistics.variance(values))
+                         for name, values in (('joint', observed), ('composed', composed))}
+    samples_file = f'{quote(case["id"], safe="")}-samples.json'
+    write_json(root / samples_file, dict(joint=observed, composed=composed))
+    case['samples_file'] = samples_file
+    if not any(observed_counts) or not any(composed_counts):
+        case.update(outcome='inactive', reason='No relevant packets observed in at least one arm; no statistical comparison')
+        return
+    comparison = ks_equivalence(observed, composed, delta=suite.delta,
+                                alpha=suite.effective_alpha, method=suite.method)
+    case['comparison'] = comparison
+    # Smoke plots must not present the diagnostic decision as a suite pass.
+    plot_comparison = dict(comparison, outcome='smoke-only') if smoke else comparison
+    case['plot_file'] = plot_cdfs(observed, composed, plot_comparison, root, case_id=case['id'],
+                                  feature=feature, vantage=vantage, population=suite.population,
+                                  window_size=suite.window_size)
+    case['outcome'] = 'smoke-only' if smoke else comparison['outcome']
+    case['reason'] = ('Execution and reconstruction checks only' if smoke else
+                      comparison.get('decision', 'KS distance confidence interval compared with delta'))
+
+
+def run_suite(suite, run_cfg, *, smoke=False, context=CONTEXT):
+    """Run each unique model pair once and retain every selected case's outcome."""
+    suite.validate(context)
+    if run_cfg.override_run_time not in (None, suite.window_size):
+        raise ValueError('override_run_time must match experiment window_size')
+    root = Path(tempfile.mkdtemp(prefix='tgen-composition-', dir=run_cfg.temp_dir))
+    report = dict(schema_version=2, run_id=root.name, experiment=asdict(suite),
+                  mode='smoke' if smoke else 'statistical', report_path=str(root / 'report.json'),
+                  family_size=suite.family_size, effective_alpha=suite.effective_alpha,
+                  groups={}, results={})
+    shutil.copytree(context, root / 'fixture')
+    report['source_sha256'] = fingerprint(root / 'fixture')
+    report['library_sha256'] = fingerprint(Path(GLOBALS.LIB_DIR))
+    groups = {}
+    for e in suite.experiments:
+        groups.setdefault(e.group_key(), []).append(e)
+        for feature, vantage in e.cases():
+            case_id = e.case_id(feature, vantage)
+            supported = recipe_for(e, feature) is not None
+            report['results'][case_id] = dict(
+                id=case_id, name=f'{e.tgen_type}__{feature}__{vantage}',
+                tgen_type=e.tgen_type, feature=feature, vantage=vantage,
+                profile=e.profile, network=e.network, window_start=suite.window_start,
+                window_size=suite.window_size, population=suite.population,
+                method=suite.method, alpha=suite.effective_alpha, delta=suite.delta,
+                recipe=asdict(RECIPES[feature]) if supported else None,
+                outcome='pending' if supported else 'unsupported',
+                reason='' if supported else 'No composition recipe for this type and feature; no plot')
     try:
-        for name, population, samples, seed in (
-                ('single', 1, 2 * experiment.samples, experiment.single_seed),
-                ('joint', 2, experiment.samples, experiment.joint_seed)):
-            test, directory, scenario = prepare_arm(root, population, samples, seed, experiment, run_cfg)
-            report['arms'][name] = dict(
-                build=str(directory), scenario=scenario, smc=test.arg,
-                generation=asdict(test.build_cfg.gen_args),
-                model_sha256=hashlib.sha256((directory / 'test.maude').read_bytes()).hexdigest())
-            if run_cfg.build_only:
+        for entries in groups.values():
+            e = entries[0]
+            cases = [report['results'][item.case_id(f, v)] for item in entries for f, v in item.cases()
+                     if recipe_for(item, f)]
+            if not cases:
                 continue
-            result = run(test, directory, run_cfg)
-            report['arms'][name]['result'] = result
-            rates[name] = read_rates(directory, samples)
-            report['arms'][name]['raw_rates'] = rates[name]
-        if run_cfg.build_only:
-            report['outcome'] = 'build-only'
-            return report
-        rates['composed'] = compose_rates(rates['single'])
-        report['summaries'] = {name: dict(n=len(values), mean=statistics.mean(values),
-                                        variance=statistics.variance(values)) for name, values in rates.items()}
-        report['composed_samples'] = rates['composed']
-        report['comparison'] = ks_equivalence(rates['joint'], rates['composed'],
-                                             delta=experiment.delta, alpha=experiment.alpha, method=experiment.method)
-        report['plot_file'] = plot_cdfs(rates['joint'], rates['composed'], report['comparison'], root)
-        # A small execution check may compute a distance, but must never claim
-        # statistical independence/equivalence just because it finished running.
-        report['outcome'] = 'smoke-only' if smoke else report['comparison']['outcome']
-        return report
-    except Exception as exc:
-        report['error'] = str(exc)
-        raise
+            group_id = e.id
+            for case in cases:
+                case['group_id'] = group_id
+            directory = root / group_id
+            directory.mkdir()
+            manifest = query_manifest(entries, suite)
+            group_report = dict(query_manifest=manifest, arms={})
+            report['groups'][group_id] = group_report
+            rows_by_arm = {}
+            try:
+                for name, population, samples, seed in (
+                        ('single', 1, suite.population * suite.samples, e.single_seed),
+                        ('joint', suite.population, suite.samples, e.joint_seed)):
+                    test, build_dir, scenario = prepare_arm(directory, entries, population, samples, seed,
+                                                           suite, run_cfg, manifest)
+                    arm = dict(build=str(build_dir), scenario=scenario, generation=asdict(test.build_cfg.gen_args),
+                               smc=test.arg, model_sha256=fingerprint(build_dir))
+                    group_report['arms'][name] = arm
+                    if run_cfg.build_only:
+                        continue
+                    # The existing framework owns process isolation and timeouts.
+                    run(test, build_dir, run_cfg)
+                    # Fail on native model load errors even if SMC emitted numeric rows.
+                    for log in (build_dir / 'logs').glob('*stderr*'):
+                        if any(marker in log.read_text().lower() for marker in
+                               ('unpatchable errors', 'unable to locate file:', 'no parse for term')):
+                            raise ValueError(f'Maude load/query error; see {log}')
+                    rows = read_rows(build_dir, samples, manifest)
+                    rows_by_arm[name] = rows
+                    filename = f'{group_id}-{name}-rows.json'
+                    write_json(root / filename, rows)
+                    arm['rows_file'] = filename
+                if run_cfg.build_only:
+                    for case in cases:
+                        case.update(outcome='build-only', reason='Built both populations; simulation and plots omitted')
+                else:
+                    for case in cases:
+                        try:
+                            analyze_case(case, rows_by_arm['single'], rows_by_arm['joint'], manifest, suite, root, smoke)
+                        except Exception as exc:
+                            case.update(outcome='error', reason=str(exc))
+            except Exception as exc:
+                group_report['error'] = str(exc)
+                for case in cases:
+                    case.update(outcome='error', reason=str(exc))
+            # Checkpoint after every group; failure never suppresses later groups.
+            write_json(root / 'report.json', report)
     finally:
-        Path(report['report_path']).write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
+        write_json(root / 'report.json', report)
         if run_cfg.results_dir is not None:
-            destination = Path(run_cfg.results_dir)
+            # Each run gets its own directory; all JSON/PNG references stay relative.
+            destination = Path(run_cfg.results_dir) / root.name
             destination.mkdir(parents=True, exist_ok=True)
-            if 'plot_file' in report:
-                shutil.copy2(root / report['plot_file'], destination / report['plot_file'])
-            shutil.copy2(report['report_path'], destination / f'{root.name}.json')
-        logging.getLogger(__name__).warning('DNS composition report: %s', report['report_path'])
+            for path in root.iterdir():
+                if path.is_file():
+                    shutil.copy2(path, destination / path.name)
+        logging.getLogger(__name__).warning('TGEN composition report: %s', root / 'report.json')
+    return report

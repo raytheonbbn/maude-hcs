@@ -1,128 +1,323 @@
-I’d start with **one TGEN type, one profile, one vantage, one fixed window, and two instances**. The test would compare the observable from two jointly simulated TGENs with the observable reconstructed from two independent single-TGEN simulations.
+# Generalized TGEN observable composition experiments
 
-This tests whether independent composition reproduces the observable’s distribution. A pass provides scoped statistical evidence for decomposition; it does not prove independence for every observable or configuration.
+Status: implemented 2026-10-04. The version-2 experiment file selects all 18
+cases below. See README.md for commands, report layout and validation results.
+The implementation reuses the existing generator, build and SMC execution paths.
 
-**1. First concrete case**
+## Objective and scope
 
-Use DNS TGENs and the aggregate DNS query rate:
+For each explicitly configured combination `{tgen_type, feature, vantage}`, compare
+jointly simulated contributions with independently composed contributions. Produce
+one uniquely named result per combination, including its decision method, outcome,
+statistics and CDF plot. Use only `ixpN` in the expanded suite, including the DNS
+case `{dnsTgen, dnsQueryRate, ixpN}`. The earlier client-vantage experiment remains
+historical validation, not an additional selected case.
 
-| Setting | Initial choice |
-|---|---|
-| TGEN type | DNS |
-| Profile | One existing scenario-1 DNS profile, identical for both instances |
-| Network | `client_net_mastodon`, preserving scenario-1 network parameters |
-| Vantage | `cl[1]` |
-| Observable | `dnsQueryRate`, aggregated across all flows |
-| Observation window | First 60 seconds after TGEN startup |
-| Populations | 1 and 2 |
-| HCS clients | None |
+Cover all six traffic-producing kinds supported by `generate_cp3.py`: `dnsTgen`,
+`masTgen`, `ftpTgen`, `minTgen`, `gorTgen`, and `ircTgen`. Mastodon/MinIO monitors
+are supporting actors, not additional source kinds; the generator excludes monitor
+entries when interpreting TGEN populations. Keep required monitors and shared
+servers as appropriate for each source kind.
 
-Retain the DNS infrastructure needed to serve the traffic. In particular, **do not replace shared DNS infrastructure with independent copies inside the two-TGEN configuration**: any coupling through that infrastructure is something the experiment should detect.
+Start with one fixed profile, one placement network, populations 1 and 2, and a
+configurable observation duration per suite (60 seconds by default). No HCS clients. Keep the scenario-1 network and
+shared services intact: coupling through DNS, application servers, subscriptions,
+queues, loss or shared state is part of the experiment, not something to remove.
+Passing one observable does not imply independence or composability of another,
+or of another profile, population, topology or time window.
 
-Use the existing aggregate feature calculation, rather than the per-flow ECDF or KS detector output.
+## Experiment file: explicit features and vantage points
 
-**2. Two configurations, generated through the existing build**
+Migrate `experiment.json` to a versioned suite description. Selection lives entirely
+in this file. Registries describe how to execute a selected feature/type; they must
+not silently add features, vantages or kinds. No wildcard or inferred-route selection.
 
-Add a small context such as:
+`window_size` is a positive integer duration in seconds, not a hard-coded constant.
+The example retains 60; setting it to 30 or 120 changes the observation window to
+[0, 30] or [0, 120]. Keep `window_start` at zero for this iteration. Use this single
+configured duration for both arms' generated scenario/run limits, analysis window,
+QuaTEx expressions and query identities, count-to-rate conversions, composition,
+report metadata and plot labels. Reject conflicting run-time overrides. Freeze the
+duration before sampling and compare only results with matching windows. Test a
+non-default duration end to end and reject zero, negative or non-integer values.
 
-```text
-tests/contexts/tgen_independence/
-    scenario.yaml
-    build_cfgs/
-    tgen_user_models/
-    ...
+Configured starting matrix (profile files copied from scenario 1 into this context):
+
+```json
+{
+  "schema_version": 2,
+  "scenario": "scenario1",
+  "scenario_file": "scenario.yaml",
+  "window_start": 0,
+  "window_size": 60,
+  "population": 2,
+  "samples": 5000,
+  "method": "p-value",
+  "alpha": 0.05,
+  "delta": 0.05,
+  "multiplicity": "none",
+  "experiments": [
+    {
+      "id": "dns-normal1",
+      "tgen_type": "dnsTgen",
+      "profile": "normal_1",
+      "network": "client_net_mastodon",
+      "single_seed": 105,
+      "joint_seed": 106,
+      "features": ["dnsQueryRate", "dnsQuerySize", "dnsRespSize"],
+      "vantage_points": ["ixpN"]
+    },
+    {
+      "id": "mastodon-normal1",
+      "tgen_type": "masTgen",
+      "profile": "normal_1",
+      "network": "client_net_mastodon",
+      "single_seed": 205,
+      "joint_seed": 206,
+      "features": ["tcpOutPktRate", "tcpInPktRate", "tcpPktSize"],
+      "vantage_points": ["ixpN"]
+    },
+    {
+      "id": "ftp-medium",
+      "tgen_type": "ftpTgen",
+      "profile": "medium",
+      "network": "client_net_mastodon",
+      "single_seed": 305,
+      "joint_seed": 306,
+      "features": ["tcpOutPktRate", "tcpInPktRate", "tcpPktSize"],
+      "vantage_points": ["ixpN"]
+    },
+    {
+      "id": "minio-medium",
+      "tgen_type": "minTgen",
+      "profile": "medium",
+      "network": "client_net_mastodon",
+      "single_seed": 405,
+      "joint_seed": 406,
+      "features": ["tcpOutPktRate", "tcpInPktRate", "tcpPktSize"],
+      "vantage_points": ["ixpN"]
+    },
+    {
+      "id": "gorilla-irc1",
+      "tgen_type": "gorTgen",
+      "profile": "irc_1",
+      "network": "client_net_mastodon",
+      "single_seed": 505,
+      "joint_seed": 506,
+      "features": ["tcpOutPktRate", "tcpInPktRate", "tcpPktSize"],
+      "vantage_points": ["ixpN"]
+    },
+    {
+      "id": "irc-irc1",
+      "tgen_type": "ircTgen",
+      "profile": "irc_1",
+      "network": "client_net_mastodon",
+      "single_seed": 605,
+      "joint_seed": 606,
+      "features": ["tcpOutPktRate", "tcpInPktRate", "tcpPktSize"],
+      "vantage_points": ["ixpN"]
+    }
+  ]
+}
 ```
 
-The base YAML would contain scenario-1 networking, no HCS nodes, and only the chosen TGEN type/profile.
+Each entry expands to its explicit `features × vantage_points` Cartesian product.
+This matrix has 18 observable cases: three DNS and three for each of the five TCP
+kinds. DNS retains `dnsQueryRate`, `dnsQuerySize`, and `dnsRespSize`. TCP uses only
+`tcpOutPktRate`, `tcpInPktRate`, and `tcpPktSize`. Every entry
+explicitly selects `["ixpN"]`; no client or service-network vantage is selected.
+Reject duplicate full case identities rather than running or overwriting them twice.
 
-The test would create two temporary variants differing only in TGEN quantity:
+Validate the special `ixpN` against the generated model's actual visibility rules
+for each TGEN. Keep the placement network (`client_net_mastodon`) unchanged: where
+a TGEN runs is distinct from where traffic is observed. Do not substitute another
+vantage if IXP observations are inactive, or reinterpret packet direction.
 
-- **Single:** one instance.
-- **Joint:** two instances.
+During migration, accept the old single-DNS JSON through a small normalization
+adapter for explicitly requested legacy runs, or migrate it and its tests atomically.
+Do not append the legacy vantage to the new IXP-only matrix. Keep one normalized
+internal representation. Omitted `method` continues to default to `p-value`.
 
-Reuse `build()` and the current generator for both. Keep the variant creation local to this test initially; there is no need for a general parameter-sweep framework.
+## Stable names and result identity
 
-As an initial build check, verify that generation supports empty HCS nodes and that the two outputs contain the intended TGEN populations.
+Use the readable combination name `dnsTgen__dnsQueryRate__ixpN` for the DNS
+query-rate triple. Report `tgen_type`, `feature`, and `vantage` separately as structured fields.
+For additional profiles/placements, define the full case ID as
+`<experiment-id>__<tgen-type>__<feature>__<vantage>`, for example
+`dns-normal1__dnsTgen__dnsQueryRate__ixpN`.
 
-**3. Supply one scalar QuaTEx query**
+Validate unique experiment IDs and unique `(type, profile, network, window,
+population, feature, vantage)` configurations. Use the full ID as the report key
+and pytest display ID where practical. Store window, profile, network, population,
+model/input hashes and method in the record; the readable name alone is not a
+certificate for other settings. Keep stable case IDs separate from execution UUIDs.
+For filenames use an unambiguous escaped case ID plus UUID; check escaping collisions.
 
-The standard generated queries target performance and detection metrics. This experiment needs one scalar measurement of background traffic.
+## Composition rules: reuse sufficient statistics
 
-Use a small test-local adapter to:
+Use the existing aggregate `compObsFeatureX` semantics, not the per-flow ECDF
+pipeline. A feature registry declares observation source, required query columns,
+units, reconstruction rule and validity/activity checks.
 
-- Write a `test.quatex` containing the aggregate `dnsQueryRate` query for the chosen vantage/window.
-- Retain the adversary’s traffic observations until that query is evaluated.
-- Disable baseline/KS processing that could prune those observations.
+| Features | Required single-run summary | Composition for N sources |
+|---|---|---|
+| `dnsQueryRate` | DNS query count | Sum counts, divide by window duration |
+| `tcpOutPktRate`, `tcpInPktRate` | Corresponding visible packet count | Sum counts, divide by duration |
+| `dnsQuerySize`, `dnsRespSize` | Paired DNS byte total and matching message count | Sum bytes / sum counts |
+| `tcpPktSize` | Paired TCP byte total and packet count using the model's exact selector | Sum bytes / sum counts |
 
-The last point matters: **“baseline” here means a TGEN-only experiment, not necessarily the existing baseline-calibration execution mode.** We should avoid running calibration work that the independence test does not need.
+Select `getTsML(getAdversary(C))` for DNS and `getTsPL(getAdversary(C))` for TCP.
+Reuse the model's count/size operators where available. Verify TCP mean-size packet
+selection against `meanPktSize`; do not assume an arbitrary upload/download sum
+has identical semantics. Preserve existing zero-denominator conventions and record
+empty-window counts. Never average source means.
 
-The adapter should preserve normal TGEN, DNS, and network behavior. It should only change observation/query setup.
+Keep DNS rate rounding through integer counts using the configured duration. Apply
+integer reconstruction only to actual count/byte summaries, not arbitrary floats.
+Do not extend the current blanket nonnegative check to observables whose valid
+domain might differ. Every recipe should declare its domain explicitly.
 
-**4. Reuse the SMC runner and compose fresh samples**
+`tcpPktInterarrival` is out of scope for this iteration.
+Defer `tcpPktSizeStdDev` until matching count/sum/sum-of-squares semantics are
+verified. Defer `tcpDirectionChange` until ordered event composition is supported. Defer `tcpActiveFlow` and `tcpNewCnx` until cross-source
+flow identity, address renaming, deduplication and lifetime semantics are checked.
+Selecting these before support exists must produce `unsupported`, never use an
+additive fallback. The proposed first matrix intentionally excludes them.
 
-For \(M\) comparison samples:
+## Shared execution pipeline
 
-1. Run the single-instance configuration for **\(2M\) simulations**.
-2. Run the two-instance configuration for **\(M\) simulations**.
-3. Group the single-instance samples into disjoint pairs:
+Refactor the experiment helper rather than adding a new runner or changing ordinary
+regression comparison rules:
 
-\[
-R_j = X_{2j} + X_{2j+1}.
-\]
+1. Normalize and validate the file; enumerate and name all requested cases before
+   expensive work. Freeze the fixture and resolve each chosen profile and dependency.
+2. A small TGEN adapter registry maps kind to YAML key, profile directory/converter,
+   expected actor family and required supporting assets. DNS and Mastodon use v1
+   profiles; FTP, MinIO, Gorilla and IRC use v2. Reuse `BuildConfig` conversion.
+3. Generalize `prepare_arm()` to replace the fixture's TGEN block with exactly the
+   requested kind/profile/network and quantity. Preserve `nodes: {}` and common
+   infrastructure. Build one single-source and one joint configuration per distinct
+   kind/profile/network/window/population group, not once per observable.
+4. Generalize `install_observation()` to emit all requested query columns for that
+   group, including deduplicated sufficient statistics and activity counts. Retain
+   the guarded no-baseline/passive-observer adapter for both DNS and TCP logging.
+5. Reuse the framework's existing isolated `run()` and SMC runner. For N-source
+   composition run NM single-source simulations and M joint simulations. Start at
+   N=2; validate N rather than keeping implicit hard-coded pairs.
+6. Generalize `read_rates()` to a raw-row reader validating the exact expected row
+   and column counts. Read `dumps/all_dumps`, not the runner's sorted marginals.
+   Use a deterministic query-column manifest, saved with the report. Group disjoint
+   N-row blocks and apply the same grouping across every column of a run.
+7. For each named observable, reconstruct a joint-arm scalar and a composed scalar
+   with the same recipe. Where possible also query the direct model feature and
+   verify that joint-summary reconstruction matches it run by run.
+8. Reuse `ks_equivalence()` once per case, then generalize `plot_cdfs()` labels to
+   show kind, feature, vantage, units, window, sample counts and method. Retain the
+   p-value, statistic, location, marked gap, tight layout and unique filename.
+9. Save every case result and plot, then evaluate test assertions. A failed first
+   case must not prevent later case reports or subsequent TGEN groups from running.
 
-4. Compare those \(M\) reconstructed rates with the \(M\) jointly simulated rates \(Q_j\).
+The current scalar query comment names omit vantage. Multi-query generation must
+use the already-supported five-field `ConfidentialityQuery` comment format
+(`cumulative <feature> <start> <end> <vantage>`) so result dictionaries cannot
+collapse distinct vantages. Give internal summary columns distinct stable names
+and save their expressions in the manifest; validate parser round trips and unique
+names before invoking SMC. A generic query-parser rewrite is unnecessary.
 
-Because both rates use the same window duration, addition is the correct composition rule.
+Use one shared Python orchestration function for smoke and statistical runs.
+Initially parametrize pytest by experiment group, executing both arms once and
+asserting on its named case results afterward. If separate pytest items per triple
+are later needed, use a fixture scoped to the execution group; do not accidentally
+rerun SMC for every feature. Reuse across entries with identical execution inputs
+through an explicit per-session group key, never an unversioned sample bank.
 
-Use independent simulation draws and recorded seed settings. Do not reuse a small sample bank repeatedly or multiply one sample by two.
+## Decisions, activity and multiplicity
 
-The existing runner already provides sample rows, provenance, timeouts, and retained diagnostics, so most execution infrastructure can remain unchanged.
+Preserve both existing comparison modes. In `p-value` mode a pass means that the
+KS equality null was not rejected, not demonstrated equivalence. In `bound` mode
+only a distance upper bound below delta passes. The usual SciPy KS p-value has
+continuous-distribution assumptions; these rates have ties, so retain that caveat
+in the report/documentation rather than presenting p-value mode as a soundness proof.
 
-**5. Use the existing statistical comparison calculation**
+Multiple observables share sample rows. Keep those correlations; no independence
+across feature/vantage tests is assumed. Freeze the selected statistical family
+before seeing results. The default `none` policy uses alpha for every case and
+supports per-case conclusions only. Optional `bonferroni` gives each of K configured
+cases alpha/K. For bound mode this gives simultaneous confidence coverage;
+for p-value mode it controls family-wise false rejections only to the extent the
+underlying p-values are valid. Record global alpha, effective per-case alpha, K,
+method and delta. Do not redistribute alpha when cases are inactive or fail to run.
+The larger family will require more samples for useful bound-mode precision; the
+old M=5000 is a starting budget, not a power guarantee for this matrix.
 
-Compare \(Q\) against \(R\) using the KS-distance upper confidence bound already introduced into the framework:
+Use explicit outcomes with reasons:
 
-- **Pass:** upper bound is below the declared tolerance.
-- **Failure:** the distributions demonstrably exceed the tolerance.
-- **Inconclusive:** the available samples cannot establish equivalence.
+- `pass` / `fail`: the selected statistical decision.
+- `inconclusive`: bound interval overlaps delta.
+- `inactive`: insufficient observed activity to make the selected case meaningful.
+- `unsupported`: no valid composition/query recipe is implemented.
+- `error`: invalid configuration, build, execution, parse or plot failure.
+- `smoke-only` / `build-only`: plumbing checks, never statistical evidence.
 
-Both failure and inconclusive should make the pytest assertion fail, with different diagnostic messages.
+Activity is checked per observable using a relevant count summary, not simply
+whether its final scalar is positive. Preserve legitimate zero samples; flag a
+wholly unobserved case in either arm. If there are supporting/monitor actors that
+can emit autonomous traffic, establish source attribution or report the fixture as
+unsupported: composing N isolated runs must not multiply unrelated background
+traffic that appears only once in the joint configuration.
 
-Reuse the numerical comparison logic, but **not the entire snapshot checker**: these configurations intentionally differ in population, so their provenance cannot be identical. Instead, explicitly verify that their controlled settings match except for population and sampling settings.
+A group execution error yields an error record for every affected named case.
+Other independent groups continue. Statistical pytest succeeds only if all selected
+supported cases pass; inactive/unsupported cases remain visible and require an
+explicit selection change, not an automatic skip that makes the suite look complete.
 
-Start with a small execution-smoke sample budget. Select the statistical sample budget separately; a tiny successful run should not be reported as evidence of independence.
+## Reports and file layout
 
-**6. Minimal framework integration**
+Write a suite manifest/report with input configuration, execution UUID, group build
+paths, generation/SMC settings, seeds, source/model hashes, query manifest and raw
+row artifacts. Keep raw rows once per group; avoid duplicating them in every case.
+The report contains a result mapping keyed by full case ID. Each case records:
 
-Add one dedicated pytest test, for example:
+- Combination name and structured kind/feature/vantage/profile/network/window/N.
+- Composition recipe, observed activity and sample counts, moments and comparison
+  diagnostics, method, effective alpha, tolerance, outcome and reason.
+- References to the group's raw samples, composed samples and UUID-named CDF PNG.
 
-```text
-tests/test_tgen_independence.py
-```
+Every completed comparison gets a plot, including fail/inconclusive outcomes.
+For inactive cases a diagnostic plot can be included, clearly labeled inactive.
+Build/error/unsupported outcomes should explain absent plots. Keep plots beside
+`report.json` and use relative filenames. Extend the existing `--results-dir`
+copying to include all referenced artifacts so exported reports remain usable.
 
-It would orchestrate:
+## Delivery sequence and validation
 
-```text
-prepare variants
-    → build both configurations
-    → install scalar query
-    → run existing SMC runner twice
-    → compose single-instance samples
-    → compare against joint samples
-```
+1. **Schema, naming, adapters:** add the six-type registry and v2 config validation;
+   migrate the DNS selection to `ixpN`, keeping legacy normalization separate. Test duplicate IDs/pairs,
+   bad types/features/vantages, absent profiles and incompatible window overrides.
+2. **Rate matrix across all kinds:** implement multi-column queries, row manifests,
+   shared runs and additive packet-count recipes. Build and smoke-test both populations
+   for all six kinds, validating visibility and nonempty activity per requested case.
+3. **Packet sizes:** add paired count/byte recipes for DNS and TCP means. Verify
+   each against the direct model calculation, then enable every selected feature.
+   Until then, selected recipes report `unsupported` explicitly. Rates and packet
+   sizes complete the 18-case matrix; interarrival support is not required.
+4. **Suite reporting and statistics:** reuse both decision modes and plotting,
+   implement the configured multiplicity policy and test report/export references.
+5. **Fixed-budget statistical campaign:** choose and record the budget before
+   execution, run all supported entries, and report the complete named result table
+   including failures, inactivity and inconclusive cases. Do not tune the selection,
+   profiles, alpha or budget after seeing outcomes to produce an all-pass suite.
 
-Mark it `statistical`. Initially, use one small experiment configuration containing type/profile, vantage, window, population, sample count, seed settings, and tolerance. Avoid adding a new runner enum or generalized experiment language.
+Unit tests must cover disjoint row grouping, unsorted multi-column samples, unequal
+packet counts for weighted means, empty windows, zero denominators, count/rate
+rounding, both KS
+modes, multiplicity, query-name uniqueness and distinct per-case plots. Include a
+synthetic dependent-contribution control (replicated samples) with a known aggregate
+distribution mismatch and a correctly independent control. Verify that one case's
+failure does not suppress other results or corrupt a shared group's rows.
 
-Save a report containing sample counts, means, variances, KS distance, confidence bound, outcome, and paths to both builds. Require nonzero observed traffic so an accidentally inactive configuration cannot silently pass.
-
-**7. Keep the first implementation narrow**
-
-Implement and validate DNS query rate first. Add unit tests for sample pairing, rate composition, insufficient evidence, and a deliberately incorrect “multiply one sample by two” implementation.
-
-For a later mean-packet-size case, collect paired packet counts and byte totals and reconstruct:
-
-\[
-\frac{\sum_i B_i}{\sum_i C_i}.
-\]
-
-That extension can use the same orchestration, but the first test does not need to support it yet.
+Reuse the existing test runner and generator throughout. Limit production changes
+to any demonstrably missing observation-summary accessor, with a direct semantic
+check; do not turn this work into a general regression-framework refactor. Completion
+means every explicitly selected triple has a reproducible named result, not that
+all TGEN types must pass or that a 100x rewriting speedup has been established.

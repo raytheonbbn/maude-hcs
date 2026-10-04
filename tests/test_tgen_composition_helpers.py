@@ -1,126 +1,232 @@
-"""Validate composition plumbing independently of expensive Maude simulations."""
+"""Composition math, explicit selection, shared execution and portable reports."""
 from dataclasses import replace
+from pathlib import Path
 import json
 
 import pytest
+import yaml
 
-from .utils import tgen_independence as dns
+from maude_hcs.query import parse_quatex
+from .utils import tgen_independence as tgen
 from .utils.context import RunConfig
 
 
-def experiment():
-    return dns.Experiment(**json.loads((dns.CONTEXT / 'experiment.json').read_text()))
+def suite():
+    return tgen.load_suite()
 
 
-def test_pairing_and_rounding():
-    # Sorted pairing and doubling one sample both give a different distribution.
-    assert dns.compose_rates([1, 4, 2, 3]) == [5, 5]
-    assert dns.compose_rates([1 / 60, 5 / 60]) == [6 / 60]
+def test_explicit_matrix():
+    config = suite()
+    assert config.family_size == 18
+    assert len({e.tgen_type for e in config.experiments}) == 6
+    assert all(e.vantage_points == ['ixpN'] for e in config.experiments)
+    assert config.multiplicity == 'none'
+    assert config.effective_alpha == .05
+    assert tgen.Suite(experiments=config.experiments).multiplicity == 'none'
+    assert replace(config, multiplicity='bonferroni').effective_alpha == .05 / 18
+    names = [e.case_id(f, v) for e in config.experiments for f, v in e.cases()]
+    assert len(set(names)) == 18
 
 
-@pytest.mark.parametrize('samples', [[], [1], [-1, 1], [float('nan'), 1], [float('inf'), 1], [.001, 1]])
-def test_invalid_composition(samples):
+@pytest.mark.parametrize('changes', [dict(window_size=0), dict(window_size=-1), dict(window_size=True),
+                                     dict(window_size=1.5), dict(samples=1), dict(population=1),
+                                     dict(window_start=1), dict(method='wrong'), dict(multiplicity='wrong')])
+def test_invalid_suite(changes):
     with pytest.raises(ValueError):
-        dns.compose_rates(samples)
+        replace(suite(), **changes).validate()
 
 
-def test_distance_outcomes():
-    compare = lambda x, y: dns.ks_equivalence(x, y, delta=.05, alpha=.05, method='bound')['outcome']
-    assert compare([0] * 4, [0] * 4) == 'inconclusive'
-    assert compare([0] * 5000, [0] * 5000) == 'pass'
-    assert compare([0] * 5000, [1] * 5000) == 'fail'
-
-
-@pytest.mark.parametrize('changes', [dict(feature='dnsQuerySize'), dict(samples=1),
-                                     dict(joint_seed=105), dict(window_size=30)])
-def test_unsupported_experiment(changes):
+@pytest.mark.parametrize('changes', [dict(tgen_type='unknown'), dict(profile='absent'),
+                                     dict(features=['unknown']), dict(vantage_points=['cl[1]']),
+                                     dict(features=[]), dict(joint_seed=105), dict(network='absent'),
+                                     dict(features=['dnsQueryRate', 'dnsQueryRate'])])
+def test_invalid_entry(changes):
+    config = suite()
     with pytest.raises(ValueError):
-        replace(experiment(), **changes)
+        replace(config, experiments=[replace(config.experiments[0], **changes)]).validate()
 
 
-def test_raw_dump_keeps_run_order_and_zeros(tmp_path):
+def test_duplicate_configurations_and_ids():
+    config = suite()
+    first = config.experiments[0]
+    for other in (first, replace(first, id='another')):
+        with pytest.raises(ValueError, match='Duplicate|duplicate'):
+            replace(config, experiments=[first, other]).validate()
+
+
+def test_query_manifest_has_unique_names_and_shared_summaries():
+    config = suite()
+    columns = tgen.query_manifest([config.experiments[0]], config)
+    assert len(columns) == 7  # Three direct features, four distinct count/size summaries.
+    assert sum(c['name'] == 'summary_countDNSQuery' for c in columns) == 1
+    assert all('getTsML' in c['expression'] for c in columns)
+    tcp = tgen.query_manifest([config.experiments[1]], config)
+    assert all('getTsPL' in c['expression'] for c in tcp)
+    assert any('sizeTCPPkt' in c['expression'] for c in tcp)
+
+
+def test_mean_composition_weights_counts_and_keeps_zero_windows():
+    config = suite()
+    columns = tgen.query_manifest([config.experiments[0]], config)
+    def row(count, size):
+        values = {'summary_countDNSQuery': count, 'summary_sizeDNSQuery': size}
+        return [values.get(c['name'], 0) for c in columns]
+    rows = [row(1, 100), row(3, 900), row(0, 0), row(0, 0)]
+    values, counts = tgen.reconstruct(rows, columns, 'dnsQuerySize', 'ixpN', 60, 2)
+    assert values == [250, 0] and counts == [4, 0]  # Not mean(100, 300)=200.
+    rates, _ = tgen.reconstruct(rows, columns, 'dnsQueryRate', 'ixpN', 37, 2)
+    assert rates == [4 / 37, 0]
+    with pytest.raises(ValueError, match='blocks'):
+        tgen.reconstruct(rows[:3], columns, 'dnsQueryRate', 'ixpN', 37, 2)
+
+
+def test_raw_rows_preserve_pairing(tmp_path):
+    manifest = [dict(integer=True), dict(integer=False)]
     (tmp_path / 'dumps').mkdir()
-    dump = tmp_path / 'dumps' / 'all_dumps'
-    dump.write_text('1\n0\n4\n2\n')
-    assert dns.read_rates(tmp_path, 4) == [1, 0, 4, 2]
-    for data in ('0\n0\n0\n0\n', '1\n', '1 2\n' * 4, 'nan\n' * 4):
-        dump.write_text(data)
+    path = tmp_path / 'dumps' / 'all_dumps'
+    path.write_text('3 0.2\n1 0.9\n')
+    assert tgen.read_rows(tmp_path, 2, manifest) == [[3, .2], [1, .9]]
+    for data in ('1\n2\n', '1 2\n', 'nan 0\n1 2\n', '1.5 0\n1 2\n', '-1 0\n1 2\n'):
+        path.write_text(data)
         with pytest.raises(ValueError):
-            dns.read_rates(tmp_path, 4)
+            tgen.read_rows(tmp_path, 2, manifest)
 
 
-def test_guarded_observer_adapter(tmp_path):
-    path = tmp_path / 'test.maude'
-    path.write_text('mkAdversaryCp3(advAddr, false)\n'
-                    '(to baseLineAddr from baseLineAddr : initKs)\nother actors\n')
-    dns.install_observation(tmp_path)
-    assert path.read_text() == 'mkAdversaryCp3(advAddr, true)\nother actors\n'
-    with pytest.raises(ValueError):
-        dns.install_observation(tmp_path)
+def test_comparison_modes_and_dependent_control():
+    same = tgen.ks_equivalence([0] * 4, [0] * 4, delta=.05, alpha=.05)
+    assert same['outcome'] == 'pass' and not same['reject_null']
+    assert tgen.ks_equivalence([0] * 4, [0] * 4, delta=.05, alpha=.05, method='bound')['outcome'] == 'inconclusive'
+    # Independent Bernoulli sums: probabilities 1/4, 1/2, 1/4. Replicating a
+    # single realization creates probabilities 1/2, 0, 1/2 instead.
+    independent = [0, 1, 1, 2] * 5000
+    replicated = [0, 0, 2, 2] * 5000
+    assert tgen.ks_equivalence(independent, independent, delta=.05, alpha=.05, method='bound')['outcome'] == 'pass'
+    assert tgen.ks_equivalence(independent, replicated, delta=.05, alpha=.05, method='bound')['outcome'] == 'fail'
+    result = tgen.ks_equivalence(independent, replicated, delta=.05, alpha=.05)
+    assert result['outcome'] == 'fail' and result['reject_null']
+    json.dumps(result, allow_nan=False)
 
 
-def test_orchestration_uses_framework_and_exports_report(tmp_path, monkeypatch):
+def fake_runner(test, directory, run_cfg):
+    """Emulate exactly the raw dump contract, including direct model features."""
+    scenario = yaml.safe_load((directory / 'scenario.yaml').read_text())
+    network = next(iter(scenario['tgen'].values()))['tgen_per_network']
+    population = next(iter(network.values()))['quantity']
+    duration = test.build_cfg.gen_args.run_time
+    queries = parse_quatex((directory / 'test.quatex').read_text())
+    assert len({q.to_name() for q in queries}) == len(queries)
+    assert all(q.vantage == 'ixpN' and int(q.end) == duration for q in queries)
+    values = []
+    for q in queries:
+        if q.feat.startswith('summary_'):
+            values.append(population * (100 if 'size' in q.feat else 1))
+        else:
+            values.append(100 if tgen.RECIPES[q.feat].size else population / duration)
+    (directory / 'dumps').mkdir()
+    count = int(test.arg['nsims'].split('-')[0])
+    (directory / 'dumps' / 'all_dumps').write_text((' '.join(map(str, values)) + '\n') * count)
+    return {}  # Composition never relies on the runner's sorted result marginals.
+
+
+@pytest.mark.parametrize('duration', [37, 120])
+def test_shared_runs_reports_and_export(tmp_path, monkeypatch, duration):
     calls = []
-
-    def fake_run(test, directory, cfg):
-        calls.append(test.arg)
-        (directory / 'dumps').mkdir()
-        # Emulate the existing runner's raw dump; no dependency on its sorted output.
-        samples = int(test.arg['nsims'].split('-')[0])
-        (directory / 'dumps' / 'all_dumps').write_text('1\n' * samples)
-        return {'results': {}}
-
-    monkeypatch.setattr(dns, 'run', fake_run)
-    cfg = RunConfig(tmp_path, None, results_dir=str(tmp_path / 'results'))
-    report = dns.run_experiment(replace(experiment(), samples=4), cfg, smoke=True)
-    assert [call['nsims'] for call in calls] == ['8-8', '4-4']
-    assert [call['seed'] for call in calls] == [105, 106]
-    assert all(call['jobs'] == 0 for call in calls)
-    assert report['composed_samples'] == [2] * 4
-    assert report['outcome'] == 'smoke-only'
-    saved = list((tmp_path / 'results').glob('*.json'))
-    assert len(saved) == 1 and json.loads(saved[0].read_text()) == report
-    from pathlib import Path
-    plot = Path(report['report_path']).parent / report['plot_file']
-    assert plot.read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
-    assert (saved[0].parent / report['plot_file']).read_bytes() == plot.read_bytes()
-
-    with pytest.raises(ValueError, match='60-second'):
-        dns.run_experiment(experiment(), replace(cfg, override_run_time=30))
+    def run(*args):
+        calls.append(args[0].arg)
+        return fake_runner(*args)
+    monkeypatch.setattr(tgen, 'run', run)
+    config = replace(suite(), window_size=duration, samples=4)
+    cfg = RunConfig(tmp_path, None, results_dir=str(tmp_path / 'export'))
+    report = tgen.run_suite(config, cfg, smoke=True)
+    assert len(calls) == 12 and len(report['results']) == 18
+    assert [c['nsims'] for c in calls] == ['8-8', '4-4'] * 6
+    assert all(c['outcome'] == 'smoke-only' for c in report['results'].values())
+    root = Path(report['report_path']).parent
+    exported = tmp_path / 'export' / report['run_id']
+    assert json.loads((exported / 'report.json').read_text()) == report
+    plots = [c['plot_file'] for c in report['results'].values()]
+    assert len(set(plots)) == 18
+    for filename in plots:
+        assert (root / filename).read_bytes().startswith(b'\x89PNG')
+        assert (exported / filename).read_bytes() == (root / filename).read_bytes()
+    for group in report['groups'].values():
+        for arm in group['arms'].values():
+            assert arm['generation']['run_time'] == duration
+            assert (exported / arm['rows_file']).is_file()
+    with pytest.raises(ValueError, match='override_run_time'):
+        tgen.run_suite(config, replace(cfg, override_run_time=duration + 1))
 
 
-def test_runner_failure_preserves_error_report(tmp_path, monkeypatch):
-    def fail(*args):
-        raise RuntimeError('simulation failed')
-
-    monkeypatch.setattr(dns, 'run', fail)
-    cfg = RunConfig(tmp_path, None, results_dir=str(tmp_path / 'results'))
-    with pytest.raises(RuntimeError, match='simulation failed'):
-        dns.run_experiment(replace(experiment(), samples=4), cfg)
-    reports = list((tmp_path / 'results').glob('*.json'))
-    assert len(reports) == 1
-    report = json.loads(reports[0].read_text())
-    assert report['outcome'] == 'error'
-    assert report['error'] == 'simulation failed'
-    assert report['arms']['single']['generation']['tgen_delay'] == 0
-
-
-def test_pvalue_default_and_rejection():
-    same = dns.ks_equivalence([0] * 4, [0] * 4, delta=.05, alpha=.05)
-    assert same['method'] == 'p-value' and same['outcome'] == 'pass'
-    assert same['pvalue'] == 1 and not same['reject_null']
-    different = dns.ks_equivalence([0] * 100, [1] * 100, delta=.05, alpha=.05)
-    assert different['outcome'] == 'fail' and different['reject_null']
-    assert different['distance'] == 1 and different['statistic_location'] == 0
-    json.dumps(different, allow_nan=False)
-    with pytest.raises(ValueError, match='method'):
-        dns.ks_equivalence([0], [1], delta=.05, alpha=.05, method='invalid')
+def test_group_failure_and_unsupported_do_not_stop_suite(tmp_path, monkeypatch):
+    config = suite()
+    first = replace(config.experiments[0], features=['dnsQueryRate', 'tcpPktInterarrival'])
+    config = replace(config, experiments=[first, config.experiments[2], config.experiments[3]],
+                     samples=4, multiplicity='bonferroni')
+    def run(test, *args):
+        if test.name.startswith('ftp-'):
+            raise RuntimeError('synthetic execution failure')
+        return fake_runner(test, *args)
+    monkeypatch.setattr(tgen, 'run', run)
+    report = tgen.run_suite(config, RunConfig(tmp_path, None))
+    assert report['family_size'] == 8  # Unsupported/error cases retain their alpha allocation.
+    assert all(c['alpha'] == .05 / 8 for c in report['results'].values())
+    outcomes = {c['feature']: c['outcome'] for c in report['results'].values() if c['tgen_type'] == 'dnsTgen'}
+    assert outcomes == {'dnsQueryRate': 'pass', 'tcpPktInterarrival': 'unsupported'}
+    assert all(c['outcome'] == 'error' for c in report['results'].values() if c['tgen_type'] == 'ftpTgen')
+    assert all(c['outcome'] == 'pass' for c in report['results'].values() if c['tgen_type'] == 'minTgen')
 
 
-def test_plot_filenames_are_unique(tmp_path):
-    result = dns.ks_equivalence([1, 1], [1, 1], delta=.05, alpha=.05)
-    first = dns.plot_cdfs([1, 1], [1, 1], result, tmp_path)
-    second = dns.plot_cdfs([1, 1], [1, 1], result, tmp_path)
-    assert first != second
-    assert (tmp_path / first).stat().st_size > 0
-    assert (tmp_path / second).stat().st_size > 0
+def test_case_failure_and_inactivity_do_not_stop_other_features(tmp_path, monkeypatch):
+    config = replace(suite(), experiments=[suite().experiments[0]], samples=4)
+    def run(test, directory, cfg):
+        fake_runner(test, directory, cfg)
+        manifest = tgen.query_manifest(config.experiments, config)
+        path = directory / 'dumps' / 'all_dumps'
+        rows = [[float(x) for x in line.split()] for line in path.read_text().splitlines()]
+        for row in rows:
+            for i, c in enumerate(manifest):
+                if c['name'] == 'dnsQuerySize':
+                    row[i] = 999  # Violates reconstruction; other query feature still works.
+                if c['name'] in ('dnsRespSize', 'summary_countDNSResp', 'summary_sizeDNSResp'):
+                    row[i] = 0
+        path.write_text('\n'.join(' '.join(map(str, row)) for row in rows) + '\n')
+    monkeypatch.setattr(tgen, 'run', run)
+    report = tgen.run_suite(config, RunConfig(tmp_path, None))
+    outcomes = {c['feature']: c['outcome'] for c in report['results'].values()}
+    assert outcomes == {'dnsQueryRate': 'pass', 'dnsQuerySize': 'error', 'dnsRespSize': 'inactive'}
+
+
+def test_entries_with_same_execution_inputs_share_arms(tmp_path, monkeypatch):
+    config = suite()
+    first = config.experiments[0]
+    entries = [replace(first, features=['dnsQueryRate']), replace(first, id='dns-sizes', features=['dnsQuerySize'])]
+    calls = []
+    def run(*args):
+        calls.append(args[0].name)
+        return fake_runner(*args)
+    monkeypatch.setattr(tgen, 'run', run)
+    report = tgen.run_suite(replace(config, experiments=entries, samples=4), RunConfig(tmp_path, None))
+    assert len(calls) == 2 and len(report['groups']) == 1 and len(report['results']) == 2
+
+
+@pytest.mark.parametrize('alias,kind', [('dns', 'dnsTgen'), ('mastodon', 'masTgen'),
+                                       ('ftp', 'ftpTgen'), ('minio', 'minTgen'),
+                                       ('gorilla', 'gorTgen'), ('irc', 'ircTgen'),
+                                       ('ftpTgen', 'ftpTgen')])
+def test_cli_suite_selection(alias, kind):
+    original = replace(suite(), multiplicity='bonferroni')
+    selected = tgen.select_suite(original, tgen_type=alias, window_size=37)
+    assert [e.tgen_type for e in selected.experiments] == [kind]
+    assert selected.window_size == 37
+    assert selected.family_size == 3 and selected.effective_alpha == .05 / 3
+    assert original.window_size == 60 and original.family_size == 18
+
+
+def test_cli_selection_defaults_and_errors():
+    config = suite()
+    assert tgen.select_suite(config) == config
+    for options in (dict(tgen_type='unknown'), dict(window_size=0), dict(window_size=-1)):
+        with pytest.raises(ValueError):
+            tgen.select_suite(config, **options)
+    with pytest.raises(ValueError, match='No configured experiments'):
+        tgen.select_suite(replace(config, experiments=[config.experiments[0]]), tgen_type='ftp')
