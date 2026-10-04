@@ -25,7 +25,7 @@ def test_invalid_composition(samples):
 
 
 def test_distance_outcomes():
-    compare = lambda x, y: dns.ks_equivalence(x, y, delta=.05, alpha=.05)['outcome']
+    compare = lambda x, y: dns.ks_equivalence(x, y, delta=.05, alpha=.05, method='bound')['outcome']
     assert compare([0] * 4, [0] * 4) == 'inconclusive'
     assert compare([0] * 5000, [0] * 5000) == 'pass'
     assert compare([0] * 5000, [1] * 5000) == 'fail'
@@ -75,11 +75,15 @@ def test_orchestration_uses_framework_and_exports_report(tmp_path, monkeypatch):
     report = dns.run_experiment(replace(experiment(), samples=4), cfg, smoke=True)
     assert [call['nsims'] for call in calls] == ['8-8', '4-4']
     assert [call['seed'] for call in calls] == [105, 106]
-    assert all(call['jobs'] == 1 for call in calls)
+    assert all(call['jobs'] == 0 for call in calls)
     assert report['composed_samples'] == [2] * 4
     assert report['outcome'] == 'smoke-only'
     saved = list((tmp_path / 'results').glob('*.json'))
     assert len(saved) == 1 and json.loads(saved[0].read_text()) == report
+    from pathlib import Path
+    plot = Path(report['report_path']).parent / report['plot_file']
+    assert plot.read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
+    assert (saved[0].parent / report['plot_file']).read_bytes() == plot.read_bytes()
 
     with pytest.raises(ValueError, match='60-second'):
         dns.run_experiment(experiment(), replace(cfg, override_run_time=30))
@@ -99,3 +103,24 @@ def test_runner_failure_preserves_error_report(tmp_path, monkeypatch):
     assert report['outcome'] == 'error'
     assert report['error'] == 'simulation failed'
     assert report['arms']['single']['generation']['tgen_delay'] == 0
+
+
+def test_pvalue_default_and_rejection():
+    same = dns.ks_equivalence([0] * 4, [0] * 4, delta=.05, alpha=.05)
+    assert same['method'] == 'p-value' and same['outcome'] == 'pass'
+    assert same['pvalue'] == 1 and not same['reject_null']
+    different = dns.ks_equivalence([0] * 100, [1] * 100, delta=.05, alpha=.05)
+    assert different['outcome'] == 'fail' and different['reject_null']
+    assert different['distance'] == 1 and different['statistic_location'] == 0
+    json.dumps(different, allow_nan=False)
+    with pytest.raises(ValueError, match='method'):
+        dns.ks_equivalence([0], [1], delta=.05, alpha=.05, method='invalid')
+
+
+def test_plot_filenames_are_unique(tmp_path):
+    result = dns.ks_equivalence([1, 1], [1, 1], delta=.05, alpha=.05)
+    first = dns.plot_cdfs([1, 1], [1, 1], result, tmp_path)
+    second = dns.plot_cdfs([1, 1], [1, 1], result, tmp_path)
+    assert first != second
+    assert (tmp_path / first).stat().st_size > 0
+    assert (tmp_path / second).stat().st_size > 0

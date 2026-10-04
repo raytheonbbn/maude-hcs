@@ -20,19 +20,34 @@ removes the unused calibration timer. It does not change the production model.
 A conflicting `--override-run-time` is rejected.
 
 For M comparisons, run 2M single-source simulations and M joint simulations,
-with distinct seeds and one worker. Read the runner's `dumps/all_dumps` in run
+with distinct seeds and the runner’s automatic worker selection (`jobs=0`). Read the runner's `dumps/all_dumps` in run
 order: its returned marginal samples are sorted and must not be used for pairing.
 Sum disjoint consecutive pairs, consuming every single-source run once. Recover
 integer counts before adding and dividing by 60 to avoid floating-point differences
 between equivalent discrete rates. Keep empty windows; reject entirely inactive
 arms, malformed dumps and incorrect sample counts.
 
-Compare joint and composed distributions with a fixed-look KS distance interval
-using two DKW bounds and a union bound. Pass requires the upper bound below delta;
-a lower bound above delta fails, otherwise the result is inconclusive. The
-statistical pytest assertion rejects inconclusive results too. Defaults are
-M=5000, delta=0.05, alpha=0.05. A small smoke test makes no equivalence claim.
-Do not increase the sample budget repeatedly until a comparison passes.
+Choose `"method": "p-value"` (default) or `"method": "bound"` in `experiment.json`.
+The helper also accepts `ks_equivalence(x, y, delta=.05, alpha=.05, method='bound')`.
+
+- `p-value`: use the two-sided SciPy KS equality-test p-value. Reject equality and
+  fail when `pvalue < alpha`; otherwise pass. This means equality was not rejected,
+  not that equivalence was established. SciPy's usual KS p-value calibration assumes
+  continuous distributions; these count-derived rates have ties, so this mode is
+  a diagnostic rather than the previous distribution-free equivalence guarantee.
+- `bound`: retain the fixed-look KS distance interval from two DKW bounds and a
+  union bound. Pass when the upper bound is below delta, fail when the lower bound
+  exceeds delta, otherwise return inconclusive (which fails the pytest assertion).
+
+Defaults are M=5000, delta=0.05, alpha=0.05. Delta affects only bound-mode decisions.
+A small smoke test makes no equivalence claim. Do not repeatedly increase the
+sample budget until a comparison passes.
+
+Each completed comparison produces a uniquely named `dns-cdfs-<uuid>.png` beside
+`report.json`, referenced by its `plot_file` field. The plot shows both ECDFs,
+the KS location and gap, and a title with the p-value, statistic and location.
+Both modes report these KS diagnostics as JSON scalars. `--results-dir` exports
+the PNG alongside the copied JSON so the filename reference remains valid.
 
 Run from the repository root with the project's Python environment:
 
@@ -46,7 +61,7 @@ python -m pytest tests/test_tgen_independence.py -k smoke --build --persist
 # Full fixed-budget statistical experiment (potentially expensive).
 python -m pytest tests/test_tgen_independence.py -k observable --tgen-statistical --persist --results-dir=/tmp/dns-composition-results
 
-# Smaller diagnostic budget, expected to be inconclusive rather than pass.
+# Smaller diagnostic budget (bound mode cannot establish equivalence at M=100).
 python -m pytest tests/test_tgen_independence.py -k observable --tgen-statistical --tgen-samples=100 --persist --results-dir=/tmp/dns-composition-results
 ```
 
@@ -59,7 +74,8 @@ report with scenarios, generation/SMC settings, model hashes, ordered rates,
 composed samples, means/variances and the distance interval. Build-only and error
 reports are also written. Report paths are logged.
 
-A passing result supports observable distributional composition for this fixture.
+A bound-mode pass supports observable distributional composition for this fixture.
+A p-value-mode pass only means the equality null was not rejected.
 It does not prove independence, justify other populations or HCS configurations,
 or establish a rewriting speedup. This implementation does not replace actors.
 

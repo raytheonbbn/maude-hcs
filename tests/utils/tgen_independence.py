@@ -8,6 +8,11 @@ import shutil
 import statistics
 import tempfile
 import hashlib
+import uuid
+
+import numpy as np
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from scipy.stats import ks_2samp
 
@@ -34,8 +39,11 @@ class Experiment:
     joint_seed: int
     delta: float
     alpha: float
+    method: str = 'p-value'
 
     def __post_init__(self):
+        if self.method not in {'p-value', 'bound'}:
+            raise ValueError('method must be p-value or bound')
         # Deliberately reject unsupported observables rather than silently using
         # addition for a mean, per-flow ECDF, or non-additive feature.
         if (self.feature, self.vantage, self.network, self.profile, self.population) != (
@@ -70,7 +78,9 @@ def packet_count(rate):
 
 
 def install_observation(build_dir):
-    # TODO: no need to replace, instead set perf = false in the experiment
+    # Note: we are editing the config directly because if we instead set perf = false in the experiment
+    #   the -run will have baseline in it which we are avoiding in this case
+    #   we instead remove baseline timer and actor and keep adversary measuring
     """Use the generated DNS observer, with no calibration or log pruning."""
     path = build_dir / 'test.maude'
     lines = path.read_text().splitlines(keepends=True)
@@ -114,7 +124,7 @@ def prepare_arm(root, population, samples, seed, experiment, run_cfg):
     install_observation(directory)
     test = TestConfig(Context('tgen_independence', source), f'dns-{population}',
                       'DNS-only additive observable experiment', TestRunner.SMC, cfg,
-                      {'nsims': f'{samples}-{samples}', 'seed': seed, 'jobs': 1})
+                      {'nsims': f'{samples}-{samples}', 'seed': seed, 'jobs': 0})
     return test, directory, scenario
 
 
@@ -130,19 +140,67 @@ def read_rates(directory, expected):
     return [packet_count(rate) / 60 for rate in rates]
 
 
-def ks_equivalence(x, y, *, delta, alpha):
-    """A fixed-look bound on distributional distance, not an equality p-value."""
+def ks_equivalence(x, y, *, delta, alpha, method='p-value'):
+    """Choose equality-test acceptance or a confidence bound on KS distance.
+
+    A p-value pass means equality was not rejected; it is not evidence of
+    equivalence within delta. Bound mode retains that stronger acceptance rule.
+    """
+    if method not in {'p-value', 'bound'}:
+        raise ValueError('method must be p-value or bound')
     if not 0 < alpha < 1 or not 0 < delta < 1:
         raise ValueError('alpha and delta must be between 0 and 1')
-    if not x or not y or any(not math.isfinite(v) for v in [*x, *y]):
+    if len(x) == 0 or len(y) == 0 or any(not math.isfinite(v) for v in [*x, *y]):
         raise ValueError('Expected nonempty finite samples')
-    distance = float(ks_2samp(x, y).statistic)
-    # Each empirical CDF gets a DKW bound at alpha/2. Triangle and union
-    # bounds give a confidence interval for the true KS distance.
-    margin = sum(math.sqrt(math.log(4 / alpha) / (2 * n)) for n in (len(x), len(y)))
-    lower, upper = max(0., distance - margin), min(1., distance + margin)
-    return dict(distance=distance, lower=lower, upper=upper, delta=delta, alpha=alpha,
-                outcome='pass' if upper < delta else 'fail' if lower > delta else 'inconclusive')
+    ks = ks_2samp(x, y)
+    # Store native scalars, not the scipy result object, for a portable JSON report.
+    result = dict(method=method, distance=float(ks.statistic),
+                  pvalue=float(ks.pvalue), statistic_location=float(ks.statistic_location),
+                  statistic_sign=int(ks.statistic_sign), delta=delta, alpha=alpha)
+    if method == 'p-value':
+        reject = result['pvalue'] < alpha
+        result.update(reject_null=reject,
+                      decision='reject_equal_distributions' if reject else 'do_not_reject_equal_distributions',
+                      outcome='fail' if reject else 'pass')
+    else:
+        # DKW bounds at alpha/2 for each empirical CDF, combined by a union bound.
+        margin = sum(math.sqrt(math.log(4 / alpha) / (2 * n)) for n in (len(x), len(y)))
+        lower, upper = max(0., result['distance'] - margin), min(1., result['distance'] + margin)
+        result.update(lower=lower, upper=upper,
+                      outcome='pass' if upper < delta else 'fail' if lower > delta else 'inconclusive')
+    return result
+
+
+def plot_cdfs(joint, composed, comparison, root):
+    """Plot right-continuous ECDFs and the vertical gap at the KS location."""
+    joint, composed = np.sort(joint), np.sort(composed)
+    support = np.unique(np.concatenate((joint, composed)))
+    padding = max(float(np.ptp(support)) * .04, .01)
+    grid = np.r_[support[0] - padding, support, support[-1] + padding]
+    fig = Figure(figsize=(9, 5.5))
+    FigureCanvasAgg(fig)  # Render in workers/headless test environments without a GUI.
+    ax = fig.subplots()
+    for values, label in ((joint, 'Two TGENs together'), (composed, 'Sum of independent single-TGEN runs')):
+        ax.step(grid, np.searchsorted(values, grid, side='right') / len(values),
+                where='post', label=f'{label} (n={len(values)})', linewidth=1.8)
+    location = comparison['statistic_location']
+    heights = [np.searchsorted(values, location, side='right') / len(values)
+               for values in (joint, composed)]
+    ax.axvline(location, color='0.4', linestyle=':', label=f'KS location = {location:.6g}')
+    ax.plot([location, location], heights, color='crimson', marker='o', linewidth=2.5,
+            label=f"KS gap = {comparison['distance']:.4g}")
+    ax.set(xlabel='DNS query rate at cl[1] (queries/second; window 0–60 s)',
+           ylabel='Empirical cumulative probability', ylim=(-.025, 1.025),
+           title=('DNS composition: two TGENs vs. independent sum\n'
+                  f"KS statistic={comparison['distance']:.6g}, p-value={comparison['pvalue']:.6g}, "
+                  f"location={location:.6g}\n"
+                  f"Decision mode: {comparison['method']} | outcome: {comparison['outcome']}"))
+    ax.grid(alpha=.2)
+    ax.legend(loc='best', fontsize=9)
+    fig.tight_layout()
+    filename = f'dns-cdfs-{uuid.uuid4().hex}.png'
+    fig.savefig(root / filename, dpi=160, bbox_inches='tight')
+    return filename
 
 
 def run_experiment(experiment, run_cfg, *, smoke=False):
@@ -177,7 +235,8 @@ def run_experiment(experiment, run_cfg, *, smoke=False):
                                         variance=statistics.variance(values)) for name, values in rates.items()}
         report['composed_samples'] = rates['composed']
         report['comparison'] = ks_equivalence(rates['joint'], rates['composed'],
-                                             delta=experiment.delta, alpha=experiment.alpha)
+                                             delta=experiment.delta, alpha=experiment.alpha, method=experiment.method)
+        report['plot_file'] = plot_cdfs(rates['joint'], rates['composed'], report['comparison'], root)
         # A small execution check may compute a distance, but must never claim
         # statistical independence/equivalence just because it finished running.
         report['outcome'] = 'smoke-only' if smoke else report['comparison']['outcome']
@@ -190,5 +249,7 @@ def run_experiment(experiment, run_cfg, *, smoke=False):
         if run_cfg.results_dir is not None:
             destination = Path(run_cfg.results_dir)
             destination.mkdir(parents=True, exist_ok=True)
+            if 'plot_file' in report:
+                shutil.copy2(root / report['plot_file'], destination / report['plot_file'])
             shutil.copy2(report['report_path'], destination / f'{root.name}.json')
         logging.getLogger(__name__).warning('DNS composition report: %s', report['report_path'])
