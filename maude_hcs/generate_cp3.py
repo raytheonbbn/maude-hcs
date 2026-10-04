@@ -337,7 +337,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, not
     L("  ---------------------------------------------------")
     
     L("  ops ircServerAddr s3SrvAddr ircMonitorAddr iodineMonitorAddr : -> Address .")
-    L("  ops masSrvAddr masNetSrvAddr : -> Address .")
+    L("  ops masSrvAddr masNetSrvAddr s3NetSrvAddr : -> Address .")
     L("  ops advAddr : -> Address .")
     L("")
 
@@ -1373,7 +1373,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L("")
     
     L("  --- Base Infrastructure")
-    L("  ops ircServer s3SrvAct iodineMonitor advActor masNetSrv masSrvAct : -> Actor .")
+    L("  ops ircServer s3SrvAct iodineMonitor advActor masNetSrv masSrvAct s3NetSrv : -> Actor .")
     L("  eq ircServer      = mkIrcServer(ircServerAddr) .")
     L("  eq s3SrvAct       = ")
     L("    < s3SrvAddr : AwsS3HttpServer |")
@@ -1388,6 +1388,9 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  .")
     L("  eq masSrvAct      = makeMastodonServer(masSrvAddr) .")
     L("  eq masNetSrv       = makeNetServer(masNetSrvAddr, masSrvAddr) .")
+    # Preserve the original transport identity for existing Skyhook models.
+    s3_net_addr = f"skyCl{hcs_client_ids['skyhook'][0]}NetSrvAddr" if hcs_client_ids["skyhook"] else "s3NetSrvAddr"
+    L(f"  eq s3NetSrv        = makeNetServer({s3_net_addr}, s3SrvAddr) .")
     L("  eq iodineMonitor  = mkWMonitor(iodineMonitorAddr) .")
     adv_use_tcp = "false" if perf else "true"
     L(f"  eq advActor       = mkAdversaryCp3(advAddr, {adv_use_tcp}) .")
@@ -1569,6 +1572,12 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L("")
     L("    --- Core Infrastructure")
     L("    ircServer s3SrvAct iodineMonitor masSrvAct")
+    # Application servers need one shared TCP transport even without HCS clients.
+    # Keeping transport ownership here also avoids duplicates with multiple clients.
+    if hcs_client_ids["mastodon"] or any(t.tgen_type == "masTgen" for t in tgen_instances):
+        L("    masNetSrv")
+    if hcs_client_ids["skyhook"] or any(t.tgen_type == "minTgen" for t in tgen_instances):
+        L("    s3NetSrv")
     L("    mkIrcMonitor(ircMonitorAddr)")
     L("    servDns servNetCl")
     L("    advActor")
@@ -1583,7 +1592,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"    --- Skyhook Client {i}")
         L(f"    skyCl{i}Irc skyCl{i}Um skyCl{i}Iface skyCl{i}UmacAct skyCl{i}CmacAct skyCl{i}PuaAct skyCl{i}SdkacAct")
         L(f"    skyCl{i}SrvIface skyCl{i}UmasAct skyCl{i}CmasAct skyCl{i}AhaAct skyCl{i}SdkasAct")
-        L(f"    skyCl{i}ClNet skyCl{i}NetSrv skyCl{i}SrvNetCl")    
+        L(f"    skyCl{i}ClNet skyCl{i}SrvNetCl")
     L("    corpSkyDns corpSkyNetCl")
     L("")
     for i in hcs_client_ids["obfs4"]:
@@ -1604,7 +1613,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"    masCl{i}Irc masCl{i}Um masCl{i}Iface masCl{i}SrvIface")
         L(f"    masCl{i}UmacAct masCl{i}CmacAct masCl{i}McacAct masCl{i}EdacAct")
         L(f"    masCl{i}UmasAct masCl{i}CmasAct masCl{i}McasAct masCl{i}EdasAct")
-        L(f"    masCl{i}ClNet masNetSrv masCl{i}SrvNetCl")
+        L(f"    masCl{i}ClNet masCl{i}SrvNetCl")
     L("    corpMasDns corpMasNetCl")
     L("")
     L("    --- DNS Infrastructure")

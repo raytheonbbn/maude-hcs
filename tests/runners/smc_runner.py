@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 from maude_hcs.main import capture_scheck
 from maude_hcs.lib import GLOBALS
+from .smc_validation import validated_simulations
 
 def concat_dumps(dump_dir: Path):
     """No guaranteed ordering BETWEEN LINES of resulting dump file.
@@ -128,7 +129,8 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
 
     logger.info(format_cmd(args, arg))
 
-    (out, err) = capture_scheck(args)
+    with validated_simulations(build_dir, args.seed):
+        (out, err) = capture_scheck(args)
     if err.strip(): logger.warning(err)
 
     concat_dumps(dump_dir)

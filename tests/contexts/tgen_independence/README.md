@@ -3,7 +3,8 @@
 This suite compares an N-generator simulation with independently composed
 single-generator simulations. It reuses the regression framework's `BuildConfig`,
 `TestConfig`, `build()`, isolated `run()` wrapper and SMC runner. Configuration lives
-in `experiment.json`; no production-model or runner changes are required.
+in `experiment.json`. The generator supplies shared application-server transports,
+and the regression SMC runner validates states and observations before accepting samples.
 
 ## Explicit selection
 
@@ -30,7 +31,9 @@ retains scenario-1 networking and shared services. Each generated arm contains o
 the selected source kind. Profiles are copied from scenario 1. Both start delays
 are zero, retaining the generator's startup jitter. An experiment-local adapter
 restores passive DNS/TCP logging in performance mode and removes the unused
-baseline calibration timer. It does not add autonomous monitor user models.
+baseline calibration timer. It does not add autonomous monitor user models. Mastodon and S3 each have one
+shared TCP server whenever an HCS client or corresponding TGEN needs it, including
+TGEN-only and mixed configurations.
 
 Top-level `window_size` controls the positive integer duration in seconds (default
 60), with `window_start` fixed at zero. The scenario, simulation limit, query,
@@ -78,7 +81,7 @@ Run from the repository root using the project's Python environment:
 
 ```sh
 # Helper coverage and real SMC plumbing checks; statistical cases skip by default.
-python -m pytest tests/test_tgen_composition_helpers.py tests/test_tgen_independence.py
+python -m pytest tests/test_smc_validation.py tests/test_tgen_composition_helpers.py tests/test_tgen_independence.py
 
 # Build all six pairs without simulation and preserve the generated files.
 python -m pytest tests/test_tgen_independence.py -k smoke --build --persist
@@ -149,6 +152,19 @@ hashes, generation and SMC settings, query manifests and group build paths. Its
 that group's cases while later groups still run; a feature error does not suppress
 other features.
 
+Local SMC validation rejects a state still wrapped in unresolved `run(...)` and
+observations that fail to reduce to finite numeric or Boolean literals. A stuck
+simulation is an `error`, even if its query is constant; a completed, genuinely
+empty observation can still be `inactive`. Errors record the arm seed, worker/sample
+identity, query (when applicable), and diagnostic state. The group's arm metadata
+contains `validation_errors`; their relative `state_file` references point to
+copies beside the report and are included in exports. Original diagnostics and
+logs remain in the build directory when `--persist` is used.
+
+The adapter catches validation errors at the sample boundary so umaudemc's parallel
+worker protocol can finish safely, then rejects the entire arm before accepting
+any samples. Temporary worker dumps from failed arms are not valid experiment data.
+
 Raw row JSON files are stored once per group/arm. Per-case sample JSON files retain
 joint and composed values. Every statistical comparison gets a UUID-named CDF PNG
 beside `report.json`, referenced by `plot_file`. Plots use tight layout, show both
@@ -160,8 +176,9 @@ own run subdirectory. Build paths refer to original temporary directories; use
 
 ## Validation (2026-10-04)
 
-Helper and real-SMC checks passed 47 tests; the 18 opt-in statistical tests
-skipped by default. Build-only mode generated all six pairs. The checks used
+The final helper, generator, validation and real-SMC checks passed 77 tests;
+the 18 opt-in statistical tests skipped by default. Earlier build-only validation
+generated all six pairs. The checks used
 Matplotlib 3.10.8 (as pinned in the project); the local environment's older version
 was supplied a temporary override for Python 3.14 compatibility.
 
@@ -170,21 +187,79 @@ After adding the CLI flags, helper tests plus a real FTP-only run using
 contained only three FTP cases in one shared execution group, and both arms used
 the 37-second duration.
 
-The fixed M=100 diagnostic ran all six pairs at 60 seconds, N=2, with the configured
-seeds and Bonferroni alpha=0.05/18 (before the default changed to `"none"`).
-All direct-feature reconstructions agreed with the model. Outcomes for the three listed features of each kind were:
+The original M=100 campaign reported Mastodon and MinIO as inactive. Those six
+results were invalid: the TGEN-only models lacked server-side TCP actors, became
+stuck, and unresolved Maude observations were converted to zeros. The generator
+and validation fixes above address both defects.
 
-| Kind | Outcomes |
+Repeating that campaign with M=100, a 60-second window, N=2, the same configured
+seeds and the original Bonferroni alpha=0.05/18 yielded:
+
+| Kind | Outcomes for its three configured features |
 | --- | --- |
 | DNS | pass, pass, pass |
-| Mastodon | inactive, inactive, inactive |
+| Mastodon | pass, pass, pass |
 | FTP | pass, pass, pass |
-| MinIO | inactive, inactive, inactive |
+| MinIO | pass, pass, pass |
 | Gorilla | fail, fail, fail |
 | IRC | fail, fail, fail |
 
-The statistical pytest command consequently failed 12 assertions. Inactivity here
-means no relevant observed packets in at least one arm; it does not establish that
-the kind never emits traffic. These results neither justify actor replacement nor
-establish a speedup. The full M=5000 campaign has not been run. This implementation
-provides reproducible observable-composition experiments, not an independence proof.
+All 18 cases produced valid comparisons with no inactive/error outcomes; direct
+features agreed with summary reconstructions. The default multiplicity remains
+`"none"`; Bonferroni was used explicitly to compare with the original campaign.
+These diagnostic passes mean non-rejection, not proof of independence or a speedup.
+The full M=5000 campaign has not been run.
+
+Regression coverage includes deliberately missing server actors under parallel
+SMC, symbolic observations, literal zeros, shared-server uniqueness for TGEN-only,
+HCS-only and mixed populations, fixed-seed request/response exchanges, and bounded
+60-second checks of the existing multi-client Mastodon/Skyhook HCS fixtures.
+The original 6,030-second HCS regression selection was interrupted after 162 seconds;
+its full-duration results are not claimed here.
+
+## Why Gorilla and IRC legitimately fail composition
+
+For the configured `irc_1` profiles and the 60-second window at `ixpN`, the
+Gorilla and IRC failures reflect population-dependent chat fan-out. Adding a
+second generator also adds a recipient. Summing observations from two isolated
+single-generator runs cannot reproduce traffic delivered between those clients.
+These are valid `fail` outcomes, distinct from the earlier Mastodon/MinIO false
+inactivity caused by missing network-server actors.
+
+Both profiles register clients in the same rooms during initialization. A client
+can receive a broadcast even if it sends no chat message within the observation
+window. The Gorilla server's `serverBroadcast`/`mkBroadcast` rules deliver to all
+registered room members, including the sender; IRC's
+`server-handle-incoming-chat`/`createIrcMsg` rules forward to other members and
+exclude the sender. These rules are in
+`maude_hcs/lib/tgen/maude/gorillachat/gorilla-protocol.maude`,
+`maude_hcs/lib/irc/irc_prob-v2.maude`, and
+`maude_hcs/lib/irc/common/_aux.maude` (paths relative to the repository root).
+
+Representative packet traces show the additional delivery directly:
+
+| Type | Single-generator run | Two-generator run with one sender active |
+| --- | --- | --- |
+| IRC | Six client-to-server packets. | Six client-to-server packets plus one server-to-second-client packet: seven total. |
+| Gorilla | Six upload packets, an acknowledgement and a self-broadcast: eight total. | The same pattern plus a broadcast to the second client: nine total. |
+
+These counts describe the inspected traces, not fixed counts for every run.
+Payload sizes, loss and window boundaries can change packetization. In the
+repeated M=100 campaign, the rate KS distance was 0.50 for Gorilla
+(p-value approximately 1.00e-11) and 0.49 for IRC (approximately 2.95e-11).
+The extra deliveries also change the packet-size mixture, explaining why
+`tcpPktSize` fails alongside the rates; its KS distances were 0.43 and 0.48,
+respectively. These results used the campaign's Bonferroni alpha=0.05/18.
+
+The outgoing and incoming rate samples coincide in this campaign because the
+current `ixpN` visibility rule accepts both directions
+(`maude_hcs/lib/common/maude/visibility.maude`). Their identical failures should
+therefore not be interpreted as independent evidence.
+
+The conclusion is that the current isolated-run composition recipe fails for
+these aggregate network observables. It does not establish dependence between
+the generators' random choices: independent sending behavior can still produce
+population-dependent network traffic through server fan-out. Keep these cases
+as failures. A future decomposition would need to preserve the recipient
+population or explicitly reconstruct broadcast deliveries and their transport
+behavior, then test that revised composition rule separately.

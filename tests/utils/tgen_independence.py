@@ -493,6 +493,16 @@ def run_suite(suite, run_cfg, *, smoke=False, context=CONTEXT):
                         except Exception as exc:
                             case.update(outcome='error', reason=str(exc))
             except Exception as exc:
+                # Keep validation evidence with the report, even when temporary
+                # builds are cleaned up or the report is exported elsewhere.
+                for arm_name, arm in group_report['arms'].items():
+                    for diagnostic in sorted(Path(arm['build']).glob('smc-error-*.json')):
+                        detail = json.loads(diagnostic.read_text())
+                        state = Path(detail['state_file'])
+                        state_name = f'{group_id}-{arm_name}-{state.name}'
+                        shutil.copy2(state, root / state_name)
+                        detail['state_file'] = state_name
+                        arm.setdefault('validation_errors', []).append(detail)
                 group_report['error'] = str(exc)
                 for case in cases:
                     case.update(outcome='error', reason=str(exc))

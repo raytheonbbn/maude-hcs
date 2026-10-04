@@ -4,6 +4,12 @@ Status: implemented 2026-10-04. The version-2 experiment file selects all 18
 cases below. See README.md for commands, report layout and validation results.
 The implementation reuses the existing generator, build and SMC execution paths.
 
+The implementation also fixes shared Mastodon/S3 TCP server generation for
+TGEN-only and multi-client configurations. Local regression SMC rejects stuck
+states and unresolved observations, preserving diagnostic states with the report.
+The earlier Mastodon/MinIO inactivity results are invalidated; see README.md for
+the repeated campaign and regression coverage.
+
 ## Objective and scope
 
 For each explicitly configured combination `{tgen_type, feature, vantage}`, compare
