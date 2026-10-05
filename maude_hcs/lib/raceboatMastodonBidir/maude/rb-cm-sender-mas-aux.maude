@@ -121,17 +121,10 @@ eq setSendWeird(attrs) = attrs [owise] .
 
 ---- called when MC confirms Toot
 ---- moveToNextFrag(resetTxState(attrs) 
-op moveToNextFrag : AttributeSet -> AttributeSet .
+****op moveToNextFrag : AttributeSet -> AttributeSet .
 
 --- Default, which also includes A WEIRD TRANSMISSION that is NOT FINISHED.
-eq moveToNextFrag(attrs) = attrs [owise] .
-
-eq moveToNextFrag(attrs)
-  = (if getPostingWeird(attrs) == true
-      then setSndHashTagAttrs(attrs, nextWHashtag(getSndHashTagAttrs(attrs)))
-      else setSndHashTagAttrs(attrs, nextBHashtag(getSndHashTagAttrs(attrs)))
-    fi)
-.
+****eq moveToNextFrag(attrs) = attrs [owise] .
 
 ****--- Move hashtag for benign case (no pending weird transmission).
 ****ceq moveToNextFrag(attrs) = setSndHashTagAttrs(attrs,hattrs)
@@ -231,9 +224,10 @@ ceq sendPostRequest((attrs, (w4c: null)), cmcAddr)
              tootQ(hashtag, IMAGES)))),
      (to mastodonClientAddr from cmcAddr :
               translateTootQ(tootQ(hashtag, IMAGES))) }
-  if hashtag := getNextHashtag(attrs)
-  /\ attrsTrans, mcAddress: mastodonClientAddr, (encodedImages: IMAGES) := attrs
-  [ print "Raceboat client sending post request with hashtag " hashtag ]
+****  if hashtag := getNextHashtag(attrs)
+  if hashtag := getCurrentSendHashtag(attrs)
+    /\ attrsTrans, mcAddress: mastodonClientAddr, (encodedImages: IMAGES) := attrs
+  [ print "Raceboat client " cmcAddr " sending post request with hashtag " hashtag ]
   .
 
 --- Handle an encoding response.
@@ -365,10 +359,10 @@ eq crcvMCResponse((attrs,
           (replyTo: (to cmcAddr from umAddr : c1:Content))),
          (to cmcAddr from mcAddr :
            mkRequestResponse(str)))
-  = { moveToNextFrag(resetTxState(attrs,
+  = { rollSendHashtag(resetTxState(attrs,
                      (w4c: null), (replyTo: null))),
      (to umAddr from cmcAddr : actionR("ok")) }
-  [ print "Raceboat cm handling toot response, ready for next action." ]
+  [ print "Raceboat " cmcAddr " handling toot response, ready for next action." ]
   .
 
 ***(
