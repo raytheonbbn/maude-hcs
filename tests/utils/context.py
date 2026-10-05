@@ -147,6 +147,15 @@ class Context:
         for root, _, files in os.walk(os.path.join(self.directory, 'build_cfgs')):
             for file in files:
                 path = Path(root) / file
+                
+                # Skip hidden files (like .DS_Store)
+                if file.startswith("."):
+                    continue
+
+                # error on unexpected non-json files
+                if not file.endswith(".json"):
+                    raise RuntimeError(f"found non-json file {file} in build_cfgs")
+                
                 d = json.loads(path.read_text())
                 build_cfgs[path.stem] = BuildConfig(
                     path.stem,
