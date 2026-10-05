@@ -1388,7 +1388,12 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  .")
     L("  eq masSrvAct      = makeMastodonServer(masSrvAddr) .")
     L("  eq masNetSrv       = makeNetServer(masNetSrvAddr, masSrvAddr) .")
-    # Preserve the original transport identity for existing Skyhook models.
+    # One NetServer can serve all Skyhook SDKs and MinIO TGENs: net-server-req
+    # stores connection attributes by remote SDK address, and net-server-resp
+    # looks them up by the response destination. The old per-client NetSrv actors
+    # all served s3SrvAddr without restricting requests to their named client.
+    # Each client's SDK and NetClient actors remain separate. Reusing the first
+    # Skyhook transport's address preserves its identity, not exclusive ownership.
     s3_net_addr = f"skyCl{hcs_client_ids['skyhook'][0]}NetSrvAddr" if hcs_client_ids["skyhook"] else "s3NetSrvAddr"
     L(f"  eq s3NetSrv        = makeNetServer({s3_net_addr}, s3SrvAddr) .")
     L("  eq iodineMonitor  = mkWMonitor(iodineMonitorAddr) .")
