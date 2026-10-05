@@ -19,7 +19,8 @@ def pytest_generate_tests(metafunc):
     if 'case_id' in metafunc.fixturenames:
         suite = configured_suite(metafunc.config)
         # Filter collection as well as execution; excluded types never run.
-        names = [e.case_id(f, v) for e in suite.experiments for f, v in e.cases()]
+        names = [e.case_id(f, v, w) for e in suite.experiments
+                 for f, v in e.cases() for w in suite.window_size]
         metafunc.parametrize('case_id', names, ids=names)
 
 
@@ -30,7 +31,7 @@ def selected_suite(pytestconfig):
 
 @pytest.fixture(scope='module')
 def smoke_report(pytestconfig, selected_suite):
-    # Selected source kinds execute once per arm, regardless of feature count.
+    # Selected source kinds execute once per window and arm, regardless of feature count.
     return run_suite(replace(selected_suite, samples=4), pytestconfig.run_cfg, smoke=True)
 
 
@@ -66,8 +67,8 @@ def test_composition_short_window(pytestconfig, selected_suite):
         pytest.skip('Explicit window override; covered by the selected suite')
     if not any(e.tgen_type == 'dnsTgen' for e in selected_suite.experiments):
         pytest.skip('DNS not selected')
-    config = replace(CONFIG, experiments=[CONFIG.experiments[0]], samples=4, window_size=30)
+    config = replace(CONFIG, experiments=[CONFIG.experiments[0]], samples=4, window_size=[30])
     report = run_suite(config, pytestconfig.run_cfg, smoke=True)
     for case_id in report['results']:
         assert_case(report, case_id, ('smoke-only',))
-    assert report['experiment']['window_size'] == 30
+    assert report['experiment']['window_size'] == [30]

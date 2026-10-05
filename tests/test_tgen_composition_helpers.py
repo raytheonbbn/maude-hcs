@@ -12,7 +12,7 @@ from .utils.context import RunConfig
 
 
 def suite():
-    return tgen.load_suite()
+    return replace(tgen.load_suite(), window_size=[60])
 
 
 def test_explicit_matrix():
@@ -24,12 +24,14 @@ def test_explicit_matrix():
     assert config.effective_alpha == .05
     assert tgen.Suite(experiments=config.experiments).multiplicity == 'none'
     assert replace(config, multiplicity='bonferroni').effective_alpha == .05 / 18
-    names = [e.case_id(f, v) for e in config.experiments for f, v in e.cases()]
+    names = [e.case_id(f, v, 60) for e in config.experiments for f, v in e.cases()]
     assert len(set(names)) == 18
 
 
 @pytest.mark.parametrize('changes', [dict(window_size=0), dict(window_size=-1), dict(window_size=True),
-                                     dict(window_size=1.5), dict(samples=1), dict(population=1),
+                                     dict(window_size=1.5), dict(window_size=[]), dict(window_size=[60, 60]),
+                                     dict(window_size=[True]), dict(window_size=[0]), dict(window_size=[1.5]),
+                                     dict(window_size=[60, -1]), dict(window_size="60"), dict(samples=1), dict(population=1),
                                      dict(window_start=1), dict(method='wrong'), dict(multiplicity='wrong')])
 def test_invalid_suite(changes):
     with pytest.raises(ValueError):
@@ -56,18 +58,18 @@ def test_duplicate_configurations_and_ids():
 
 def test_query_manifest_has_unique_names_and_shared_summaries():
     config = suite()
-    columns = tgen.query_manifest([config.experiments[0]], config)
+    columns = tgen.query_manifest([config.experiments[0]], 60)
     assert len(columns) == 7  # Three direct features, four distinct count/size summaries.
     assert sum(c['name'] == 'summary_countDNSQuery' for c in columns) == 1
     assert all('getTsML' in c['expression'] for c in columns)
-    tcp = tgen.query_manifest([config.experiments[1]], config)
+    tcp = tgen.query_manifest([config.experiments[1]], 60)
     assert all('getTsPL' in c['expression'] for c in tcp)
     assert any('sizeTCPPkt' in c['expression'] for c in tcp)
 
 
 def test_mean_composition_weights_counts_and_keeps_zero_windows():
     config = suite()
-    columns = tgen.query_manifest([config.experiments[0]], config)
+    columns = tgen.query_manifest([config.experiments[0]], 60)
     def row(count, size):
         values = {'summary_countDNSQuery': count, 'summary_sizeDNSQuery': size}
         return [values.get(c['name'], 0) for c in columns]
@@ -135,7 +137,7 @@ def test_shared_runs_reports_and_export(tmp_path, monkeypatch, duration):
         calls.append(args[0].arg)
         return fake_runner(*args)
     monkeypatch.setattr(tgen, 'run', run)
-    config = replace(suite(), window_size=duration, samples=4)
+    config = replace(suite(), window_size=[duration], samples=4)
     cfg = RunConfig(tmp_path, None, results_dir=str(tmp_path / 'export'))
     report = tgen.run_suite(config, cfg, smoke=True)
     assert len(calls) == 12 and len(report['results']) == 18
@@ -180,7 +182,7 @@ def test_case_failure_and_inactivity_do_not_stop_other_features(tmp_path, monkey
     config = replace(suite(), experiments=[suite().experiments[0]], samples=4)
     def run(test, directory, cfg):
         fake_runner(test, directory, cfg)
-        manifest = tgen.query_manifest(config.experiments, config)
+        manifest = tgen.query_manifest(config.experiments, 60)
         path = directory / 'dumps' / 'all_dumps'
         rows = [[float(x) for x in line.split()] for line in path.read_text().splitlines()]
         for row in rows:
@@ -217,9 +219,9 @@ def test_cli_suite_selection(alias, kind):
     original = replace(suite(), multiplicity='bonferroni')
     selected = tgen.select_suite(original, tgen_type=alias, window_size=37)
     assert [e.tgen_type for e in selected.experiments] == [kind]
-    assert selected.window_size == 37
+    assert selected.window_size == [37]
     assert selected.family_size == 3 and selected.effective_alpha == .05 / 3
-    assert original.window_size == 60 and original.family_size == 18
+    assert original.window_size == [60] and original.family_size == 18
 
 
 def test_cli_selection_defaults_and_errors():
@@ -230,3 +232,68 @@ def test_cli_selection_defaults_and_errors():
             tgen.select_suite(config, **options)
     with pytest.raises(ValueError, match='No configured experiments'):
         tgen.select_suite(replace(config, experiments=[config.experiments[0]]), tgen_type='ftp')
+
+
+def test_configured_windows_and_family():
+    config = tgen.load_suite()
+    assert config.window_size == [60, 120, 1000]
+    assert config.family_size == 54
+    assert replace(config, multiplicity='bonferroni').effective_alpha == .05 / 54
+    names = [e.case_id(f, v, w) for e in config.experiments
+             for f, v in e.cases() for w in config.window_size]
+    assert len(set(names)) == 54
+    selected = tgen.select_suite(config, tgen_type='mastodon')
+    assert selected.family_size == 9 and selected.window_size == config.window_size
+    assert tgen.select_suite(selected, window_size=120).family_size == 3
+
+
+def test_multiple_windows_keep_artifacts_and_alpha_separate(tmp_path, monkeypatch):
+    config = replace(suite(), experiments=[suite().experiments[0]],
+                     window_size=[60, 120, 1000], samples=4, multiplicity='bonferroni')
+    calls = []
+    def run(test, directory, cfg):
+        calls.append((test.name, test.build_cfg.gen_args.run_time))
+        return fake_runner(test, directory, cfg)
+    monkeypatch.setattr(tgen, 'run', run)
+    cfg = RunConfig(tmp_path, None, results_dir=str(tmp_path / 'export'))
+    report = tgen.run_suite(config, cfg)
+    assert len(calls) == 6 and len({name for name, _ in calls}) == 6
+    assert [w for _, w in calls] == [60, 60, 120, 120, 1000, 1000]
+    assert report['family_size'] == 9 and len(report['results']) == 9
+    assert report['experiment']['window_size'] == [60, 120, 1000]
+    artifacts = []
+    for case_id, case in report['results'].items():
+        suffix = f"__w{case['window_size']}s"
+        assert case_id.endswith(suffix) and case['name'].endswith(suffix)
+        assert case['group_id'].endswith(suffix)
+        assert case['outcome'] == 'pass'
+        assert case['comparison']['alpha'] == .05 / 9
+        artifacts.extend([case['samples_file'], case['plot_file']])
+        if case['feature'] == 'dnsQueryRate':
+            assert case['summaries']['joint']['mean'] == 2 / case['window_size']
+    for group_id, group in report['groups'].items():
+        w = group['window_size']
+        assert group_id.endswith(f'__w{w}s')
+        for arm in group['arms'].values():
+            assert arm['generation']['run_time'] == w
+            assert arm['scenario']['analysis_window_size'] == w
+            artifacts.append(arm['rows_file'])
+    assert len(set(artifacts)) == len(artifacts)
+    exported = tmp_path / 'export' / report['run_id']
+    assert all((exported / name).is_file() for name in artifacts)
+    # A global run-time override cannot silently collapse a multi-window suite.
+    with pytest.raises(ValueError, match='override_run_time'):
+        tgen.run_suite(config, replace(cfg, override_run_time=60))
+
+
+def test_window_failure_does_not_suppress_later_windows(tmp_path, monkeypatch):
+    config = replace(suite(), experiments=[suite().experiments[0]],
+                     window_size=[60, 120], samples=4)
+    def run(test, *args):
+        if test.build_cfg.gen_args.run_time == 60:
+            raise RuntimeError('synthetic window failure')
+        return fake_runner(test, *args)
+    monkeypatch.setattr(tgen, 'run', run)
+    report = tgen.run_suite(config, RunConfig(tmp_path, None))
+    for case in report['results'].values():
+        assert case['outcome'] == ('error' if case['window_size'] == 60 else 'pass')

@@ -1,5 +1,5 @@
 """Shared TGEN composition experiments using the existing generator and SMC runner."""
-from dataclasses import dataclass, asdict, replace
+from dataclasses import dataclass, asdict, replace, field
 from pathlib import Path
 from urllib.parse import quote
 import hashlib
@@ -85,8 +85,8 @@ class Experiment:
     def cases(self):
         return [(feature, vantage) for feature in self.features for vantage in self.vantage_points]
 
-    def case_id(self, feature, vantage):
-        return f'{self.id}__{self.tgen_type}__{feature}__{vantage}'
+    def case_id(self, feature, vantage, window_size):
+        return f'{self.id}__{self.tgen_type}__{feature}__{vantage}__w{window_size}s'
 
     def group_key(self):
         # Features do not affect source behavior. Entries differing only in their
@@ -101,7 +101,7 @@ class Suite:
     scenario: str = 'scenario1'
     scenario_file: str = 'scenario.yaml'
     window_start: int = 0
-    window_size: int = 60
+    window_size: list[int] = field(default_factory=lambda: [60])
     population: int = 2
     samples: int = 5000
     method: str = 'p-value'
@@ -111,7 +111,7 @@ class Suite:
 
     @property
     def family_size(self):
-        return sum(len(e.cases()) for e in self.experiments)
+        return len(self.window_size) * sum(len(e.cases()) for e in self.experiments)
 
     @property
     def effective_alpha(self):
@@ -122,7 +122,12 @@ class Suite:
             raise ValueError('Expected schema_version=2 and scenario1')
         if self.window_start != 0:
             raise ValueError('window_start must be zero')
-        for name, minimum in (('window_size', 1), ('population', 2), ('samples', 2)):
+        if (not isinstance(self.window_size, list) or not self.window_size
+                or any(type(w) is not int or w < 1 for w in self.window_size)):
+            raise ValueError('window_size must be a nonempty list of positive integer seconds')
+        if len(set(self.window_size)) != len(self.window_size):
+            raise ValueError('window_size must not contain duplicates')
+        for name, minimum in (('population', 2), ('samples', 2)):
             value = getattr(self, name)
             if type(value) is not int or value < minimum:
                 raise ValueError(f'{name} must be an integer >= {minimum}')
@@ -185,7 +190,7 @@ def select_suite(suite, *, tgen_type=None, window_size=None):
             raise ValueError(f'No configured experiments for {kind}')
         suite = replace(suite, experiments=entries)
     if window_size is not None:
-        suite = replace(suite, window_size=window_size)
+        suite = replace(suite, window_size=[window_size])
     return suite.validate()
 
 
@@ -194,7 +199,7 @@ def recipe_for(experiment, feature):
     return recipe if recipe and recipe.log == TGENS[experiment.tgen_type].log else None
 
 
-def query_manifest(entries, suite):
+def query_manifest(entries, window_size):
     """Deduplicate summaries while keeping each feature's direct reference query."""
     columns = {}
     for e in entries:
@@ -203,10 +208,10 @@ def query_manifest(entries, suite):
             if recipe is None:
                 continue
             log = 'getTsML' if recipe.log == 'dns' else 'getTsPL'
-            args = f'{vantage}, {log}(getAdversary(C)), 0.0, {suite.window_size}.0'
+            args = f'{vantage}, {log}(getAdversary(C)), 0.0, {window_size}.0'
             columns[f'{feature}:{vantage}'] = dict(
                 name=feature, vantage=vantage, integer=False,
-                expression=f'compObsFeatureX({vantage}, {feature}, {log}(getAdversary(C)), 0.0, {suite.window_size}.0)')
+                expression=f'compObsFeatureX({vantage}, {feature}, {log}(getAdversary(C)), 0.0, {window_size}.0)')
             for operator in (recipe.count, recipe.size):
                 if operator:
                     name = f'summary_{operator}'
@@ -236,29 +241,29 @@ def install_observation(directory, manifest, window_size):
     (directory / 'test.quatex').write_text(query)
 
 
-def prepare_arm(root, group, population, samples, seed, suite, run_cfg, manifest):
+def prepare_arm(root, group, population, samples, seed, suite, run_cfg, manifest, window_size):
     e = group[0]
     adapter = TGENS[e.tgen_type]
     source = root / f'source-{population}'
     shutil.copytree(root.parent / 'fixture', source)
     scenario = yaml.safe_load((source / suite.scenario_file).read_text())
-    scenario.update(conversation_duration=suite.window_size, analysis_window_size=suite.window_size)
+    scenario.update(conversation_duration=window_size, analysis_window_size=window_size)
     # Keep shared services, but replace source populations rather than appending
     # them to the original DNS-only fixture. No autonomous monitor UM is added.
     scenario['tgen'] = {adapter.yaml_key: {'tgen_per_network': {
         e.network: {'quantity': population, 'profiles': {e.profile: 1.0}}}}}
     (source / suite.scenario_file).write_text(yaml.safe_dump(scenario, sort_keys=False))
     conversion = ((f'tgen_user_models/{adapter.directory}', adapter.converter),)
-    cfg = BuildConfig(f'{e.id}-{population}', conversion if adapter.version == 1 else (),
+    cfg = BuildConfig(f'{e.id}-w{window_size}s-{population}', conversion if adapter.version == 1 else (),
                       conversion if adapter.version == 2 else (),
-                      GenArgs(suite.scenario_file, run_time=suite.window_size,
+                      GenArgs(suite.scenario_file, run_time=window_size,
                               hcs_delay=0, tgen_delay=0, performance=True))
     directory = build(cfg, run_cfg, source)
     generated = (directory / 'test.maude').read_text()
     if generated.count(f'--- {adapter.actor_label} TGEN:') != population or 'eq allClientsAddr = nil .' not in generated:
         raise ValueError('Generated model has an unexpected TGEN/HCS population')
-    install_observation(directory, manifest, suite.window_size)
-    test = TestConfig(Context('tgen_independence', source), f'{e.id}-{population}',
+    install_observation(directory, manifest, window_size)
+    test = TestConfig(Context('tgen_independence', source), f'{e.id}-w{window_size}s-{population}',
                       'TGEN observable composition', TestRunner.SMC, cfg,
                       {'nsims': f'{samples}-{samples}', 'seed': seed, 'jobs': 0})
     return test, directory, scenario
@@ -388,11 +393,12 @@ def fingerprint(directory):
 
 def analyze_case(case, single, joint, manifest, suite, root, smoke):
     feature, vantage = case['feature'], case['vantage']
+    window_size = case['window_size']
     # Test the summary semantics on both arms, independently of the KS decision.
     for rows in (single, joint):
-        check_direct(rows, manifest, feature, vantage, suite.window_size)
-    observed, observed_counts = reconstruct(joint, manifest, feature, vantage, suite.window_size)
-    composed, composed_counts = reconstruct(single, manifest, feature, vantage, suite.window_size, suite.population)
+        check_direct(rows, manifest, feature, vantage, window_size)
+    observed, observed_counts = reconstruct(joint, manifest, feature, vantage, window_size)
+    composed, composed_counts = reconstruct(single, manifest, feature, vantage, window_size, suite.population)
     case['activity'] = dict(joint_nonempty=sum(n > 0 for n in observed_counts),
                             composed_nonempty=sum(n > 0 for n in composed_counts))
     case['summaries'] = {name: dict(n=len(values), mean=statistics.mean(values), variance=statistics.variance(values))
@@ -410,7 +416,7 @@ def analyze_case(case, single, joint, manifest, suite, root, smoke):
     plot_comparison = dict(comparison, outcome='smoke-only') if smoke else comparison
     case['plot_file'] = plot_cdfs(observed, composed, plot_comparison, root, case_id=case['id'],
                                   feature=feature, vantage=vantage, population=suite.population,
-                                  window_size=suite.window_size)
+                                  window_size=window_size)
     case['outcome'] = 'smoke-only' if smoke else comparison['outcome']
     case['reason'] = ('Execution and reconstruction checks only' if smoke else
                       comparison.get('decision', 'KS distance confidence interval compared with delta'))
@@ -419,7 +425,7 @@ def analyze_case(case, single, joint, manifest, suite, root, smoke):
 def run_suite(suite, run_cfg, *, smoke=False, context=CONTEXT):
     """Run each unique model pair once and retain every selected case's outcome."""
     suite.validate(context)
-    if run_cfg.override_run_time not in (None, suite.window_size):
+    if run_cfg.override_run_time is not None and suite.window_size != [run_cfg.override_run_time]:
         raise ValueError('override_run_time must match experiment window_size')
     root = Path(tempfile.mkdtemp(prefix='tgen-composition-', dir=run_cfg.temp_dir))
     report = dict(schema_version=2, run_id=root.name, experiment=asdict(suite),
@@ -430,34 +436,37 @@ def run_suite(suite, run_cfg, *, smoke=False, context=CONTEXT):
     report['source_sha256'] = fingerprint(root / 'fixture')
     report['library_sha256'] = fingerprint(Path(GLOBALS.LIB_DIR))
     groups = {}
-    for e in suite.experiments:
-        groups.setdefault(e.group_key(), []).append(e)
-        for feature, vantage in e.cases():
-            case_id = e.case_id(feature, vantage)
-            supported = recipe_for(e, feature) is not None
-            report['results'][case_id] = dict(
-                id=case_id, name=f'{e.tgen_type}__{feature}__{vantage}',
-                tgen_type=e.tgen_type, feature=feature, vantage=vantage,
-                profile=e.profile, network=e.network, window_start=suite.window_start,
-                window_size=suite.window_size, population=suite.population,
-                method=suite.method, alpha=suite.effective_alpha, delta=suite.delta,
-                recipe=asdict(RECIPES[feature]) if supported else None,
-                outcome='pending' if supported else 'unsupported',
-                reason='' if supported else 'No composition recipe for this type and feature; no plot')
+    # Each duration gets its own model pair. Features still share runs within
+    # that duration; the full cross-product retains one statistical family.
+    for window_size in suite.window_size:
+        for e in suite.experiments:
+            groups.setdefault((window_size, e.group_key()), []).append(e)
+            for feature, vantage in e.cases():
+                case_id = e.case_id(feature, vantage, window_size)
+                supported = recipe_for(e, feature) is not None
+                report['results'][case_id] = dict(
+                    id=case_id, name=f'{e.tgen_type}__{feature}__{vantage}__w{window_size}s',
+                    tgen_type=e.tgen_type, feature=feature, vantage=vantage,
+                    profile=e.profile, network=e.network, window_start=suite.window_start,
+                    window_size=window_size, population=suite.population,
+                    method=suite.method, alpha=suite.effective_alpha, delta=suite.delta,
+                    recipe=asdict(RECIPES[feature]) if supported else None,
+                    outcome='pending' if supported else 'unsupported',
+                    reason='' if supported else 'No composition recipe for this type and feature; no plot')
     try:
-        for entries in groups.values():
+        for (window_size, _), entries in groups.items():
             e = entries[0]
-            cases = [report['results'][item.case_id(f, v)] for item in entries for f, v in item.cases()
+            cases = [report['results'][item.case_id(f, v, window_size)] for item in entries for f, v in item.cases()
                      if recipe_for(item, f)]
             if not cases:
                 continue
-            group_id = e.id
+            group_id = f'{e.id}__w{window_size}s'
             for case in cases:
                 case['group_id'] = group_id
             directory = root / group_id
             directory.mkdir()
-            manifest = query_manifest(entries, suite)
-            group_report = dict(query_manifest=manifest, arms={})
+            manifest = query_manifest(entries, window_size)
+            group_report = dict(window_size=window_size, query_manifest=manifest, arms={})
             report['groups'][group_id] = group_report
             rows_by_arm = {}
             try:
@@ -465,7 +474,7 @@ def run_suite(suite, run_cfg, *, smoke=False, context=CONTEXT):
                         ('single', 1, suite.population * suite.samples, e.single_seed),
                         ('joint', suite.population, suite.samples, e.joint_seed)):
                     test, build_dir, scenario = prepare_arm(directory, entries, population, samples, seed,
-                                                           suite, run_cfg, manifest)
+                                                           suite, run_cfg, manifest, window_size)
                     arm = dict(build=str(build_dir), scenario=scenario, generation=asdict(test.build_cfg.gen_args),
                                smc=test.arg, model_sha256=fingerprint(build_dir))
                     group_report['arms'][name] = arm

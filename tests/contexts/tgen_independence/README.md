@@ -8,7 +8,8 @@ and the regression SMC runner validates states and observations before accepting
 
 ## Explicit selection
 
-The version-2 configuration selects 18 cases, all at `ixpN`:
+The version-2 configuration selects 54 cases: 18 observables at `ixpN`, each tested
+at 60, 120 and 1000 seconds:
 
 | TGEN | Profile | Features |
 | --- | --- | --- |
@@ -21,7 +22,7 @@ The version-2 configuration selects 18 cases, all at `ixpN`:
 
 Each entry explicitly lists `features` and `vantage_points`, plus its ID, type,
 profile, placement network and distinct single/joint seeds. Case IDs have the form
-`dns-normal1__dnsTgen__dnsQueryRate__ixpN`. Duplicate IDs or observable selections,
+`dns-normal1__dnsTgen__dnsQueryRate__ixpN__w120s`. Duplicate IDs or observable selections,
 unknown types/features, missing profiles and other vantages are rejected. Known
 features without a composition recipe produce an explicit `unsupported` result.
 `tcpPktInterarrival` is not selected or implemented.
@@ -35,12 +36,22 @@ baseline calibration timer. It does not add autonomous monitor user models. Mast
 shared TCP server whenever an HCS client or corresponding TGEN needs it, including
 TGEN-only and mixed configurations.
 
-Top-level `window_size` controls the positive integer duration in seconds (default
-60), with `window_start` fixed at zero. The scenario, simulation limit, query,
-composition and plots all use it. A conflicting `--override-run-time` is rejected.
-Set `population` to N (default 2) and `samples` to M (default 5000). Entries sharing
-type, profile, network and seeds reuse their two simulation arms; adding features
-does not repeat simulation. Suite-wide settings are identical across shared arms.
+Top-level `"window_size": [60, 120, 1000]` explicitly lists the durations in
+seconds, with `window_start` fixed at zero. Use `[60]` for a single duration.
+The list must be nonempty and contain unique positive integers; scalar values,
+booleans, duplicates and fractional durations are rejected. Every feature × vantage
+point × window size gets a separate pytest case and report result.
+
+Each duration uses separate generated models and simulation runs. The scenario,
+simulation limit, queries, composition and plots all use that duration. Entries
+sharing type, profile, network, seeds **and duration** reuse their two simulation
+arms; adding features does not repeat simulation. The configured seeds are reused
+across durations, so results across windows need not be independent. Bonferroni
+does not require independence between cases.
+
+Set `population` to N (default 2) and `samples` to M (default 5000), per window.
+`--window_size=120` replaces the list with `[120]`. `--override-run-time` is only
+accepted if the selected list contains exactly that one duration.
 
 ## Composition and decisions
 
@@ -68,8 +79,8 @@ Choose `method` in the JSON:
 
 Default global alpha is 0.05, delta is 0.05, and multiplicity is `"none"`.
 Optional `multiplicity: "bonferroni"` allocates
-alpha/K to every configured case (K=18 here), including unsupported/inactive/error
-cases. This gives simultaneous bound-mode coverage; p-value false-rejection
+alpha/K to every configured case (K=54 here across all windows), including
+unsupported/inactive/error cases. This gives simultaneous bound-mode coverage; p-value false-rejection
 control depends on valid underlying p-values. `multiplicity: "none"` uses global
 alpha per case and supports only per-case conclusions. Delta only affects bound
 mode. Choose budgets and selections before looking at results; do not increase
@@ -83,7 +94,7 @@ Run from the repository root using the project's Python environment:
 # Helper coverage and real SMC plumbing checks; statistical cases skip by default.
 python -m pytest tests/test_smc_validation.py tests/test_tgen_composition_helpers.py tests/test_tgen_independence.py
 
-# Build all six pairs without simulation and preserve the generated files.
+# Build all 18 type/window pairs without simulation and preserve the generated files.
 python -m pytest tests/test_tgen_independence.py -k smoke --build --persist
 
 # Select FTP and override the JSON duration for a smoke run.
@@ -104,7 +115,7 @@ python -m pytest tests/test_tgen_independence.py -k statistical --tgen-statistic
 | Flag | Effect | Default when omitted |
 | --- | --- | --- |
 | `--tgen-type=ftp` | Filter collected cases and simulations to one TGEN kind. | All entries in `experiment.json`. |
-| `--window_size=120` | Override the observation duration, in positive integer seconds, for both arms. | JSON `window_size` (currently 60). |
+| `--window_size=120` | Replace the window list with `[120]` for both arms. | JSON `window_size` (currently `[60, 120, 1000]`). |
 | `--tgen-samples=100` | Set M for the statistical run: NM single-source simulations and M joint simulations per group. | JSON `samples` (currently 5000); smoke tests always use M=4. |
 | `--tgen-statistical` | Enable statistical assertions. | Statistical tests skip. |
 | `--build` | Generate models without running simulations. | Build and simulate. |
@@ -124,13 +135,13 @@ Accepted type names are case-insensitive:
 | `irc` | `ircTgen` |
 
 Unknown types and types absent from the experiment file are rejected. Type filtering
-recomputes the statistical family: FTP alone selects three cases, so optional
-Bonferroni uses alpha/3. With default multiplicity `"none"`, each case uses alpha.
+recomputes the statistical family: FTP alone selects nine cases with the configured three windows, so optional
+Bonferroni uses alpha/9. Adding `--window_size=120` selects three cases and alpha/3. With default multiplicity `"none"`, each case uses alpha.
 The window override applies to generation, simulation, queries, composition and
 plot labels without modifying the JSON file. A conflicting `--override-run-time`
 is rejected.
 
-Each observable has a named pytest result. Module fixtures execute the selected
+Each observable and window combination has a named pytest result. Module fixtures execute the selected
 suite once; `-k` filters assertions, not the experiment selection or alpha family.
 Use `--tgen-type` to avoid running other types, and edit `experiments` to change
 features or profiles.
@@ -149,8 +160,11 @@ Each execution writes a unique `tgen-composition-*` directory with `report.json`
 The report records configuration, family size/effective alpha, source/library/model
 hashes, generation and SMC settings, query manifests and group build paths. Its
 `results` mapping contains every case, including failures. A group error affects
-that group's cases while later groups still run; a feature error does not suppress
-other features.
+that group's cases while later windows and groups still run; a feature error does
+not suppress other features. Group IDs (for example `dns-normal1__w120s`), build
+names, raw-row files, sample files, plot files and diagnostic state names include
+the duration. The top-level experiment records the window list; each result and
+execution group records its own scalar `window_size`.
 
 Local SMC validation rejects a state still wrapped in unresolved `run(...)` and
 observations that fail to reduce to finite numeric or Boolean literals. A stuck
@@ -173,6 +187,14 @@ title. Inactive/build-only/unsupported/error cases explain absent comparisons.
 `--results-dir` copies the report and all referenced JSON/PNG artifacts into its
 own run subdirectory. Build paths refer to original temporary directories; use
 `--persist` to keep generated models and logs, including after a failed assertion.
+
+## Multi-window validation (2026-10-05)
+
+The update passed 46 helper tests, 22 SMC validation tests and nine real DNS smoke
+cases across `[60, 120, 1000]`. The helper tests exercise separate generation and
+query durations, unique exported artifacts, the full Bonferroni family, CLI
+selection, invalid window lists, and continuing after a window fails. The full
+54-case statistical campaign was not run as part of this framework update.
 
 ## Validation (2026-10-04)
 
