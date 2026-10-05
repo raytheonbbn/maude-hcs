@@ -105,10 +105,11 @@ def run(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig) -> Any:
 
         run_proc.start()
 
-        # If test doesn't complete within 6 hours, shut it down and raise Exception
-        if not receiver.poll(TIMEOUT):
-            run_proc.terminate() # interrupt doesn't seem to work, have to use at least terminate
-            raise Exception(f"child process didn't complete within {TIMEOUT} seconds ({TIMEOUT / (60 * 60)} hours)")
+        # If timeout is set and test doesn't complete within timeout, shut it down and raise Exception
+        if run_cfg.timeout is not None:
+            if not receiver.poll(run_cfg.timeout):
+                run_proc.terminate() # interrupt doesn't seem to work, have to use at least terminate
+                raise Exception(f"child process didn't complete within {run_cfg.timeout} seconds ({run_cfg.timeout / (60 * 60)} hours)")
         
         result = receiver.recv() # CANNOT be delayed until after the join, or send will block
         
