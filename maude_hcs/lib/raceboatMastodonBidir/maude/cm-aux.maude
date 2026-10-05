@@ -76,6 +76,7 @@ op encodedImages:_ : ByteSeqL -> Attribute [ctor] .
 ---- for receiving
 op rcvHashTagAtts:_ : AttributeSet -> Attribute [ctor] .
 op pendingFilesR:_ : ByteSeqL -> Attribute [ctor] .
+op receivedChunks:_ : ByteSeqL -> Attribute [ctor] .
 op currentFragsR:_  : ByteSeqL -> Attribute [ctor] .
 
 ---- shared
@@ -88,7 +89,7 @@ op w4c:_ : Config -> Attribute [ctor] . ---msg or null
 op replyTo:_ : Config -> Attribute [ctor] . ---- ""
 
 ---- used for sending
-op cachedTag:_ : ByteSeqL -> Attribute [ctor] .
+op cachedTag:_ : ByteSeq -> Attribute [ctor] .
 op postingWeird:_ : Bool -> Attribute [ctor] .
 --- The time the last exfil file (contract) was received in Raceboat.
 --- It must be at least 5s before the next POST opportunity.
@@ -126,12 +127,13 @@ eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr,
    sndHashTagAtts: initHashtagAttrs(hashSnd),
    pendingFiles: nilBS,
    readyFiles: nilBS,
+   receivedChunks: nilBS,
    currentFrags: nilBS,
    numPendingImages: 0,
    encodedImages: nilBS,
    postingWeird: false, 
    weirdFileRcvTimes: nilFL, 
-   cachedTag: nilBS,
+****   cachedTag: noBytes,
    --- receiving attributes   
    rcvHashTagAtts: initHashtagAttrs(hashRcv), 
  ****  pendingFilesR: nilBS,
@@ -179,8 +181,46 @@ eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr,
      = attrs,  rcvHashTagAtts: hattrs .
  eq setRcvHashTagAttrs(attrs,hattrs ) 
      = attrs,  rcvHashTagAtts: hattrs [owise] .     
-     
-     
+
+  ops getCurrentSendHashtag getCurrentRecvHashtag
+    : AttributeSet -> ByteSeq .
+  eq getCurrentSendHashtag(attrs,
+                            sndHashTagAtts: hattrs)
+    = getCurrentHashtag(hattrs, getPostingWeird(attrs))
+  .
+  eq getCurrentSendHashtag(attrs)
+    = hashTag("tagError")
+    [ owise print "No send tag found in " attrs ]
+  .
+  eq getCurrentRecvHashtag(attrs,
+                            rcvHashTagAtts: hattrs)
+    = getCurrentHashtag(hattrs, getPostingWeird(attrs))
+  .
+  eq getCurrentRecvHashtag(attrs)
+    = hashTag("tagError")
+    [ owise print "No recv tag found in " attrs ]
+  .
+
+  ops rollSendHashtag rollRecvHashtag : AttributeSet -> AttributeSet .
+  eq rollSendHashtag(attrs,
+                      sndHashTagAtts: hattrs)
+    = (attrs,
+        sndHashTagAtts: rollHashtag(hattrs, getPostingWeird(attrs)))
+    [ print "Cmerlin rolled send HT was " hattrs]
+  .
+  eq rollSendHashtag(attrs) = attrs
+    [ owise print "No send tag found in " attrs ]
+  .
+  eq rollRecvHashtag(attrs,
+                      rcvHashTagAtts: hattrs)
+    = (attrs,
+        rcvHashTagAtts: rollHashtag(hattrs, getPostingWeird(attrs)))
+    [ print "Cmerlin rolled recv HT was " hattrs ]
+  .
+  eq rollRecvHashtag(attrs) = attrs
+    [ owise print "No recv tag found in " attrs ]
+  .
+
 endm
 
 eof

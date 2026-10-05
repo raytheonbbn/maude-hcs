@@ -110,7 +110,7 @@ fmod GENERAL_BYTESEQ is
   .
 
   --- Unpack a ByteSeq list directly to messages.
-  ---               Data    To      From
+  ---               Data      To      From
   op unpackToMsgs : ByteSeqL  Address Address -> Config .
   --- Keep this first, otherwise other eqs will match on empty byteSeqs.
   eq unpackToMsgs(nilBS, to:Address, from:Address) = null .
@@ -161,6 +161,55 @@ fmod GENERAL_BYTESEQ is
   op getIndex : ByteSeq -> Nat .
   eq getIndex(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat)) = index:Nat .
   eq getIndex(data:ByteSeq) = 0 .
+
+  --- Determine if a ByteSeq preceeds another.
+  ---           Base    Test
+  --- Returns true if Test comes before Base.
+  op preceeds : ByteSeq ByteSeq -> Bool .
+  eq preceeds(makeByteSeqChunk(data:ByteSeq, size:Nat, index0:Nat),
+              makeByteSeqChunk(data:ByteSeq, size:Nat, index1:Nat))
+    = (index1:Nat < index0:Nat)
+  .
+  eq preceeds(data0:ByteSeq, data1:ByteSeq) = false [owise] .
+
+  --- Check if two ByteSeqs are the same.
+  op matches : ByteSeq ByteSeq -> Bool .
+  eq matches(data:ByteSeq, data:ByteSeq) = true .
+  eq matches(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat),
+              makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat)) = true .
+  eq matches(data0:ByteSeq, data1:ByteSeq) = false [owise] .
+  op matches : ByteSeqL ByteSeq -> Bool .
+  eq matches((baseL:ByteSeqL :: data:ByteSeq :: baseR:ByteSeqL),
+              data:ByteSeq)
+    = true
+  .
+  eq matches(dataList:ByteSeqL, data:ByteSeq) = false [owise] .
+  
+  --- Insert a ByteSeq in a list of ByteSeqs, in order and without duplicates.
+  ---                 Base      ToInsert
+  op insertInOrder :  ByteSeqL  ByteSeq -> ByteSeqL .
+  eq insertInOrder((baseL:ByteSeqL :: base:ByteSeq :: baseR:ByteSeqL),
+                    base:ByteSeq)
+    = (baseL:ByteSeqL :: base:ByteSeq :: baseR:ByteSeqL)
+  .
+  ceq insertInOrder((baseL:ByteSeqL :: base:ByteSeq :: baseR:ByteSeqL),
+                    insert:ByteSeq)
+    = (baseL:ByteSeqL :: insert:ByteSeq :: base:ByteSeq :: baseR:ByteSeqL)
+    if preceeds(base:ByteSeq, insert:ByteSeq)
+  .
+  eq insertInOrder(base:ByteSeqL, insert:ByteSeq)
+    = (base:ByteSeqL :: insert:ByteSeq) [owise]
+  .
+  --- Insert a list in a list of ByteSeqs, in order and without duplicates.
+  op $insertInOrder : ByteSeqL ByteSeqL -> ByteSeqL .
+  eq $insertInOrder(base:ByteSeqL, (pack(packed:ByteSeqL) :: rest:ByteSeqL))
+    = $insertInOrder(base:ByteSeqL, (packed:ByteSeqL :: rest:ByteSeqL))
+  .
+  eq $insertInOrder(base:ByteSeqL, (first:ByteSeq :: rest:ByteSeqL))
+    = $insertInOrder(insertInOrder(base:ByteSeqL, first:ByteSeq), rest:ByteSeqL)
+    [owise]
+  .
+  eq $insertInOrder(base:ByteSeqL, nilBS) = base:ByteSeqL .
 
   --- Decode a list of received byteseqs. It will recombine chunks if it can.
   --- !!! This expects the list to be ordered with unique chunks !!!

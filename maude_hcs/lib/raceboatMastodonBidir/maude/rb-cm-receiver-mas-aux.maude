@@ -131,7 +131,7 @@ mod CONTENT-MANAGER-RECEIVER-AUX is
   inc TGEN-INTERFACE .
 ****  inc USER-INTERFACE .
 
-vars attrs attrs0 attrs1 attrs2 hattrs hattrs0 : AttributeSet .
+vars attrs attrs0 attrs1 attrs2 attrsNext attrsTrans hattrs hattrs0 : AttributeSet .
 vars cmsAtts cmsAtts1 cmsAtts2 : AttributeSet .
 vars msg msg0 msg1 : Msg .
 vars msgs msgs0 config config0 : Config .
@@ -159,12 +159,13 @@ ceq srcvActionQ(attrs, "download", msg0) = {attrs2,msg}
 if (to cmsAddr from umAddr : actionQ(ract) ) := msg0
 /\ attrs0, replyTo: null, w4c: null := attrs
 /\ attrs1, mcAddress: mcAddr := attrs
-/\ hashtag := getWHashtag(getRcvHashTagAttrs(attrs))
+****/\ hashtag := getWHashtag(getRcvHashTagAttrs(attrs))
+/\ hashtag := getCurrentRecvHashtag(attrs)
 /\ msg1 := (to mcAddr from cmsAddr : fetchQ(hashtag))
 /\ msg := (to mcAddr from cmsAddr : 
              translateFetchQ(fetchQ(hashtag)))
 /\ attrs2 := attrs0, replyTo: msg0, w4c: msg1
-**** [ print "Raceboat cm : cmsAddr " got fetch request, set replyTo " msg0 " and w4c " msg1 ]
+[ print "Raceboat cm " cmsAddr " got fetch request, set replyTo " msg0 " and w4c " msg1 ]
 .
 
 
@@ -187,7 +188,7 @@ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
 **** assume responses to earlier hts won't occur
 /\ msg := (to umAddr from cmsAddr : actionR("ok"))
 /\ attrs2 := attrs0,  w4c: null, replyTo: null
-**** [ print "Raceboat server has download of pending hashtag " ht ", no images." ]
+[ print "Raceboat " mcAddr " has download of pending hashtag " ht ", no images." ]
 .   
  
 ---- wHashtag download non nil result
@@ -200,7 +201,7 @@ if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht))
 /\ msg := 
     (to edAddr from cmsAddr : decQ(image :: imagel))    
 /\ attrs2 := attrs0,  w4c: msg
-**** [ print "Raceboat server has weird download for tag " ht  ]
+[ print "Raceboat " cmsAddr " has weird download for tag " ht  ]
 .    
 
 var efileX : ByteSeqL .
@@ -214,32 +215,59 @@ op srcvDecR : AttributeSet  Msg -> AttributeSetMsgs .
  eq srcvDecR(attrs, msg) = {attrs,null}
 [owise print "srcvDecR no match for msg " msg] .
 
- ceq srcvDecR(attrs, 
-            (to cmsAddr from edAddr : decR(efragl))) 
-    = {attrs2, msg0 msgs0}
-if attrs0, w4c: (to edAddr from cmsAddr : decQ(imagel)),
-   replyTo: (to cmsAddr from umAddr : actionQ(ract)),
-   currentFragsR: efragl0 := attrs    
-/\ efragl1 := addEfrags(efragl,efragl0)
-/\ efileX := efraglComplete?(efragl1)
-/\ efragl3 := (if efileX == nilBS
-               then efragl1 else nilBS fi)
-/\ msg0 := (to umAddr from cmsAddr : actionR("ok"))
-/\ msgs0 :=
-    (if efileX == nilBS 
-     then null
-     else (to getReceiverAddress(attrs) from cmsAddr
-              : efileX )
-    fi)
-/\ hattrs := (if efileX == nilBS 
-              then getRcvHashTagAttrs(attrs0)
-              else nextWHashtag(getRcvHashTagAttrs(attrs0))
-               fi)
-              
-/\ attrs2 := setRcvHashTagAttrs(attrs0,hattrs),
-             w4c: null, replyTo: null,
-             currentFragsR: efragl3
-       .        
+ceq srcvDecR((attrs,
+              receivedChunks: previousChunks:ByteSeqL,
+              w4c: (to edAddr from cmsAddr : decQ(imagel)),
+              replyTo: (to cmsAddr from umAddr : actionQ(ract)),
+              rcvHashTagAtts: hattrs),
+              (to cmsAddr from edAddr : decR(efragl)))
+  = {attrsNext, msgs}
+  if newReceivedChunks:ByteSeqL := $insertInOrder(previousChunks:ByteSeqL, efragl)
+    /\ {recombined:ByteSeqL, remaining:ByteSeqL} := $decode(newReceivedChunks:ByteSeqL,
+                                                            nilBS,
+                                                            nilBS)
+    /\ attrsTrans := (attrs,
+                      receivedChunks: remaining:ByteSeqL,
+                      w4c: null,
+                      replyTo: null)
+    /\ attrsNext := (if efragl == nilBS
+                      then attrsTrans
+                      else rollRecvHashtag(attrsTrans)
+                    fi)
+    /\ msgs := (to umAddr from cmsAddr : actionR("ok"))
+                unpackToMsgs(recombined:ByteSeqL,
+                             getReceiverAddress(attrsNext),
+                             cmsAddr)
+  [ print "Raceboat " cmsAddr " received decoded payload " efragl ", adding to receive buffer." attrsNext]
+.
+
+**** ceq srcvDecR(attrs, 
+****            (to cmsAddr from edAddr : decR(efragl))) 
+****    = {attrs2, msg0 msgs0}
+****if attrs0, w4c: (to edAddr from cmsAddr : decQ(imagel)),
+****   replyTo: (to cmsAddr from umAddr : actionQ(ract)),
+****   currentFragsR: efragl0 := attrs    
+****/\ efragl1 := addEfrags(efragl,efragl0)
+****/\ efileX := efraglComplete?(efragl1)
+****/\ efragl3 := (if efileX == nilBS
+****               then efragl1 else nilBS fi)
+****/\ msg0 := (to umAddr from cmsAddr : actionR("ok"))
+****/\ msgs0 :=
+****    (if efileX == nilBS 
+****     then null
+****     else (to getReceiverAddress(attrs) from cmsAddr
+****              : efileX )
+****    fi)
+****/\ hattrs := (if efileX == nilBS 
+****              then getRcvHashTagAttrs(attrs0)
+****              else nextWHashtag(getRcvHashTagAttrs(attrs0))
+****               fi)
+****              
+****/\ attrs2 := setRcvHashTagAttrs(attrs0,hattrs),
+****             w4c: null, replyTo: null,
+****             currentFragsR: efragl3
+****[ print "Raceboat " cmsAddr " received decoded payload " efragl ]
+****       .        
 
 endm
 
