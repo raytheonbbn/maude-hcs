@@ -8,13 +8,14 @@ and the regression SMC runner validates states and observations before accepting
 
 ## Explicit selection
 
-The version-2 configuration selects 54 cases: 18 observables at `ixpN`, each tested
-at 60, 120 and 1000 seconds:
+The version-2 configuration selects 42 cases: 21 observable/variant combinations at `ixpN`,
+each tested at 120 and 1000 seconds:
 
 | TGEN | Profile | Features |
 | --- | --- | --- |
 | `dnsTgen` | `normal_1` | `dnsQueryRate`, `dnsQuerySize`, `dnsRespSize` |
-| `masTgen` | `normal_1` | `tcpOutPktRate`, `tcpInPktRate`, `tcpPktSize` |
+| `masTgen` (shared hashtags) | `normal_1` | `tcpOutPktRate`, `tcpInPktRate`, `tcpPktSize` |
+| `masTgen` (independent hashtags) | `normal_1` | same three TCP features |
 | `ftpTgen` | `medium` | same three TCP features |
 | `minTgen` | `medium` | same three TCP features |
 | `gorTgen` | `irc_1` | same three TCP features |
@@ -36,7 +37,7 @@ baseline calibration timer. It does not add autonomous monitor user models. Mast
 shared TCP server whenever an HCS client or corresponding TGEN needs it, including
 TGEN-only and mixed configurations.
 
-Top-level `"window_size": [60, 120, 1000]` explicitly lists the durations in
+Top-level `"window_size": [120, 1000]` explicitly lists the durations in
 seconds, with `window_start` fixed at zero. Use `[60]` for a single duration.
 The list must be nonempty and contain unique positive integers; scalar values,
 booleans, duplicates and fractional durations are rejected. Every feature × vantage
@@ -44,7 +45,7 @@ point × window size gets a separate pytest case and report result.
 
 Each duration uses separate generated models and simulation runs. The scenario,
 simulation limit, queries, composition and plots all use that duration. Entries
-sharing type, profile, network, seeds **and duration** reuse their two simulation
+sharing type, profile, network, seeds, intervention **and duration** reuse their two simulation
 arms; adding features does not repeat simulation. The configured seeds are reused
 across durations, so results across windows need not be independent. Bonferroni
 does not require independence between cases.
@@ -52,6 +53,67 @@ does not require independence between cases.
 Set `population` to N (default 2) and `samples` to M (default 5000), per window.
 `--window_size=120` replaces the list with `[120]`. `--override-run-time` is only
 accepted if the selected list contains exactly that one duration.
+
+## Mastodon hashtag intervention
+
+The original `mastodon-normal1` entry keeps shared hashtags (`intervention` defaults
+to `"none"`). The additional `mastodon-normal1-independent-hashtags` entry sets
+`"intervention": "independent_hashtags"`, with the same profile, network, seeds,
+features and windows. `--tgen-type=mastodon` selects both variants.
+
+Before building, the experiment-local adapter derives `normal_1_isolated_1.json`,
+`normal_1_isolated_2.json`, and so on from the original profile, changing only
+`parameters.hashtags`. The joint scenario selects these profiles with equal 1/N
+weights. The existing generator deterministically assigns one instance per
+profile in insertion order; the adapter checks this assignment contract. The
+single arm uses the first derived profile. The normal JSON-to-Maude conversion
+and generation pipeline creates both the TGEN and user-model actors, with no
+intervention-specific modifications to generated Maude.
+Vocabulary size, individual tag lengths and selection probabilities stay the same;
+user actions, images, shared Mastodon server and network are unchanged. This tests
+whether cross-client posting and fetching through shared hashtags explain the
+composition failure, without changing message sizes merely by lengthening tags.
+The adapter supports any configured population that fits the equal-length namespace.
+It currently requires distinct ASCII alphabetic source hashtags.
+
+Interventions are registered in `tests/utils/tgen_interventions.py`, independently
+of the sampler and statistical decision code. They participate in execution-group
+and observable identities, so the two variants cannot accidentally share runs.
+Each case and group records its intervention. Every arm records the exact
+ordered `profiles_by_instance` assignment and complete `derived_profiles` JSON
+contents in `report.json` and in its build-local `composition-intervention.json`.
+The scenario records profile weights, and the build retains the derived JSON and
+converted Maude profiles. Model hashes cover these generated inputs and outputs.
+
+We expect the shared-hashtag variant to fail and the isolated variant to pass at a
+sufficient sample budget. Those expectations do not override measured decisions:
+a statistical `fail` remains a failing pytest case, including the shared control.
+A p-value pass still means no detected difference, not proof of independence.
+
+```sh
+python -m pytest tests/test_tgen_independence.py -k statistical --tgen-statistical --tgen-type=mastodon --window_size=120 --tgen-samples=1000 --persist --results-dir=/tmp/tgen-hashtag-results
+```
+
+### Hashtag control results
+
+At W=120 seconds, M=1000, N=2, ixpN, seeds 205/206, p-value mode and
+multiplicity `none` (alpha=0.05), rerunning with derived JSON profiles produced:
+
+| Variant | Feature | Outcome | KS distance | p-value |
+| --- | --- | --- | --- | --- |
+| Shared hashtags | tcpOutPktRate | fail | 0.147 | 7.71e-10 |
+| Shared hashtags | tcpInPktRate | fail | 0.147 | 7.71e-10 |
+| Shared hashtags | tcpPktSize | fail | 0.190 | 3.43e-16 |
+| Independent hashtags | tcpOutPktRate | pass | 0.029 | 0.795 |
+| Independent hashtags | tcpInPktRate | pass | 0.029 | 0.795 |
+| Independent hashtags | tcpPktSize | pass | 0.036 | 0.536 |
+
+This supports the shared-hashtag interaction explanation for this setup. It does
+not prove independence at other windows, populations or profiles. The command
+exits with three failed assertions for the shared control and three passes for
+the isolated variant, as intended by the unchanged composition decision policy.
+Report: `/tmp/tgen-hashtag-profile-validation/tgen-composition-7mkou6jf/report.json`.
+The 1000-second statistical comparison was not run for this change.
 
 ## Composition and decisions
 
@@ -79,7 +141,7 @@ Choose `method` in the JSON:
 
 Default global alpha is 0.05, delta is 0.05, and multiplicity is `"none"`.
 Optional `multiplicity: "bonferroni"` allocates
-alpha/K to every configured case (K=54 here across all windows), including
+alpha/K to every configured case (K=42 here across all windows), including
 unsupported/inactive/error cases. This gives simultaneous bound-mode coverage; p-value false-rejection
 control depends on valid underlying p-values. `multiplicity: "none"` uses global
 alpha per case and supports only per-case conclusions. Delta only affects bound
@@ -94,7 +156,7 @@ Run from the repository root using the project's Python environment:
 # Helper coverage and real SMC plumbing checks; statistical cases skip by default.
 python -m pytest tests/test_smc_validation.py tests/test_tgen_composition_helpers.py tests/test_tgen_independence.py
 
-# Build all 18 type/window pairs without simulation and preserve the generated files.
+# Build all 14 variant/window pairs without simulation and preserve the generated files.
 python -m pytest tests/test_tgen_independence.py -k smoke --build --persist
 
 # Select FTP and override the JSON duration for a smoke run.
@@ -115,7 +177,7 @@ python -m pytest tests/test_tgen_independence.py -k statistical --tgen-statistic
 | Flag | Effect | Default when omitted |
 | --- | --- | --- |
 | `--tgen-type=ftp` | Filter collected cases and simulations to one TGEN kind. | All entries in `experiment.json`. |
-| `--window_size=120` | Replace the window list with `[120]` for both arms. | JSON `window_size` (currently `[60, 120, 1000]`). |
+| `--window_size=120` | Replace the window list with `[120]` for both arms. | JSON `window_size` (currently `[120, 1000]`). |
 | `--tgen-samples=100` | Set M for the statistical run: NM single-source simulations and M joint simulations per group. | JSON `samples` (currently 5000); smoke tests always use M=4. |
 | `--tgen-statistical` | Enable statistical assertions. | Statistical tests skip. |
 | `--build` | Generate models without running simulations. | Build and simulate. |
@@ -135,8 +197,8 @@ Accepted type names are case-insensitive:
 | `irc` | `ircTgen` |
 
 Unknown types and types absent from the experiment file are rejected. Type filtering
-recomputes the statistical family: FTP alone selects nine cases with the configured three windows, so optional
-Bonferroni uses alpha/9. Adding `--window_size=120` selects three cases and alpha/3. With default multiplicity `"none"`, each case uses alpha.
+recomputes the statistical family: FTP alone selects six cases with the configured two windows, so optional
+Bonferroni uses alpha/6. Adding `--window_size=120` selects three cases and alpha/3. With default multiplicity `"none"`, each case uses alpha.
 The window override applies to generation, simulation, queries, composition and
 plot labels without modifying the JSON file. A conflicting `--override-run-time`
 is rejected.

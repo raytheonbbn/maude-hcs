@@ -21,6 +21,7 @@ from scipy.stats import ks_2samp
 from maude_hcs.generate_cp3 import FEATURES
 from maude_hcs.lib import GLOBALS
 from maude_hcs.query import parse_quatex
+from .tgen_interventions import apply_intervention, validate_intervention
 from .build import build
 from .context import BuildConfig, Context, GenArgs, TestConfig, TestRunner
 from ..test_maudehcs import run
@@ -81,6 +82,7 @@ class Experiment:
     joint_seed: int
     features: list[str]
     vantage_points: list[str]
+    intervention: str = 'none'
 
     def cases(self):
         return [(feature, vantage) for feature in self.features for vantage in self.vantage_points]
@@ -91,7 +93,7 @@ class Experiment:
     def group_key(self):
         # Features do not affect source behavior. Entries differing only in their
         # query selection can share the same pair of simulations in this suite.
-        return (self.tgen_type, self.profile, self.network, self.single_seed, self.joint_seed)
+        return (self.tgen_type, self.profile, self.network, self.single_seed, self.joint_seed, self.intervention)
 
 
 @dataclass(frozen=True)
@@ -152,6 +154,7 @@ class Suite:
                 raise ValueError(f'Unknown TGEN type: {e.tgen_type}')
             if not re.fullmatch(r'[A-Za-z0-9_-]+', e.profile):
                 raise ValueError('Invalid profile name')
+            validate_intervention(e.intervention, e.tgen_type)
             adapter = TGENS[e.tgen_type]
             if not (context / 'tgen_user_models' / adapter.directory / f'{e.profile}.json').is_file():
                 raise ValueError(f'Missing profile: {e.tgen_type}/{e.profile}')
@@ -164,7 +167,7 @@ class Suite:
             for feature, vantage in e.cases():
                 if feature not in FEATURES:
                     raise ValueError(f'Unknown feature: {feature}')
-                identity = (e.tgen_type, e.profile, e.network, feature, vantage)
+                identity = (e.tgen_type, e.profile, e.network, e.intervention, feature, vantage)
                 if identity in identities:
                     raise ValueError(f'Duplicate observable configuration: {identity}')
                 identities.add(identity)
@@ -252,6 +255,10 @@ def prepare_arm(root, group, population, samples, seed, suite, run_cfg, manifest
     # them to the original DNS-only fixture. No autonomous monitor UM is added.
     scenario['tgen'] = {adapter.yaml_key: {'tgen_per_network': {
         e.network: {'quantity': population, 'profiles': {e.profile: 1.0}}}}}
+    # Derive profiles before conversion/generation; interventions never patch
+    # generated Maude. The scenario records deterministic instance assignments.
+    placement = scenario['tgen'][adapter.yaml_key]['tgen_per_network'][e.network]
+    apply_intervention(e.intervention, e.tgen_type, source, population, e.profile, placement)
     (source / suite.scenario_file).write_text(yaml.safe_dump(scenario, sort_keys=False))
     conversion = ((f'tgen_user_models/{adapter.directory}', adapter.converter),)
     cfg = BuildConfig(f'{e.id}-w{window_size}s-{population}', conversion if adapter.version == 1 else (),
@@ -445,9 +452,9 @@ def run_suite(suite, run_cfg, *, smoke=False, context=CONTEXT):
                 case_id = e.case_id(feature, vantage, window_size)
                 supported = recipe_for(e, feature) is not None
                 report['results'][case_id] = dict(
-                    id=case_id, name=f'{e.tgen_type}__{feature}__{vantage}__w{window_size}s',
+                    id=case_id, name=f'{e.tgen_type}__{feature}__{vantage}__{e.intervention}__w{window_size}s',
                     tgen_type=e.tgen_type, feature=feature, vantage=vantage,
-                    profile=e.profile, network=e.network, window_start=suite.window_start,
+                    profile=e.profile, network=e.network, intervention=e.intervention, window_start=suite.window_start,
                     window_size=window_size, population=suite.population,
                     method=suite.method, alpha=suite.effective_alpha, delta=suite.delta,
                     recipe=asdict(RECIPES[feature]) if supported else None,
@@ -466,7 +473,7 @@ def run_suite(suite, run_cfg, *, smoke=False, context=CONTEXT):
             directory = root / group_id
             directory.mkdir()
             manifest = query_manifest(entries, window_size)
-            group_report = dict(window_size=window_size, query_manifest=manifest, arms={})
+            group_report = dict(window_size=window_size, intervention=e.intervention, query_manifest=manifest, arms={})
             report['groups'][group_id] = group_report
             rows_by_arm = {}
             try:
@@ -476,7 +483,8 @@ def run_suite(suite, run_cfg, *, smoke=False, context=CONTEXT):
                     test, build_dir, scenario = prepare_arm(directory, entries, population, samples, seed,
                                                            suite, run_cfg, manifest, window_size)
                     arm = dict(build=str(build_dir), scenario=scenario, generation=asdict(test.build_cfg.gen_args),
-                               smc=test.arg, model_sha256=fingerprint(build_dir))
+                               smc=test.arg, model_sha256=fingerprint(build_dir),
+                               intervention=json.loads((build_dir / 'composition-intervention.json').read_text()))
                     group_report['arms'][name] = arm
                     if run_cfg.build_only:
                         continue

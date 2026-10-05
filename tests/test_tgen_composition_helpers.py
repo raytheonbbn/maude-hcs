@@ -12,7 +12,9 @@ from .utils.context import RunConfig
 
 
 def suite():
-    return replace(tgen.load_suite(), window_size=[60])
+    config = tgen.load_suite()
+    return replace(config, window_size=[60],
+                   experiments=[e for e in config.experiments if e.intervention == 'none'])
 
 
 def test_explicit_matrix():
@@ -236,15 +238,15 @@ def test_cli_selection_defaults_and_errors():
 
 def test_configured_windows_and_family():
     config = tgen.load_suite()
-    assert config.window_size == [60, 120, 1000]
-    assert config.family_size == 54
-    assert replace(config, multiplicity='bonferroni').effective_alpha == .05 / 54
+    assert config.window_size == [120, 1000]
+    assert config.family_size == 42
+    assert replace(config, multiplicity='bonferroni').effective_alpha == .05 / 42
     names = [e.case_id(f, v, w) for e in config.experiments
              for f, v in e.cases() for w in config.window_size]
-    assert len(set(names)) == 54
+    assert len(set(names)) == 42
     selected = tgen.select_suite(config, tgen_type='mastodon')
-    assert selected.family_size == 9 and selected.window_size == config.window_size
-    assert tgen.select_suite(selected, window_size=120).family_size == 3
+    assert selected.family_size == 12 and selected.window_size == config.window_size
+    assert tgen.select_suite(selected, window_size=120).family_size == 6
 
 
 def test_multiple_windows_keep_artifacts_and_alpha_separate(tmp_path, monkeypatch):
@@ -297,3 +299,70 @@ def test_window_failure_does_not_suppress_later_windows(tmp_path, monkeypatch):
     report = tgen.run_suite(config, RunConfig(tmp_path, None))
     for case in report['results'].values():
         assert case['outcome'] == ('error' if case['window_size'] == 60 else 'pass')
+
+
+def test_intervention_validation_and_group_identity():
+    config = tgen.load_suite()
+    shared, isolated = [e for e in config.experiments if e.tgen_type == 'masTgen']
+    assert shared.intervention == 'none'
+    assert isolated.intervention == 'independent_hashtags'
+    assert shared.group_key() != isolated.group_key()
+    for entry in (replace(shared, intervention='unknown'),
+                  replace(config.experiments[0], intervention='independent_hashtags')):
+        with pytest.raises(ValueError, match='Unsupported intervention'):
+            replace(config, experiments=[entry]).validate()
+
+
+def test_hashtag_isolation_is_disjoint_length_preserving_and_auditable(tmp_path, monkeypatch):
+    config = tgen.select_suite(tgen.load_suite(), tgen_type='mastodon', window_size=120)
+    monkeypatch.setattr(tgen, 'run', fake_runner)
+    report = tgen.run_suite(replace(config, samples=4, population=3), RunConfig(tmp_path, None))
+    assert len(report['groups']) == 2 and len(report['results']) == 6
+    shared = report['groups']['mastodon-normal1__w120s']
+    isolated = report['groups']['mastodon-normal1-independent-hashtags__w120s']
+    for arm in shared['arms'].values():
+        assert arm['intervention'] == {'name': 'none'}
+        assert 'compositionHashtags' not in (Path(arm['build']) / 'test.maude').read_text()
+    from maude_hcs.generate_cp3 import parse_scenario_yaml, generate_all_tgen_instances
+    original_path = tgen.CONTEXT / 'tgen_user_models/mastodon/normal_1.json'
+    original = json.loads(original_path.read_text())
+    vocabularies = []
+    for arm_name, arm in isolated['arms'].items():
+        directory = Path(arm['build'])
+        evidence = arm['intervention']
+        assigned = evidence['profiles_by_instance']
+        assert len(assigned) == (3 if arm_name == 'joint' else 1)
+        parsed = parse_scenario_yaml(directory / 'scenario.yaml')
+        instances = generate_all_tgen_instances(parsed[8], parsed[3], parsed[4])
+        assert [inst.profile for inst in instances] == assigned
+        generated = (directory / 'test.maude').read_text()
+        assert 'compositionHashtags' not in generated
+        for inst in instances:
+            name = inst.profile
+            profile = json.loads((directory / f'tgen_user_models/mastodon/{name}.json').read_text())
+            assert profile == evidence['derived_profiles'][name]
+            tags = profile['parameters']['hashtags']
+            assert [len(t) for t in tags] == [4, 3, 3, 6, 6]
+            if arm_name == 'joint':
+                vocabularies.append(tags)
+            profile['parameters']['hashtags'] = original['parameters']['hashtags']
+            assert profile == original  # No other user-model setting changed.
+            symbol = 'mastodon-tgen-' + name.replace('_', '-') + '-ma'
+            assert f'mkMasTGenActor({inst.base_name}TgAddr, {inst.base_name}McAddr, ed-images, {symbol})' in generated
+            assert (directory / f'tgen_user_models/mastodon/{name}.maude').is_file()
+    assert len(set(tag for tags in vocabularies for tag in tags)) == 15
+    single = isolated['arms']['single']['intervention']['derived_profiles']
+    joint = isolated['arms']['joint']['intervention']['derived_profiles']
+    assert all(joint[name] == model for name, model in single.items())
+    assert all(case['outcome'] == 'pass' for case in report['results'].values())
+    assert {c['intervention'] for c in report['results'].values()} == {'none', 'independent_hashtags'}
+
+
+@pytest.mark.parametrize('tags', [[], ['cat', 'cat'], ['cat', ''], ['café'], 'cat'])
+def test_hashtag_adapter_rejects_ambiguous_vocabularies(tmp_path, tags):
+    from .utils.tgen_interventions import independent_hashtags
+    profile = tmp_path / 'tgen_user_models/mastodon/normal_1.json'
+    profile.parent.mkdir(parents=True)
+    profile.write_text(json.dumps({'parameters': {'hashtags': tags}}))
+    with pytest.raises(ValueError, match='ASCII alphabetic hashtags'):
+        independent_hashtags(tmp_path, 2, 'normal_1')
