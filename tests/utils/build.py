@@ -55,6 +55,8 @@ def batch_convert_dir_v2(dir: Path, proto: str):
 
 def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path) -> Path:
     gen_args = build_cfg.gen_args
+    params = gen_args.params
+
     build_dir = (Path(run_cfg.temp_dir) / f"{build_cfg.name}-{uuid.uuid4().hex}").resolve()
     shutil.copytree(src_dir, build_dir)
 
@@ -67,20 +69,20 @@ def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path) -> Path:
     if run_cfg.override_run_time is not None:
         slimit = run_cfg.override_run_time
     else:
-        slimit = gen_args.run_time
+        slimit = params.run_time
 
     args = Namespace(
         verbose=True,
         command='generate',
-        yaml_file=str(build_dir / gen_args.yaml_file),
+        yaml_file=str(build_dir / params.yaml_file),
         quatex=True,
-        baselineTime=gen_args.baseline_time,
+        baselineTime=params.baseline_time,
         runTime=slimit,
-        hcsDelay=gen_args.hcs_delay,
-        tgenDelay=gen_args.tgen_delay,
+        hcsDelay=params.hcs_delay,
+        tgenDelay=params.tgen_delay,
         outDir=str(build_dir),
         scenarioName='test',
-        notgens=gen_args.no_tgens,
+        notgens=params.no_tgens,
 
         feats=gen_args.feats,
         vpts=gen_args.vpts,

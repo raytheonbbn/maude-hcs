@@ -159,12 +159,7 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
     gen_args = test_cfg.build_cfg.gen_args
 
     sim_result = SimResult(
-        gen_args.yaml_file,
-        gen_args.baseline_time,
-        gen_args.run_time,
-        gen_args.hcs_delay,
-        gen_args.tgen_delay,
-        gen_args.no_tgens,
+        gen_args.params,
         dict(results)
     )
 
