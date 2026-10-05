@@ -12,7 +12,7 @@ from pathlib import Path
 from pytest_regressions.file_regression import FileRegressionFixture
 from maude_hcs.lib import GLOBALS
 
-from .utils.context import TestManager, Context, TestConfig, TestRunner, RunConfig, BuildConfig, mk_id
+from .utils.context import TestManager, Context, TestConfig, TestRunner, RunConfig, BuildConfig
 
 logger = logging.getLogger(__name__)
 manager = TestManager()
@@ -31,6 +31,12 @@ def pytest_addoption(parser):
     parser.addoption("--results-dir", help="save test results under specified directory (different from snapshot!)")
 
     parser.addoption("--override-run-time", help="override run time for all selected tests", type=int)
+    parser.addoption("--timeout", help="set max time in seconds a test can take before automatically failing", type=int)
+
+    parser.addoption(
+        "--partial-smc-comp",
+        help="allow partial comparisons of smc results when they don't measure exactly the same features. In that case, only" \
+        "the features measured by both runs will be compared. This can be used e.g. to validate a short run against a long reference run.")
 
     # pytest by default has many useful flags, especially -k for selecting tests. See also --log-level, --log-cli-level, -s, 
     # pytest-regressions also adds the flags --force-regen and --regen-all
@@ -62,6 +68,8 @@ def pytest_configure(config):
         results_dir=config.getoption("--results-dir"),
 
         override_run_time=config.getoption("--override-run-time"),
+        timeout=config.getoption("--timeout"),
+        partial_smc_comp=config.getoption("--partial-smc-comp"),
     )
 
     if config.getoption("--copy"):
@@ -94,10 +102,10 @@ def pytest_generate_tests(metafunc: pytest.Metafunc):
         ))
 
     if metafunc.definition.name == "test_regression":
-        metafunc.parametrize("test_cfg", filter_runner(manager.regression_test_cfgs()), ids=mk_id)
+        metafunc.parametrize("test_cfg", filter_runner(manager.regression_test_cfgs()), ids=lambda x: x.mk_id())
 
     if metafunc.definition.name == "test_expected":
-        metafunc.parametrize("test_cfg", filter_runner(manager.expected_test_cfgs()), ids=mk_id)
+        metafunc.parametrize("test_cfg", filter_runner(manager.expected_test_cfgs()), ids=lambda x: x.mk_id())
 
 # def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus, config: pytest.Config):
 #     terminalreporter.write_line("\nbsadlfjhasdifluashdnflkhashdfialushdfalisdufh\n")
