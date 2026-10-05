@@ -1,12 +1,4 @@
-import sys
-import json
-import argparse
-from pathlib import Path
-from datetime import datetime
-from typing import Sequence, Any
-from dataclasses import dataclass
-
-from .query import Query
+import math
 
 def parse_dump(dump: str, n_queries = None, n_sims = None) -> list[list[float]]:
     """dump is newline-separated list of run measurements, each line corresponds to one run, each column to one feature.
@@ -32,6 +24,7 @@ def parse_dump(dump: str, n_queries = None, n_sims = None) -> list[list[float]]:
             assert len(vals) == n_queries
 
         for i, val in enumerate(vals):
+            assert math.isfinite(val)
             collated[i].append(val)
 
     assert len(collated) == n_queries
