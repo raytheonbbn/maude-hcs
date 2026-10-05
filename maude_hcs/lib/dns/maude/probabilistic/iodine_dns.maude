@@ -48,6 +48,10 @@ mod IODINE_DNS is
   vars monAttrs : AttributeSet .
   vars conf : Config .
   vars appAlice appBob wrappedNS : Actor .
+  vars appReady appAfterSend : AttributeSet .
+  var queuedMsg : Msg .
+  op markServerAppReady : AttributeSet -> AttributeSet .
+  eq markServerAppReady(appAttrs, iodineReady: IODINEREADY) = (appAttrs, iodineReady: true) .
   vars confState : Config .
   vars ID ID' : Id .      ---- Nat < Id
   vars NAME NAME' WNAME SNAME SNAME' QNAME : Name .
@@ -172,13 +176,20 @@ crl [wnameserver-receive-query-weird]:
   < ADDR : WNameserver | wattrs,  
           conf: (wrappedNS)
   >
-  < MON : WMonitor | queryRcvd: QTL, monAttrs >
+  < BOB : RcvApp | appAttrs >
+  < MON : WMonitor | queryRcvd: QTL, pktSent: PTL, monAttrs >
   {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}
   =>
   < ADDR : WNameserver | wattrs2,
           conf: (wrappedNS) 
   >
-  < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
+  < BOB : RcvApp | appAfterSend >
+  < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)),
+      pktSent: if queuedMsg == nullMsg then PTL else (PTL ; packetTimestamp(getPkt(queuedMsg), T)) fi,
+      monAttrs >
+  --- Preserve the existing pacing admission timer for the packet taken from the app.
+  (if queuedMsg == nullMsg then null else
+    [sampleUniform(pacingTimeoutDelay, pacingTimeoutDelayMax), (to BOB : pktTimeout(getPkt(queuedMsg))), 0] fi)
   --- Message back to Alice
   (if isLastFrag then [lastFragDelay + delayParamd(msgOut), msgOut, dropParamd(msgOut)] else [delayParamd(msgOut), msgOut, dropParamd(msgOut)] fi)
   --- The message to send to Bob if packet is fully assembled
@@ -187,12 +198,23 @@ crl [wnameserver-receive-query-weird]:
   (if msgOutExt == nullMsg then null else delayMsgs(msgOutExt,null) fi)
 ***  [0.0, msgOutExt, 0] 
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
-  --- step 1 and step 2
-  /\ {wattrsTrans, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  /\ BOB == getToAddr(query(ID, QNAME, QTYPE))
+  /\ getToAddr(appAttrs) == ADDR
+  --- First consume the ACK; the current packet may now be complete.
+  /\ wattrsTrans := processQuery(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  /\ appReady := (if isTxComplete(wattrsTrans)
+      then markServerAppReady(appAttrs) else appAttrs fi)
+  --- Admit at most one queued packet, respecting the existing pacing counter.
+  /\ {appAfterSend, queuedMsg} := (if isTxComplete(wattrsTrans) and getNumAdmittedPkts(appReady) > 0
+      then sendPkt(appReady, BOB) else {appReady, nullMsg} fi)
+  /\ wattrs1 := (if queuedMsg == nullMsg then wattrsTrans
+      else handleNewPacket(wattrsTrans, getPkt(queuedMsg), maxDownFragmentLen) fi)
+  --- Construct the response only after the queued packet is available.
+  /\ {wattrsTrans', msgOut} := buildServerResponse(wattrs1, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 2.5: Check if this is for the last fragment, delay send
   /\ isLastFrag := isLastFragment(QNAME)
   --- step 3
-  /\ {wattrs2, appMsgOut} := updateRcvApp(wattrsTrans, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  /\ {wattrs2, appMsgOut} := updateRcvApp(wattrsTrans', (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- If transmission is complete, nudge Bob to send another packet
   /\ txComplete := isTxComplete(wattrs2)
   /\ msgOutExt := 
