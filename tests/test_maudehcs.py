@@ -19,7 +19,7 @@ from pathlib import Path
 from pytest_regressions.file_regression import FileRegressionFixture
 
 from .utils.build import build
-from .utils.context import TestConfig, TestRunner, RunConfig, mk_id
+from .utils.context import TestConfig, TestRunner, RunConfig
 from .runners.maude_runner import maude_runner
 from .runners.smc_runner import smc_runner
 
@@ -56,8 +56,8 @@ def euclid_feat_distance(feat0: dict, feat1: dict) -> float:
 def proc_target(run: Callable, sender: Connection, test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfig):
 
     try:
-        log_stdout_filename = mk_id(test_cfg) + ":stdout"
-        log_stderr_filename = mk_id(test_cfg) + ":stderr"
+        log_stdout_filename = test_cfg.mk_id() + ":stdout"
+        log_stderr_filename = test_cfg.mk_id() + ":stderr"
         log_stdout_path = build_dir / "logs" / log_stdout_filename
         log_stderr_path = build_dir / "logs" / log_stderr_filename
         log_stdout_path.touch()
@@ -74,7 +74,7 @@ def proc_target(run: Callable, sender: Connection, test_cfg: TestConfig, build_d
         # to our stdout (which is now a StringIO)
         child_logger = logging.getLogger("TestSubProcess")
         child_logger.setLevel(logging.INFO)
-        log_filename = mk_id(test_cfg) + ":log"
+        log_filename = test_cfg.mk_id() + ":log"
         child_logger.addHandler(logging.FileHandler(build_dir / "logs" / log_filename))
 
         result = run(test_cfg, build_dir, run_cfg, child_logger)
@@ -205,7 +205,7 @@ def test_regression(test_cfg: TestConfig, pytestconfig, file_regression: FileReg
     if pytestconfig.run_cfg.results_dir is not None:
         if not os.path.isdir(pytestconfig.run_cfg.results_dir):
             os.mkdir(pytestconfig.run_cfg.results_dir)
-        with open(Path(pytestconfig.run_cfg.results_dir) / f"{mk_id(test_cfg)}.json", 'w') as f:
+        with open(Path(pytestconfig.run_cfg.results_dir) / f"{test_cfg.mk_id()}.json", 'w') as f:
             json.dump(out, f, indent=4)
 
 
@@ -213,7 +213,7 @@ def test_regression(test_cfg: TestConfig, pytestconfig, file_regression: FileReg
         json.dumps(out, indent=4),
         extension=".json",
         check_fn=make_check_fn(get_comp(test_cfg)),
-        basename=mk_id(test_cfg)
+        basename=test_cfg.mk_id()
     )
 
 def test_expected(test_cfg: TestConfig, pytestconfig):
@@ -227,7 +227,7 @@ def test_expected(test_cfg: TestConfig, pytestconfig):
     if pytestconfig.run_cfg.results_dir is not None:
         if not os.path.isdir(pytestconfig.run_cfg.results_dir):
             os.mkdir(pytestconfig.run_cfg.results_dir)
-        with open(Path(pytestconfig.run_cfg.results_dir) / f"{mk_id(test_cfg)}.json", 'w') as f:
+        with open(Path(pytestconfig.run_cfg.results_dir) / f"{test_cfg.mk_id()}.json", 'w') as f:
             json.dump(out, f, indent=4)
 
     if isinstance(out, dict):
