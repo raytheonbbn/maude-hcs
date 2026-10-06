@@ -462,7 +462,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L(f"sload {GLOBALS.LIB_DIR}/obfs4/_obfs4_aux.maude")
     L(f"sload {GLOBALS.LIB_DIR}/obfs4/obfs4_prob.maude")
     L(f"sload {GLOBALS.LIB_DIR}/common/maude/user-action-actor")
-    L(f"sload {GLOBALS.LIB_DIR}/raceboatMastodon/maude/enc-dec-actor")
+    L(f"sload {GLOBALS.LIB_DIR}/raceboatMastodonBidir/maude/enc-dec-actor")
     L(f"sload {GLOBALS.LIB_DIR}/raceboatMastodonBidir/maude/rb-cm-bidir-mas-oneHash.maude")
     L(f"sload {GLOBALS.LIB_DIR}/mastodon/maude/probabilistic/mastodon")
     
