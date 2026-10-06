@@ -32,7 +32,6 @@ sload ../../common/maude/markov-action-model
 sload ../../common/maude/cp2-interfaces 
 sload ../../common/maude/_aux
 sload cm-aux.maude
-**** sload ../common/maude/sampler-x
 sload cp3-hashtag-manager
 
 
@@ -47,7 +46,6 @@ mod CONTENT-MANAGER-SENDER-AUX is
 
   inc TGEN-INTERFACE .
   inc MARKOV-ACTION-MODEL .
-****  inc SAMPLER-X .
   
 vars attrs attrs0 attrs1 attrs2 attrsTrans attrsNext : AttributeSet .
 vars cmcAtts cmcAtts1 cmcAtts2 hattrs hattrs0 : AttributeSet .
@@ -94,60 +92,6 @@ eq setSendWeird(attrs, postingWeird: old:Bool)
 .
 eq setSendWeird(attrs) = attrs [owise] .
 
-****--- Get the capacity need the current fragment.
-****op getEncodingSizeNeed : AttributeSet -> Nat .
-****eq getEncodingSizeNeed(attrs, currentFrags: efrag(efile, tot, ix, n0)) = n0 .
-****eq getEncodingSizeNeed(attrs) = 0 [owise] .
-
-****--- Get the next encoded fragment to send.
-****op getNextEncodedFrag : AttributeSet -> AttributeSet .
-******** case have efile that is ready to exfile
-****eq getNextEncodedFrag(attrs,
-****                      (postingWeird: true),
-****                      (pendingFiles: (efile :: efilel)),
-****                      (currentFrags: nilBS))
-****  = attrs,
-****    (postingWeird: true),  
-****    pendingFiles: (efile :: efilel),
-****    currentFrags: efrag(efile, 0, 0, getSize(efile))
-****[print "getNextEncodedFrag: postingWeird true currentFrags nilBS"]    
-****  .
-****
-******** postingWeird is true and frags is set
-******** or postingWeird is false
-****eq getNextEncodedFrag(attrs) = attrs 
-****[owise] .  --- ready to continue
-
-
----- called when MC confirms Toot
----- moveToNextFrag(resetTxState(attrs) 
-****op moveToNextFrag : AttributeSet -> AttributeSet .
-
---- Default, which also includes A WEIRD TRANSMISSION that is NOT FINISHED.
-****eq moveToNextFrag(attrs) = attrs [owise] .
-
-****--- Move hashtag for benign case (no pending weird transmission).
-****ceq moveToNextFrag(attrs) = setSndHashTagAttrs(attrs,hattrs)
-****  if (attrsTrans,
-****      currentFrags: nilBS,
-****      pendingFiles: nilBS)
-****   := attrs
-****  /\ hattrs := nextBHashtag(getSndHashTagAttrs(attrs))
-****  .
-****
-****--- Move at end of current file for weird case.
-****--- Only if frags are done (note: 0):
-****ceq moveToNextFrag(attrs)
-****                   currentFrags: efrag(efile, tot, ix, 0),
-****                   pendingFiles: (efile :: efilel),
-****                   weirdFileRcvTimes: (rcvTime:Float :: rcvTimes:FloatList))
-****  = setSndHashTagAttrs(attrs,hattrs),  
-****                 currentFrags: nilBS,
-****                 pendingFiles: efilel,
-****                 weirdFileRcvTimes: (rcvTimes:FloatList)
-****  if hattrs := nextWHashtag(getSndHashTagAttrs(attrs))
-****  . 
-
 --- Reset the transmit state of the client.
 op resetTxState : AttributeSet -> AttributeSet .
 eq resetTxState(attrs) = attrs [owise] .
@@ -179,40 +123,12 @@ ceq requestMediaEncode((attrs, w4c: null, postingWeird: false), cmcAddr)
 ceq requestMediaEncode((attrs, w4c: null, postingWeird: true), cmcAddr)
   = {attrsNext, msg}
   if (attrsTrans, edAddress: edAddr) := attrs
-****    /\ msg := (to edAddr from cmcAddr : capQ(getEncodingSizeNeed(attrs)))
     /\ capacityRequested:Nat := getSize(getReadyFiles(attrs))
     /\ msg := (to edAddr from cmcAddr : capQ(capacityRequested:Nat))
     /\ attrsNext := (attrs, w4c: msg, postingWeird: true)
   [ print "Raceboat client has weird bytes ready to encode, requesting capacity " capacityRequested:Nat "B." ]
   .
 
-***--- Get the next hashtag, 
-op getNextHashtag : AttributeSet -> ByteSeq .
-***--- Benign case 
-****26mar04 clt used cachedTag if any
-eq getNextHashtag(attrs, (currentFrags: nilBS), (pendingFiles: nilBS), cachedTag: cachedhashtagl)
-= (if (cachedhashtagl :: ByteSeq)
-   then cachedhashtagl
-   else getBHashtag(getSndHashTagAttrs(attrs))
-   fi)
-  [ print "Posting with benign hashtag" ]   .
-  
-eq getNextHashtag(attrs, postingWeird: false,
-                  cachedTag: cachedhashtagl)
-= (if (cachedhashtagl :: ByteSeq)
-   then cachedhashtagl
-   else getBHashtag(getSndHashTagAttrs(attrs))
-   fi)
-[ print "Posting with benign hashtag (pending files but not posting weird)." ]   .
-  
-***--- From the one provided by Alice.
-eq getNextHashtag(attrs, postingWeird: true) = getWHashtag(getSndHashTagAttrs(attrs))
-[ print "Posting with weird hashtag." ].
-
-eq getNextHashtag(attrs) = hashTag("tagError") 
-[owise print "getNextHashTag error"] .
-
-  
 --- Send a batched post request to Mastodon Client.
 op sendPostRequest : AttributeSet Address -> AttributeSetMsgs .
 eq sendPostRequest(attrs, cmcAddr) = {attrs, null}
@@ -224,7 +140,6 @@ ceq sendPostRequest((attrs, (w4c: null)), cmcAddr)
              tootQ(hashtag, IMAGES)))),
      (to mastodonClientAddr from cmcAddr :
               translateTootQ(tootQ(hashtag, IMAGES))) }
-****  if hashtag := getNextHashtag(attrs)
   if hashtag := getCurrentSendHashtag(attrs)
     /\ attrsTrans, mcAddress: mastodonClientAddr, (encodedImages: IMAGES) := attrs
   [ print "Raceboat client " cmcAddr " sending post request with hashtag " hashtag ]
@@ -276,7 +191,6 @@ ceq crcvActionQ((attrs,
                 (to cmcAddr from umAddr : actionQ(ract)) )
   = requestMediaEncode(attrsTrans, cmcAddr)
     if n0 := getNumImages(ract)
-****    /\ attrsTrans := getNextEncodedFrag(attrs),
     /\ attrsTrans := (attrs,
                         (numPendingImages: n0),
                         (encodedImages: nilBS),
@@ -301,7 +215,6 @@ eq crcvCapR(attrs,msg) = {attrs,null} [owise print " fail " attrs] .
 
 ceq crcvCapR((attrs,
                 readyFiles: efilel,
-****                currentFrags: nilBS,
                 w4c: (to edAddr from cmcAddr : capQ(n0))),
              (to cmcAddr from edAddr : capR(cap)))
   = {attrsNext, msg}
@@ -310,28 +223,9 @@ ceq crcvCapR((attrs,
     /\ msg := (to edAddr from cmcAddr : encQ(efrag0))
     /\ attrsNext := (attrs,
                       readyFiles: remaining:ByteSeqL,
-****                      currentFrags: efrag0,
                       w4c: msg)
   [ print "Capacity response lead to encode " toSend:ByteSeqL ", remaining: " remaining:ByteSeqL ]
 .
-
-****ceq crcvCapR(attrs,(to cmcAddr from edAddr : capR(cap)))
-****    = {attrs1,msg}
-****if w4c: (to edAddr from cmcAddr : capQ(n0)), 
-****   pendingFiles: (efile :: efilel), 
-****   currentFrags: efrag(efile,tot,ix,n0),  
-****   attrs0  := attrs
-****/\ l := min(cap,n0)
-****/\ efrag0 := efrag(efile,tot + l,ix,l)
-****/\ n1 := (if cap < n0 
-****                then n0 + (- cap)
-****                else 0 fi)
-****/\ efrag1 := efrag(efile,tot + l,s ix,n1)
-****/\ msg := (to edAddr from cmcAddr : encQ(efrag0))
-****/\ attrs1 := attrs0,  w4c: msg,
-****        pendingFiles: (efile :: efilel) ,
-****        currentFrags: efrag1
-****.        
 
 op crcvEncR : AttributeSet Msg -> AttributeSetMsgs .
 
@@ -364,20 +258,6 @@ eq crcvMCResponse((attrs,
      (to umAddr from cmcAddr : actionR("ok")) }
   [ print "Raceboat " cmcAddr " handling toot response, ready for next action." ]
   .
-
-***(
----- waiting for fetch/get results ???? should not happen?
-ceq crcvMCResponse(attrs,
-                  (to cmcAddr from mcAddr : 
-                       ResponseMediaList(tag,mediaFileList) ))
-  = {attrs1,msg}
-if attrs0, (w4c: (to mcAddr from cmcAddr : fetchQ(ht))),
-          (replyTo: (to cmcAddr from umAddr : c1:Content))
-   := attrs
-/\ attrs1 := attrs0, (w4c: null), (replyTo: null)
-/\ msg := (to umAddr from cmcAddr : actionR("ok"))
-.
-)
 
 endm  
 eof

@@ -33,8 +33,6 @@ set show advisories off .
 sload ../../common/maude/byteseq.maude
 sload ../../../deps/dns_formalization/Maude/common/actor.maude
 
-**** sload ../../../deps/dns_formalization/Maude/dns/probabilistic-model/parameters.maude
-
 sload ../../common/maude/_aux.maude  ---- AttributeSetMsgs
 sload ../../common/maude/cp2-interfaces
 sload cp3-hashtag-manager
@@ -82,8 +80,6 @@ op currentFragsR:_  : ByteSeqL -> Attribute [ctor] .
 ---- shared
 op edAddress:_  : Address -> Attribute [ctor] .
 op mcAddress:_ : Address -> Attribute [ctor] .
-***** op senderAddress:_  : Address -> Attribute [ctor] .
-***** op receiverAddress:_  : Address -> Attribute [ctor] .
 op sndrcvAddress:_ : Address -> Attribute [ctor] .
 op w4c:_ : Config -> Attribute [ctor] . ---msg or null
 op replyTo:_ : Config -> Attribute [ctor] . ---- ""
@@ -133,10 +129,8 @@ eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr,
    encodedImages: nilBS,
    postingWeird: false, 
    weirdFileRcvTimes: nilFL, 
-****   cachedTag: noBytes,
    --- receiving attributes   
    rcvHashTagAtts: initHashtagAttrs(hashRcv), 
- ****  pendingFilesR: nilBS,
    currentFragsR: nilBS,
    ---  shared attributes      
    edAddress: edAddr,
@@ -190,15 +184,15 @@ eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr,
   .
   eq getCurrentSendHashtag(attrs)
     = hashTag("tagError")
-    [ owise print "No send tag found in " attrs ]
+    [ owise print "Cannot get current hashtag: no send tag found in " attrs ]
   .
   eq getCurrentRecvHashtag(attrs,
                             rcvHashTagAtts: hattrs)
-    = getCurrentHashtag(hattrs, getPostingWeird(attrs))
+    = getCurrentHashtag(hattrs, true)
   .
   eq getCurrentRecvHashtag(attrs)
     = hashTag("tagError")
-    [ owise print "No recv tag found in " attrs ]
+    [ owise print "Cannot get current hashtag: no recv tag found in " attrs ]
   .
 
   ops rollSendHashtag rollRecvHashtag : AttributeSet -> AttributeSet .
@@ -206,19 +200,17 @@ eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr,
                       sndHashTagAtts: hattrs)
     = (attrs,
         sndHashTagAtts: rollHashtag(hattrs, getPostingWeird(attrs)))
-    [ print "Cmerlin rolled send HT was " hattrs]
   .
   eq rollSendHashtag(attrs) = attrs
-    [ owise print "No send tag found in " attrs ]
+    [ owise print "Cannot roll: no send tag found in " attrs ]
   .
   eq rollRecvHashtag(attrs,
                       rcvHashTagAtts: hattrs)
     = (attrs,
-        rcvHashTagAtts: rollHashtag(hattrs, getPostingWeird(attrs)))
-    [ print "Cmerlin rolled recv HT was " hattrs ]
+        rcvHashTagAtts: rollHashtag(hattrs, true))
   .
   eq rollRecvHashtag(attrs) = attrs
-    [ owise print "No recv tag found in " attrs ]
+    [ owise print "Cannot roll: no recv tag found in " attrs ]
   .
 
 endm
