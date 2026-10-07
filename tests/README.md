@@ -1,4 +1,17 @@
-# How to use the new test framework
+# How to use the new regression test framework
+
+## Overview
+
+The framework runs tests against the `maude-hcs` package. Every test is either a *characterization* test, or a *known-answer test* (KAT).
+
+Characterization tests compare the current behavior of `maude-hcs` against past behavior (stored in snapshots),
+to ensure that new changes to the codebase haven't affected observable behavior. They do not, on their own, 
+make any assurances about the correctness of that behavior! So only inspected and approved snapshots should be stored.
+
+Obviously we will occasionally want to change the observable behavior of `maude-hcs`, which is likely to break
+characterization tests. In that case new snapshots should be made. 
+
+Known-answer tests, as their name implies, use user-provided concrete answers that should match the results of the test.
 
 ## Updating environment
 
@@ -46,7 +59,9 @@ Regardless of the test runner, every test object has the same attributes:
 
 - `name`: The name for this test
 - `desc`: A description of the purpose and implementation of this test
-- `expected`: The expected result for this test. If absent, this is a regression test that will create a snapshot the first time it is run
+- `expected`: The expected result for this test. If absent, this is a *characterization* test that will create a snapshot the first time it is run
+- `expected-file`: Conceptually the same thing as `expected`, except it specifies a file under `ctx/expected` whose contents will be taken as the expected value. Setting this to `foo` selects the file `ctx/expected/foo.txt`
+- `obtained` and `obtained-file`: like `expected`, but used for stubbing out running the test itself and just directly injecting an "obtained" result. These are only used for testing the test framework itself.
 - `build_cfg`: Which JSON file from `ctx/build_cfgs` to use as a source of arguments to the markov_json_to_maude converter and the test.maude generator. Setting this to `foo` selects the build config `ctx/build_cfgs/foo.json`.
 - `arg`: An arbitrary JSON expression to be passed to the test runner function. This generally includes a predicate or expression to be evaluated as part of the test, with the result compared to `expected`.
     - for Maude tests, this is a Maude expression that will be rewritten in the test environment, with the final result taken for comparison to the expected value or stored snapshot.
@@ -95,9 +110,9 @@ pytest -n auto
 
 `--runner=RUNNER`: only run tests from the selected runner. Note: ALWAYS use the equals sign for this flag, DO NOT try to pass it as `--runner RUNNER`
 
-`--regression`: only run regression tests
+`--characterization`: only run characterization tests
 
-`--expected`: only run expected-value tests (not regression tests)
+`--known-answer`: only run known-answer tests
 
 `--copy`: copy the path to the temporary build directory to system clipboard, for faster debugging
 
@@ -106,3 +121,5 @@ pytest -n auto
 `--results-dir`: given a directory path, store the results of each test under that directory (without necessarily snapshotting anything!)
 
 `--override-run-time`: provide a new run-time value to override whatever is present in the build configs for the selected tests
+
+`--timeout`: set a maximum time for every test to run
