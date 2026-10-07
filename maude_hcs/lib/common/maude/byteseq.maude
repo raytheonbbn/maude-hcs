@@ -162,12 +162,24 @@ fmod GENERAL_BYTESEQ is
   eq getIndex(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat)) = index:Nat .
   eq getIndex(data:ByteSeq) = 0 .
 
+  op getHashString : ByteSeq -> String .
+  eq getHashString(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat))
+    = getHashString(data:ByteSeq)
+      + "-" + string(size:Nat, 10)
+      + "-" + string(index:Nat, 10)
+  .
+  eq getHashString(pack(first:ByteSeq :: data:ByteSeqL))
+    = getHashString(first:ByteSeq) + ":" + getHashString(pack(data:ByteSeqL))
+  .
+  eq getHashString(pack(nilBS)) = "" .
+  eq getHashString(noBytes) = "" .
+
   --- Determine if a ByteSeq preceeds another.
   ---           Base    Test
   --- Returns true if Test comes before Base.
   op preceeds : ByteSeq ByteSeq -> Bool .
-  eq preceeds(makeByteSeqChunk(data:ByteSeq, size:Nat, index0:Nat),
-              makeByteSeqChunk(data:ByteSeq, size:Nat, index1:Nat))
+  eq preceeds(makeByteSeqChunk(data:ByteSeq, size0:Nat, index0:Nat),
+              makeByteSeqChunk(data:ByteSeq, size1:Nat, index1:Nat))
     = (index1:Nat < index0:Nat)
   .
   eq preceeds(data0:ByteSeq, data1:ByteSeq) = false [owise] .
@@ -479,17 +491,6 @@ op getHash : ByteSeq -> Nat .
 eq getHash(ccFile(key:Nat, hash:Nat, hashtag:String)) = hash:Nat .
 eq getHash(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat)) = getHash(data:ByteSeq) .
 eq getHash(data:ByteSeq) = 0 [owise] .
-op getHashString : ByteSeq -> String .
-eq getHashString(makeByteSeqChunk(data:ByteSeq, size:Nat, index:Nat))
-  = getHashString(data:ByteSeq)
-    + "-" + string(size:Nat, 10)
-    + "-" + string(index:Nat, 10)
-.
-eq getHashString(pack(first:ByteSeq :: data:ByteSeqL))
-  = getHashString(first:ByteSeq) + ":" + getHashString(data:ByteSeqL)
-.
-eq getHashString(pack(nilBS)) = "" .
-eq getHashString(noBytes) = "" .
 --- TODO: Create a hash match function.
 op readHash : ByteSeq -> ByteSeq .
 eq readHash(ccFile(key:ByteSeq, hash:ByteSeq, hashtag:ByteSeq)) = hash:ByteSeq .
