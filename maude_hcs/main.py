@@ -126,7 +126,8 @@ def build_cli_parser():
     generate_parser.add_argument("--parallelizeBaseline", action="store_true", help="If set, generate separate baseline files per feature and vantage point in a 'baselines' directory")
     generate_parser.add_argument("--quatex", action="store_true", help="generate quatex file for combinations?")
     generate_parser.add_argument("--perf", action="store_true", help="Performance mode: removes baseLineAct and sets Adversary useTcpTPL to false")    
-    generate_parser.add_argument("--confidentiality", action="store_true", help="Confidentiality mode: only quatex needed for computing confidentiality")    
+    generate_parser.add_argument("--confidentiality", action="store_true", help="Confidentiality mode: only quatex needed for computing confidentiality")
+    generate_parser.add_argument("--force-observer", action="store_true", help="force generator to install an active observer even in performance-only mode, used for compositionality tests")
     generate_parser.add_argument("--notgens", action="store_true", help="disable tgens firing")
 
     generate_parser.add_argument("--feats", help="select particular feature queries to enable", type=lambda x: x.split(','))

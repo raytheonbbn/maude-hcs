@@ -435,7 +435,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, not
     return "\n".join(lines), hcs_client_ids
 
 # Generate scenario1.maude (ZERO structured addresses!)
-def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=False, notgens=False, features=None):
+def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=False, force_observer=False, notgens=False, features=None):
     features = FEATURES if features is None else features
     lines = []
     L = lines.append
@@ -1389,7 +1389,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  eq masSrvAct      = makeMastodonServer(masSrvAddr) .")
     L("  eq masNetSrv       = makeNetServer(masNetSrvAddr, masSrvAddr) .")
     L("  eq iodineMonitor  = mkWMonitor(iodineMonitorAddr) .")
-    adv_use_tcp = "false" if perf else "true"
+    adv_use_tcp = "false" if perf and not force_observer else "true"
     L(f"  eq advActor       = mkAdversaryCp3(advAddr, {adv_use_tcp}) .")
     L("")
     
@@ -1879,7 +1879,7 @@ def generate(args: argparse.Namespace):
         tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, run_time,
         hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map,
         hcs_delay, tgen_delay, maude_vpts, features=selected_feats,
-        perf=args.perf, notgens=args.notgens,
+        perf=args.perf, force_observer=args.force_observer, notgens=args.notgens,
     )
     main_path = os.path.join(out_dir, f"{scenario_name}.maude")
     with open(main_path, "w") as f:
