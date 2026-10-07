@@ -24,7 +24,7 @@ class SimParams:
     Note that this doesn't contain all the same args taken by generate_cp3, since
     generate_cp3 does more than just create the maude file to be tested."""
 
-    yaml_file:      str
+    yaml_filename:      str
     run_time:       int
     baseline_time:  int = 0
     hcs_delay:      int = 10
