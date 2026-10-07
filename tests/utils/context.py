@@ -51,11 +51,12 @@ class RunConfig:
 
     runner: TestRunner | None
 
-    regression: bool = False
-    expected: bool = False
+    composition: bool = False
+    characterization: bool = False
+    known_answer: bool = False
 
-    log_level: None = None
-    log_filter: None = None
+    # log_level: None = None
+    # log_filter: None = None
     pp: bool = False
 
     build_only: bool = False
@@ -67,7 +68,7 @@ class RunConfig:
     partial_smc_comp : bool = False
 
     def __post_init__(self) -> None:
-        assert not (self.regression and self.expected), "cannot select both only regression and only expected-value"
+        assert not (self.characterization and self.known_answer), "cannot select both only characterization and only known-answer"
 
 @dataclass_json
 @dataclass(frozen=False)
@@ -230,11 +231,11 @@ class TestManager:
         for ctx in self.contexts:
             self.test_cfgs.extend(ctx.get_test_cfgs())
     
-    def regression_test_cfgs(self) -> list[TestConfig]:
+    def characterization_test_cfgs(self) -> list[TestConfig]:
         ret = [cfg for cfg in self.test_cfgs if (cfg.expected is None and cfg.expected_file is None)]
         return ret
 
-    def expected_test_cfgs(self) -> list[TestConfig]:
+    def known_answer_test_cfgs(self) -> list[TestConfig]:
         ret = [cfg for cfg in self.test_cfgs if (cfg.expected is not None or cfg.expected_file is not None)]
         return ret
 
