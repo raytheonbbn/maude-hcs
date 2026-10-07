@@ -127,20 +127,20 @@ rl [rbc-rcv-file] :
 {T, (to cmcAddr from aAddr :  bytes)}
 < cmcAddr : CMSndRcv | cmcAtts, 
                        sndrcvAddress: aAddr,
-                       cachedTag: cachedhashtagl,
+****                       cachedTag: cachedhashtagl,
                        pendingFiles: efilel,
                        weirdFileRcvTimes: rcvTimes:FloatList >
 =>
 < cmcAddr : CMSndRcv | cmcAtts, 
        sndrcvAddress: aAddr,
        pendingFiles: (efilel :: bytes),
-       cachedTag: cachedhashtagl,
+****       cachedTag: getWHashtag(getSndHashTagAttrs(cmcAtts)),
        weirdFileRcvTimes: (rcvTimes:FloatList :: T) >
 [print "(" T ") Raceboat client " cmcAddr " got " bytes " from " aAddr " adding to pending " efilel ", setting weirdFileRcvTime if pending was empty."]
 .
 
 
------------ begiin handle actionQ ------------------------
+----------- Begin handle actionQ ------------------------
 
 crl [rbc-rcv-action] :
 rCtr(j)
@@ -154,24 +154,30 @@ if {cmcAtts1,msgs} :=
     cmRcvActionQ(cmcAtts,getType(ract),T,
                (to cmcAddr from umAddr : actionQ(ract) ))
 /\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
-[print "(" T ") Raceboat cm " cmcAddr " got action request " ract " sending " msgs]
+[print "(" T ") Raceboat cm " cmcAddr " got action request " ract " sending " msgs ]
 .
 
 op cmRcvActionQ : AttributeSet String Float Msg 
                 -> AttributeSetMsgs .
+****eq cmRcvActionQ(attrs, "media",T, msg) = {attrs,null} [owise] .
 
-
-
-eq cmRcvActionQ(attrs, "media",T, msg) = {attrs,null} [owise] .
-
-
-ceq cmRcvActionQ(attrs, "media", T, msg)
-   =  crcvActionQ(attrsTrans,"media",msg)       
-if attrs0, postingWeird: b:Bool, currentFrags: efragl
-     := prepareBytes(attrs, T)
-/\ attrsTrans := attrs0, postingWeird: (efragl =/= nilBS),
-                          currentFrags: efragl
- .
+--- Post action request.
+eq cmRcvActionQ(attrs, "media", T, msg)
+  = crcvActionQ(setSendWeird($buildReadyFiles(attrs, T)), "media", msg)
+.
+****ceq cmRcvActionQ(attrs, "media", T, msg)
+****   =  crcvActionQ(attrsTrans,"media",msg)       
+****if attrs0, weirdFileRcvTimes: rcvTimes:FloatList,
+****           postingWeird: b:Bool,
+****           pendingFiles: efilel
+****           := attrs
+****/\ rcvTime:Float := getEarliestRcvTime(rcvTimes:FloatList)
+****/\ b0:Bool :=  rcvTime:Float + 5.0 <= T and efilel =/= nilBS  --- no file ready
+****/\ attrsTrans := attrs0,
+****                 (weirdFileRcvTimes: (rcvTime:Float :: rcvTimes:FloatList)),
+****                 postingWeird: b0:Bool,
+****                 pendingFiles: efilel
+**** .
 
 eq cmRcvActionQ(attrs, "download", T, msg)
     =  srcvActionQ(attrs,"download",msg) .
@@ -225,7 +231,7 @@ dmsgs
 if {cmcAtts1,msgs} := 
   crcvCapR(cmcAtts,(to cmcAddr from edAddr : capR(cap)))
 /\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
-[print "(" T ") Raceboat client " cmcAddr " received capacity " cap " limit from Destini, sending " msgs ]
+[print "(" T ") Raceboat client " cmcAddr " received capacity " cap "B limit from Destini, sending " msgs ]
 .
 
 

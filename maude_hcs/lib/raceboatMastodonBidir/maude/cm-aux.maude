@@ -33,8 +33,6 @@ set show advisories off .
 sload ../../common/maude/byteseq.maude
 sload ../../../deps/dns_formalization/Maude/common/actor.maude
 
-**** sload ../../../deps/dns_formalization/Maude/dns/probabilistic-model/parameters.maude
-
 sload ../../common/maude/_aux.maude  ---- AttributeSetMsgs
 sload ../../common/maude/cp2-interfaces
 sload cp3-hashtag-manager
@@ -61,7 +59,11 @@ ops CMSndRcv  : -> ActorType .
 **** Attributes
 ---- for sending
 op sndHashTagAtts:_ : AttributeSet -> Attribute [ctor] .
+--- The list of pending messages to be sent. Can be partial.
 op pendingFiles:_ : ByteSeqL -> Attribute [ctor] .
+--- The list of messages ready to go out.
+op readyFiles:_ : ByteSeqL -> Attribute [ctor] .
+--- The list of messages (can be partial) that will be encoded and sent next.
 op currentFrags:_  : ByteSeqL -> Attribute [ctor] .
 ---- 
 --- The number of images that have still to be encoded in the batch.
@@ -72,25 +74,42 @@ op encodedImages:_ : ByteSeqL -> Attribute [ctor] .
 ---- for receiving
 op rcvHashTagAtts:_ : AttributeSet -> Attribute [ctor] .
 op pendingFilesR:_ : ByteSeqL -> Attribute [ctor] .
+op receivedChunks:_ : ByteSeqL -> Attribute [ctor] .
 op currentFragsR:_  : ByteSeqL -> Attribute [ctor] .
 
 ---- shared
 op edAddress:_  : Address -> Attribute [ctor] .
 op mcAddress:_ : Address -> Attribute [ctor] .
-***** op senderAddress:_  : Address -> Attribute [ctor] .
-***** op receiverAddress:_  : Address -> Attribute [ctor] .
 op sndrcvAddress:_ : Address -> Attribute [ctor] .
 op w4c:_ : Config -> Attribute [ctor] . ---msg or null
 op replyTo:_ : Config -> Attribute [ctor] . ---- ""
 
 ---- used for sending
-op cachedTag:_ : ByteSeqL -> Attribute [ctor] .
+op cachedTag:_ : ByteSeq -> Attribute [ctor] .
 op postingWeird:_ : Bool -> Attribute [ctor] .
 --- The time the last exfil file (contract) was received in Raceboat.
 --- It must be at least 5s before the next POST opportunity.
 op weirdFileRcvTimes:_ : FloatList -> Attribute [ctor] .
 
 
+--- Get pending files (that we want to send but may not get to.)
+op getPendingFiles : AttributeSet -> ByteSeqL .
+eq getPendingFiles(attrs, pendingFiles: FILES:ByteSeqL) = FILES:ByteSeqL .
+eq getPendingFiles(attrs) = nilBS [owise] .
+
+--- Get pending files (that we want to send and are ready but may not get to.)
+op getReadyFiles : AttributeSet -> ByteSeqL .
+eq getReadyFiles(attrs, readyFiles: FILES:ByteSeqL) = FILES:ByteSeqL .
+eq getReadyFiles(attrs) = nilBS [owise] .
+
+--- Get original request.
+op getW4c : AttributeSet -> Config .
+eq getW4c(attrs, w4c: REQUEST:Config) = REQUEST:Config .
+eq getW4c(attrs) = null [owise] .
+
+op getPostingWeird : AttributeSet -> Bool .
+eq getPostingWeird(attrs, postingWeird: WEIRD:Bool) = WEIRD:Bool .
+eq getPostingWeird(attrs) = false [owise] .
 **********  CM BIDIR
 
 ----                        Destini MasClient sndrcv 
@@ -103,15 +122,15 @@ eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr,
    --- sending attributes
    sndHashTagAtts: initHashtagAttrs(hashSnd),
    pendingFiles: nilBS,
+   readyFiles: nilBS,
+   receivedChunks: nilBS,
    currentFrags: nilBS,
    numPendingImages: 0,
    encodedImages: nilBS,
    postingWeird: false, 
    weirdFileRcvTimes: nilFL, 
-   cachedTag: nilBS,
    --- receiving attributes   
    rcvHashTagAtts: initHashtagAttrs(hashRcv), 
- ****  pendingFilesR: nilBS,
    currentFragsR: nilBS,
    ---  shared attributes      
    edAddress: edAddr,
@@ -156,8 +175,44 @@ eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr,
      = attrs,  rcvHashTagAtts: hattrs .
  eq setRcvHashTagAttrs(attrs,hattrs ) 
      = attrs,  rcvHashTagAtts: hattrs [owise] .     
-     
-     
+
+  ops getCurrentSendHashtag getCurrentRecvHashtag
+    : AttributeSet -> ByteSeq .
+  eq getCurrentSendHashtag(attrs,
+                            sndHashTagAtts: hattrs)
+    = getCurrentHashtag(hattrs, getPostingWeird(attrs))
+  .
+  eq getCurrentSendHashtag(attrs)
+    = hashTag("tagError")
+    [ owise print "Cannot get current hashtag: no send tag found in " attrs ]
+  .
+  eq getCurrentRecvHashtag(attrs,
+                            rcvHashTagAtts: hattrs)
+    = getCurrentHashtag(hattrs, true)
+  .
+  eq getCurrentRecvHashtag(attrs)
+    = hashTag("tagError")
+    [ owise print "Cannot get current hashtag: no recv tag found in " attrs ]
+  .
+
+  ops rollSendHashtag rollRecvHashtag : AttributeSet -> AttributeSet .
+  eq rollSendHashtag(attrs,
+                      sndHashTagAtts: hattrs)
+    = (attrs,
+        sndHashTagAtts: rollHashtag(hattrs, getPostingWeird(attrs)))
+  .
+  eq rollSendHashtag(attrs) = attrs
+    [ owise print "Cannot roll: no send tag found in " attrs ]
+  .
+  eq rollRecvHashtag(attrs,
+                      rcvHashTagAtts: hattrs)
+    = (attrs,
+        rcvHashTagAtts: rollHashtag(hattrs, true))
+  .
+  eq rollRecvHashtag(attrs) = attrs
+    [ owise print "Cannot roll: no recv tag found in " attrs ]
+  .
+
 endm
 
 eof
