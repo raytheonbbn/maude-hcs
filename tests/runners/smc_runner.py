@@ -79,7 +79,7 @@ def format_cmd(nspace_args: Namespace, test_arg: dict):
         get_opt("format", newline=False),
     ])
 
-def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", logger: logging.Logger) -> dict:
+def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", logger: logging.Logger) -> str:
     # Have to initialize maude even though umaudemc does it again, because we need to pre-load
     # test file so umaudemc will see it as most recent
     maude.init()
@@ -173,4 +173,9 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
 
         return res
 
-    return asdict(sim_result, dict_factory=dict_factory)
+    ret = asdict(sim_result, dict_factory=dict_factory)
+    for k, v in ret["params"].items():
+        ret[k] = v
+    del ret["params"]
+
+    return json.dumps(ret, indent=4)

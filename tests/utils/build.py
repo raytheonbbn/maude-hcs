@@ -24,7 +24,7 @@ mod TEST-ENV is
 endm
 """
 
-def batch_convert_dir_v1(dir: Path, proto: str):
+def batch_convert_dir_v1(dir: Path, proto: str) -> None:
     """dir should just contain json files representing markov models.
     This function will convert all of them into maude files, placing the results alongside the original jsons.
     """
@@ -38,7 +38,7 @@ def batch_convert_dir_v1(dir: Path, proto: str):
 
     handle_command(markov_args.command, None, markov_args)
 
-def batch_convert_dir_v2(dir: Path, proto: str):
+def batch_convert_dir_v2(dir: Path, proto: str) -> None:
     """dir should just contain json files representing markov models.
     This function will convert all of them into maude files, placing the results alongside the original jsons.
     """
@@ -74,7 +74,7 @@ def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path) -> Path:
     args = Namespace(
         verbose=True,
         command='generate',
-        yaml_file=str(build_dir / params.yaml_file),
+        yaml_file=str(build_dir / params.yaml_filename),
         quatex=True,
         baselineTime=params.baseline_time,
         runTime=slimit,
