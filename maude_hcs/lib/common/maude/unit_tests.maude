@@ -7,6 +7,7 @@ fmod GENERAL_BYTESEQ_TEST is
   ops TEST-BYTESEQLIST : -> ByteSeqL .
   ops makeByteSeq : Nat String -> ByteSeq .
   eq getSize(makeByteSeq(size:Nat, description:String)) = size:Nat .
+  eq getHashString(makeByteSeq(size:Nat, description:String)) = description:String .
 endfm
 
 set print attribute on .
@@ -21,6 +22,114 @@ rew makeByteSeqChunk(makeByteSeqChunk(TEST-BYTESEQ, 1000, 7), 500, 0)
 .
 rew getExpectedSize(makeByteSeqChunk(makeByteSeq(4000, "testFile"), 1000, 7))
   == 4000
+.
+
+rew getHashString(makeByteSeqChunk(makeByteSeq(3000, "File"), 1000, 0))
+  == "File-1000-0"
+.
+rew getHashString(pack(makeByteSeqChunk(makeByteSeq(3000, "File"), 1000, 0)
+                        :: makeByteSeqChunk(makeByteSeq(3000, "File"), 2000, 1)))
+  == "File-1000-0:File-2000-1"
+.
+rew getHashString(pack(makeByteSeqChunk(makeByteSeq(3000, "File"), 1000, 0)
+                        :: makeByteSeqChunk(makeByteSeq(3000, "File"), 1000, 1)
+                        :: makeByteSeqChunk(makeByteSeq(3000, "File"), 1000, 2)))
+  == "File-1000-0:File-1000-1:File-1000-2"
+.
+
+rew preceeds(makeByteSeq(1000, "File1"), makeByteSeq(2000, "File2")) == false .
+rew preceeds(makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1),
+              makeByteSeqChunk(makeByteSeq(3000, "File1"), 2000, 2))
+  == false
+.
+rew preceeds(makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2),
+              makeByteSeqChunk(makeByteSeq(3000, "File1"), 500, 1))
+  == true
+.
+rew insertInOrder(makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1), 
+                  makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2))
+  == (makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2))
+.
+rew insertInOrder(makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2), 
+                  makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1))
+  == (makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2))
+.
+rew insertInOrder((makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+                    :: makeByteSeq(2000, "File2")), 
+                  makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2))
+  == (makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+      :: makeByteSeq(2000, "File2") 
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2))
+.
+rew insertInOrder((makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+                    :: makeByteSeq(2000, "File2") 
+                    :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3)),
+                  makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2))
+  == (makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+      :: makeByteSeq(2000, "File2") 
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2)
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3))
+.
+--- Check does not insert something that is already there.
+rew insertInOrder((makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+                    :: makeByteSeq(2000, "File2") 
+                    :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3)),
+                  makeByteSeq(2000, "File2"))
+  == (makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+      :: makeByteSeq(2000, "File2") 
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3))
+.
+--- Check does not insert something that is already there, this time as a chunk.
+rew insertInOrder((makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+                    :: makeByteSeq(2000, "File2") 
+                    :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3)),
+                  makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3))
+  == (makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+      :: makeByteSeq(2000, "File2") 
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3))
+.
+--- Check single item list insertion.
+rew $insertInOrder((makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+                    :: makeByteSeq(2000, "File2") 
+                    :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3)),
+                  makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2))
+  == (makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+      :: makeByteSeq(2000, "File2") 
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2)
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3))
+.
+--- Check list insertion.
+rew $insertInOrder((makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+                    :: makeByteSeq(2000, "File2") 
+                    :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3)
+                    :: makeByteSeqChunk(makeByteSeq(3000, "File2"), 1000, 3)),
+                  (makeByteSeqChunk(makeByteSeq(3000, "File2"), 1000, 2))
+                    :: (makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2)))
+  == (makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+      :: makeByteSeq(2000, "File2") 
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2)
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3)
+      :: makeByteSeqChunk(makeByteSeq(3000, "File2"), 1000, 2)
+      :: makeByteSeqChunk(makeByteSeq(3000, "File2"), 1000, 3))
+.
+--- Check list insertion does not add duplicates.
+rew $insertInOrder((makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+                    :: makeByteSeq(2000, "File2") 
+                    :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3)
+                    :: makeByteSeqChunk(makeByteSeq(3000, "File2"), 1000, 3)),
+                  (makeByteSeqChunk(makeByteSeq(3000, "File2"), 1000, 2))
+                    :: makeByteSeq(2000, "File2") 
+                    :: makeByteSeqChunk(makeByteSeq(3000, "File2"), 1000, 2)
+                    :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3)
+                    :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2))
+  == (makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 1)
+      :: makeByteSeq(2000, "File2") 
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 2)
+      :: makeByteSeqChunk(makeByteSeq(3000, "File1"), 1000, 3)
+      :: makeByteSeqChunk(makeByteSeq(3000, "File2"), 1000, 2)
+      :: makeByteSeqChunk(makeByteSeq(3000, "File2"), 1000, 3))
 .
 
 rew $encode({makeByteSeq(1000, "File1"),

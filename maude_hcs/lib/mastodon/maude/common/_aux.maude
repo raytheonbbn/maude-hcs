@@ -538,7 +538,7 @@ mod MASTODON_NODE is
           else masClAttrsTrans
          fi)
       /\ outMsg := (to getRequesterAddr(masClAttrs) from getThisAddr(masClAttrs) : mkRequestResponse("ACCEPTED"))
-    [ print "Handle status post reply, send " outMsg ". | " masClAttrsNext ]
+    [ print "Handle status post reply, send " outMsg "." ]
     .
     
   --- Finish handling a reply from the server.
@@ -847,14 +847,16 @@ mod MASTODON_NODE is
   --- Handle a request to post a media.
   op handleMediaPostRequest : Address MediaFile Nat AttributeSet -> AttributeSetMsgs .
   ceq handleMediaPostRequest(MAS_CLIENT_ADDR, MEDIA_FILE, seed, masServerAttrs) =
-    { masServerAttrsNext, outMsg }
-    --- Filenames and random URL strings can repeat; the media ID cannot.
-    if (previousAttrs:AttributeSet, currentMapId: mapId) := masServerAttrs
-      /\ masServerAttrsNext := insertMedia(masServerAttrs, MEDIA_FILE,
-           makeUrl(seed, string(s mapId, 10) + "-" + getName(MEDIA_FILE)))
-      /\ (masServerAttrsTrans, currentMapId: CURRENT_MAP_ID) := masServerAttrsNext
-      /\ outMsg := makeHttpMsg(makeHttpResponse("OK", makeResponseToot(CURRENT_MAP_ID)), MAS_CLIENT_ADDR, getThisAddr(masServerAttrs))
-    .
+  { masServerAttrsNext, outMsg }
+  if (previousAttrs:AttributeSet, currentMapId: mapId) := masServerAttrs
+    /\ masServerAttrsNext := insertMedia(masServerAttrs,
+                                         MEDIA_FILE,
+                                         makeUrl(seed, string(s mapId, 10) + "-" + getName(MEDIA_FILE)))
+    /\ (masServerAttrsTrans, currentMapId: CURRENT_MAP_ID) := masServerAttrsNext
+    /\ outMsg := makeHttpMsg(makeHttpResponse("OK", makeResponseToot(CURRENT_MAP_ID)),
+                             MAS_CLIENT_ADDR,
+                             getThisAddr(masServerAttrs))
+  .
 
   --- Handle a request to Post a status.
   op handleStatusPostRequest : Address String AttributeSet -> AttributeSetMsgs .
