@@ -20,11 +20,13 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from dataclasses_json import dataclass_json
 from ..runners.maude_runner import maude_runner
 from ..runners.smc_runner import smc_runner
+
+from maude_hcs.result import SimParams
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ class TestRunner(Enum):
 
     __test__ = False
 
-    def to_func(self):
+    def to_func(self) -> Callable:
         match self:
             case TestRunner.MAUDE: return maude_runner
             case TestRunner.SMC: return smc_runner
@@ -49,11 +51,12 @@ class RunConfig:
 
     runner: TestRunner | None
 
-    regression: bool = False
-    expected: bool = False
+    composition: bool = False
+    characterization: bool = False
+    known_answer: bool = False
 
-    log_level: None = None
-    log_filter: None = None
+    # log_level: None = None
+    # log_filter: None = None
     pp: bool = False
 
     build_only: bool = False
@@ -61,20 +64,17 @@ class RunConfig:
     results_dir: str | None = None
 
     override_run_time: int | None = None
+    timeout: int | None = None
+    partial_smc_comp : bool = False
 
-    def __post_init__(self):
-        assert not (self.regression and self.expected), "cannot select both only regression and only expected-value"
+    def __post_init__(self) -> None:
+        assert not (self.characterization and self.known_answer), "cannot select both only characterization and only known-answer"
 
 @dataclass_json
 @dataclass(frozen=False)
 class GenArgs:
     """Arguments passed to generate_cp3"""
-    yaml_file:      str
-    run_time:       int
-    baseline_time:  int = 0
-    hcs_delay:      int = 10
-    tgen_delay:     int = 1
-    no_tgens:       bool = False
+    params: SimParams
 
     feats:  list[str] | None = None
     vpts:   list[str] | None = None
@@ -82,6 +82,7 @@ class GenArgs:
     parallelize_baseline:       bool = False
     confidentiality:            bool = False
     performance:                bool = False
+
 
 @dataclass_json
 @dataclass(frozen=True)
@@ -130,7 +131,8 @@ class Context:
                     expected_file=test.get("expected_file", None),
                     runner=runner,
                     build_cfg=build_cfgs[test["build_cfg"]],
-                    arg=test.get("arg", {})
+                    arg=test.get("arg", {}),
+                    obtained_file=test.get("obtained_file", None)
                 )
                 assert isinstance(cfg.name, str)
                 assert isinstance(cfg.desc, str)
@@ -145,7 +147,7 @@ class Context:
         test_cfgs = []
 
         for root, _, files in os.walk(os.path.join(self.directory, 'build_cfgs')):
-            for file in files:
+            for file in sorted(files):
                 path = Path(root) / file
                 
                 # Skip hidden files (like .DS_Store)
@@ -157,11 +159,27 @@ class Context:
                     raise RuntimeError(f"found non-json file {file} in build_cfgs")
                 
                 d = json.loads(path.read_text())
+                gen_args_d = d["gen_args"]
+
                 build_cfgs[path.stem] = BuildConfig(
                     path.stem,
                     tuple([tuple(l) for l in d["markov_v1_dirs"]]),
                     tuple([tuple(l) for l in d["markov_v2_dirs"]]),
-                    GenArgs.from_dict(d["gen_args"]) # type: ignore
+                    GenArgs(
+                        SimParams(
+                            gen_args_d["yaml_file"],
+                            run_time=gen_args_d["run_time"],
+                            baseline_time=gen_args_d.get("baseline_time", 0),
+                            hcs_delay=gen_args_d.get("hcs_delay", 10),
+                            tgen_delay=gen_args_d.get("tgen_delay", 1),
+                            no_tgens=gen_args_d.get("no_tgens", False)
+                        ),
+                        feats=gen_args_d.get("feats", None),
+                        vpts=gen_args_d.get("vpts", None),
+                        parallelize_baseline=gen_args_d.get("parallelize_baseline", False),
+                        confidentiality=gen_args_d.get("confidentiality", False),
+                        performance=gen_args_d.get("performance", False),
+                    )
                 )
 
         test_cfgs.extend(self._load_test_cfgs_by_runner(TestRunner.MAUDE, build_cfgs))
@@ -190,13 +208,17 @@ class TestConfig:
     build_cfg:      BuildConfig
     arg:            Any
     expected:       str | None = None
-    expected_file:  str | None = None
+    expected_file:  Path | None = None
+    obtained_file:  Path | None = None
 
     # Prevent pytest from collecting this class
     __test__:   bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         assert self.expected is None or self.expected_file is None, "TestConfig should not set both expected and expected_file"
+
+    def mk_id(self) -> str:
+        return f"{self.ctx.name}+{self.runner.value}+{self.name}"
 
 class TestManager:
     __test__ = False
@@ -209,24 +231,21 @@ class TestManager:
         for ctx in self.contexts:
             self.test_cfgs.extend(ctx.get_test_cfgs())
     
-    def regression_test_cfgs(self) -> list[TestConfig]:
+    def characterization_test_cfgs(self) -> list[TestConfig]:
         ret = [cfg for cfg in self.test_cfgs if (cfg.expected is None and cfg.expected_file is None)]
         return ret
 
-    def expected_test_cfgs(self) -> list[TestConfig]:
+    def known_answer_test_cfgs(self) -> list[TestConfig]:
         ret = [cfg for cfg in self.test_cfgs if (cfg.expected is not None or cfg.expected_file is not None)]
         return ret
 
     def _get_contexts(self) -> list[Context]:
         ctxs = []
 
-        for ctx_dir_name in os.listdir(self.contexts_directory):
+        for ctx_dir_name in sorted(os.listdir(self.contexts_directory)):
             ctx_dir = self.contexts_directory / ctx_dir_name
             if os.path.isdir(ctx_dir):
                 if (ctx_dir / "tests").is_dir():
                     ctxs.append(Context(ctx_dir_name, ctx_dir))
 
         return ctxs
-    
-def mk_id(val: TestConfig):
-    return f"{val.ctx.name}:{val.runner.value}:{val.name}"
