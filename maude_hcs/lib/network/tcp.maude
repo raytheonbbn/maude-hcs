@@ -26,90 +26,12 @@ endm
 ---   3-way handshake, Slow Start, Congestion Avoidance,
 ---   Fast Retransmit / Fast Recovery via SACK, RTO on total loss.
 ---
---- Channel: 4-state Gilbert-Elliott Markov chain
----   State 0: Good           -- packet delivered
----   State 1: Gap in burst   -- packet delivered
----   State 2: Burst loss     -- packet DROPPED
----   State 3: Isolated loss  -- packet DROPPED
+--- Channel: IID packet loss model
+---   dropP: packet drop probability p in [0, 1]
+---   End-to-end 2-hop composite loss: p_e2e = 1 - (1 - p1) * (1 - p2)
 ---
 --- Loss is unidirectional: only client->server path is modelled.
 --- ================================================================
-
-
---- ================================================================
---- Module: TCP-LINALG
----   Fixed-size 4-element vectors and 4x4 matrices with the
----   linear algebra operations needed by the GE channel model.
---- ================================================================
-fmod TCP-LINALG is
-  pr FLOAT .
-
-  --- -------- Vec4: 4-element float vector --------
-  sort Vec4 .
-  op v4 : Float Float Float Float -> Vec4 [ctor] .
-
-  --- -------- Mat4: 4x4 matrix as 4 row vectors --------
-  sort Mat4 .
-  op m4 : Vec4 Vec4 Vec4 Vec4 -> Mat4 [ctor] .
-
-  --- Variables
-  vars A B C D A2 B2 C2 D2 S : Float .
-  vars V V2 R0 R1 R2 R3 : Vec4 .
-
-  --- Element-wise addition
-  op vAdd : Vec4 Vec4 -> Vec4 .
-  eq vAdd(v4(A, B, C, D), v4(A2, B2, C2, D2)) =
-     v4(A + A2, B + B2, C + C2, D + D2) .
-
-  --- Element-wise multiplication
-  op vElMul : Vec4 Vec4 -> Vec4 .
-  eq vElMul(v4(A, B, C, D), v4(A2, B2, C2, D2)) =
-     v4(A * A2, B * B2, C * C2, D * D2) .
-
-  --- Scalar multiplication
-  op vScale : Float Vec4 -> Vec4 .
-  eq vScale(S, v4(A, B, C, D)) = v4(S * A, S * B, S * C, S * D) .
-
-  --- Dot product
-  op vDot : Vec4 Vec4 -> Float .
-  eq vDot(v4(A, B, C, D), v4(A2, B2, C2, D2)) =
-     A * A2 + B * B2 + C * C2 + D * D2 .
-
-  --- Sum of elements
-  op vSum : Vec4 -> Float .
-  eq vSum(v4(A, B, C, D)) = A + B + C + D .
-
-  --- Normalize: v / sum(v)
-  op vNorm : Vec4 -> Vec4 .
-  eq vNorm(V) =
-     if vSum(V) > 0.0
-     then vScale(1.0 / vSum(V), V)
-     else v4(2.5e-1, 2.5e-1, 2.5e-1, 2.5e-1)
-     fi .
-
-  --- Row-vector times matrix  (pi @ P in numpy)
-  ---   result[j] = sum_i v[i] * M[i][j]
-  ---   = v[0]*row0 + v[1]*row1 + v[2]*row2 + v[3]*row3
-  op rvMul : Vec4 Mat4 -> Vec4 .
-  eq rvMul(v4(A, B, C, D), m4(R0, R1, R2, R3)) =
-     vAdd(vScale(A, R0),
-       vAdd(vScale(B, R1),
-         vAdd(vScale(C, R2), vScale(D, R3)))) .
-
-  --- Diagonal-matrix times matrix: diag(d) @ M
-  ---   Scales each row i of M by d[i]
-  op diagMul : Vec4 Mat4 -> Mat4 .
-  eq diagMul(v4(A, B, C, D), m4(R0, R1, R2, R3)) =
-     m4(vScale(A, R0), vScale(B, R1),
-        vScale(C, R2), vScale(D, R3)) .
-
-  --- Clip to [0, 1]
-  op clip01 : Float -> Float .
-  eq clip01(A) =
-     if A < 0.0 then 0.0
-     else (if A > 1.0 then 1.0 else A fi)
-     fi .
-endfm
 
 
 --- ================================================================
@@ -117,11 +39,18 @@ endfm
 ---   Channel model, flight analysis, timeline builder, public API.
 --- ================================================================
 mod TCP-ANALYTICAL-MODEL is
-  pr TCP-LINALG .
   pr NAT .
   pr INT .
+  pr FLOAT .
   pr CONVERSION .
   pr PARAMETERS-BASE-COMMON .
+
+  --- Clip to [0, 1]
+  op clip01 : Float -> Float .
+  eq clip01(A:Float) =
+     if A:Float < 0.0 then 0.0
+     else (if A:Float > 1.0 then 1.0 else A:Float fi)
+     fi .
 
   --- ============================================================
   ---  FloatList
@@ -182,6 +111,17 @@ mod TCP-ANALYTICAL-MODEL is
      else 0.0
      fi .
 
+  --- Power function for Float base and Nat exponent (binary exponentiation)
+  op powF : Float Nat -> Float .
+  eq powF(X:Float, 0) = 1.0 .
+  eq powF(X:Float, 1) = X:Float .
+  ceq powF(X:Float, N:Nat) =
+     if N:Nat rem 2 == 0
+     then powF(X:Float * X:Float, N:Nat quo 2)
+     else X:Float * powF(X:Float * X:Float, N:Nat quo 2)
+     fi
+  if N:Nat > 1 .
+
 
   --- ============================================================
   ---  TCP / Network Constants (Ubuntu 22.04 defaults)
@@ -217,168 +157,85 @@ mod TCP-ANALYTICAL-MODEL is
 
 
   --- ============================================================
-  ---  Channel Configuration
+  ---  Channel Configuration (IID Loss Model)
   --- ============================================================
 
   sort ChannelCfg .
-  ---          P      Ms     Ml     lossVec  piStat
-  op chCfg : Mat4   Mat4   Mat4   Vec4     Vec4   -> ChannelCfg [ctor] .
+  ---          p_loss
+  op chCfg : Float -> ChannelCfg [ctor] .
 
-  vars PM MS ML : Mat4 .
-  vars LV PIST : Vec4 .
-  var  CC : ChannelCfg .
+  var  CC CC_PATH : ChannelCfg .
 
-  op chP  : ChannelCfg -> Mat4 .
-  op chMs : ChannelCfg -> Mat4 .
-  op chMl : ChannelCfg -> Mat4 .
-  op chLV : ChannelCfg -> Vec4 .
-  op chPi : ChannelCfg -> Vec4 .
+  op chLossP : ChannelCfg -> Float .
+  eq chLossP(chCfg(P:Float)) = P:Float .
 
-  eq chP(chCfg(PM, MS, ML, LV, PIST))  = PM .
-  eq chMs(chCfg(PM, MS, ML, LV, PIST)) = MS .
-  eq chMl(chCfg(PM, MS, ML, LV, PIST)) = ML .
-  eq chLV(chCfg(PM, MS, ML, LV, PIST)) = LV .
-  eq chPi(chCfg(PM, MS, ML, LV, PIST)) = PIST .
+  --- Compose two independent cascaded hops into an end-to-end path
+  --- p_e2e = 1 - (1 - p1) * (1 - p2)
+  op composeChannels : ChannelCfg ChannelCfg -> ChannelCfg .
+  eq composeChannels(chCfg(P1:Float), chCfg(P2:Float)) =
+     chCfg(clip01(1.0 - (1.0 - P1:Float) * (1.0 - P2:Float))) .
 
-
-  --- Check if the channel represents the no-loss "none" profile.
-  --- The "none" profile has p31 = 1.0, meaning burst loss immediately
-  --- recovers to good state.  Detected by checking P[2][0] ~= 1.0.
+  --- Check if channel is lossless ("none" profile)
   op isNoneProfile : ChannelCfg -> Bool .
-  ceq isNoneProfile(CC) = P31X:Float >= (1.0 - 1.0e-10)
-  if m4(R0X:Vec4, R1X:Vec4,
-        v4(P31X:Float, B1X:Float, C1X:Float, D1X:Float),
-        R3X:Vec4) := chP(CC) .
-  eq isNoneProfile(CC) = false [owise] .
+  eq isNoneProfile(chCfg(P:Float)) = P:Float <= 1.0e-10 .
 
 
   vars linkAttrs linkAttrs1 linkAttrs2 : AttributeSet .
 
+  --- Make channel from AttributeSet
+  --- Supports dropP: directly, or defaults to 0.0 (respects canDrop: false)
   op makeChannel : AttributeSet -> ChannelCfg .
-  eq makeChannel(linkAttrs,
-                 p13: P13:Float,
-                 p31: P31:Float,
-                 p32: P32:Float,
-                 p23: P23:Float,
-                 p14: P14:Float)
-    = makeChannel(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float)
-  .
+  eq makeChannel((linkAttrs, canDrop: false)) = chCfg(0.0) .
+  eq makeChannel((linkAttrs, dropP: P:Float)) = chCfg(clip01(P:Float)) .
+  eq makeChannel(linkAttrs) = chCfg(0.0) [owise] .
 
-  --- Build channel config from 5 probabilities
-  ---   p13: Good -> Burst     p31: Burst -> Good
-  ---   p32: Burst -> Gap      p23: Gap -> Burst
-  ---   p14: Good -> Isolated
-  op makeChannel : Float Float Float Float Float -> ChannelCfg .
-  ceq makeChannel(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float) =
-     chCfg(P0:Mat4, MS0:Mat4, ML0:Mat4, LV0:Vec4, PI0:Vec4)
-  if P0:Mat4 := m4(
-       v4(1.0 - P13:Float - P14:Float,  0.0,
-          P13:Float,                     P14:Float),
-       v4(P31:Float,                     1.0 - P23:Float - P31:Float,
-          P23:Float,                     0.0),
-       v4(P31:Float,                     P32:Float,
-          1.0 - P31:Float - P32:Float,  0.0),
-       v4(1.0,                           0.0,
-          0.0,                           0.0))
-  /\ LV0:Vec4 := v4(0.0, 0.0, 1.0, 1.0)
-  /\ MS0:Mat4 := diagMul(v4(1.0, 1.0, 0.0, 0.0), P0:Mat4)
-  /\ ML0:Mat4 := diagMul(LV0:Vec4, P0:Mat4)
-  /\ PI0:Vec4 := stationaryDist(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float)
-  .
+  op makeChannel : Float -> ChannelCfg .
+  eq makeChannel(P:Float) = chCfg(clip01(P:Float)) .
 
-  --- Closed-form stationary distribution for the 4-state GE channel.
-  --- For the corrected transition matrix (Gap row includes p31):
-  ---   pi_1 = p13 * p32 / (p31 * (p23 + p31 + p32)) * pi_0
-  ---   pi_2 = p13 * (p23 + p31) / (p31 * (p23 + p31 + p32)) * pi_0
-  ---   pi_3 = p14 * pi_0
-  ---   pi_0 = 1 / (1 + R1 + R2 + p14)
-
-  op stationaryDist : Float Float Float Float Float -> Vec4 .
-
-  --- Special case: no-loss channel (p13 and p14 both zero)
-  ceq stationaryDist(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float) =
-     v4(1.0, 0.0, 0.0, 0.0)
-  if P13:Float + P14:Float < 1.0e-15 .
-
-  --- General case
-  ceq stationaryDist(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float) =
-     v4(Pi0:Float, Pi1:Float, Pi2:Float, Pi3:Float)
-  if DN:Float  := P31:Float * (P23:Float + P31:Float + P32:Float)
-  /\ R1:Float  := (P13:Float * P32:Float) / DN:Float
-  /\ R2:Float  := (P13:Float * (P23:Float + P31:Float)) / DN:Float
-  /\ Pi0:Float := 1.0 / (1.0 + R1:Float + R2:Float + P14:Float)
-  /\ Pi1:Float := R1:Float * Pi0:Float
-  /\ Pi2:Float := R2:Float * Pi0:Float
-  /\ Pi3:Float := P14:Float * Pi0:Float
-  [owise] .
+  op getOneWayDelay : AttributeSet -> Float .
+  eq getOneWayDelay((linkAttrs, oneWayDelay: OW:Float)) = OW:Float .
+  eq getOneWayDelay((linkAttrs, delayConst: D:Float)) = D:Float .
+  eq getOneWayDelay(linkAttrs) = 0.0 [owise] .
 
 
   --- ============================================================
-  ---  Flight Statistics
+  ---  Flight Statistics (IID Loss Model)
   --- ============================================================
 
   --- Result of analysing one flight of W packets
   sort FlightResult .
-  ---       p0     pa     el     pi_after
-  op fr : Float  Float  Float  Vec4     -> FlightResult [ctor] .
+  ---       p0     pa     el
+  op fr : Float  Float  Float -> FlightResult [ctor] .
 
   var FR FR1 FR2 FRB FRB2 : FlightResult .
 
   op frP0 : FlightResult -> Float .
   op frPa : FlightResult -> Float .
   op frEl : FlightResult -> Float .
-  op frPi : FlightResult -> Vec4 .
-  eq frP0(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FP0:Float .
-  eq frPa(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FPA:Float .
-  eq frEl(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FEL:Float .
-  eq frPi(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FV:Vec4 .
+  eq frP0(fr(FP0:Float, FPA:Float, FEL:Float)) = FP0:Float .
+  eq frPa(fr(FP0:Float, FPA:Float, FEL:Float)) = FPA:Float .
+  eq frEl(fr(FP0:Float, FPA:Float, FEL:Float)) = FEL:Float .
 
   vars P01 P02 PF1 PF2 P0S PAS ELS ELT CWND_SS CWND_SSB PL LP P0 EL : Float .
-  vars VOK VDRP VU VU1 PI PINX : Vec4 .
 
-  --- flightPass(remaining, v_ok, v_drop, v_u, el, CC)
-  --- Iterates W times for one direction pass:
-  ---   el     += v_u . lossVec
-  ---   v_ok    = v_ok @ Ms   (all-success path)
-  ---   v_drop  = v_drop @ Ml (all-loss path)
-  ---   v_u     = v_u @ P     (unconditional path)
-  op flightPass : Nat Vec4 Vec4 Vec4 Float ChannelCfg -> FlightResult .
-
-  eq flightPass(0, VOK, VDRP, VU, EL, CC) =
-     fr(clip01(vSum(VOK)), clip01(vSum(VDRP)), EL,
-        if vSum(VU) > 0.0
-        then vScale(1.0 / vSum(VU), VU)
-        else chPi(CC)
-        fi) .
-
-  eq flightPass(s(N:Nat), VOK, VDRP, VU, EL, CC) =
-     flightPass(N:Nat,
-        rvMul(VOK, chMs(CC)),
-        rvMul(VDRP, chMl(CC)),
-        rvMul(VU, chP(CC)),
-        EL + vDot(VU, chLV(CC)),
-        CC) .
-
-  --- flightStats(W, pi, channelCfg)
-  --- Computes bidirectional loss statistics for a flight of W packets starting
-  --- from channel state distribution pi across two cascaded identical hops.
-  op flightStats : Nat Vec4 ChannelCfg -> FlightResult .
-  ceq flightStats(W:Nat, V:Vec4, CC) =
-     fr(P0S * P0S,
-        PAS + (1.0 - PAS) * PAS,
-        ELS + ELS,
-        PINX)
-  if FR1 := flightPass(W:Nat, V:Vec4, V:Vec4, V:Vec4, 0.0, CC)
-  /\ P01 := frP0(FR1)
-  /\ PF1 := frPa(FR1)
-  /\ ELS := frEl(FR1)
-  /\ VU1 := frPi(FR1)
-  /\ FR2 := flightPass(W:Nat, VU1, VU1, VU1, 0.0, CC)
-  /\ P02 := frP0(FR2)
-  /\ PF2 := frPa(FR2)
-  /\ PINX := frPi(FR2)
-  /\ P0S := clip01(P01 * P02)
-  /\ PAS := clip01(PF1 + (1.0 - PF1) * PF2) .
+  --- flightStats(W, channelCfg)
+  --- Computes closed-form IID loss statistics for a flight of W packets:
+  ---   P0 = (1 - p)^W       (probability of zero losses)
+  ---   Pa = p^W             (probability of all packets lost)
+  ---   El = W * p           (expected number of losses)
+  op flightStats : Nat ChannelCfg -> FlightResult .
+  eq flightStats(0, CC) = fr(1.0, 0.0, 0.0) .
+  ceq flightStats(W:Nat, chCfg(P:Float)) =
+     fr(1.0, 0.0, 0.0)
+  if P:Float <= 1.0e-15 .
+  ceq flightStats(W:Nat, chCfg(P:Float)) =
+     fr(0.0, 1.0, float(W:Nat))
+  if P:Float >= (1.0 - 1.0e-15) .
+  ceq flightStats(W:Nat, chCfg(P:Float)) =
+     fr(clip01(powF(1.0 - P:Float, W:Nat)),
+        clip01(powF(P:Float, W:Nat)),
+        float(W:Nat) * P:Float)
+  if P:Float > 1.0e-15 /\ P:Float < (1.0 - 1.0e-15) .
 
 
   --- ============================================================
@@ -419,15 +276,15 @@ mod TCP-ANALYTICAL-MODEL is
 
   --- SSResult: state after slow start completes
   sort SSResult .
-  ---         t       seg    flt    pi    times     lastP0   Wss
-  op ssR : Float    Nat    Nat    Vec4  FloatList  Float    Nat
+  ---         t       seg    flt    times     lastP0   Wss
+  op ssR : Float    Nat    Nat    FloatList  Float    Nat
            -> SSResult [ctor] .
 
-  --- ssLoop(t, seg, flt, pi, Wss, N, O, OWOFF, SRHOP, CC, acc)
+  --- ssLoop(t, seg, flt, Wss, N, O, OWOFF, SRHOP, CC, acc)
   --- Implements the slow-start while loop from _build_timeline
   --- (no-buffer path: LOCAL_MAX_CWND = 50)
 
-  op ssLoop : Float Nat Nat Vec4 Nat Nat Float Float Float ChannelCfg FloatList
+  op ssLoop : Float Nat Nat Nat Nat Float Float Float ChannelCfg FloatList
               -> SSResult .
 
   vars T OW OWOFF SRHOP RTT0 DT PA PP EDel EDT WM0 TSC0 WR WNO CNX PLOSS OWD1 OWD2 : Float .
@@ -451,29 +308,28 @@ mod TCP-ANALYTICAL-MODEL is
   var  NSEGB NSB NSEGS NS : FloatList .
 
   --- Base case: all segments delivered during SS
-  ceq ssLoop(T, SG, FLT, PI, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
-     ssR(T, SG, FLT, PI, ACC, 1.0, WSS)
+  ceq ssLoop(T, SG, FLT, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
+     ssR(T, SG, FLT, ACC, 1.0, WSS)
   if SG >= N .
 
   --- Recursive case: process one SS flight
-  ceq ssLoop(T, SG, FLT, PI, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
+  ceq ssLoop(T, SG, FLT, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
      if SX
-     then ssR(T + DT, SG + f2n(CWND_SS), s(FLT), PINX, ACC ++ NSEGS,
+     then ssR(T + DT, SG + f2n(CWND_SS), s(FLT), ACC ++ NSEGS,
               if PL > 1.0e-15 then P0 else frP0(FR2) fi, WSS)
-     else ssLoop(T + DT, SG + f2n(CWND_SS), s(FLT), PINX, WNXT,
+     else ssLoop(T + DT, SG + f2n(CWND_SS), s(FLT), WNXT,
                  N, OW, OWOFF, SRHOP, CC, ACC ++ NSEGS)
      fi
   if SG < N
   /\ CWND_SS := min(float(WSS), 1000.0)
-  /\ FR := flightStats(WSS, PI, CC)
+  /\ FR := flightStats(WSS, CC)
   /\ P0 := frP0(FR)
   /\ PL := 1.0 - P0
-  /\ PINX := frPi(FR)
   /\ RTT0 := 2.0 * OW
   /\ DT := P0 * RTT0 + PL * (2.0 * RTT0 + RTT0 * rackF)
   /\ NSEGS := genSSSegs(0, f2n(CWND_SS), N, SG, T + OWOFF, SRHOP)
   /\ WNXT := min(WSS + WSS, 1000)
-  /\ FR2 := flightStats(WNXT, PINX, CC)
+  /\ FR2 := flightStats(WNXT, CC)
   /\ SX := (frEl(FR2) >= 5.0e-1 or float(WSS) >= 1000.0)
   .
 
@@ -481,39 +337,31 @@ mod TCP-ANALYTICAL-MODEL is
   --- ============================================================
   ---  Slow Start Phase — Buffer-Capacity Path
   --- ============================================================
-  ---
-  --- Used when isNoneProfile is true (p31 ~= 1.0).
-  --- Key differences from ssLoop:
-  ---   - MAX_CWND = 1000 (instead of LOCAL_MAX_CWND = 50)
-  ---   - Buffer overflow when seg + Wss > BUFFER_CAPACITY (1000)
-  ---   - dt uses LOCAL_RECOVERY_FACTOR = 0.5
-  ---   - pi is NOT updated between iterations
-  ---   - Exit includes p_l > 0.0 check (buffer overflow)
 
-  op ssLoopBuf : Float Nat Nat Vec4 Nat Nat Float Float Float ChannelCfg FloatList
+  op ssLoopBuf : Float Nat Nat Nat Nat Float Float Float ChannelCfg FloatList
                  -> SSResult .
 
   --- Base case: all segments delivered
-  ceq ssLoopBuf(T, SG, FLT, PI, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
-     ssR(T, SG, FLT, PI, ACC, 1.0, WSS)
+  ceq ssLoopBuf(T, SG, FLT, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
+     ssR(T, SG, FLT, ACC, 1.0, WSS)
   if SG >= N .
 
   --- Recursive case: one buffer-path SS flight
-  ceq ssLoopBuf(T, SG, FLT, PI, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
+  ceq ssLoopBuf(T, SG, FLT, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
      if SXB
-     then ssR(T + DTB, SG + WSS, s(FLT), PI,
+     then ssR(T + DTB, SG + WSS, s(FLT),
               ACC ++ NSEGB,
               if PLB < 1.0e-15
               then frP0(FRB2)
               else P0B fi,
               WSS)
-     else ssLoopBuf(T + DTB, SG + WSS, s(FLT), PI,
+     else ssLoopBuf(T + DTB, SG + WSS, s(FLT),
                     WNXTB, N, OW, OWOFF, SRHOP, CC,
                     ACC ++ NSEGB)
      fi
   if SG < N
   --- Flight stats from channel
-  /\ FRB := flightStats(WSS, PI, CC)
+  /\ FRB := flightStats(WSS, CC)
   /\ P0CH := frP0(FRB)
   --- Buffer overflow: if seg + Wss > 1000, compute dropped packets
   /\ BDRP := if float(SG + WSS) > 1000.0
@@ -531,9 +379,9 @@ mod TCP-ANALYTICAL-MODEL is
                        * 5.0e-1)
   --- Segments
   /\ NSEGB := genSSSegs(0, WSS, N, SG, T + OWOFF, SRHOP)
-  --- Next flight for exit check (uses PI unchanged; cap at 1000)
+  --- Next flight for exit check (cap at 1000)
   /\ WNXTB := if WSS + WSS > 1000 then 1000 else WSS + WSS fi
-  /\ FRB2 := flightStats(WNXTB, PI, CC)
+  /\ FRB2 := flightStats(WNXTB, CC)
   --- Exit: el > 0.5 or buffer overflow happened or at max cwnd
   /\ SXB := (frEl(FRB2) >= 5.0e-1
              or BDRP > 0.0
@@ -549,10 +397,10 @@ mod TCP-ANALYTICAL-MODEL is
   --- (LOCAL_MAX_CWND = 1000)
   op caPhase : SSResult Nat Float Float Float ChannelCfg -> FloatList .
 
-  ceq caPhase(ssR(T, SG, FLT, PI, ACC, LP, WSS), N, OW, OWOFF, SRHOP, CC) =
+  ceq caPhase(ssR(T, SG, FLT, ACC, LP, WSS), N, OW, OWOFF, SRHOP, CC) =
      if SG >= N
      then ACC
-     else caLoop(100000, T, float(SG), FLT, PI, CW2, WMX,
+     else caLoop(100000, T, float(SG), FLT, CW2, WMX,
                  0.0, N, OW, OWOFF, SRHOP, CC, ACC)
      fi
   if PLL := 1.0 - LP
@@ -563,36 +411,35 @@ mod TCP-ANALYTICAL-MODEL is
   /\ WMX := min(CW2 / cubicB, 1000.0)
   .
 
-  --- caLoop(iter, t, segF, flt, pi, cwnd, wMax, tSince,
+  --- caLoop(iter, t, segF, flt, cwnd, wMax, tSince,
   ---        N, O, OWOFF, SRHOP, CC, acc)
   --- Implements the congestion-avoidance for-loop from _build_timeline.
   --- (LOCAL_MAX_CWND = 1000)
 
-  op caLoop : Nat Float Float Nat Vec4 Float Float Float
+  op caLoop : Nat Float Float Nat Float Float Float
               Nat Float Float Float ChannelCfg FloatList -> FloatList .
 
   --- Base: iteration limit
-  eq caLoop(0, T, SEGF, FLT, PI, CWND, WM0, TSC0,
+  eq caLoop(0, T, SEGF, FLT, CWND, WM0, TSC0,
             N, OW, OWOFF, SRHOP, CC, ACC) = ACC .
 
   --- Base: all segments delivered
-  ceq caLoop(s(IT), T, SEGF, FLT, PI, CWND, WM0, TSC0,
+  ceq caLoop(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
              N, OW, OWOFF, SRHOP, CC, ACC) = ACC
   if SEGF >= float(N) .
 
   --- Recursive: one CA step
-  ceq caLoop(s(IT), T, SEGF, FLT, PI, CWND, WM0, TSC0,
+  ceq caLoop(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
              N, OW, OWOFF, SRHOP, CC, ACC) =
-     caLoop(IT, T + EDT, SEGF + EDel, s(FLT), PINX, CWF,
+     caLoop(IT, T + EDT, SEGF + EDel, s(FLT), CWF,
             WMF, TSCF, N, OW, OWOFF, SRHOP, CC, ACC ++ NS)
   if SEGF < float(N)
   --- Window as integer
   /\ W := max(1, f2n(roundF(CWND)))
   --- Flight statistics
-  /\ FR := flightStats(W, PI, CC)
+  /\ FR := flightStats(W, CC)
   /\ P0  := frP0(FR)
   /\ PA  := frPa(FR)
-  /\ PINX := frPi(FR)
   /\ PP  := max(0.0, 1.0 - P0 - PA)
   --- RTT
   /\ RTT0 := 2.0 * OW
@@ -629,27 +476,21 @@ mod TCP-ANALYTICAL-MODEL is
   .
 
   --- Fallback: return accumulated list if conditions cannot be met
-  eq caLoop(IT, T, SEGF, FLT, PI, CWND, WM0, TSC0,
+  eq caLoop(IT, T, SEGF, FLT, CWND, WM0, TSC0,
             N, OW, OWOFF, SRHOP, CC, ACC) = ACC [owise] .
 
 
   --- ============================================================
   ---  Congestion Avoidance Phase — Buffer-Capacity Path
   --- ============================================================
-  ---
-  --- Used when isNoneProfile is true (p31 ~= 1.0).
-  --- Key differences from caPhase/caLoop:
-  ---   - MAX_CWND = 1000 (instead of LOCAL_MAX_CWND = 50)
-  ---   - Buffer overflow when W > 1000 and W > round(w_max)
-  ---     overrides p0 and sets pa = 0.0
 
   --- caPhaseBuf: transition from SS result to buffer CA loop
   op caPhaseBuf : SSResult Nat Float Float Float ChannelCfg -> FloatList .
 
-  ceq caPhaseBuf(ssR(T, SG, FLT, PI, ACC, LP, WSS), N, OW, OWOFF, SRHOP, CC) =
+  ceq caPhaseBuf(ssR(T, SG, FLT, ACC, LP, WSS), N, OW, OWOFF, SRHOP, CC) =
      if SG >= N
      then ACC
-     else caLoopBuf(100000, T, float(SG), FLT, PI, CWB2, WMXB,
+     else caLoopBuf(100000, T, float(SG), FLT, CWB2, WMXB,
                     0.0, N, OW, OWOFF, SRHOP, CC, ACC)
      fi
   if PLLB := 1.0 - LP
@@ -660,36 +501,35 @@ mod TCP-ANALYTICAL-MODEL is
   /\ WMXB := min(CWB2 / cubicB, 1000.0)
   .
 
-  --- caLoopBuf(iter, t, segF, flt, pi, cwnd, wMax, tSince,
+  --- caLoopBuf(iter, t, segF, flt, cwnd, wMax, tSince,
   ---           N, O, OWOFF, SRHOP, CC, acc)
   --- Buffer-capacity CA loop (MAX_CWND = 1000, BUFFER_CAPACITY = 1000).
 
-  op caLoopBuf : Nat Float Float Nat Vec4 Float Float Float
+  op caLoopBuf : Nat Float Float Nat Float Float Float
                  Nat Float Float Float ChannelCfg FloatList -> FloatList .
 
   --- Base: iteration limit
-  eq caLoopBuf(0, T, SEGF, FLT, PI, CWND, WM0, TSC0,
+  eq caLoopBuf(0, T, SEGF, FLT, CWND, WM0, TSC0,
                N, OW, OWOFF, SRHOP, CC, ACC) = ACC .
 
   --- Base: all segments delivered
-  ceq caLoopBuf(s(IT), T, SEGF, FLT, PI, CWND, WM0, TSC0,
+  ceq caLoopBuf(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
                 N, OW, OWOFF, SRHOP, CC, ACC) = ACC
   if SEGF >= float(N) .
 
   --- Recursive: one buffer CA step
-  ceq caLoopBuf(s(IT), T, SEGF, FLT, PI, CWND, WM0, TSC0,
+  ceq caLoopBuf(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
                 N, OW, OWOFF, SRHOP, CC, ACC) =
-     caLoopBuf(IT, T + EDTB, SEGF + EDelB, s(FLT), PINX,
+     caLoopBuf(IT, T + EDTB, SEGF + EDelB, s(FLT),
                CWFB, WMFB, TSCFB,
                N, OW, OWOFF, SRHOP, CC, ACC ++ NSB)
   if SEGF < float(N)
   --- Window as integer
   /\ W := max(1, f2n(roundF(CWND)))
   --- Flight statistics from channel
-  /\ FR := flightStats(W, PI, CC)
+  /\ FR := flightStats(W, CC)
   /\ P0CH2 := frP0(FR)
   /\ PACH2 := frPa(FR)
-  /\ PINX := frPi(FR)
   --- Buffer overflow in CA: W > 1000 and W > round(w_max)
   /\ WMR := max(1, f2n(roundF(WM0)))
   /\ CADRP := if W > 1000 and W > WMR
@@ -738,7 +578,7 @@ mod TCP-ANALYTICAL-MODEL is
   .
 
   --- Fallback
-  eq caLoopBuf(IT, T, SEGF, FLT, PI, CWND, WM0, TSC0,
+  eq caLoopBuf(IT, T, SEGF, FLT, CWND, WM0, TSC0,
                N, OW, OWOFF, SRHOP, CC, ACC) = ACC [owise] .
 
 
@@ -817,25 +657,37 @@ mod TCP-ANALYTICAL-MODEL is
        ssLoopBuf(if ISNEW then 4.0 * (OWD1 + OWD2) else 0.0 fi,      --- t = 2 * RTT (4 * total OWD) if new cnx else 0.0
                  0,              --- seg = 0
                  1,              --- flt = 1
-                 rvMul(rvMul(chPi(CC1), chP(CC1)), chP(CC2)),  --- pi after 2-hop HS
                  10,             --- W_ss = IW = 10
-                 N, OWD1 + OWD2, OWOFF, SRHOP, CC1,
+                 N, OWD1 + OWD2, OWOFF, SRHOP, CC_PATH,
                  nilFL),
-       N, OWD1 + OWD2, OWOFF, SRHOP, CC1)
-  if isNoneProfile(CC1) and isNoneProfile(CC2) .
+       N, OWD1 + OWD2, OWOFF, SRHOP, CC_PATH)
+  if isNoneProfile(CC1) and isNoneProfile(CC2)
+  /\ CC_PATH := composeChannels(CC1, CC2) .
 
   --- No-buffer path: all other profiles
-  eq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, ISNEW) =
+  ceq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, ISNEW) =
      hsTimes(OWD1, OWD2, OWOFF, ISNEW) ++
      caPhase(
        ssLoop(if ISNEW then 4.0 * (OWD1 + OWD2) else 0.0 fi,       --- t = 2 * RTT (4 * total OWD) if new cnx else 0.0
               0,               --- seg = 0
               1,               --- flt = 1
-              rvMul(rvMul(chPi(CC1), chP(CC1)), chP(CC2)),  --- pi after 2-hop HS
               10,              --- W_ss = IW = 10
-              N, OWD1 + OWD2, OWOFF, SRHOP, CC1,
+              N, OWD1 + OWD2, OWOFF, SRHOP, CC_PATH,
               nilFL),
-       N, OWD1 + OWD2, OWOFF, SRHOP, CC1) [owise] .
+       N, OWD1 + OWD2, OWOFF, SRHOP, CC_PATH)
+  if (not (isNoneProfile(CC1) and isNoneProfile(CC2)))
+  /\ CC_PATH := composeChannels(CC1, CC2) .
+
+  eq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, ISNEW) =
+     hsTimes(OWD1, OWD2, OWOFF, ISNEW) ++
+     caPhase(
+       ssLoop(if ISNEW then 4.0 * (OWD1 + OWD2) else 0.0 fi,
+              0,
+              1,
+              10,
+              N, OWD1 + OWD2, OWOFF, SRHOP, composeChannels(CC1, CC2),
+              nilFL),
+       N, OWD1 + OWD2, OWOFF, SRHOP, composeChannels(CC1, CC2)) [owise] .
 
   --- tcpFinalDestTimes(msgSizeBytes, OWD1, OWD2, CC1, CC2)
   op tcpFinalDestTimes : Nat AttributeSet AttributeSet  Bool -> FloatList .
@@ -957,47 +809,20 @@ eof
 ---  Verification / Test Commands
 --- ================================================================
 
---- Test 1: Stationary distribution for default channel params
----   p13=0.005, p31=0.20, p32=0.40, p23=0.30, p14=0.002
----   Expected (corrected matrix): pi ~= (0.9737, 0.0108, 0.0135, 0.0019)
-red stationaryDist(5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3) .
+--- Test 1: IID Flight statistics for 10-packet flight with 1% loss
+red flightStats(10, chCfg(0.01)) .
 
---- Test 2: Stationary distribution for "none" profile (no-loss channel)
----   p13=0.0, p31=1.0, p32=0.0, p23=0.0, p14=0.0
----   Expected: pi = (1.0, 0.0, 0.0, 0.0)
-red stationaryDist(0.0, 1.0, 0.0, 0.0, 0.0) .
+--- Test 2: Channel composition for two 1% loss links
+red composeChannels(chCfg(0.01), chCfg(0.01)) .
 
---- Test 3: Flight statistics for a 10-packet flight from stationary
-red flightStats(10,
-      stationaryDist(5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3),
-      makeChannel(5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3)) .
+--- Test 3: isNoneProfile checks
+red isNoneProfile(chCfg(0.0)) .
+red isNoneProfile(chCfg(0.01)) .
 
---- Test 4: isNoneProfile check on "none" channel
-red isNoneProfile(makeChannel(0.0, 1.0, 0.0, 0.0, 0.0)) .
+--- Test 4: Full delivery times for 50 segments (72400 bytes)
+---   None profile (0% loss) + 20ms one-way delay (buffer-capacity path)
+red tcpFinalDestTimes(72400, (dropP: 0.0, oneWayDelay: 2.0e-2)) .
 
---- Test 5: isNoneProfile check on "fair" channel (should be false)
-red isNoneProfile(makeChannel(5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3)) .
-
---- Test 6: Full delivery times for 50 segments (72400 bytes)
----   Fair profile + 20ms one-way delay (no-buffer path)
-red tcpDeliveryTimes(72400,
-      5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3,
-      2.0e-2) .
-
---- Test 7: Full delivery times for 50 segments (72400 bytes)
----   None profile + 20ms one-way delay (buffer-capacity path)
-red tcpDeliveryTimes(72400,
-      0.0, 1.0, 0.0, 0.0, 0.0,
-      2.0e-2) .
-
---- Test 8: Small message - 10 segments (14480 bytes)
----   Fair profile
-red tcpDeliveryTimes(14480,
-      5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3,
-      2.0e-2) .
-
---- Test 9: Small message - 10 segments (14480 bytes)
----   None profile (buffer-capacity path)
-red tcpDeliveryTimes(14480,
-      0.0, 1.0, 0.0, 0.0, 0.0,
-      2.0e-2) .
+--- Test 5: Full delivery times for 50 segments (72400 bytes)
+---   1% loss profile + 20ms one-way delay
+red tcpFinalDestTimes(72400, (dropP: 0.01, oneWayDelay: 2.0e-2)) .
