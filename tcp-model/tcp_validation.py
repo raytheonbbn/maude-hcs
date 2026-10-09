@@ -79,26 +79,19 @@ def setup_environment():
     # Split delay across two hops (OWD_ms / 2 per hop) to maintain total path OWD delay
     OWD_ms_per_hop = (OWD * 1000.0) / 2.0  # 10ms per hop -> total 20ms OWD / 40ms RTT
 
-    def get_tc_params(link_obj):
-        p = link_obj.P_base
-        return (
-            np.clip(p[0, 2] * 100, 0.0, 100.0),
-            np.clip(p[2, 0] * 100, 0.0, 100.0),
-            np.clip(p[2, 1] * 100, 0.0, 100.0),
-            np.clip(p[1, 2] * 100, 0.0, 100.0),
-            np.clip(p[0, 3] * 100, 0.0, 100.0)
-        )
+    drop_p1 = tcp_analytical_model._link1.drop_prob
+    drop_p2 = tcp_analytical_model._link2.drop_prob
 
-    p13_1, p31_1, p32_1, p23_1, p14_1 = get_tc_params(tcp_analytical_model._link1)
-    p13_2, p31_2, p32_2, p23_2, p14_2 = get_tc_params(tcp_analytical_model._link2)
+    loss_cmd1 = f" loss {drop_p1 * 100.0:.3f}%" if drop_p1 > 1e-10 else ""
+    loss_cmd2 = f" loss {drop_p2 * 100.0:.3f}%" if drop_p2 > 1e-10 else ""
 
     # Link 1 (veth_c & veth_r1)
-    run_cmd(f"sudo ip netns exec ns_client tc qdisc add dev veth_c root netem delay {OWD_ms_per_hop:.1f}ms rate 1gbit loss state {p13_1:.2f}% {p31_1:.2f}% {p32_1:.2f}% {p23_1:.2f}% {p14_1:.2f}%")
-    run_cmd(f"sudo ip netns exec ns_router tc qdisc add dev veth_r1 root netem delay {OWD_ms_per_hop:.1f}ms rate 1gbit loss state {p13_1:.2f}% {p31_1:.2f}% {p32_1:.2f}% {p23_1:.2f}% {p14_1:.2f}%")
+    run_cmd(f"sudo ip netns exec ns_client tc qdisc add dev veth_c root netem delay {OWD_ms_per_hop:.1f}ms rate 1gbit{loss_cmd1}")
+    run_cmd(f"sudo ip netns exec ns_router tc qdisc add dev veth_r1 root netem delay {OWD_ms_per_hop:.1f}ms rate 1gbit{loss_cmd1}")
 
     # Link 2 (veth_r2 & veth_s)
-    run_cmd(f"sudo ip netns exec ns_router tc qdisc add dev veth_r2 root netem delay {OWD_ms_per_hop:.1f}ms rate 1gbit loss state {p13_2:.2f}% {p31_2:.2f}% {p32_2:.2f}% {p23_2:.2f}% {p14_2:.2f}%")
-    run_cmd(f"sudo ip netns exec ns_server tc qdisc add dev veth_s root netem delay {OWD_ms_per_hop:.1f}ms rate 1gbit loss state {p13_2:.2f}% {p31_2:.2f}% {p32_2:.2f}% {p23_2:.2f}% {p14_2:.2f}%")
+    run_cmd(f"sudo ip netns exec ns_router tc qdisc add dev veth_r2 root netem delay {OWD_ms_per_hop:.1f}ms rate 1gbit{loss_cmd2}")
+    run_cmd(f"sudo ip netns exec ns_server tc qdisc add dev veth_s root netem delay {OWD_ms_per_hop:.1f}ms rate 1gbit{loss_cmd2}")
 
 
 def teardown_environment():
