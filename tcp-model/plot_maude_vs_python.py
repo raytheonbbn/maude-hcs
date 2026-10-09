@@ -1,6 +1,7 @@
 import subprocess
 import os
 import sys
+import shutil
 import matplotlib.pyplot as plt
 
 # Add the tcp-model directory to path to import tcp_analytical_model
@@ -18,10 +19,10 @@ def get_python_times(profile, num_bytes):
     return times
 
 def get_maude_times(profile, num_bytes):
-    if profile == 'none':
-        p13, p31, p32, p23, p14 = 0.0, 1.0, 0.0, 0.0, 0.0
-    elif profile == 'fair':
-        p13, p31, p32, p23, p14 = 0.005, 0.20, 0.40, 0.30, 0.002
+    if profile in tcp_analytical_model.PROFILES:
+        drop_p = tcp_analytical_model.PROFILES[profile]
+    elif isinstance(profile, (int, float)):
+        drop_p = float(profile)
     else:
         raise ValueError(f"Unknown profile {profile}")
         
@@ -31,24 +32,32 @@ def get_maude_times(profile, num_bytes):
     project_root = os.path.dirname(script_dir)
     tcp_maude_path = os.path.join(project_root, 'maude_hcs', 'lib', 'network', 'tcp.maude')
     
-    maude_cmd = f"""
-load {tcp_maude_path}
-red tcpFinalDestTimes({num_bytes}, (p13: {p13}, p31: {p31}, p32: {p32}, p23: {p23}, p14: {p14}, oneWayDelay: {O})) .
+    maude_cmd = f"""load {tcp_maude_path}
+red tcpFinalDestTimes({num_bytes}, (dropP: {drop_p}, oneWayDelay: {O})) .
 quit
 """
-    # Assuming maude is in PATH or we can find it
-    maude_bin = 'maude'
+    # Locate maude binary or use conda environment
+    maude_bin = shutil.which('maude')
+    output = ""
     
-    try:
-        subprocess.run([maude_bin, '-no-banner', '-batch'], input=maude_cmd, text=True, capture_output=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        maude_bin = '/Users/dcirimel/pwnd2/maude/maude'
+    if maude_bin:
+        result = subprocess.run([maude_bin, '-no-banner', '-batch'], 
+                                input=maude_cmd, text=True, capture_output=True)
+        output = result.stdout
+    else:
+        # Fallback: run via conda maude-hcs environment using python-maude bridge
+        py_runner = f"""import maude
+maude.init()
+maude.load('{tcp_maude_path}')
+m = maude.getCurrentModule()
+term = m.parseTerm('tcpFinalDestTimes({num_bytes}, (dropP: {drop_p}, oneWayDelay: {O}))')
+term.reduce()
+print('result FloatList:', term)
+"""
+        result = subprocess.run(['conda', 'run', '-n', 'maude-hcs', 'python3', '-c', py_runner],
+                                text=True, capture_output=True)
+        output = result.stdout
 
-    print(f"Using Maude binary: {maude_bin}")
-    result = subprocess.run([maude_bin, '-no-banner', '-batch'], 
-                            input=maude_cmd, text=True, capture_output=True)
-    
-    output = result.stdout
     times = []
     
     # Find the LAST result FloatList since loading tcp.maude outputs hardcoded test results first
@@ -73,7 +82,7 @@ quit
     return times
 
 def main():
-    num_bytes = 72400 * 5 # 50 segments
+    num_bytes = 72400 * 5  # 250 segments
     
     print("Running Python 'none'...")
     py_none = get_python_times('none', num_bytes)
@@ -87,6 +96,13 @@ def main():
     
     print(f"Lengths - Py None: {len(py_none)}, Md None: {len(md_none)}")
     print(f"Lengths - Py Fair: {len(py_fair)}, Md Fair: {len(md_fair)}")
+    
+    if len(py_none) == len(md_none) and len(py_none) > 0:
+        max_diff_none = max(abs(p - m) for p, m in zip(py_none, md_none))
+        print(f"Max absolute difference ('none'): {max_diff_none:.6e} s")
+    if len(py_fair) == len(md_fair) and len(py_fair) > 0:
+        max_diff_fair = max(abs(p - m) for p, m in zip(py_fair, md_fair))
+        print(f"Max absolute difference ('fair'): {max_diff_fair:.6e} s")
     
     plt.figure(figsize=(12, 6))
     
