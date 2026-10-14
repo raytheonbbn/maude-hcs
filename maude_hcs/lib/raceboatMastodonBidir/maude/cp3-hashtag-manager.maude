@@ -82,23 +82,10 @@ eq nextBHashtag(attrs) = attrs [owise] .
 
 endfm
   
-***(
-default CP3 hashtag management
+--- The testbed configures a fixed hashtag for each client/server link.
+--- Empty cover posts and payload posts use that same tag. Keep the
+--- next/roll interface for callers, but never advance the tag or counters.
 
-receiver fetches str0 until it gets a msg (which is sent to user)
-then it fetches str1 ... str2 ....
-
-sender upon media action sends str0  (no content or current msg) 
-until the first msg is transmitted and the second msg is ready
-then sends  msg1 with str1 until the next msg is available ...
-
-An alternate the sender would start sending with strj+1 as soon as
-msgj is transmitted. In this case the receiver would get a bunch of
-empty images is every case not just for the first msg.
-
-Either way there is no need for benign hashtags
-)
-  
 fmod HASHTAG-MANAGER is
    inc HASHTAG-MANAGER-BASE .
    
@@ -112,18 +99,13 @@ fmod HASHTAG-MANAGER is
  op wHashCtr:_ : Nat -> Attribute [ctor] .  --- initally 0
 op  wInUse:_   : Bool    -> Attribute [ctor] .
 
- eq nextWHashtag(attrs, hashStr: str, wHashCtr: j, wHashtag: bytes)
-   = attrs, hashStr: str, wHashCtr: s j, 
-            wHashtag: hashTag(str + "W" + string(s j,10) ) 
-  .
-
 op initHashtagAttrs : String -> AttributeSet .
 eq initHashtagAttrs(str) = 
 hashStr: str, 
 bHashCtr: 0, 
 wHashCtr: 0, 
-bHashtag: hashTag(str + "B" + "0"),
-wHashtag: hashTag(str + "W" + "0"),
+bHashtag: hashTag(str),
+wHashtag: hashTag(str),
 wInUse: false
 .
 
@@ -161,19 +143,19 @@ eof
 
 red HTattrs .
 
-bHashtag: hashTag("htdstrB0"), 
-wHashtag: hashTag("htdstrW0"), 
+bHashtag: hashTag("htdstr"),
+wHashtag: hashTag("htdstr"),
 hashStr: "htdstr", bHashCtr: 0, wHashCtr: 0
 
 red setBHashtag(HTattrs,hashTag("a0"))   .
 
 bHashtag: hashTag("a0"), 
-wHashtag: hashTag("htdstrW0"),
+wHashtag: hashTag("htdstr"),
 hashStr: "htdstr", bHashCtr: 0, wHashCtr: 0
 
 red nextWHashtag(HTattrs) .
 
-bHashtag: hashTag("htdstrB0"), 
-wHashtag: hashTag("htdstrW1"), 
-hashStr: "htdstr", bHashCtr: 0, wHashCtr: 1
+bHashtag: hashTag("htdstr"),
+wHashtag: hashTag("htdstr"),
+hashStr: "htdstr", bHashCtr: 0, wHashCtr: 0
 

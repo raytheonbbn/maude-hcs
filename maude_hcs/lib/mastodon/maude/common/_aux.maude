@@ -226,6 +226,19 @@ mod MASTODON_NODE is
   --- The URL download cache.
   op mediaCache:_ : UrlMediaCache -> Attribute [ctor] .
 
+  --- Match PluginMastodon's MastodonClient::searchStatuses / seenPostsByHashtag:
+  --- remember successfully retrieved attachment URLs separately per hashtag.
+  --- This is distinct from caching their bytes: a cached attachment must not
+  --- be returned to the decoder again on the next poll of the same hashtag.
+  sorts SeenMediaEntry SeenMediaSet .
+  subsort SeenMediaEntry < SeenMediaSet .
+  op seenMedia : Tag Url -> SeenMediaEntry [ctor] .
+  op emptySeenMedia : -> SeenMediaSet [ctor] .
+  op __ : SeenMediaSet SeenMediaSet -> SeenMediaSet
+    [ctor assoc comm id: emptySeenMedia] .
+  op seenMedia:_ : SeenMediaSet -> Attribute [ctor] .
+  var SEEN : SeenMediaSet .
+
   --- Make a MasClient:   its_addr srver_addr requester_addr
   op makeMastodonClient : Address  Address    Address -> Actor .
   ---   requester addr is addr of Raceboat / TGEN.
@@ -246,6 +259,28 @@ mod MASTODON_NODE is
         mediaCache: emptyUrlMediaCache
     >
     .
+
+  --- Enable transport-level duplicate suppression only for Raceboat clients.
+  op makeRaceboatMastodonClient : Address Address Address -> Actor .
+  ceq makeRaceboatMastodonClient(MAS_CLIENT_ADDR, MAS_SERVER_ADDR, FROM-ADDR) =
+    < MAS_CLIENT_ADDR : MasClient | masClAttrs, seenMedia: emptySeenMedia >
+    if < MAS_CLIENT_ADDR : MasClient | masClAttrs > :=
+      makeMastodonClient(MAS_CLIENT_ADDR, MAS_SERVER_ADDR, FROM-ADDR)
+    .
+
+  op hasSeenMedia : AttributeSet Tag Url -> Bool .
+  eq hasSeenMedia((masClAttrs, seenMedia: (SEEN seenMedia(TAG, URL))), TAG, URL) = true .
+  eq hasSeenMedia(masClAttrs, TAG, URL) = false [owise] .
+
+  --- Mark an attachment only after it has been successfully retrieved.
+  op rememberSeenMedia : AttributeSet -> AttributeSet .
+  ceq rememberSeenMedia((masClAttrs, seenMedia: SEEN,
+                        opStack: OP_STACK,
+                        gettingTag: TAG, gettingMediaUrl: URL)) =
+    (masClAttrs, seenMedia: (SEEN seenMedia(TAG, URL)),
+     opStack: OP_STACK, gettingTag: TAG, gettingMediaUrl: URL)
+    if peekOp(OP_STACK) == GET-MEDIA-HASHTAG-OP .
+  eq rememberSeenMedia(masClAttrs) = masClAttrs [owise] .
 
   -----------------
   --- URL Cache ---
@@ -416,10 +451,14 @@ mod MASTODON_NODE is
     masClAttrsMsg
     if masClAttrsNext := (masClAttrs, gettingMediaUrl: mediaLocation)
       /\ MEDIA_FILE := getCachedMedia(getMediaCache(masClAttrsNext), mediaLocation)
-      /\ masClAttrsMsg := (if MEDIA_FILE == nilMediaFile
-                            then downloadMediaAtUrl((masClAttrsNext), mediaLocation)
-                            else handleReply(makeHttpResponse("OK", MEDIA_FILE),
-                                             pushOp(masClAttrsNext, GET-MEDIA-URL-OP))
+      /\ masClAttrsMsg := (if peekOp(masClAttrsNext) == GET-MEDIA-HASHTAG-OP
+                              and hasSeenMedia(masClAttrsNext, getTag(masClAttrsNext), mediaLocation)
+                            then cueNextGetOp(masClAttrsNext)
+                            else (if MEDIA_FILE == nilMediaFile
+                                  then downloadMediaAtUrl((masClAttrsNext), mediaLocation)
+                                  else handleReply(makeHttpResponse("OK", MEDIA_FILE),
+                                                   pushOp(masClAttrsNext, GET-MEDIA-URL-OP))
+                                  fi)
                           fi)
   .
 
@@ -592,7 +631,10 @@ mod MASTODON_NODE is
   ---                      MsgAttributes ClientAttributes  ClientAttributes
   op handleMediaGetByUrl : MediaFile AttributeSet -> AttributeSetMsgs .
   eq handleMediaGetByUrl(MEDIA_FILE, (masClAttrs, opStack: OP_STACK, gettingMedias: mediaFileList, mediaCache: cache)) =
-    cueNextGetOp((masClAttrs, gettingMedias: (mediaFileList :: MEDIA_FILE)), opStack: popOp(OP_STACK), mediaCache: cacheMedia(cache, getGettingMediaUrl(masClAttrs), MEDIA_FILE))
+    cueNextGetOp(rememberSeenMedia(
+      (masClAttrs, gettingMedias: (mediaFileList :: MEDIA_FILE)),
+      opStack: popOp(OP_STACK),
+      mediaCache: cacheMedia(cache, getGettingMediaUrl(masClAttrs), MEDIA_FILE)))
     .
 
   --- Handle a Get media in post by Id reply.
@@ -926,4 +968,3 @@ mod MASTODON_NODE is
 endm
 
 eof
-

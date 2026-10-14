@@ -596,6 +596,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  inc ENC-DEC .")
     L("  inc CONTENT-MANAGER-BIDIR .")
     L("  inc MASTODON .")
+    L("  inc HTTP-OVERHEAD .")
 
     if "mastodon" in hcs_channel_models:
         mas_client = hcs_channel_models["mastodon"]["client"]
@@ -1351,12 +1352,12 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  eq masCl{i}Iface     = mkIrcByteSeqIface(masCl{i}IfaceAddr, masCl{i}IrcAddr, masCl{i}CmacAddr) .")
         L(f"  eq masCl{i}UmacAct   = mkUMactor(masCl{i}UmacAddr, {mas_client_ma}, masCl{i}CmacAddr) .")
         L(f"  eq masCl{i}CmacAct   = mkCMSndRcvActor(masCl{i}CmacAddr, masCl{i}EdacAddr, masCl{i}McacAddr, masCl{i}IfaceAddr, \"client{i}\", \"server{i}\") .")
-        L(f"  eq masCl{i}McacAct   = makeMastodonClient(masCl{i}McacAddr, masSrvAddr, masCl{i}CmacAddr) .")
+        L(f"  eq masCl{i}McacAct   = makeRaceboatMastodonClient(masCl{i}McacAddr, masSrvAddr, masCl{i}CmacAddr) .")
         L(f"  eq masCl{i}EdacAct   = makeDestiniActor(masCl{i}EdacAddr, ed-images) .")
         L(f"  eq masCl{i}SrvIface  = mkIrcByteSeqIface(masCl{i}SrvIfaceAddr, ircServerAddr, masCl{i}CmasAddr) .")
         L(f"  eq masCl{i}UmasAct   = mkUMactor(masCl{i}UmasAddr, {mas_server_ma}, masCl{i}CmasAddr) .")
         L(f"  eq masCl{i}CmasAct   = mkCMSndRcvActor(masCl{i}CmasAddr, masCl{i}EdasAddr, masCl{i}McasAddr, masCl{i}SrvIfaceAddr, \"server{i}\", \"client{i}\") .")
-        L(f"  eq masCl{i}McasAct   = makeMastodonClient(masCl{i}McasAddr, masSrvAddr, masCl{i}CmasAddr) .")
+        L(f"  eq masCl{i}McasAct   = makeRaceboatMastodonClient(masCl{i}McasAddr, masSrvAddr, masCl{i}CmasAddr) .")
         L(f"  eq masCl{i}EdasAct   = makeDestiniActor(masCl{i}EdasAddr, ed-images) .")
         L(f"  eq masCl{i}ClNet     = makeNetClient(masCl{i}ClNetAddr,")
         L(f"                                       masSrvAddr,")
