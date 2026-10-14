@@ -253,19 +253,23 @@ mod MASTODON_NODE is
   sort UrlMediaEntry UrlMediaCache .
   subsort UrlMediaEntry < UrlMediaCache .
 
-  op _~>_ : Url MediaFile -> UrlMediaEntry [ctor] .
+  --- The media cache is unique for a URL AND hashtag, not just URL. That URL
+  --- is unique to the image, but the image could be reused from toot to toot 
+  --- (with a different hashtag). That would appear different to Mastodon, so we
+  --- would need to redownload these repeats.
+  op (_, _)~>_ : Url Tag MediaFile -> UrlMediaEntry [ctor] .
   op emptyUrlMediaCache : -> UrlMediaCache [ctor] .
   op __ : UrlMediaCache UrlMediaCache -> UrlMediaCache [ctor assoc comm id: emptyUrlMediaCache] .
 
-  op getCachedMedia : UrlMediaCache Url -> MediaFile .
-  eq getCachedMedia((CACHE (URL ~> MEDIA_FILE)), URL) = MEDIA_FILE .
-  eq getCachedMedia(CACHE, URL) = nilMediaFile [owise] .
+  op getCachedMedia : UrlMediaCache Url Tag -> MediaFile .
+  eq getCachedMedia((CACHE ((URL, TAG) ~> MEDIA_FILE)), URL, TAG) = MEDIA_FILE .
+  eq getCachedMedia(CACHE, URL, TAG) = nilMediaFile [owise] .
   
-  op cacheMedia : UrlMediaCache Url MediaFile -> UrlMediaCache .
-  eq cacheMedia((CACHE (URL ~> OLD:MediaFile)), URL, MEDIA_FILE) =
-    CACHE (URL ~> MEDIA_FILE)
+  op cacheMedia : UrlMediaCache Url Tag MediaFile -> UrlMediaCache .
+  eq cacheMedia((CACHE ((URL, TAG) ~> OLD:MediaFile)), URL, TAG, MEDIA_FILE) =
+    CACHE ((URL, TAG) ~> MEDIA_FILE)
   .
-  eq cacheMedia(CACHE, URL, MEDIA_FILE) = CACHE (URL ~> MEDIA_FILE) [owise] .
+  eq cacheMedia(CACHE, URL, TAG, MEDIA_FILE) = CACHE ((URL, TAG) ~> MEDIA_FILE) [owise] .
 
   --- Eqs ---
   ----- For Messages -----
@@ -415,7 +419,7 @@ mod MASTODON_NODE is
   ceq getMediaAtUrl((masClAttrs, gettingMediaUrl: url), mediaLocation) =
     masClAttrsMsg
     if masClAttrsNext := (masClAttrs, gettingMediaUrl: mediaLocation)
-      /\ MEDIA_FILE := getCachedMedia(getMediaCache(masClAttrsNext), mediaLocation)
+      /\ MEDIA_FILE := getCachedMedia(getMediaCache(masClAttrsNext), mediaLocation, getTag(masClAttrsNext))
       /\ masClAttrsMsg := (if MEDIA_FILE == nilMediaFile
                             then downloadMediaAtUrl((masClAttrsNext), mediaLocation)
                             else handleReply(makeHttpResponse("OK", MEDIA_FILE),
@@ -591,8 +595,17 @@ mod MASTODON_NODE is
   --- Handle a Get media in post by Url reply.
   ---                      MsgAttributes ClientAttributes  ClientAttributes
   op handleMediaGetByUrl : MediaFile AttributeSet -> AttributeSetMsgs .
-  eq handleMediaGetByUrl(MEDIA_FILE, (masClAttrs, opStack: OP_STACK, gettingMedias: mediaFileList, mediaCache: cache)) =
-    cueNextGetOp((masClAttrs, gettingMedias: (mediaFileList :: MEDIA_FILE)), opStack: popOp(OP_STACK), mediaCache: cacheMedia(cache, getGettingMediaUrl(masClAttrs), MEDIA_FILE))
+  eq handleMediaGetByUrl(MEDIA_FILE,
+                          (masClAttrs,
+                            opStack: OP_STACK,
+                            gettingMedias: mediaFileList,
+                            gettingTag: TAG,
+                            mediaCache: cache)) =
+    cueNextGetOp((masClAttrs,
+                  opStack: popOp(OP_STACK),
+                  gettingMedias: (mediaFileList :: MEDIA_FILE)),
+                  gettingTag: TAG,
+                  mediaCache: cacheMedia(cache, getGettingMediaUrl(masClAttrs), TAG, MEDIA_FILE))
     .
 
   --- Handle a Get media in post by Id reply.
