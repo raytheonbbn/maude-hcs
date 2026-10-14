@@ -55,6 +55,8 @@ ops CMSimpleBi  : -> ActorType .
 
 **** Attributes
 op pendingFiles:_ : ByteSeqL -> Attribute [ctor] .
+op socketWriteQueue:_ : ByteSeqL -> Attribute [ctor] .
+op writeBlocked:_ : Bool -> Attribute [ctor] .
 op appAddress:_  : Address -> Attribute [ctor] .
 op tunnelAddress:_ : Address -> Attribute [ctor] .
 op w4c:_ : Config -> Attribute [ctor] . ---msg or null
@@ -68,6 +70,8 @@ op mkCMSimpleBi : Address Address Address   -> Actor .
 eq mkCMSimpleBi(cmAddr, appAddr,tunnelAddr) =
    < cmAddr : CMSimpleBi |
      pendingFiles: nilBS,
+     socketWriteQueue: nilBS,
+     writeBlocked: false,
      tunnelAddress: tunnelAddr,
      appAddress: appAddr,
      w4c: null,
@@ -102,19 +106,43 @@ mod CONTENT-MANAGER-SIMPLE-BI is
   vars ract : Map{String,JV} .
   
   
+  --- Start a socket write, or queue bytes until the current write completes.
+  op receiveSocketBytes : AttributeSet ByteSeq -> AttributeSet .
+  eq receiveSocketBytes((attrs, writeBlocked: false,
+                               pendingFiles: nilBS),bytes)
+    = (attrs, writeBlocked: true,
+              pendingFiles: bytes)
+  .
+  eq receiveSocketBytes((attrs, writeBlocked: true,
+                               socketWriteQueue: byteseql),bytes)
+    = (attrs, writeBlocked: true,
+              socketWriteQueue: (byteseql :: bytes))
+  .
+
+  --- After post ack, read queued bytes for the next write.
+  op completeSocketWrite : AttributeSet -> AttributeSet .
+  eq completeSocketWrite((attrs, writeBlocked: true,
+                                socketWriteQueue: byteseql,
+                                pendingFiles: nilBS,
+                                w4c: null, replyTo: null))
+    = (attrs, writeBlocked: (byteseql =/= nilBS),
+              socketWriteQueue: nilBS,
+              pendingFiles: byteseql,
+              w4c: null, replyTo: null)
+  .
+  eq completeSocketWrite(attrs) = attrs [owise] .
+
   ----- rcv byteseq from iface actor
   rl [rbcm-rcv-file] :
   {T, (to cmAddr from appAddr :  bytes)}
-  < cmAddr : CMSimpleBi | cmAttrs, 
-                         appAddress: appAddr,
-                         pendingFiles: byteseql >
+  < cmAddr : CMSimpleBi | cmAttrs,
+                         appAddress: appAddr >
   =>
-  < cmAddr : CMSimpleBi | cmAttrs, 
-         appAddress: appAddr,
-         pendingFiles: (byteseql :: bytes ) >
-  [print "(" T ") Raceboat " cmAddr " got " bytes " from " appAddr ]
+  < cmAddr : CMSimpleBi | receiveSocketBytes(cmAttrs,bytes),
+                         appAddress: appAddr >
+  [print "(" T ") Raceboat " cmAddr " got socket bytes " bytes " from " appAddr ]
   .
-  
+
   --- action request from UM
   crl [rbc-rcv-action] :
   rCtr(j)
@@ -142,7 +170,7 @@ mod CONTENT-MANAGER-SIMPLE-BI is
    if attrs0, w4c: (to tunnelAddr from cmAddr : SkyhookPostCmd(bytes)),
      replyTo: (to cmAddr from umAddr : actionQ(ract))       := cmAttrs
   /\ msg := (to umAddr from cmAddr : actionR("ok"))
-  /\ cmAttrs1 := attrs0, w4c: null, replyTo: null
+  /\ cmAttrs1 := completeSocketWrite((attrs0, w4c: null, replyTo: null))
   /\ {smsgs,j1} := delayMsgsX(j,msg,null)
  [print "(" T ") Raceboat " cmAddr " got post ack,  sending " smsgs]
   .       
@@ -283,20 +311,20 @@ eq msgCmdRsp(T,c:Content) =
     
 ---- rew CM ircBSIfAct msgIrc rCtr(9) .
 ***(
-< ifAd : IrcByteSeqIface | rbSndr: cmAd, rbRcvr: cmAd, ircEndp: ircAd > < cmAd : CMSimpleBi | pendingFiles: nilBS, appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > 
+< ifAd : IrcByteSeqIface | rbSndr: cmAd, rbRcvr: cmAd, ircEndp: ircAd > < cmAd : CMSimpleBi | socketWriteQueue: nilBS, writeBlocked: false, pendingFiles: nilBS, appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null >
 [ 6.2356369639746841e-5, to cmAd from ifAd : ircToByteseq(ircM), 0]
   )
 
 ---- rew CM ircBSIfAct {1.00006, to cmAd from ifAd : ircToByteseq(ircM)} rCtr(10) .
 
 op CM1 : -> Actor .
-eq CM1 = < cmAd : CMSimpleBi | pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > .
+eq CM1 = < cmAd : CMSimpleBi | socketWriteQueue: nilBS, writeBlocked: true, pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > .
 
 --- rew CM1 msgActQ(2.0,ractP) rCtr(10) .
 op CM1P : -> Actor .
 eq CM1P =
 **** rCtr(11)
-< cmAd : CMSimpleBi | pendingFiles: nilBS, appAddress: ifAd, tunnelAddress: sdkAd, w4c: (to sdkAd from cmAd : SkyhookPostCmd( ircToByteseq(ircM))), replyTo: (to cmAd from umAd : actionQ( "type" |-> js("post"))) > 
+< cmAd : CMSimpleBi | socketWriteQueue: nilBS, writeBlocked: true, pendingFiles: nilBS, appAddress: ifAd, tunnelAddress: sdkAd, w4c: (to sdkAd from cmAd : SkyhookPostCmd( ircToByteseq(ircM))), replyTo: (to cmAd from umAd : actionQ( "type" |-> js("post"))) >
 .
 
 **** [3.5410588490776714e-4, to sdkAd from cmAd : SkyhookPostCmd(ircToByteseq(ircM)), 0]
@@ -306,7 +334,7 @@ eq CM1P =
 op CM1F : -> Actor .
 eq CM1F =
 **** rCtr(11) 
-< cmAd : CMSimpleBi | pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: (to sdkAd from cmAd : SkyhookFetchCmd), replyTo: (to cmAd from umAd : actionQ("type" |-> js("fetch"))) > 
+< cmAd : CMSimpleBi | socketWriteQueue: nilBS, writeBlocked: true, pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: (to sdkAd from cmAd : SkyhookFetchCmd), replyTo: (to cmAd from umAd : actionQ("type" |-> js("fetch"))) >
  .
  
 **** [3.5410588490776714e-4, to sdkAd from cmAd : SkyhookFetchCmd, 0]
@@ -314,20 +342,20 @@ eq CM1F =
 --- rew CM1P rCtr(11) msgCmdRsp(3.0,SkyhookPostAck) .
 ***(
 rCtr(12) 
-< cmAd : CMSimpleBi | pendingFiles: nilBS, appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > [ 6.1561829177662734e-4, to umAd from cmAd : actionR("ok"), 0]
+< cmAd : CMSimpleBi | socketWriteQueue: nilBS, writeBlocked: false, pendingFiles: nilBS, appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > [ 6.1561829177662734e-4, to umAd from cmAd : actionR("ok"), 0]
  )
 
 --- rew CM1F rCtr(11) msgCmdRsp(3.0,SkyhookFetchAck(noBytes)) .
 ***(
 rCtr(12) 
-< cmAd : CMSimpleBi | pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > 
+< cmAd : CMSimpleBi | socketWriteQueue: nilBS, writeBlocked: true, pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null >
 [ 6.1561829177662734e-4, to umAd from cmAd : actionR("ok"), 0]
     )
     
 --- rew CM1F rCtr(11) msgCmdRsp(3.0,SkyhookFetchAck(ircToByteseq(ircM))) .
 ***(
 rCtr(13)
-< cmAd : CMSimpleBi | pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null > 
+< cmAd : CMSimpleBi | socketWriteQueue: nilBS, writeBlocked: true, pendingFiles: ircToByteseq(ircM), appAddress: ifAd, tunnelAddress: sdkAd, w4c: null, replyTo: null >
 [ 5.6241279002279044e-4, to umAd from cmAd : actionR("ok"), 0] 
 [ 6.1561829177662734e-4, to ifAd from cmAd : ircToByteseq(ircM), 0]
 )
