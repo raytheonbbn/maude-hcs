@@ -61,6 +61,10 @@ ops CMSndRcv  : -> ActorType .
 op sndHashTagAtts:_ : AttributeSet -> Attribute [ctor] .
 --- The list of pending messages to be sent. Can be partial.
 op pendingFiles:_ : ByteSeqL -> Attribute [ctor] .
+--- Conduit::write blocks until its whole payload has been posted. Bytes arriving
+--- meanwhile remain in the local socket, outside the active Raceboat write.
+op socketWriteQueue:_ : ByteSeqL -> Attribute [ctor] .
+op writeBlocked:_ : Bool -> Attribute [ctor] .
 --- The list of messages ready to go out.
 op readyFiles:_ : ByteSeqL -> Attribute [ctor] .
 --- The list of messages (can be partial) that will be encoded and sent next.
@@ -122,6 +126,8 @@ eq mkCMSndRcvActor(cmAddr, edAddr, mcAddr,sndrcvAddr,
    --- sending attributes
    sndHashTagAtts: initHashtagAttrs(hashSnd),
    pendingFiles: nilBS,
+   socketWriteQueue: nilBS,
+   writeBlocked: false,
    readyFiles: nilBS,
    receivedChunks: nilBS,
    currentFrags: nilBS,

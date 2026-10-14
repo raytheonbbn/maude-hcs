@@ -67,6 +67,35 @@ vars mediaFileList : MediaFileList .
 vars natstr : Map{Nat,String} .
 vars mamodel : MAModel .
 
+--- A socket read starts a write only after the previous write has completed.
+--- Keep the queued bytes in arrival order; their Raceboat admission time is
+--- the time the socket is drained, not the original IRC send time.
+op receiveSocketBytes : AttributeSet ByteSeq Float -> AttributeSet .
+eq receiveSocketBytes((attrs, writeBlocked: false,
+                       pendingFiles: nilBS, weirdFileRcvTimes: nilFL), bytes, T)
+  = (attrs, writeBlocked: true,
+     pendingFiles: bytes, weirdFileRcvTimes: T) .
+eq receiveSocketBytes((attrs, writeBlocked: true,
+                       socketWriteQueue: FILES), bytes, T)
+  = (attrs, writeBlocked: true, socketWriteQueue: (FILES :: bytes)) .
+
+op socketAdmissionTimes : ByteSeqL Float -> FloatList .
+eq socketAdmissionTimes(nilBS, T) = nilFL .
+eq socketAdmissionTimes(bytes :: FILES, T)
+  = T :: socketAdmissionTimes(FILES, T) .
+
+--- Called after the post acknowledgement has cleared w4c. A partial write
+--- remains blocked across posts, and a cover post cannot release pending data.
+op completeSocketWrite : AttributeSet Float -> AttributeSet .
+eq completeSocketWrite((attrs, writeBlocked: true, socketWriteQueue: FILES,
+                        pendingFiles: nilBS, readyFiles: nilBS,
+                        weirdFileRcvTimes: nilFL, w4c: null, replyTo: null), T)
+  = (attrs, writeBlocked: (FILES =/= nilBS), socketWriteQueue: nilBS,
+     pendingFiles: FILES, readyFiles: nilBS,
+     weirdFileRcvTimes: socketAdmissionTimes(FILES, T),
+     w4c: null, replyTo: null) .
+eq completeSocketWrite(attrs, T) = attrs [owise] .
+
 op $buildReadyFiles : AttributeSet Float -> AttributeSet .
 ceq $buildReadyFiles((attrs,
                       pendingFiles: (efile :: efilel),
