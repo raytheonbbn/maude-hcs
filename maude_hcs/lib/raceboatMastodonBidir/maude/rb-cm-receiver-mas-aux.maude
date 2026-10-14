@@ -118,6 +118,7 @@ vars T : Float .
 vars mcResponse : Content .
 vars efile efrag image ht hashtag bytes : ByteSeq .
 vars efilel efragl efragl0 efragl1 efragl3 imagel hashtagl : ByteSeqL .
+vars processed newImages : ByteSeqL .
 vars str : String .
 vars ract : Map{String,JV} .
 
@@ -151,32 +152,55 @@ vars  tag : Tag .
  ---- rcv fetchR , ask ed to decode imagel
  ---- only fetching with weird hash tags
  
+--- Compare complete encoded images, including their embedded bytes.
+op hasProcessedImage : ByteSeq ByteSeqL -> Bool .
+eq hasProcessedImage(image, image :: imagel) = true .
+eq hasProcessedImage(image, nilBS) = false .
+eq hasProcessedImage(image, bytes :: imagel)
+  = hasProcessedImage(image,imagel) [owise]
+.
+
+--- Keep new images in order, dropping repeats within the fetch as well.
+op newImageList : ByteSeqL ByteSeqL -> ByteSeqL .
+eq newImageList(nilBS,processed) = nilBS .
+eq newImageList(image :: imagel,processed)
+  = (if hasProcessedImage(image,processed)
+     then newImageList(imagel,processed)
+     else image :: newImageList(imagel,processed :: image)
+     fi)
+.
+
 op srcvFetchR : AttributeSet Msg -> AttributeSetMsgs .
 eq srcvFetchR(attrs,msg) = {attrs,null} [owise] .
 
----- w Hashtag download no images
+---- w Hashtag download no new images
 ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
-                       fetchR(nilBS,ht)) )  
+                       fetchR(imagel,ht)) )
          = {attrs2,msg}
-if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
+if attrs0, processedImages: processed,
+    w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
     replyTo: (to cmsAddr from umAddr : actionQ(ract))
            := attrs
+/\ nilBS := newImageList(imagel,processed)
 **** assume responses to earlier hts won't occur
 /\ msg := (to umAddr from cmsAddr : actionR("ok"))
-/\ attrs2 := attrs0,  w4c: null, replyTo: null
+/\ attrs2 := attrs0, processedImages: processed, w4c: null, replyTo: null
 [ print "Raceboat " mcAddr " has download of pending hashtag " ht ", no images." ]
 .   
  
----- wHashtag download non nil result
+---- wHashtag download with new images
 ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
-                       fetchR(image :: imagel,ht)) )  
+                       fetchR(imagel,ht)) )
          = {attrs2,msg}
-if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)) 
+if attrs0, processedImages: processed,
+    w4c: (to mcAddr from cmsAddr : fetchQ(ht))
            := attrs
+/\ newImages := newImageList(imagel,processed)
+/\ newImages =/= nilBS
 /\ attrs1,  edAddress: edAddr := attrs
 /\ msg := 
-    (to edAddr from cmsAddr : decQ(image :: imagel))    
-/\ attrs2 := attrs0,  w4c: msg
+    (to edAddr from cmsAddr : decQ(newImages))
+/\ attrs2 := attrs0, processedImages: processed, w4c: msg
 [ print "Raceboat " cmsAddr " has weird download for tag " ht  ]
 .    
 
@@ -193,6 +217,7 @@ op srcvDecR : AttributeSet  Msg -> AttributeSetMsgs .
 
 ceq srcvDecR((attrs,
               receivedChunks: previousChunks:ByteSeqL,
+              processedImages: processed,
               w4c: (to edAddr from cmsAddr : decQ(imagel)),
               replyTo: (to cmsAddr from umAddr : actionQ(ract))),
               (to cmsAddr from edAddr : decR(efragl)))
@@ -203,6 +228,7 @@ ceq srcvDecR((attrs,
                                                             nilBS)
     /\ attrsTrans := (attrs,
                       receivedChunks: remaining:ByteSeqL,
+                      processedImages: (processed :: imagel),
                       w4c: null,
                       replyTo: null)
     /\ attrsNext := (if efragl == nilBS
