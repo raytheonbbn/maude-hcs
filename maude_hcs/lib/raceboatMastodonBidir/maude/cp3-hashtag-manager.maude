@@ -111,8 +111,9 @@ fmod HASHTAG-MANAGER is
  op bHashCtr:_ : Nat -> Attribute [ctor] .  --- initally 0
  op wHashCtr:_ : Nat -> Attribute [ctor] .  --- initally 0
 op  wInUse:_   : Bool    -> Attribute [ctor] .
+op  rollHashtag:_ : Bool -> Attribute [ctor] .
 
- eq nextWHashtag(attrs, hashStr: str, wHashCtr: j, wHashtag: bytes)
+ eq nextWHashtag(attrs, hashStr: str, wHashCtr: j, wHashtag: bytes, rollHashtag: DUMMY:Bool)
    = attrs, hashStr: str, wHashCtr: s j, 
             wHashtag: hashTag(str + "W" + string(s j,10) ) 
   .
@@ -122,9 +123,22 @@ eq initHashtagAttrs(str) =
 hashStr: str, 
 bHashCtr: 0, 
 wHashCtr: 0, 
+bHashtag: hashTag(str),
+wHashtag: hashTag(str),
+wInUse: false
+[ print "Creating non-rollable hashtags " str "." ]
+.
+
+op initHashtagAttrsWRoll : String -> AttributeSet .
+eq initHashtagAttrsWRoll(str) = 
+hashStr: str, 
+bHashCtr: 0, 
+wHashCtr: 0, 
 bHashtag: hashTag(str + "B" + "0"),
 wHashtag: hashTag(str + "W" + "0"),
-wInUse: false
+wInUse: false,
+rollHashtag: true
+[ print "Creating rollable hashtags " str "B0 and " str "W0." ]
 .
 
 op rollHashtag : AttributeSet Bool -> AttributeSet .
@@ -161,19 +175,19 @@ eof
 
 red HTattrs .
 
-bHashtag: hashTag("htdstrB0"), 
-wHashtag: hashTag("htdstrW0"), 
+bHashtag: hashTag("htdstr"), 
+wHashtag: hashTag("htdstr"), 
 hashStr: "htdstr", bHashCtr: 0, wHashCtr: 0
 
 red setBHashtag(HTattrs,hashTag("a0"))   .
 
 bHashtag: hashTag("a0"), 
-wHashtag: hashTag("htdstrW0"),
+wHashtag: hashTag("htdstr"),
 hashStr: "htdstr", bHashCtr: 0, wHashCtr: 0
 
 red nextWHashtag(HTattrs) .
 
-bHashtag: hashTag("htdstrB0"), 
-wHashtag: hashTag("htdstrW1"), 
+bHashtag: hashTag("htdstr"), 
+wHashtag: hashTag("htdstr"), 
 hashStr: "htdstr", bHashCtr: 0, wHashCtr: 1
 
