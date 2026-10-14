@@ -126,17 +126,11 @@ vars mamodel : MAModel .
 rl [rbc-rcv-file] :
 {T, (to cmcAddr from aAddr :  bytes)}
 < cmcAddr : CMSndRcv | cmcAtts, 
-                       sndrcvAddress: aAddr,
-****                       cachedTag: cachedhashtagl,
-                       pendingFiles: efilel,
-                       weirdFileRcvTimes: rcvTimes:FloatList >
+                       sndrcvAddress: aAddr >
 =>
-< cmcAddr : CMSndRcv | cmcAtts, 
-       sndrcvAddress: aAddr,
-       pendingFiles: (efilel :: bytes),
-****       cachedTag: getWHashtag(getSndHashTagAttrs(cmcAtts)),
-       weirdFileRcvTimes: (rcvTimes:FloatList :: T) >
-[print "(" T ") Raceboat client " cmcAddr " got " bytes " from " aAddr " adding to pending " efilel ", setting weirdFileRcvTime if pending was empty."]
+< cmcAddr : CMSndRcv | receiveSocketBytes(cmcAtts, bytes, T),
+                       sndrcvAddress: aAddr >
+[print "(" T ") Raceboat client " cmcAddr " got socket bytes " bytes " from " aAddr ]
 .
 
 
@@ -196,20 +190,21 @@ rCtr(j1)
 dmsgs
 if {cmcAtts1,msgs} := 
   cmRcvMCResponse((cmcAtts, mcAddress: mcAddr), 
-                 (to cmcAddr from mcAddr :  mcResponse ))  
+                 (to cmcAddr from mcAddr :  mcResponse ), T)
 /\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
 [print "(" T ") Raceboat client " cmcAddr " got Mastodon client response " mcResponse ", sends " msgs]
 .
 
-op cmRcvMCResponse : AttributeSet Msg -> AttributeSetMsgs .
-eq cmRcvMCResponse(attrs,msg) = {attrs,null}
+op cmRcvMCResponse : AttributeSet Msg Float -> AttributeSetMsgs .
+eq cmRcvMCResponse(attrs,msg,T) = {attrs,null}
 [owise print "cmRcvMCResponse msg " msg " not understood."]
 .
 
-ceq cmRcvMCResponse(attrs,msg) = crcvMCResponse(attrs,msg)
-if (to cmcAddr from mcAddr : mkRequestResponse(str) ) := msg .
+ceq cmRcvMCResponse(attrs,msg,T) = {completeSocketWrite(attrsNext,T), msgs}
+if (to cmcAddr from mcAddr : mkRequestResponse(str) ) := msg
+/\ {attrsNext,msgs} := crcvMCResponse(attrs,msg) .
 
-ceq cmRcvMCResponse(attrs,msg) = 
+ceq cmRcvMCResponse(attrs,msg,T) =
   srcvFetchR(attrs, (to cmsAddr from mcAddr : c:Content))
 if (to cmsAddr from mcAddr :
     ResponseMediaList(tag,mediaFileList) ) := msg
