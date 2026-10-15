@@ -117,8 +117,7 @@ def common_test_handler(test_cfg: TestConfig, build_dir: Path, run_cfg: RunConfi
     if run_cfg.results_dir is not None:
         if not os.path.isdir(run_cfg.results_dir):
             os.mkdir(run_cfg.results_dir)
-        with open(Path(run_cfg.results_dir) / f"{test_cfg.mk_id()}.json", 'w') as f:
-            json.dump(result, f, indent=4)
+        (Path(run_cfg.results_dir) / f"{test_cfg.mk_id()}.json").write_text(result)
 
     return result
 
