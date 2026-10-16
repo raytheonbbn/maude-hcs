@@ -14,10 +14,10 @@ from pytest_regressions.file_regression import FileRegressionFixture
 from maude_hcs.lib import GLOBALS
 
 from ..utils.context import TestManager, Context, TestConfig, TestRunner, RunConfig, BuildConfig
+from ..utils.keys import run_cfg_key
 
 logger = logging.getLogger(__name__)
 manager = TestManager()
-run_cfg_key = pytest.StashKey[RunConfig]()
 
 def pytest_addoption(parser) -> None:
 
@@ -73,9 +73,6 @@ def pytest_configure(config) -> None:
         composition=config.getoption("--composition"),
         characterization=config.getoption("--characterization"),
         known_answer=config.getoption("--known-answer"),
-
-        # log_level=None,
-        # log_filter=None,
 
         build_only=config.getoption("--build"),
         persist=persist,
