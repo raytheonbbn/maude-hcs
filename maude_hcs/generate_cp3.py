@@ -596,7 +596,6 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  inc ENC-DEC .")
     L("  inc CONTENT-MANAGER-BIDIR .")
     L("  inc MASTODON .")
-    L("  inc HTTP-OVERHEAD .")
 
     if "mastodon" in hcs_channel_models:
         mas_client = hcs_channel_models["mastodon"]["client"]
