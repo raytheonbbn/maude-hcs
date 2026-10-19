@@ -1,0 +1,551 @@
+set show advisories off .
+
+**** sload smc-baseline-shared
+sload ../smc/smc-baseline-shared
+
+sload ../common/maude/cp2-interfaces
+sload ../common/maude/sampler-x
+
+***(
+KsStatisticZ(FL, getECDFObsFeature(vp, obsF, GtZ, T, winSize, binSize), K) is the equation to use, 
+  FL is the baselineCDF 
+  GtZ is the TOL, 
+  T is the beginning of the window. 
+
+
+baseline produce list of bsize ecdfs
+their concatenation is the real ecdf
+Produced incrementally
+k function takes the list of bsecdfs instead of TOL
+)
+***(
+
+The actor initially constructed with attributes
+  op viewPts:_ : NetIdList -> Attribute [ctor] .
+  op features:_ : FeatureList -> Attribute [ctor] .
+  ops tStart:_ tEnd:_ : Float -> Attribute [ctor] .
+  ops winSize:_ binSize:_ : Float -> Attribute [ctor] .
+(I don't think Tstart Tend are relevant any more)
+
+the scenario file loads the baseline actor file
+incs the module
+
+In baseline mode there is an inital message 
+   [tstartbase, (to myAddr from myAddr : initBase),0]
+This causes the incrmental baseline rules to fire
+at binSize intervals.
+The finalize function computes the k value for each
+element of baseLine 
+The result should be used to update the baseline actor
+in the baseline-actor file.
+
+In execution mode there is an initial message
+   [tstartexe, (to myAddr from myAddr : initKs),0]
+The initializes the wdoKsList attribute.
+It starts a chain of binTOexe messages to
+add ks for each window position to the kslist
+)
+
+
+mod BASELINE-ACTOR is
+  inc SMC-BASELINE-SHARED .  
+  inc CP2-COMMON .  ---- rCtr
+  inc SAMPLER-X .
+***  inc SMC_CP3 .   ---- or declare the interface functions
+
+**** from SMC-BASELINE-SHARED
+***(
+op baseLineAct -> Actor .
+op baseLineAddr : -> Address .
+op BaseLineMonitor : -> ActorType .
+)
+
+vars j j1 sz1 sz2 sz3 sz4 ix nextIx inc 
+      k0N mxSizeN D delta G DmG : Nat .
+vars myAddr advAddr bAddr aAddr : Address .
+vars blAttrs blAttrs0 blAttrs1 
+     advAttrs advAttrs0 advAttrs1
+     attrs : AttributeSet .
+vars smsgs dmsg conf conf0 : Config .
+vars blist blist0 blist1 kslist kslist0 kslist1
+     ksxlist : BaseLineList .
+vars vpt : NetId .
+vars vpts : NetIdList .
+vars obsF : Feature .
+vars obsFs : FeatureList .   
+vars bsize wsize tStart tEnd eTime sTime bc
+     binSize winSize T k k0 ks fl fl0 fl1 
+     bStart mxSize : Float .
+vars tml tpl  tml1 tpl1 F0Z tol GtZ
+      : TimesObsList .
+vars to : TimesObs .
+vars ble ble1 kse  kselt : BaseLineElement .
+vars binEcdfL edcfl ecdfl ecdfl1  flll : FloatLL .
+vars bcdf bcdf0 ksl wdoEcdf ecdf floatl 
+     fll fll0 fll1 ksl1 : List{Float} .
+vars b : Bool .
+vars tmll tpll toll : TimesObsLL .
+
+  sort AttrsAttrsMsgsNat .
+  op `{_`,_`,_`,_`} : AttributeSet AttributeSet Config Nat 
+  -> AttrsAttrsMsgsNat [ctor] .
+
+
+-------------- baseline mode ---------------------
+
+crl[initBaseline]:
+rCtr(j)
+{T, (to myAddr from myAddr : initBase)}
+< myAddr : BaseLineMonitor | blAttrs >
+=>
+rCtr(j1)
+< myAddr : BaseLineMonitor | blAttrs1, binStart: T >
+smsgs
+if {blAttrs1,smsgs,j1}
+ := initBaseLineAttrs(blAttrs,myAddr,j)
+[print "( " T " ) initBase"]
+. 
+
+op addBaseLine : AttributeSet BaseLineList -> AttributeSet .
+eq addBaseLine((attrs, baseLine: blist0), blist) = 
+                (attrs, baseLine: blist) .
+eq addBaseLine(attrs, blist) 
+        = (attrs, baseLine: blist) [owise] .
+                
+op initBaseLineAttrs : AttributeSet Address Nat 
+                       -> AttributeSetMsgsNat .
+
+ceq initBaseLineAttrs(blAttrs,myAddr,j) =
+   {addBaseLine(blAttrs, blist),dmsg,s j}
+if blAttrs0, viewPts: vpts, features: obsFs, binSize: bsize
+            := blAttrs
+/\ blist := genInitBList(vpts,obsFs) 
+/\ dmsg := [bsize + genRandomX(j,1.0e-7,1.1e-7),
+            (to myAddr from myAddr : binTObase),0]
+.
+
+op  genInitBList : NetIdList FeatureList -> BaseLineList .
+op  genInitBList$ : NetIdList FeatureList BaseLineList
+                     -> BaseLineList .
+eq  genInitBList(vpts,obsFs) =
+            genInitBList$(vpts,obsFs,nilBaseLine) .
+
+eq genInitBList$(nilNetId,obsFs,blist) = blist .
+
+ceq genInitBList$(vpt :; vpts,obsFs,blist) =
+     genInitBList$(vpts,obsFs,blist :; blist0) 
+if blist0 := genInitBListX(vpt,obsFs,nilBaseLine) .
+
+op genInitBListX : NetId FeatureList BaseLineList 
+                 -> BaseLineList .
+
+eq genInitBListX(vpt,nilFeature,blist)  = blist .
+eq genInitBListX(vpt,obsF :; obsFs,blist)  = 
+   genInitBListX(vpt, obsFs,blist :; bl(vpt,obsF,0.0,nilFloatL)) .
+
+
+------------------------------------
+
+
+crl[slideWdoBase]:
+rCtr(j)
+{T, (to myAddr from myAddr : binTObase)}
+< myAddr : BaseLineMonitor | blAttrs >
+< advAddr : Adversary | advAttrs >
+=>
+rCtr(j1)
+< myAddr : BaseLineMonitor | blAttrs1 >
+< advAddr : Adversary | advAttrs1 >
+smsgs
+if {blAttrs1,advAttrs1,smsgs,j1}
+ := addBinEdcfSlideWdo(blAttrs,advAttrs,myAddr,T,j)
+[print "( " T " ) slideWdoBase "]
+. 
+
+op addBinEdcfSlideWdo : AttributeSet AttributeSet Address 
+              Float Nat ->  AttrsAttrsMsgsNat .
+
+ceq [addBinEdcfSlideWdo]:
+addBinEdcfSlideWdo(blAttrs,advAttrs,myAddr,T,j) =
+   {(blAttrs1, baseLine: blist1,
+               binStart: (bStart + bsize)),
+         advAttrs1,dmsg, s j}
+if advAttrs0, (dns: tml), (tcp: tpl) := advAttrs
+/\ blAttrs0, viewPts: vpts, features: obsFs, 
+             winSize: wsize, binSize: bsize             
+              := blAttrs
+/\ blAttrs1, baseLine: blist, binStart: bStart := blAttrs
+**** comment these out
+--- /\ blist1 := blist
+************
+/\ tmll := ftol2toll(tolByFlow(tml, mtFTOL),nilTOL) 
+/\ tpll := ftol2toll(tolByFlow(tpl, mtFTOL),nilTOL) 
+/\ blist1 := 
+    addWindowEdcf(blist,bStart,bsize, 
+                  tml,tmll,tpl,tpll,nilBaseLine)
+/\ tml1 := slideTOL(tml,bStart + bsize)
+/\ tpl1 := slideTOL(tpl,bStart + bsize)
+--- /\ sz1 := len(tml)
+--- /\ sz2 := len(tpl)
+--- /\ sz3 := len(tpl1)
+--- /\ sz4 := len(blist)
+/\ advAttrs1 := advAttrs0, dns: tml1, tcp: tpl1
+/\ dmsg := [bsize + genRandomX(j,1.0e-7,1.1e-7), 
+           (to myAddr from myAddr : binTObase),0]
+--- [print "( " T " ) addBinEdcfSlideWdo len(tml) " sz1 " len(tpl) " sz2 " len(tpl1) " sz3 " len(BL) " sz4]
+[print "( " T " ) addBinEdcfSlideWdo " ]
+.
+
+op addWindowEdcf : BaseLineList Float Float
+                   TimesObsList TimesObsLL
+                   TimesObsList TimesObsLL
+                   BaseLineList -> BaseLineList .
+eq addWindowEdcf(nilBaseLine,T,bsize,
+                 tml,tmll,tpl,tpll,blist)
+      = blist .
+ceq addWindowEdcf(bl(vpt,obsF,k,binEcdfL) :; blist0,
+                T,bsize, tml,tmll,tpl,tpll,blist1)
+    = addWindowEdcf(blist0,T,bsize, tml,tmll,tpl,tpll,
+                   blist1 :; ble1)
+if F0Z := (if isDnsFeature(obsF) then tml else tpl fi)
+/\ toll := (if isDnsFeature(obsF) 
+            then tmll else tpll fi)
+/\ bcdf := getBaselineCDFObsFeature(vpt, obsF, 
+                     F0Z, toll, T, bsize, bsize) 
+---- 2nd float T + bsize >> bsize (used for wsize) 
+/\ k0 := k + float(size(bcdf))
+/\ ble1 := bl(vpt,obsF,k0,binEcdfL [bcdf])            
+.
+
+***(
+op getBaselineCDFObsFeatureLL : 
+   NetId Feature TimesObsList TimesObsLL 
+   Float Float Float -> List{Float} .
+)
+----------------------------------------------
+**** called by baseline finalize 
+****  compute k for each element
+
+*** op maxBLsize:_ : Float -> Attribute [ctor] .
+op addK2Blist : Config  Bool -> Config .
+ceq addK2Blist(conf,b) =
+    (if b then conf0 else null fi)
+   < myAddr : BaseLineMonitor | blAttrs0,
+                                baseLine: blist1 >
+if conf0 < myAddr : BaseLineMonitor | blAttrs > := conf
+/\ blAttrs0, baseLine: blist := blAttrs
+/\ blAttrs1, winSize: wsize, binSize: bsize, 
+             tStart: tStart, tEnd: tEnd ,
+             maxBLsize: mxSize := blAttrs
+/\ blist1 := addK2BlistX(blist,tStart,tEnd,wsize,bsize,
+                      mxSize,   nilBaseLine)  
+ .                                   
+op addK2BlistX : BaseLineList 
+                 Float Float Float Float
+                 Float BaseLineList -> BaseLineList .
+
+eq addK2BlistX(nilBaseLine,tStart,tEnd,wsize,bsize,
+               mxSize,blist)
+   = blist .
+                  
+ceq addK2BlistX(ble :; blist,tStart,tEnd,wsize,bsize,
+                mxSize,blist1)  
+     = addK2BlistX(blist,tStart,tEnd,wsize,bsize,
+                  mxSize, blist1 :; ble1 )
+if bl(vpt,obsF,k0,edcfl) := ble
+/\ bcdf0 := sFlatLL(edcfl,nil)
+/\ bcdf := (if mxSize >= k0 
+           then bcdf0 
+           else downsample(bcdf0,mxSize,k0)
+           fi)
+/\ k := getKObsFeatureB(vpt, obsF, bcdf, edcfl,
+                        tStart, tEnd, wsize, bsize)
+/\ ble1 := bl(vpt,obsF,k,bcdf)
+**** /\ ble1 := bl(vpt,obsF,0.1,bcdf)
+.
+
+op getKObsFeatureB : NetId Feature 
+                       List{Float} FloatLL
+                       Float Float Float Float -> Float .
+  eq getKObsFeatureB (vpt, obsF, bcdf, ecdfl, tStart, tEnd, winSize, binSize) = 
+  expectedKObsFeature(vpt, obsF,bcdf,ecdfl, 
+             tStart, tEnd, winSize, binSize, 0.0, 0) .
+***(
+  op expectedKObsFeature : NetId Feature List{Float} FloatLL Float Float Float Float Float Nat -> Float .
+  ceq expectedKObsFeature (vp, obsF, baselineCDF, binECDFs, T, Tend, winSize, binSize, Ksum, N) 
+)
+op flattenLL : FloatLL -> List{Float} .
+op flattenLLX : FloatLL  List{Float} -> List{Float} .
+eq flattenLL(edcfl) = flattenLLX(edcfl,nil) .
+eq flattenLLX([floatl] edcfl, bcdf) = flattenLLX(edcfl, (bcdf floatl)) .
+eq flattenLLX(nilFloatL, bcdf ) = bcdf .
+
+***(
+vars flll : FloatLL .
+vars fll fll0 fll1 : List{Float} .
+vars fl fl0 fl1 : Float .
+)
+
+op sFlatLL : FloatLL List{Float} -> List{Float}  .
+op smerge : List{Float}  List{Float}  List{Float} 
+            -> List{Float} .
+            
+eq sFlatLL(nilFloatL,fll) = fll .
+eq sFlatLL([fll0] flll, fll) 
+    = sFlatLL(flll,smerge(fll,fll0,nil)) .
+
+
+eq smerge(nil,fll0,fll) = fll fll0 .
+eq smerge(fll0,nil,fll) = fll fll0 .
+eq smerge(fl0 fll0, fl1 fll1, fll) 
+  =  (if fl0 < fl1
+     then smerge(fll0, fl1 fll1, fll fl0)
+     else smerge(fl0 fll0,fll1,fll fl1)
+     fi) .
+     
+
+**** [ 1. 2. 3. ] [ 1.1 1.9 3.1] [.5 2.4.2.5 ]
+***(
+red smerge( 1. 2. 3.  , 1.1 1.9 3.1,nil) .
+red sFlatLL([ 1. 2. 3. ] [ 1.1 1.9 3.1] [.5 2.4 2.5],nil) .
+)
+
+***(
+vars k0N mxSizeN D delta G DmG ix j : Nat .
+vars fl  mxSize k k0 : Float .
+vars bcdf bcdf0 : List{Float} .
+)
+**** assume k0 > mxSize
+op downsample : List{Float} Float Float -> List{Float} .
+ceq downsample(bcdf0,mxSize,k0) = bcdf
+  if k0N := rat(k0)
+  /\ mxSizeN := rat(mxSize)
+  /\ D := _-_(k0N,mxSizeN)
+  /\ delta := k0N quo D
+  /\ G := k0N rem D
+  /\ DmG := _-_(D,G)
+  /\ bcdf := filterByInc(bcdf0,0,0,delta,DmG,G,nil)
+.
+  
+op filterByInc : List{Float} Nat Nat Nat Nat Nat
+                 List{Float} -> List{Float} .
+eq filterByInc(nil,ix,j,delta,DmG,G,bcdf) = bcdf .
+
+ceq filterByInc(fl bcdf0,ix,j,delta,DmG,G,bcdf) 
+    = filterByInc( bcdf0,s ix, s j,delta,DmG,G,bcdf fl) 
+if j < DmG
+/\ s ix < delta
+.
+
+ceq filterByInc(fl bcdf0,ix,j,delta,DmG,G,bcdf) 
+    = filterByInc( bcdf0, 0, s j,delta,DmG,G,bcdf) 
+if j < DmG
+/\ s ix >= delta
+.
+
+ceq filterByInc(fl bcdf0,ix,j,delta,DmG,G,bcdf) 
+    = filterByInc( bcdf0,s ix, s j,delta,DmG,G,bcdf fl) 
+if j >= DmG
+/\ ix < delta
+.
+
+ceq filterByInc(fl bcdf0,ix,j,delta,DmG,G,bcdf) 
+    = filterByInc( bcdf0, 0, s j,delta,DmG,G,bcdf) 
+if j >= DmG
+/\ ix >= delta
+.
+  
+  
+  
+
+-------------- execution rules ---------------------
+
+crl[initKs]:
+rCtr(j)
+{T, (to myAddr from myAddr : initKs)}
+< myAddr : BaseLineMonitor | blAttrs >
+=>
+rCtr(j1)
+< myAddr : BaseLineMonitor | blAttrs1, binStart: T  >
+ smsgs
+if {blAttrs1,smsgs,j1}
+       := initKsAttrs(blAttrs,myAddr,j)
+[print "( " T " ) initKs"]
+. 
+
+***(
+op bl : NetId Feature Float? List{Float} FloatLL -> BaseLineElement
+)
+
+op initKsAttrs : AttributeSet Address Nat ->
+                  AttributeSetMsgsNat .
+                  
+ceq initKsAttrs(blAttrs,myAddr,j) = {blAttrs1,dmsg,s j}
+if blAttrs0, baseLine: blist, binSize: bsize := blAttrs
+/\ kslist := genInitKsFromBl(blist, nilBaseLine)
+/\ blAttrs1 := addKSlist2Attrs(blAttrs,kslist)
+/\ dmsg := [bsize + genRandomX(j,1.0e-7,1.1e-7),
+            (to myAddr from myAddr : binTOexe), 0]
+.
+
+
+op genInitKsFromBl : BaseLineList BaseLineList -> BaseLineList .
+eq genInitKsFromBl(nilBaseLine,kslist) = kslist .
+eq genInitKsFromBl(bl(vpt,obsF,k,bcdf) :; blist,kslist) 
+    = genInitKsFromBl(blist,kslist :; bl(vpt, 
+                      obsF,0.0,nil,nilFloatL) ) 
+  .
+ 
+op addKSlist2Attrs : AttributeSet BaseLineList 
+                     -> AttributeSet .  
+
+eq addKSlist2Attrs((blAttrs, wdoKsList: kslist0),kslist)
+  = (blAttrs, wdoKsList: kslist) .
+eq addKSlist2Attrs(blAttrs, kslist)
+           = (blAttrs, wdoKsList: kslist) [owise] .
+
+crl[slideWdoExe]:
+rCtr(j)
+{T, (to myAddr from myAddr : binTOexe) }
+< myAddr : BaseLineMonitor | blAttrs >
+< advAddr : Adversary | advAttrs >
+=>
+rCtr(j1)
+< myAddr : BaseLineMonitor | blAttrs1 >
+< advAddr : Adversary | advAttrs1 >
+smsgs
+if {blAttrs1,advAttrs1,smsgs,j1}
+ := addKsSlideWdo(blAttrs,advAttrs,myAddr,T,j)
+[print "( " T " ) slideWdoExe "]
+. 
+
+op addKsSlideWdo : AttributeSet AttributeSet Address Float Nat 
+      ->  AttrsAttrsMsgsNat .
+ceq addKsSlideWdo(blAttrs,advAttrs,myAddr,T,j) =
+   {(blAttrs1, wdoKsList: kslist1,
+               binStart: (bStart + bsize)),
+               advAttrs1, dmsg, s j}
+if advAttrs0, (dns: tml), (tcp: tpl) := advAttrs
+/\ blAttrs0, viewPts: vpts, features: obsFs, 
+         winSize: wsize, binSize: bsize, baseLine: blist
+          := blAttrs
+/\ blAttrs1,  wdoKsList: kslist,  binStart: bStart
+       := blAttrs
+/\ tmll := ftol2toll(tolByFlow(tml, mtFTOL),nilTOL) 
+/\ tpll := ftol2toll(tolByFlow(tpl, mtFTOL),nilTOL) 
+/\ kslist1 := 
+    addWindowKs(blist,kslist,bStart, wsize, bsize, 
+                tml,tmll,tpl,tpll,nilBaseLine)
+/\ tml1 := slideTOL(tml,bStart + bsize)
+/\ tpl1 := slideTOL(tpl,bStart + bsize)
+/\ advAttrs1 := advAttrs0, dns: tml1, tcp: tpl1
+/\ dmsg := [bsize + genRandomX(j,1.0e-7,1.1e-7), 
+            (to myAddr from myAddr : binTOexe),0]
+--- /\ sz1 := len(tml)
+--- /\ sz2 := len(tpl)
+--- /\ sz3 := len(tpl1)
+--- [print "( " T " ) addKsSlideWdo len(tml) " sz1 " len(tpl) " sz2 " len(tpl1) " sz3 ]
+[print "( " T " ) addKsSlideWdo " ]
+.
+
+**** remove tos with trcv before T
+op slideTOL : TimesObsList  Float -> TimesObsList .
+eq slideTOL(nilTO,T) = nilTO .
+eq slideTOL(to ;; tol,T) =
+   (if getRecvTime(to) < T
+   then slideTOL(tol,T)
+   else (to ;; tol)
+   fi)
+   .   
+   
+ op addWindowKs : BaseLineList BaseLineList Float Float
+       Float TimesObsList TimesObsLL
+       TimesObsList TimesObsLL
+       BaseLineList -> BaseLineList .
+                   
+
+***( cases: 
+  (blist == nilBaseLine) or (kslist == nilBaseLine)
+)
+
+eq [addWindowKs]:
+ addWindowKs(blist,kslist,T,wsize,bsize, 
+             tml,tmll,tpl,tpll,kslist0)
+  = kslist0 
+[owise  print "addWindowKs baseline kslist mismatch, accum kslist " kslist0]
+.
+
+---- assuming winSize/binSize = 6
+ceq [addWindowKs]:
+     addWindowKs(ble :; blist, kse :; kslist, 
+                 T, wsize, bsize, 
+                 tml, tmll, tpl, tpll, kslist0)
+ = addWindowKs(blist, kslist, T,wsize,bsize,
+               tml, tmll, tpl, tpll, kslist0 :; kselt)
+if bl(vpt,obsF,k,bcdf) := ble                
+**** /\ bl(vpt,obsF,k0,ksl) := kse 
+/\ bl(vpt,obsF,bc,ksl,ecdfl) := kse  
+/\ GtZ := (if isDnsFeature(obsF) then tml else tpl fi)
+/\ toll := (if isDnsFeature(obsF) then tmll else tpll fi)
+/\ wdoEcdf := getECDFObsFeature(vpt, obsF, GtZ, toll, T, wsize, bsize)
+----
+/\ ksl1 := ksl
+         (if bc < 5.0
+          then nil
+          else (if wdoEcdf == nil
+                then -1.0e6
+                else KsStatisticZ(bcdf,
+                     sFlatLL(ecdfl [wdoEcdf],nil),k)    
+           fi) fi)
+/\ ecdfl1 := (if bc < 5.0
+             then ecdfl [wdoEcdf] 
+             else shiftEcdfL(ecdfl,wdoEcdf)
+             fi)          
+/\ kselt := bl(vpt,obsF,bc + 1.0,ksl1,ecdfl1) 
+--- /\ sz1 := len(GtZ)
+--- /\ sz2 := len(toll)
+--- /\ sz3 := size(wdoEcdf)
+
+--- [print "( " T " )  addWindowKs  len(GtZ) " sz1 
+--- " len(toll) " sz2 " len(wdoEcdf) " sz3 ]
+[print "( " T " )  addWindowKs " ]
+ .
+
+
+op shiftEcdfL : FloatLL List{Float} -> FloatLL .
+eq shiftEcdfL([ecdf] ecdfl,wdoEcdf) = ecdfl [wdoEcdf] .
+ ---shouldn't happen
+eq shiftEcdfL(nilFloatL,wdoEcdf) = [wdoEcdf] .
+
+
+***(
+op getECDFObsFeatureLL : 
+   NetId Feature TimesObsList TimesObsLL 
+   Float Float Float -> List{Float} .
+)
+
+op pruneBLEs : BaseLineList BaseLineList -> BaseLineList .
+eq pruneBLEs(nilBaseLine,kslist) = kslist .
+eq pruneBLEs(bl(vpt,obsF,k,ksl,ecdfl) :; ksxlist, kslist)
+   = pruneBLEs(ksxlist, kslist :; bl(vpt,obsF,k,ksl)) .
+
+
+**** called by finalize in hcs mode
+op mvKs2Adv : Config Bool -> Config .
+eq mvKs2Adv(< bAddr : BaseLineMonitor | 
+               blAttrs, wdoKsList: kslist >
+            < aAddr : Adversary | advAttrs >
+            c:Config , b:Bool )
+   =            
+           < bAddr : BaseLineMonitor |  blAttrs >
+           < aAddr : Adversary | advAttrs, 
+           gt: pruneBLEs(kslist,nilBaseLine) >
+           (if b:Bool then c:Config else null fi )
+      .               
+               
+*** op gt:_ : BaseLineList -> Attribute .
+
+
+endm
+eof
+

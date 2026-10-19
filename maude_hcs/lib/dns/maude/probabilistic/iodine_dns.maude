@@ -48,6 +48,11 @@ mod IODINE_DNS is
   vars monAttrs : AttributeSet .
   vars conf : Config .
   vars appAlice appBob wrappedNS : Actor .
+  vars appReady appAfterSend : AttributeSet .
+  var queuedMsg : Msg .
+  op markServerAppReady : AttributeSet -> AttributeSet .
+  eq markServerAppReady(appAttrs, iodineReady: IODINEREADY) = (appAttrs, iodineReady: true) .
+  vars confState : Config .
   vars ID ID' : Id .      ---- Nat < Id
   vars NAME NAME' WNAME SNAME SNAME' QNAME : Name .
   vars downstreamdata : RData .
@@ -109,18 +114,30 @@ crl [iServerEmbedding]:
     [print "(" T ") iServerEmbedding get pkt " Pkt ", making list of fragments." ]
     .
 
+--- Embedding "else" rule that is only there to log an error.
+crl [iServerEmbeddingSending]:
+  < ADDR : WNameserver | wattrs, fragmentsToSend: F:FragmentList >
+  < MON : WMonitor | pktSent: PTL, monAttrs >
+  {T, (to ADDR from BOB : Pkt)}
+  =>
+  < ADDR : WNameserver | wattrs, fragmentsToSend: F:FragmentList >
+  < MON : WMonitor | pktSent: PTL, monAttrs >
+  if (isSending(wattrs, fragmentsToSend: F:FragmentList) and getNumAttempts(wattrs) <= 5)
+    [print "(" T ") iServerEmbedding cannot embed pkt " Pkt " (busy).  SHOULD NOT BE HAPPENING." ]
+    .
+
 ----  receivs DNS query with standard name
 ----  passthrough
 ----  TODO: merge into single rule below 
 crl [wnameserver-receive-query-passthru]:
   < ADDR : WNameserver | wattrs,  
-          conf: (wrappedNS)
+          conf: confState
   >
   < MON : WMonitor | queryRcvd: QTL, monAttrs >
   {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}
   =>
   < ADDR : WNameserver | wattrs,           
-          conf: (wrappedNS (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) 
+          conf: (confState {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}) 
   >
   < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
   if  not isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))) .
@@ -129,18 +146,18 @@ crl [wnameserver-receive-query-passthru]:
 ----  passthrough
 rl [weird-nameserver-response-passthru]:
   < ADDR : WNameserver | wattrs,  
-          conf: (wrappedNS (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)))
+          conf: (confState [DELAY, (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)), N])
   >
   < MON : WMonitor | queryRcvd: QTL, monAttrs >
   =>
   < ADDR : WNameserver | wattrs, 
-          conf: (wrappedNS) 
+          conf: confState 
   >
   *** Figure out what to do with Response.
   < MON : WMonitor | queryRcvd: QTL, monAttrs >
-  [delayParamd(to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)), 
+  [DELAY, 
   (to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE)),
-   dropParamd(to ADDR1 from ADDR : response(ID, SNAME, ANS, AUTH, ADD, RCODE))]
+   N]
   .
 
 ----  receivs DNS query with weird name
@@ -159,13 +176,20 @@ crl [wnameserver-receive-query-weird]:
   < ADDR : WNameserver | wattrs,  
           conf: (wrappedNS)
   >
-  < MON : WMonitor | queryRcvd: QTL, monAttrs >
+  < BOB : RcvApp | appAttrs >
+  < MON : WMonitor | queryRcvd: QTL, pktSent: PTL, monAttrs >
   {T, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE))}
   =>
   < ADDR : WNameserver | wattrs2,
           conf: (wrappedNS) 
   >
-  < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)), monAttrs >
+  < BOB : RcvApp | appAfterSend >
+  < MON : WMonitor | queryRcvd: (QTL ; queryTimestamp(query(ID, QNAME, QTYPE), T)),
+      pktSent: if queuedMsg == nullMsg then PTL else (PTL ; packetTimestamp(getPkt(queuedMsg), T)) fi,
+      monAttrs >
+  --- Preserve the existing pacing admission timer for the packet taken from the app.
+  (if queuedMsg == nullMsg then null else
+    [sampleUniform(pacingTimeoutDelay, pacingTimeoutDelayMax), (to BOB : pktTimeout(getPkt(queuedMsg))), 0] fi)
   --- Message back to Alice
   (if isLastFrag then [lastFragDelay + delayParamd(msgOut), msgOut, dropParamd(msgOut)] else [delayParamd(msgOut), msgOut, dropParamd(msgOut)] fi)
   --- The message to send to Bob if packet is fully assembled
@@ -174,20 +198,32 @@ crl [wnameserver-receive-query-weird]:
   (if msgOutExt == nullMsg then null else delayMsgs(msgOutExt,null) fi)
 ***  [0.0, msgOutExt, 0] 
   if isWeird(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
-  --- step 1 and step 2
-  /\ {wattrsTrans, msgOut} := extractS(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  /\ BOB == getToAddr(query(ID, QNAME, QTYPE))
+  /\ getToAddr(appAttrs) == ADDR
+  --- First consume the ACK; the current packet may now be complete.
+  /\ wattrsTrans := processQuery(wattrs, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  /\ appReady := (if isTxComplete(wattrsTrans)
+      then markServerAppReady(appAttrs) else appAttrs fi)
+  --- Admit at most one queued packet, respecting the existing pacing counter.
+  /\ {appAfterSend, queuedMsg} := (if isTxComplete(wattrsTrans) and getNumAdmittedPkts(appReady) > 0
+      then sendPkt(appReady, BOB) else {appReady, nullMsg} fi)
+  /\ wattrs1 := (if queuedMsg == nullMsg then wattrsTrans
+      else handleNewPacket(wattrsTrans, getPkt(queuedMsg), maxDownFragmentLen) fi)
+  --- Construct the response only after the queued packet is available.
+  /\ {wattrsTrans', msgOut} := buildServerResponse(wattrs1, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 2.5: Check if this is for the last fragment, delay send
   /\ isLastFrag := isLastFragment(QNAME)
   --- step 3
-  /\ {wattrs2, appMsgOut} := updateRcvApp(wattrsTrans, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
+  /\ {wattrs2, appMsgOut} := updateRcvApp(wattrsTrans', (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- If transmission is complete, nudge Bob to send another packet
   /\ txComplete := isTxComplete(wattrs2)
   /\ msgOutExt := 
     if txComplete
-      then (to getToAddr(query(ID, QNAME, QTYPE)) : start)
+      **** Transmission is complete (and ACKed).
+      then (to getToAddr(query(ID, QNAME, QTYPE)) : txDone)
       else nullMsg
     fi
-  [print "(" T ") WServer receiving query " ID ", sending " msgOut " + " appMsgOut " + " msgOutExt ]
+  [ print "(" T ") WServer " ADDR " receiving query " ID " from " ADDR1 ", sending " msgOut " + " appMsgOut " + to local RcvApp: " msgOutExt ]
   .
 
   --- TODO remove when done testing
@@ -213,7 +249,7 @@ crl [wnameserver-receive-query-weird]:
 
   --- If Bob has been told to start (by the W name server), packetize its outgoing file 
   crl [receive-app-send-packet]:
-    < BOB : RcvApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet, iodineReady: IODINEREADY >
+    < BOB : RcvApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet >
     {T, (to BOB : start)}
   => 
     < BOB : RcvApp | appAttrsNext > 
@@ -226,16 +262,26 @@ crl [wnameserver-receive-query-weird]:
                      else (packetizeProb(appAttrs, BOB, ADDR, file(0,fileSize), packetSize, maxPacketSize), fileDestAddr: ADDR)
                      fi)
      *** The queue is populated and wnameserver is presumed ready since it sent a start
-    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, iodineReady: true)
+    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true)
     /\ {appAttrsNext, msgOut} := 
-        if getNumAdmittedPkts(appAttrs1) > 0
+        if (isIodineReady(appAttrs) and (getNumAdmittedPkts(appAttrs1) > 0))
           --- If packets are ready to send to WNameServer, do it
           then sendPkt(appAttrs1, BOB)
           --- Otherwise, wait
           else {appAttrs1, nullMsg}
         fi
-        [print "(" T ") RcvApp start or nudge from wserver, send possible pkt " msgOut ", setting timeout if not null." ]
-.
+        [ print "(" T ") RcvApp " BOB " start or nudge from wserver, send possible pkt " msgOut ", setting timeout (if not null)." ]
+  .
+
+  ---- Rule to handle a txDone: Iodine is ready to send again.
+  rl [receive-app-tx-done]:
+    < BOB : RcvApp | (appAttrs, iodineReady: IODINEREADY) >
+    {T,  (to BOB : txDone)}
+  =>
+    < BOB : RcvApp | (appAttrs, iodineReady: true) >
+    [0.00001, (to BOB : start), 0]
+    [ print "(" T ") RcvApp " BOB " received packet send done, Iodine server ready, try sending." ]
+  .
 
   ---- Timeout rule for Bob, symmetric to send-app-pkt-timeout, puts Bob's outgoing packets on timeouts so they send at particular intervals
   crl [receive-app-pkt-timeout]:
@@ -294,12 +340,15 @@ crl [wnameserver-receive-query-weird]:
   
   ---               Attributes   Src     Dest     File Min Max
   op packetizeProb : AttributeSet Address Address ByteSeq Nat Nat -> AttributeSet .
+  eq packetizeProb(appAttrs, ALICE, BOB, noBytes, MIN_PKT_SIZE, MAX_PKT_SIZE)  = appAttrs
+    [ print "Nothing to packetize (empty file)" ]
+  .
   ceq packetizeProb((appAttrs, queue: PACKET_LIST, packetCounter: N), ALICE, BOB, FILE, MIN_PKT_SIZE, MAX_PKT_SIZE) = appAttrs1
     if PktSize := getSize(FILE) 
     /\ PACKETS' := $packetizeProb(mtpl, ALICE, BOB, FILE, PktSize, MIN_PKT_SIZE, MAX_PKT_SIZE, N)
     /\ maxCount:Nat := s getMaxPacketCount(PACKETS')
-    /\ appAttrs1 := (appAttrs, queue: PACKETS', packetCounter: maxCount:Nat)
-    [ print "Packetizing " FILE " of size " PktSize "B into " PACKETS' "." ]
+    /\ appAttrs1 := (appAttrs, queue: (PACKET_LIST ; PACKETS'), packetCounter: maxCount:Nat)
+    [ print "Packetizing " FILE " of size " PktSize "B into " PACKETS' ". Appending to " PACKET_LIST ]
   .
 
   ---             CurrentPktList Src   Dest      File FileSize Min Max Counter
@@ -427,7 +476,7 @@ crl [wnameserver-receive-query-weird]:
     if (not isSending(wattrs) or getNumAttempts(wattrs) >= 2)
        /\ {wattrsNext, msgOut} := handleAndSend(wattrs, ADDR, Pkt)
        /\ sentFragment := grabCurrentFragment(wattrsNext)
-    [print "(" T ") iClientEmbedding get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout." ]
+    [print "(" T ") iClientEmbedding " ADDR " get pkt " Pkt ", sending fragment out "  msgOut ", setting ackTimeout." ]
     .
 
   --- Handle a response from the resolver to WClient.
@@ -453,9 +502,10 @@ crl [wnameserver-receive-query-weird]:
      then 
      delayMsgs((to getFromAddr(response(ID, SNAME, < SNAME', QTYPE, sTTL, downstreamdata >, AUTH, ADD, RCODE)) : start),null)
      else [delayParamd(msgOutExt), msgOutExt, dropParamd(msgOutExt)] fi)
-    (if msgOutExt == nullMsg then 
-     null 
-     else [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0] fi)
+    (if ((msgOutExt == nullMsg) or (txComplete == true))
+        then null 
+        else [ackTimeoutDelay + genRandom(0.0, 0.0001), (to ADDR : ackTimeout(sentFragment)), 0]
+    fi)
   (if appMsgOut == nullMsg then null else delayMsgs(appMsgOut,null) fi)
 ***     [0., appMsgOut, 0] 
 ***** endMsgs
@@ -549,7 +599,7 @@ crl [wnameserver-receive-query-weird]:
           else sendFragment(wattrs, ADDR)
         fi
       /\ sentFragment := grabCurrentFragment(wattrsNext)
-      [print "(" T ") WClient ACK Timeout: sending possible fragment " msgOutExt " or requesting new packet" ]
+      [print "(" T ") WClient " ADDR " ACK Timeout: sending possible fragment " msgOutExt " or requesting new packet." ]
     .
 
   --- Timeout rule for catching WClient timeout when it has become moot.
@@ -559,7 +609,7 @@ crl [wnameserver-receive-query-weird]:
     =>
     < ADDR : WClient | wattrs >
     if not (isSending(wattrs) and isTimeOutMatch(wattrs, FRAGMENT))
-    [print "(" T ") WClient ignoring timeout" ]
+    [print "(" T ") WClient " ADDR " ignoring timeout" ]
   .
 
 

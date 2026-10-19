@@ -126,21 +126,15 @@ vars mamodel : MAModel .
 rl [rbc-rcv-file] :
 {T, (to cmcAddr from aAddr :  bytes)}
 < cmcAddr : CMSndRcv | cmcAtts, 
-                       sndrcvAddress: aAddr,
-                       cachedTag: cachedhashtagl,
-                       pendingFiles: efilel,
-                       weirdFileRcvTime: rcvTime:Float >
+                       sndrcvAddress: aAddr >
 =>
-< cmcAddr : CMSndRcv | cmcAtts, 
-       sndrcvAddress: aAddr,
-       pendingFiles: (efilel :: bytes ),
-       cachedTag: getWHashtag(getSndHashTagAttrs(cmcAtts)),
-       weirdFileRcvTime: T >
-[print "(" T ") Raceboat client " cmcAddr " got " bytes " from " aAddr " adding to pending, setting weirdFileRcvTime."]
+< cmcAddr : CMSndRcv | receiveSocketBytes(cmcAtts, bytes, T),
+                       sndrcvAddress: aAddr >
+[print "(" T ") Raceboat client " cmcAddr " got socket bytes " bytes " from " aAddr ]
 .
 
 
------------ begiin handle actionQ ------------------------
+----------- Begin handle actionQ ------------------------
 
 crl [rbc-rcv-action] :
 rCtr(j)
@@ -154,28 +148,30 @@ if {cmcAtts1,msgs} :=
     cmRcvActionQ(cmcAtts,getType(ract),T,
                (to cmcAddr from umAddr : actionQ(ract) ))
 /\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
-[print "(" T ") Raceboat cm " cmcAddr " got action request " ract " sending " msgs]
+[print "(" T ") Raceboat cm " cmcAddr " got action request " ract " sending " msgs ]
 .
 
 op cmRcvActionQ : AttributeSet String Float Msg 
                 -> AttributeSetMsgs .
+****eq cmRcvActionQ(attrs, "media",T, msg) = {attrs,null} [owise] .
 
-
-
-eq cmRcvActionQ(attrs, "media",T, msg) = {attrs,null} [owise] .
-
-
-ceq cmRcvActionQ(attrs, "media", T, msg)
-   =  crcvActionQ(attrsTrans,"media",msg)       
-if attrs0, weirdFileRcvTime: rcvTime:Float,
-           postingWeird: b:Bool, pendingFiles: efilel
-           := attrs
-/\ b0:Bool :=  rcvTime:Float + 5.0 <= T and efilel =/= nilBS  --- no file ready
-/\ attrsTrans := attrs0,
-                 (weirdFileRcvTime: rcvTime:Float),
-                 postingWeird: b0:Bool,
-                 pendingFiles: efilel
- .
+--- Post action request.
+eq cmRcvActionQ(attrs, "media", T, msg)
+  = crcvActionQ(setSendWeird($buildReadyFiles(attrs, T)), "media", msg)
+.
+****ceq cmRcvActionQ(attrs, "media", T, msg)
+****   =  crcvActionQ(attrsTrans,"media",msg)       
+****if attrs0, weirdFileRcvTimes: rcvTimes:FloatList,
+****           postingWeird: b:Bool,
+****           pendingFiles: efilel
+****           := attrs
+****/\ rcvTime:Float := getEarliestRcvTime(rcvTimes:FloatList)
+****/\ b0:Bool :=  rcvTime:Float + 5.0 <= T and efilel =/= nilBS  --- no file ready
+****/\ attrsTrans := attrs0,
+****                 (weirdFileRcvTimes: (rcvTime:Float :: rcvTimes:FloatList)),
+****                 postingWeird: b0:Bool,
+****                 pendingFiles: efilel
+**** .
 
 eq cmRcvActionQ(attrs, "download", T, msg)
     =  srcvActionQ(attrs,"download",msg) .
@@ -194,20 +190,21 @@ rCtr(j1)
 dmsgs
 if {cmcAtts1,msgs} := 
   cmRcvMCResponse((cmcAtts, mcAddress: mcAddr), 
-                 (to cmcAddr from mcAddr :  mcResponse ))  
+                 (to cmcAddr from mcAddr :  mcResponse ), T)
 /\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
 [print "(" T ") Raceboat client " cmcAddr " got Mastodon client response " mcResponse ", sends " msgs]
 .
 
-op cmRcvMCResponse : AttributeSet Msg -> AttributeSetMsgs .
-eq cmRcvMCResponse(attrs,msg) = {attrs,null}
+op cmRcvMCResponse : AttributeSet Msg Float -> AttributeSetMsgs .
+eq cmRcvMCResponse(attrs,msg,T) = {attrs,null}
 [owise print "cmRcvMCResponse msg " msg " not understood."]
 .
 
-ceq cmRcvMCResponse(attrs,msg) = crcvMCResponse(attrs,msg)
-if (to cmcAddr from mcAddr : mkRequestResponse(str) ) := msg .
+ceq cmRcvMCResponse(attrs,msg,T) = {completeSocketWrite(attrsNext,T), msgs}
+if (to cmcAddr from mcAddr : mkRequestResponse(str) ) := msg
+/\ {attrsNext,msgs} := crcvMCResponse(attrs,msg) .
 
-ceq cmRcvMCResponse(attrs,msg) = 
+ceq cmRcvMCResponse(attrs,msg,T) =
   srcvFetchR(attrs, (to cmsAddr from mcAddr : c:Content))
 if (to cmsAddr from mcAddr :
     ResponseMediaList(tag,mediaFileList) ) := msg
@@ -229,7 +226,7 @@ dmsgs
 if {cmcAtts1,msgs} := 
   crcvCapR(cmcAtts,(to cmcAddr from edAddr : capR(cap)))
 /\ {dmsgs,j1} := delayMsgsX(j,msgs,null)
-[print "(" T ") Raceboat client " cmcAddr " received capacity " cap " limit from Destini, sending " msgs ]
+[print "(" T ") Raceboat client " cmcAddr " received capacity " cap "B limit from Destini, sending " msgs ]
 .
 
 
@@ -313,8 +310,6 @@ eq msAct = makeMastodonServer(msAd) .
 ops ircBytes0 ircBytes1 : -> ByteSeq . 
 eq getSize(ircBytes0) = 100 .
 eq getSize(ircBytes1) = 500 .
-eq nbytes(ircBytes0) = 100 .
-eq nbytes(ircBytes1) = 500 .
 
 op LinkType-2 : -> AttributeSet .
 eq LinkType-2 = 

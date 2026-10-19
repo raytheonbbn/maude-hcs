@@ -1,0 +1,87 @@
+env: pwnd_cp3_only_mastodon
+conversation_duration: 910
+max_start_delay: 900
+one_way_availability: 30
+analysis_window_size: 900
+network:
+  minio_net:
+    network: minio
+    params:
+      upstream:
+        latency: 0
+        loss_profile: "none"
+      downstream:
+        latency: 0
+        loss_profile: "none"
+  client_net_mastodon:
+    nat: false
+    network: client
+    params:
+      upstream:
+        latency: 20
+        loss_profile: "excellent"
+      downstream:
+        latency: 20
+        loss_profile: "excellent"
+  server_net:
+    network: server
+    params:
+      upstream:
+        latency: 10
+        loss_profile: "excellent"
+      downstream:
+        latency: 10
+        loss_profile: "excellent"
+  mastodon_net:
+    network: mastodon
+    params:
+      upstream:
+        latency: 5
+        loss_profile: "good"
+      downstream:
+        latency: 5
+        loss_profile: "good"
+  dns_net:
+    network: dns
+    params:
+      upstream:
+        latency: 20
+        loss_profile: "good"
+      downstream:
+        latency: 20
+        loss_profile: "good"
+nodes:
+  node_type_mastodon:
+    channel_config:
+      - direction: bidirectional
+        channel: mastodon
+        vars:
+          client:
+            user_model: mastodon_client_scenario_2.json
+          server:
+            user_model: mastodon_server_scenario_2.json
+    client_per_network:
+      client_net_mastodon:
+        quantity: 2
+        profiles:
+          irc_11: 1
+tgen:
+  tgen_type_mastodon:
+    tgen_per_network:
+      client_net_mastodon:
+        quantity: 4
+        profiles:
+          influencer_1: .25
+          normal_1: .25
+          lurker_1: .5
+      server_net:
+        quantity: 4
+        profiles:
+          normal_2: .5
+          lurker_2: .5
+  tgen_type_mastodon_monitor:
+    tgen_per_network:
+      mastodon_net:
+        quantity: 1
+        profiles:
+          default: 1

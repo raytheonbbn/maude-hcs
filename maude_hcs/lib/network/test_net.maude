@@ -1,0 +1,62 @@
+sload ./net_prob.maude
+
+mod TEST_NET is
+  pr NETWORK_CONNECTION .
+
+  ops channelClientAddr channelServerAddr : -> Address .
+
+  --- Network actors
+  ops netClientAddr netServerAddr : -> Address .
+
+  ops netClient netServer         : -> Actor .
+
+  eq netClient  = makeNetClient(netClientAddr,
+                                channelServerAddr,
+                                netServerAddr,
+                                channelClientAddr,
+                                true)
+  .
+  
+  eq netServer  = makeNetServer(netServerAddr,
+                                netClientAddr,
+                                channelServerAddr)
+  .
+
+  op toContent : String -> Content .
+
+  rl [server-req]:
+  {T:Float, (to channelServerAddr from client:Address : content:Content)}
+  =>
+    null
+    [ print "Server received message." ]
+  .
+
+  rl [client-res]:
+  {T:Float, (to channelClientAddr from server:Address : content:Content)}
+  =>
+    null
+    [ print "Client received message." ]
+  .
+
+  op initState : -> Config . 
+  eq initState =
+    rCtr(0)                  
+    netClient
+    netServer 
+    [1.0, (to tcp(channelServerAddr) from channelClientAddr : toContent("CONTENT REQ")), 0]
+    [2.0, (to tcp(channelClientAddr) from channelServerAddr : toContent("CONTENT RES")), 0]
+  .
+
+  ---------------------------------------------------
+  --- Run parameters                  
+  ---------------------------------------------------
+  op limit : -> Float .
+  eq limit = 20.0 .    --- simulate 30 simulated seconds
+    
+  op initConfig : -> Config .
+  eq initConfig = run({0.0 | nil} initState, limit) .
+
+endm
+set print attribute on .
+rew initConfig .
+q

@@ -1,0 +1,495 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+sload ../../irc/irc-mamodel-v2.maude
+sload ../../webtunnel/webtunnel_prob.maude
+sload ../../irc/irc_prob-v2
+sload ../../irc/ircMonitor
+sload ../../irc/irc-byteseq-interface
+sload ../../common/maude/irc-action-actor-v2.maude
+sload ../../irc/common/irc_name
+sload ../../irc/common/_aux
+sload ../../irc/common/app_chat
+sload ../../irc/_irc_aux
+sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
+sload ../../obfs4/_obfs4_aux.maude
+sload ../../obfs4/obfs4_prob.maude
+sload ../../common/maude/user-action-actor
+sload ../../raceboatMastodon/maude/enc-dec-actor
+sload ../../raceboatMastodonBidir/maude/rb-cm-bidir-mas.maude
+sload ../../mastodon/maude/probabilistic/mastodon
+sload ../../raceboatMastodon/maude/user_models/client_config_mastodon_bidi
+sload ../../raceboatMastodon/maude/user_models/server_config_mastodon_bidi
+sload ../../common/maude/http-overhead.maude
+sload ../skyhook/skyhook-um-mamodel-1
+sload ../../irc/common/irc-msg-model
+sload ../../raceboatSkyhook/maude/rb-cm-simple-bi
+sload ../../skyhook/skyhook_prob
+sload ../../s3/s3_protocol
+sload ../../dns/maude/probabilistic/iodine_dns.maude
+sload ../../dns/maude/common/_aux.maude
+sload ../../network/net_prob.maude
+sload ../../common/maude/structured-addresses.maude
+
+mod COMBINED_IRC_EXPERIMENTS is
+  pr SCHEDULER .
+  pr USER-ACTION-ACTOR .
+  pr SKYHOOK-UM-MAMODEL-1 .
+  pr IRC-V2 .
+  pr IRC-MAMODEL-V2 .
+  pr IRC-USER-ACTION-ACTOR-V2 .
+  pr IRC-BYTESEQ-INTERFACE .
+  pr CONTENT-MANAGER-SIMPLE-BI .
+  inc ENC-DEC .
+  inc CONTENT-MANAGER-BIDIR .
+  inc MASTODON .
+  inc MASTODON-CLIENT-CONFIG-MASTODON-BIDI-MAMODEL .
+  inc MASTODON-SERVER-CONFIG-MASTODON-BIDI-MAMODEL .
+  pr SKYHOOK .
+  pr S3_PROTOCOL .
+  pr IRC_MONITOR .
+  pr OBFS4 .
+  pr APP_CHATS .
+  pr IRC_NODE .
+  pr WEBTUNNEL .
+  pr IRC_NAMES .
+  pr IODINE_NODE .
+  pr IODINE_DNS .
+  pr TCP_SOCKET .
+  pr NETWORK_NODE .
+  pr NETWORK_CONNECTION .
+  inc STRUCTURED-ADDRESSES .
+
+  vars j : Nat .
+
+  eq encOH(fsize:Nat,ksize:Nat) = 0 .
+  eq noiseMin(msg:Msg)          = 0.00001 .
+  ***** Global constants  
+  **** the user model database
+  eq MAModelMap                 = ("irc-test" |-> irc-mamodel-v2 ) .
+  *** for the default case
+  eq noiseMax(msg:Msg)          = 0.001 .
+     
+  eq packetSize                 = 1000 .
+  eq maxPacketSize              = 967 .
+
+  op ed-images : -> ByteSeqL .
+  eq ed-images =
+       image(1, 3779, 500)
+    :: image(2, 2405, 1000)
+    :: image(3, 36861, 1000)
+    :: image(4, 25377, 500)
+    :: image(5, 2440, 300)
+    :: image(6, 1275, 300)
+    :: image(7, 7710, 1000)
+    :: image(8, 3577, 500)
+    :: image(9, 3415, 300)
+    :: image(10, 74123, 600)
+  .
+
+  ---------------------------------------------------
+  --- Iodine Zone Configurations
+  ---------------------------------------------------
+  op zonePwnd2Com4 : -> List{Record} .
+  eq zonePwnd2Com4 =
+    < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+    < 'ns . 'pwnd2 . 'com . root, a, 3600.0, serverIodineServer4Addr >
+    < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+    < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+    < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr > .
+
+  ---------------------------------------------------
+  --- Addresses
+  ---------------------------------------------------
+  ops ircClient1Addr ircClient2Addr ircClient3Addr ircClient4Addr : -> Address .
+  ops ircClient1UserModelAddr ircClient2UserModelAddr             : -> Address .
+  ops ircClient3UserModelAddr ircClient4UserModelAddr             : -> Address .
+  ops ircServerAddr s3SrvAddr ircMonitorAddr iodineMonitorAddr    : -> Address .
+  ops client1IfaceAddr server1IfaceAddr wtClient1Addr wtProxy1Addr : -> Address .
+  ops wtClient1NetClientAddr wtProxy1NetServerAddr                   : -> Address .
+  ops client2IfaceAddr server2IfaceAddr : -> Address .
+  ops obfs4Client2Addr obfs4Server2Addr : -> Address .
+  ops obfs4Client2NetClientAddr obfs4Server2NetServerAddr : -> Address .
+  ops client3IfaceAddr server3IfaceAddr                       : -> Address .
+  ops umac3Addr cmac3Addr pua3Addr sdkac3Addr                 : -> Address .
+  ops umas3Addr cmas3Addr aha3Addr sdkas3Addr                 : -> Address .
+  op skyhookClient3NetClientAddr : -> Address .
+  op skyhookServer3NetClientAddr : -> Address .
+op skyhookNetServerAddr : -> Address .
+  ops client4IfaceAddr serverIface4Addr                                  : -> Address .
+  ops sendApp4Addr iodineClient4Addr rcvApp4Addr serverIodineServer4Addr : -> Address .
+  ops iodineClient4NetClientAddr iodineServer4NetServerAddr              : -> Address .
+  ops ircClient5Addr ircClient5UserModelAddr client5IfaceAddr server5IfaceAddr : -> Address .
+  ops umac5Addr cmac5Addr mcac5Addr edac5Addr : -> Address .
+  ops umas5Addr cmas5Addr mcas5Addr edas5Addr : -> Address .
+  ops mastodonClient5NetClientAddr mastodonServer5NetClientAddr : -> Address .
+  op masNetServerAddr : -> Address .
+  ops masSrvAddr : -> Address .
+
+  eq ircServerAddr = a(srvN,srv,irc,srv,0) .
+
+  --- Webtunnel / Client 1
+  eq ircClient1Addr = a(cl[1],hcs,irc,cl,1) .
+  eq ircClient1UserModelAddr = a(cl[1],hcs,irc,um,1) .
+  eq client1IfaceAddr = a(cl[1],hcs,irc,if,1) .
+  eq server1IfaceAddr = a(srvN[1],hcs,irc,if,1) .
+  eq wtClient1Addr = a(cl[1],hcs,wt,cl,1) .
+  eq wtProxy1Addr = a(srvN[1],hcs,wt,srv,1) .
+  eq wtClient1NetClientAddr = a(cl[1],tcp,wt,cl,1) .
+  eq wtProxy1NetServerAddr = a(srvN[1],tcp,wt,srv,1) .
+
+  --- Obfs4 / Client 2
+  eq ircClient2Addr = a(cl[2],hcs,irc,cl,1) .
+  eq ircClient2UserModelAddr = a(cl[2],hcs,irc,um,1) .
+  eq client2IfaceAddr = a(cl[2],hcs,irc,if,1) .
+  eq server2IfaceAddr = a(srvN[2],hcs,irc,if,1) .
+  eq obfs4Client2Addr = a(cl[2],hcs,obfs,cl,1) .
+  eq obfs4Server2Addr = a(srvN[2],hcs,obfs,srv,1) .
+  eq obfs4Client2NetClientAddr = a(cl[2],tcp,obfs,cl,1) .
+  eq obfs4Server2NetServerAddr = a(srvN[2],tcp,obfs,srv,1) .
+
+  --- Skyhook / Client 3
+  eq ircClient3Addr = a(cl[3],hcs,irc,cl,1) .
+  eq ircClient3UserModelAddr = a(cl[3],hcs,irc,um,1) .
+  eq client3IfaceAddr = a(cl[3],hcs,irc,if,1) .
+  eq server3IfaceAddr = a(srvN[3],hcs,irc,if,1) .
+  eq umac3Addr = a(cl[3],hcs,sky,um,1) .
+  eq cmac3Addr = a(cl[3],hcs,sky,cm,1) .
+  eq pua3Addr = a(cl[3],hcs,sky,pu,1) .
+  eq sdkac3Addr = a(cl[3],hcs,sky,dl,1) .
+  eq umas3Addr = a(srvN[3],hcs,sky,um,1) .
+  eq cmas3Addr = a(srvN[3],hcs,sky,cm,1) .
+  eq aha3Addr = a(srvN[3],hcs,sky,ah,1) .
+  eq sdkas3Addr = a(srvN[3],hcs,sky,dl,1) .
+  eq skyhookClient3NetClientAddr = a(cl[3],tcp,sky,cl,1) .
+  eq skyhookServer3NetClientAddr = a(srvN[3],tcp,sky,cl,1) .
+  eq skyhookNetServerAddr = a(srvN[3],tcp,sky,srv,0) .
+  eq s3SrvAddr = a(minN,srv,min,srv,0) .
+
+  --- Iodine / Client 4
+  eq ircClient4Addr = a(cl[4],hcs,irc,cl,1) .
+  eq ircClient4UserModelAddr = a(cl[4],hcs,irc,um,1) .
+  eq client4IfaceAddr = a(cl[4],hcs,irc,if,1) .
+  eq serverIface4Addr = a(srvN[4],hcs,irc,if,1) .
+  eq sendApp4Addr = a(cl[4],hcs,iod,app,1) .
+  eq iodineClient4Addr = a(cl[4],hcs,iod,cl,1) .
+  eq rcvApp4Addr = a(srvN[4],hcs,iod,app,1) .
+  eq serverIodineServer4Addr = a(srvN[4],hcs,iod,iodSrv,1) .
+  eq iodineClient4NetClientAddr = a(cl[4],tcp,iod,cl,1) .
+  eq iodineServer4NetServerAddr = a(srvN[4],tcp,iod,srv,1) .
+
+  --- Mastodon / Client 5
+  eq ircClient5Addr = a(cl[5],hcs,irc,cl,1) .
+  eq ircClient5UserModelAddr = a(cl[5],hcs,irc,um,1) .
+  eq client5IfaceAddr = a(cl[5],hcs,irc,if,1) .
+  eq server5IfaceAddr = a(srvN[5],hcs,irc,if,1) .
+  eq umac5Addr = a(cl[5],hcs,mas,um,1) .
+  eq cmac5Addr = a(cl[5],hcs,mas,cm,1) .
+  eq mcac5Addr = a(cl[5],hcs,mas,mc,1) .
+  eq edac5Addr = a(cl[5],hcs,mas,ed,1) .
+  eq umas5Addr = a(srvN[5],hcs,mas,um,1) .
+  eq cmas5Addr = a(srvN[5],hcs,mas,cm,1) .
+  eq mcas5Addr = a(srvN[5],hcs,mas,mc,1) .
+  eq edas5Addr = a(srvN[5],hcs,mas,ed,1) .
+  eq mastodonClient5NetClientAddr = a(cl[5],tcp,mas,cl,1) .
+  eq mastodonServer5NetClientAddr = a(srvN[5],tcp,mas,cl,1) .
+  eq masNetServerAddr = a(masN,tcp,mas,srv,0) .
+  eq masSrvAddr = a(masN,srv,mas,srv,0) .  ---------------------------------------------------
+  --- Link model parameters
+  ---------------------------------------------------
+
+  eq transport(any:Address) = tcp(any:Address) .
+
+  ops LinkType-TCP-4stateLoss LinkType-TCP-4stateLossIxp : -> AttributeSet .
+  eq LinkType-TCP-4stateLoss = 
+  (4stateLoss: 
+     (p13: 0.0,
+      p31: 1.0,
+      p32: 0.0,
+      p23: 0.0,
+      p14: 0.0,
+      oneWayDelay: 0.01)
+  )
+  .
+  eq LinkType-TCP-4stateLossIxp = 
+  (4stateLoss: 
+     (p13: 0.0,
+      p31: 1.0,
+      p32: 0.0,
+      p23: 0.0,
+      p14: 0.0,
+      oneWayDelay: 0.005)
+  )
+  .
+
+  eq LinkData =
+    --- Client 1 (Webtunnel) Links
+    aaa(wtClient1Addr, wtProxy1Addr,  LinkType-TCP-4stateLoss)
+    aaa(wtProxy1Addr,  wtClient1Addr, LinkType-TCP-4stateLoss)
+    
+    --- Client 2 (OBFS4) Links
+    aaa(obfs4Client2Addr, obfs4Server2Addr, LinkType-TCP-4stateLoss)
+    aaa(obfs4Server2Addr, obfs4Client2Addr, LinkType-TCP-4stateLoss)
+
+    --- Client 3 (Skyhook) Links
+    aaa(s3SrvAddr, sdkac3Addr, LinkType-TCP-4stateLoss)
+    aaa(s3SrvAddr, sdkas3Addr, LinkType-TCP-4stateLoss)
+    aaa(sdkac3Addr, s3SrvAddr, LinkType-TCP-4stateLoss)
+    aaa(sdkas3Addr, s3SrvAddr, LinkType-TCP-4stateLoss) 
+    
+    --- Client 4 (Iodine) Links
+    aaa(serverIodineServer4Addr, iodineClient4Addr, LinkType-TCP-4stateLoss)
+    aaa(iodineClient4Addr, serverIodineServer4Addr, LinkType-TCP-4stateLoss) 
+    
+    --- Client 5 (Mastodon) Links
+    aaa(masSrvAddr, mcac5Addr, LinkType-TCP-4stateLoss)
+    aaa(masSrvAddr, mcas5Addr, LinkType-TCP-4stateLoss)
+    aaa(mcac5Addr, masSrvAddr, LinkType-TCP-4stateLoss)
+    aaa(mcas5Addr, masSrvAddr, LinkType-TCP-4stateLoss) 
+    aaa(wtProxy1Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, wtProxy1Addr, LinkType-TCP-4stateLossIxp)
+    aaa(wtClient1Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, wtClient1Addr, LinkType-TCP-4stateLossIxp)
+
+    aaa(obfs4Server2Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, obfs4Server2Addr, LinkType-TCP-4stateLossIxp)
+    aaa(obfs4Client2Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, obfs4Client2Addr, LinkType-TCP-4stateLossIxp)
+
+    aaa(s3SrvAddr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, s3SrvAddr, LinkType-TCP-4stateLossIxp)
+    aaa(sdkac3Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, sdkac3Addr, LinkType-TCP-4stateLossIxp)
+    aaa(sdkas3Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, sdkas3Addr, LinkType-TCP-4stateLossIxp)
+
+    aaa(serverIodineServer4Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, serverIodineServer4Addr, LinkType-TCP-4stateLossIxp)
+    aaa(iodineClient4Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, iodineClient4Addr, LinkType-TCP-4stateLossIxp)
+
+    aaa(masSrvAddr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, masSrvAddr, LinkType-TCP-4stateLossIxp)
+    aaa(mcac5Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, mcac5Addr, LinkType-TCP-4stateLossIxp)
+    aaa(mcas5Addr, IXP-DEFAULT-ADDR, LinkType-TCP-4stateLossIxp)
+    aaa(IXP-DEFAULT-ADDR, mcas5Addr, LinkType-TCP-4stateLossIxp)
+  .
+
+  ---------------------------------------------------
+  --- Actors Setup
+  ---------------------------------------------------
+  ops ircClient1 ircClient2 ircClient3 ircClient4 ircServer s3SrvAct iodineMonitor : -> Actor .
+  ops ircClient1UserModel ircClient2UserModel ircClient3UserModel ircClient4UserModel : -> Actor .
+  
+  ops client1Iface server1Iface wtClient1 wtProxy1 : -> Actor .
+  ops wtClient1NetClient wtProxy1NetServer : -> Actor .
+  ops client2Iface server2Iface obfs4Client2 obfs4Server2 : -> Actor .
+  ops obfs4Client2NetClient obfs4Server2NetServer : -> Actor .
+  ops client3Iface server3Iface umac3Act cmac3Act pua3Act sdkac3Act umas3Act cmas3Act aha3Act sdkas3Act : -> Actor .
+  ops skyhookClient3NetClient skyhookServer3NetClient skyhookNetServer : -> Actor .
+  ops client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4 : -> Actor .
+  ops iodineClient4NetClient iodineServer4NetServer : -> Actor .
+
+  ops ircClient5 ircClient5UserModel : -> Actor .
+  ops client5Iface server5Iface umac5Act cmac5Act mcac5Act edac5Act umas5Act cmas5Act mcas5Act edas5Act : -> Actor .
+  ops mastodonClient5NetClient mastodonServer5NetClient masNetServer masSrvAct : -> Actor .
+
+  op advAddr : -> Address .
+  op advActor : -> Actor .
+  eq advActor = mkAdversaryCp3(advAddr) .
+
+  --- Client 1 (Webtunnel) Setup
+  eq ircClient1          = mkIrcClient-v2(ircClient1Addr, client1IfaceAddr, "Client1") .
+  eq ircClient1UserModel = mkIrcUMV2Actor(ircClient1UserModelAddr, "irc-test", ircClient1Addr) .
+  eq client1Iface        = mkIrcByteSeqIface(client1IfaceAddr, ircClient1Addr, wtClient1Addr) .
+  eq server1Iface        = mkIrcByteSeqIface(server1IfaceAddr, ircServerAddr, wtProxy1Addr) .
+
+  --- WtClient normally relies on learning the address of its local IRC client dynamically when the local client sends its first outbound message.
+  --- Because the server's notification arrived before Alice sent her first outbound message, wtClient tried to forward the notification to nullAddr.
+  --- Maude doesn't have an actor for nullAddr, so the to nullAddr message got permanently stuck at the very front of the event queue. 
+  --- To circumvent this, we initialize wtClient with the address of its local IRC client client1IfaceAddr.
+
+  eq wtClient1 =
+    < wtClient1Addr : WtClient |
+        thisAddr:        wtClient1Addr,
+        serverProxyAddr: wtProxy1Addr,
+        ircServerAddr:   ircServerAddr,
+        ircClientAddr:   client1IfaceAddr,
+        tlsServerName:   "irc.example.com",
+        upgradePath:     "secret/path/v1",
+        tunnelState:     Closed,
+        pendingMsgs:     emptyQueue >
+  .
+  eq wtProxy1            = makeWtServerProxy(wtProxy1Addr, server1IfaceAddr) .
+  eq wtClient1NetClient  = makeNetClient(wtClient1NetClientAddr, wtProxy1Addr, wtClient1Addr, true, nullAddr, nullName) .
+  eq wtProxy1NetServer   = makeNetServer(wtProxy1NetServerAddr, wtProxy1Addr) .
+
+  --- Client 2 (OBFS4) Setup
+  eq ircClient2          = mkIrcClient-v2(ircClient2Addr, client2IfaceAddr, "Client2") .
+  eq ircClient2UserModel = mkIrcUMV2Actor(ircClient2UserModelAddr, "irc-test", ircClient2Addr) .
+  eq client2Iface        = mkIrcByteSeqIface(client2IfaceAddr, ircClient2Addr, obfs4Client2Addr) .
+  eq obfs4Client2        = makeObfs4Node(obfs4Client2Addr, client2IfaceAddr, obfs4Server2Addr) .
+  eq server2Iface        = mkIrcByteSeqIface(server2IfaceAddr, ircServerAddr, obfs4Server2Addr) .
+  eq obfs4Server2        = makeObfs4Node(obfs4Server2Addr, server2IfaceAddr, obfs4Client2Addr) .
+  eq obfs4Client2NetClient = makeNetClient(obfs4Client2NetClientAddr, obfs4Server2Addr, obfs4Client2Addr, true, nullAddr, nullName) .
+  eq obfs4Server2NetServer = makeNetServer(obfs4Server2NetServerAddr, obfs4Server2Addr) .
+
+  --- Client 3 (Skyhook) Setup
+  eq ircClient3          = mkIrcClient-v2(ircClient3Addr, client3IfaceAddr, "Client3") .
+  eq ircClient3UserModel = mkIrcUMV2Actor(ircClient3UserModelAddr, "irc-test", ircClient3Addr) .
+  eq client3Iface        = mkIrcByteSeqIface(client3IfaceAddr, ircClient3Addr, cmac3Addr) .
+  eq umac3Act            = mkUMactor(umac3Addr, skyhook-um-mamodel-1-ma, cmac3Addr) .
+  eq cmac3Act            = mkCMSimpleBi(cmac3Addr, client3IfaceAddr, pua3Addr) .
+  eq pua3Act             = makeSkyhookPU(pua3Addr, cmac3Addr, sdkac3Addr, "s_to_c_bucket_a", "c_to_s_bucket_a", "s_to_c_uuid_a", "c_to_s_uuid_a-hash") .
+  eq sdkac3Act           = makeS3Client(sdkac3Addr, s3SrvAddr) .
+  eq server3Iface        = mkIrcByteSeqIface(server3IfaceAddr, ircServerAddr, cmas3Addr) .
+  eq umas3Act            = mkUMactor(umas3Addr, skyhook-um-mamodel-1-ma, cmas3Addr) .
+  eq cmas3Act            = mkCMSimpleBi(cmas3Addr, server3IfaceAddr, aha3Addr) .
+  eq aha3Act             = mkSkyhookAH(aha3Addr, cmas3Addr, sdkas3Addr, "c_to_s_bucket_a", "s_to_c_bucket_a", "c_to_s_uuid_a", "s_to_c_uuid_a", "s_to_c_uuid_a", 6) .
+  eq sdkas3Act           = makeS3Client(sdkas3Addr, s3SrvAddr) .
+  eq skyhookClient3NetClient = makeNetClient(skyhookClient3NetClientAddr, s3SrvAddr, sdkac3Addr, true, nullAddr, nullName) .
+  eq skyhookNetServer = makeNetServer(skyhookNetServerAddr, s3SrvAddr) .
+  eq skyhookServer3NetClient = makeNetClient(skyhookServer3NetClientAddr, s3SrvAddr, sdkas3Addr, true, nullAddr, nullName) .
+
+  --- Client 4 (Iodine) Setup
+  eq ircClient4          = mkIrcClient-v2(ircClient4Addr, client4IfaceAddr, "Client4") .
+  eq ircClient4UserModel = mkIrcUMV2Actor(ircClient4UserModelAddr, "irc-test", ircClient4Addr) .
+  eq client4Iface        = mkIrcByteSeqIface(client4IfaceAddr, ircClient4Addr, sendApp4Addr) .
+  eq serverIface4        = mkIrcByteSeqIface(serverIface4Addr, ircServerAddr, rcvApp4Addr) .
+  eq sendApp4            = mkSendApp(sendApp4Addr, rcvApp4Addr, client4IfaceAddr, iodineClient4Addr) .
+  eq rcvApp4             = mkRcvApp(rcvApp4Addr, sendApp4Addr, serverIface4Addr, serverIodineServer4Addr) .
+  eq iodineClient4       = makeWClient(iodineClient4Addr, serverIodineServer4Addr, 'pwnd2 . 'com . root, a, 0.0) .
+  eq serverIodineServer4 = makeWNameServer(serverIodineServer4Addr, 0.0, zonePwnd2Com4) .
+  eq iodineClient4NetClient = makeNetClient(iodineClient4NetClientAddr, serverIodineServer4Addr, iodineClient4Addr, true, nullAddr, nullName) .
+  eq iodineServer4NetServer = makeNetServer(iodineServer4NetServerAddr, serverIodineServer4Addr) .
+
+  --- Base Infrastructure Setup
+  eq s3SrvAct            = makeS3Server(s3SrvAddr) .
+  eq ircServer           = mkIrcServer(ircServerAddr) .
+  eq iodineMonitor       = mkWMonitor(iodineMonitorAddr) .
+  eq masSrvAct = makeMastodonServer(masSrvAddr) .
+
+  --- Client 5 (Mastodon) Setup
+  eq ircClient5          = mkIrcClient-v2(ircClient5Addr, client5IfaceAddr, "Client5") .
+  eq ircClient5UserModel = mkIrcUMV2Actor(ircClient5UserModelAddr, "irc-test", ircClient5Addr) .
+  eq client5Iface        = mkIrcByteSeqIface(client5IfaceAddr, ircClient5Addr, cmac5Addr) .
+  eq umac5Act            = mkUMactor(umac5Addr, mastodon-client-config-mastodon-bidi-ma, cmac5Addr) .
+  eq cmac5Act            = mkCMSndRcvActor(cmac5Addr, edac5Addr, mcac5Addr, client5IfaceAddr, "client5", "server5") .
+  eq mcac5Act            = makeMastodonClient(mcac5Addr, masSrvAddr, cmac5Addr) .
+  eq edac5Act            = makeDestiniActor(edac5Addr, ed-images) .
+  
+  eq server5Iface        = mkIrcByteSeqIface(server5IfaceAddr, ircServerAddr, cmas5Addr) .
+  eq umas5Act            = mkUMactor(umas5Addr, mastodon-client-config-mastodon-bidi-ma, cmas5Addr) .
+  eq cmas5Act            = mkCMSndRcvActor(cmas5Addr, edas5Addr, mcas5Addr, server5IfaceAddr, "server5", "client5") .
+  eq mcas5Act            = makeMastodonClient(mcas5Addr, masSrvAddr, cmas5Addr) .
+  eq edas5Act            = makeDestiniActor(edas5Addr, ed-images) .
+  
+  eq mastodonClient5NetClient = makeNetClient(mastodonClient5NetClientAddr, masSrvAddr, mcac5Addr, true, nullAddr, nullName) .
+  eq masNetServer      = makeNetServer(masNetServerAddr, masSrvAddr) .
+  eq mastodonServer5NetClient = makeNetClient(mastodonServer5NetClientAddr, masSrvAddr, mcas5Addr, true, nullAddr, nullName) .
+
+  ---------------------------------------------------
+  --- Initial State Configuration
+  ---------------------------------------------------
+  op initState : Nat -> Config .
+  eq initState(j) =
+    rCtr(j + 8)
+
+    --- Core Shared Infrastructure
+    ircServer s3SrvAct iodineMonitor
+    mkIrcMonitor(ircMonitorAddr)
+
+    --- Client 1 Entities (Webtunnel)
+    ircClient1 ircClient1UserModel client1Iface server1Iface wtClient1 wtProxy1
+    wtClient1NetClient wtProxy1NetServer
+    
+    --- Client 2 Entities (OBFS4)
+    ircClient2 ircClient2UserModel client2Iface server2Iface obfs4Client2 obfs4Server2
+    obfs4Client2NetClient obfs4Server2NetServer
+    
+    --- Client 3 Entities (Skyhook)
+    ircClient3 ircClient3UserModel client3Iface umac3Act cmac3Act pua3Act sdkac3Act server3Iface umas3Act cmas3Act aha3Act sdkas3Act
+    skyhookClient3NetClient skyhookNetServer skyhookServer3NetClient
+    
+    --- Client 4 (Iodine)
+    ircClient4 ircClient4UserModel client4Iface serverIface4 sendApp4 rcvApp4 iodineClient4 serverIodineServer4
+    iodineClient4NetClient iodineServer4NetServer
+
+    --- Client 5 (Mastodon)
+    ircClient5 ircClient5UserModel client5Iface server5Iface umac5Act cmac5Act mcac5Act edac5Act umas5Act cmas5Act mcas5Act edas5Act
+    mastodonClient5NetClient masNetServer mastodonServer5NetClient
+    
+    masSrvAct
+    advActor
+
+    --- Timers & Execution Triggers
+
+    [0.001, (to aha3Addr from aha3Addr : SkyhookStartCmd), 0]
+    [0.20, (to wtClient1Addr from wtClient1Addr : WtStartCmd), 0]
+
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to umac3Addr from umac3Addr : actionR("ok")), 0]
+    [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas3Addr from umas3Addr : actionR("ok")), 0]
+    
+    --- Start the send and rcv "apps" for Iodine.
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to sendApp4Addr : start), 0]
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to rcvApp4Addr : start), 0]
+    
+    [1.0 + genRandomX(j, 0.0, 0.0001), (to umac5Addr from umac5Addr : actionR("ok")), 0]
+    [1.0 + genRandomX(s s j, 0.0, 0.0001), (to umas5Addr from umas5Addr : actionR("ok")), 0]
+
+    [20.0, (to ircClient1UserModelAddr from ircClient1UserModelAddr : burstDelayTO), 0]
+    [21.0, (to ircClient2UserModelAddr from ircClient2UserModelAddr : burstDelayTO), 0]
+    [22.0, (to ircClient3UserModelAddr from ircClient3UserModelAddr : burstDelayTO), 0]
+    [23.0, (to ircClient4UserModelAddr from ircClient4UserModelAddr : burstDelayTO), 0]
+    [24.0, (to ircClient5UserModelAddr from ircClient5UserModelAddr : burstDelayTO), 0]
+  .
+
+  ---------------------------------------------------
+  --- Run Limits and Initial Configurations
+  ---------------------------------------------------
+  op slimit : -> Float .
+  eq slimit = 1000.0 .
+
+  op initConfig : -> Config .
+  rl[init]: initConfig => run({0.0 | nil} initState(counter), slimit) .
+  op allClientsAddr : -> AddrList .
+  eq allClientsAddr = ircClient1Addr ; ircClient2Addr ; ircClient3Addr ; ircClient4Addr ; ircClient5Addr .
+
+endm
+
+set print attribute on .
+rew initConfig .
+q

@@ -111,7 +111,7 @@ class RbSendApp:
             rbContentMgrAddr: contentMgr:Address,
             contractCount: 0,
             queue: contracts:ByteSeqL,
-            currentCcFile: nilBytes
+            currentCcFile: noBytes
         > .
     """
     def __init__(self, address:str, toAddress:str, iodineTunAddress: str, rbUMAddress: str, rbCMAddress: str, hashtags:list[str], xfiles: list[XFile], donePause: float, start:float = 0.0):
@@ -145,9 +145,9 @@ class RbRcvApp:
                 iodineAddr: Iodine:Address,
                 rbUserModelAddr: rbUserModel:Address,
                 rbContentMgrAddr: rbContentMgr:Address,
-                currentKey: nilBytes,
-                currentHash: nilBytes,
-                currentHashTag: nilBytes,
+                currentKey: noBytes,
+                currentHash: noBytes,
+                currentHashTag: noBytes,
                 rcvd: emptyFileList
             > .
     """

@@ -1,0 +1,298 @@
+set show advisories off .
+
+sload ../../../deps/dns_formalization/Maude/common/actor
+
+
+mod ADVERSARY-CP3-DATA is
+  inc ACTOR-MODEL .
+  inc CONVERSION .
+
+vars tsnd : Float .
+vars tixp trcv : FloatInf .
+vars msg : Msg .
+vars pkt : Pkt  .
+vars addr src tgt : Address .
+vars new? : Bool .
+vars cnx size : Nat .
+
+vars tol0 tol1 tol : TimesObsList .
+vars to0 to1 : TimesObs .
+
+**** For segmenting tol by flow
+vars flow : Flow .
+**** vars tol : TimesObsList .
+vars to : TimesObs .
+vars ftol : Flow2TOL .
+vars toll : TimesObsLL .
+
+
+sort FloatInf .
+subsort Float < FloatInf .
+op infty : -> FloatInf [ctor] .
+
+sorts TimesMsg TimesPkt TimesObs .
+subsort TimesMsg  < TimesObs .
+subsort TimesPkt  < TimesObs .
+sort TimesObsList .
+**** subsort TimesMsg TimesPkt < TimesObsList .
+subsort TimesObs < TimesObsList .
+op nilTO : -> TimesObsList [ctor] .
+op _;;_ : TimesObsList TimesObsList -> TimesObsList
+            [ctor assoc id: nilTO] .
+op tm : Float FloatInf FloatInf Msg -> TimesMsg [ctor] .
+
+op len : TimesObsList -> Nat .
+eq len(nilTO) = 0 .
+eq len(to0 ;; tol0) = s len(tol0) .
+
+
+op getSendTime : TimesMsg -> Float .
+eq getSendTime(tm(tsnd,tixp,trcv,msg)) = tsnd .
+op getRecvTime : TimesMsg -> FloatInf .
+eq getRecvTime(tm(tsnd,tixp,trcv,msg)) = trcv .
+op getIXPTime : TimesMsg -> FloatInf .
+eq getIXPTime(tm(tsnd,tixp,trcv,msg)) = tixp .
+
+op getSender : TimesMsg -> Address .
+eq getSender(tm(tsnd,tixp,trcv, 
+                (to tgt from src : c:Content))) = src .
+op getReceiver : TimesMsg -> Address .
+eq getReceiver(tm(tsnd,tixp,trcv, 
+                (to tgt from src : c:Content))) = tgt .
+
+
+
+sort Pkt .
+-----                     new? cnx size
+op pkt : Address Address  Bool Nat Nat -> Pkt [ctor] .
+
+op tp : Float FloatInf FloatInf Pkt -> TimesPkt [ctor] .
+
+
+op getSendTime : TimesPkt -> Float .
+eq getSendTime(tp(tsnd,tixp,trcv,pkt)) = tsnd .
+op getRecvTime : TimesPkt -> FloatInf .
+eq getRecvTime(tp(tsnd,tixp,trcv,pkt)) = trcv .
+op getIXPTime : TimesPkt -> FloatInf .
+eq getIXPTime(tp(tsnd,tixp,trcv,pkt)) = tixp .
+
+op getSender : TimesPkt -> Address .
+eq getSender(tp(tsnd,tixp,trcv,pkt(tgt,src,new?,cnx,size))) 
+      =  src .
+op getReceiver : TimesMsg -> Address .
+eq getReceiver(tp(tsnd,tixp,trcv, pkt(tgt,src,new?,cnx,size))) 
+      =  tgt .
+
+
+sort Flow .
+op flow : Address Address Nat -> Flow [ctor] .
+
+op getFlow : TimesPkt -> Flow .
+op getFlow : Pkt -> Flow .
+eq getFlow (tp(tsnd,tixp,trcv,pkt)) = getFlow(pkt) .
+eq getFlow(pkt(tgt,src,new?,cnx,size)) =
+           flow(tgt,src,cnx) .
+
+op getSize : TimesPkt -> Nat .
+op getSize : Pkt -> Nat .
+eq getSize (tp(tsnd,tixp,trcv,pkt)) = getSize(pkt) .
+eq getSize(pkt(tgt,src,new?,cnx,size)) = size .
+
+op mergeTOL :  TimesObsList TimesObsList -> TimesObsList .
+op toInsert :  TimesObsList TimesObsList TimesObsList -> TimesObsList .
+eq mergeTOL(tol0,nilTO) = tol0 .
+ceq mergeTOL(tol0,to0 ;; tol) = mergeTOL(tol1,tol) 
+  if tol1 := toInsert(tol0,to0,nilTO) .
+
+eq toInsert(nilTO,to0,tol1)  = to0 ;; tol1 . 
+eq toInsert(tol0 ;; to1,to0,tol1) =
+  (if getSendTime(to1) <= getSendTime(to0)
+  then tol0 ;; to1 ;; to0 ;; tol1
+  else toInsert(tol0,to0, to1 ;; tol1)
+  fi)
+  .
+
+******** new stuff 26Aug12
+
+  sort TimesObsLL .
+  op `[_`]  : TimesObsList -> TimesObsLL .
+  op nilTOL : -> TimesObsLL .
+  op _:;_ : TimesObsLL TimesObsLL -> TimesObsLL [ctor assoc id: nilTOL] .
+
+*** vars toll : TimesObsLL .
+vars n : Nat .
+*** vars tol : TimesObsList .
+
+  op len : TimesObsLL -> Nat .
+  op len$ : TimesObsLL Nat -> Nat .
+  eq len(toll) = len$(toll,0) .
+  eq len$(nilTOL,n) = n .
+  eq len$([tol] :; toll,n) = len$(toll,s n) .
+
+  sort Flow2TOLElt Flow2TOL .
+  subsort Flow2TOLElt < Flow2TOL .
+  op mtFTOL : -> Flow2TOL .
+  op _>>_ : Flow TimesObsList -> Flow2TOLElt .
+  op __ : Flow2TOL Flow2TOL -> Flow2TOL [ctor assoc comm id: mtFTOL] .
+
+  op insertFloTo : Flow2TOL Flow TimesObsList ->  Flow2TOL .
+  eq insertFloTo(ftol (flow >> tol) , flow, to) = ftol (flow >> tol ;; to) .
+  eq insertFloTo(ftol, flow, to) = ftol (flow >> to) [owise] .
+
+
+  op tolByFlow : TimesObsList Flow2TOL -> Flow2TOL .
+  eq tolByFlow(nilTO,ftol) = ftol .
+  eq tolByFlow( to ;; tol, ftol) = tolByFlow(tol, addTo2Ftol(to,ftol)) .
+  op addTo2Ftol : TimesObs Flow2TOL -> Flow2TOL .
+  ceq addTo2Ftol(to,ftol) = insertFloTo(ftol,flow,to)    
+  if flow := (if to :: TimesMsg
+             then flow(getReceiver(to),getSender(to),0)
+             else getFlow(to)
+             fi)  .           
+           
+
+  op ftol2toll : Flow2TOL TimesObsLL -> TimesObsLL .
+  eq ftol2toll(mtFTOL,toll) = toll .
+  eq ftol2toll(ftol (flow >> tol),toll) = 
+        ftol2toll(ftol,toll :; [tol]) .
+  
+  
+endm
+
+
+mod ADVERSARY-CP3 is
+  inc ADVERSARY-CP3-DATA .
+  
+vars addr : Address .
+vars b : Bool .
+  
+op Adversary : -> ActorType .
+
+op dns:_ : TimesObsList -> Attribute [ctor] .
+op tcp:_ : TimesObsList -> Attribute [ctor] .
+op useTcpTPL:_ : Bool -> Attribute [ctor] .
+
+op mkAdversaryCp3 : Address -> Actor .
+eq mkAdversaryCp3(addr) = mkAdversaryCp3(addr, true) .
+
+op mkAdversaryCp3 : Address Bool -> Actor .
+eq mkAdversaryCp3(addr, b) =
+  < addr : Adversary | 
+      dns: nilTO,
+      tcp: nilTO,
+      useTcpTPL: b
+  >
+.   
+     
+endm
+
+mod TEST-ADVERSARY-CP3-DATA is
+  inc ADVERSARY-CP3-DATA .
+
+ops aDr0 aDr1 : -> Address .
+ops bDr0 bDr1 : -> Address .
+ops Q0 Q1 Q2 Q3 : -> Content .
+
+ops tmL0 tmL1 : -> TimesObsList .
+ops tpL0 tpL1 : -> TimesObsList .
+
+eq tpL0 =
+tp(2.0456611545367629e-2, 2.5456611545367634e-2, 3.0456611545367631e-2, pkt(aDr0, aDr1, false, 1, 52)) ;; 
+tp(2.10456611545367629e-2, 2.56611545367634e-2, 3.04611545367631e-2, pkt(bDr0, bDr1, false, 1, 52)) ;; 
+tp(4.0456611545367629e-2, 2.5456611545367634e-2, 3.0456611545367631e-2, pkt(bDr0, bDr1, false, 1, 1500)) ;; 
+tp(4.056611545367629e-2, 2.556611545367634e-2, 3.056611545367631e-2, pkt(aDr0, aDr1, false, 1, 1500)) ;; 
+tp(8.0456611545367623e-2, 4.5456611545367634e-2, 5.0456611545367638e-2, pkt(aDr0, aDr1, false, 3, 1500)) 
+.
+
+eq tpL1 = 
+tp(3.0456611545367626e-2, 4.5456611545367634e-2, 5.0456611545367638e-2, pkt(aDr1, aDr0, false, 2, 52)) ;;
+tp(4.00703725921623399e-2, 2.570372592162341e-2, 3.0703725921623407e-2, pkt(aDr1, aDr0, false, 2, 1500)) ;;
+tp(1.0045661154536761e-1, 4.5456611545367634e-2, 5.0456611545367638e-2, pkt(aDr0, aDr1, false, 3, 252)) 
+.
+
+eq tmL0 =
+tm(1.2129300074488858e-3, 1.4042894572811203e-3, 1.6167725515807982e-3, to aDr0 from aDr1 : Q0) ;; 
+tm(1.656334999531973e-3, 2.032445014314726e-3, 1.6709835267974993e-3, to bDr0 from bDr1 : Q3) ;;
+tm(1.8660735806613231e-3, 2.6039156608958728e-3, 2.1616652487777173e-3, to aDr1 from aDr0 : Q1) 
+.
+eq tmL1 =
+tm( 1.6358449236908927e-3, 1.8091359796700997e-3, 2.466495551732369e-3, to bDr1 from bDr0 : Q1) ;; 
+ tm(1.7847280164342374e-3, 3.3586502367677169e-3, 3.0620359053951688e-3, to aDr0 from aDr1 : Q0) ;;
+ tm(1.8948197013954633e-3, 2.8573863608622923e-3, 2.3337748846109026e-3, to aDr0 from aDr1 : Q2)
+ .
+  
+endm  
+eof
+
+
+red tolByFlow(tpL0, mtFTOL) .
+***(
+  (flow(aDr0, aDr1, 1) >> tp(4.0566115453676291e-2,
+    2.556611545367634e-2, 3.056611545367631e-2, pkt(aDr0, aDr1, false, 1,
+    1500)))
+     (flow(aDr0, aDr1, 3) >> tp(8.0456611545367623e-2,
+    4.5456611545367634e-2, 5.0456611545367638e-2, pkt(aDr0, aDr1, false, 3,
+    1500)))
+     flow(bDr0, bDr1, 1) >> tp(2.1045661154536762e-2,
+    2.56611545367634e-2, 3.04611545367631e-2, pkt(bDr0, bDr1, false, 1,
+    52)) ;; tp(4.0456611545367629e-2, 2.5456611545367634e-2,
+    3.0456611545367631e-2, pkt(bDr0, bDr1, false, 1, 1500)))
+
+red  ftol2toll(tolByFlow(tpL0, mtFTOL),nilTOL) .
+***(
+
+ [tp(2.0456611545367629e-2, 2.5456611545367634e-2,
+    3.0456611545367631e-2, pkt(aDr0, aDr1, false, 1, 52)) ;; tp(
+    4.0566115453676291e-2, 2.556611545367634e-2, 3.056611545367631e-2, pkt(
+    aDr0, aDr1, false, 1, 1500))] :; 
+[tp(8.0456611545367623e-2,
+    4.5456611545367634e-2, 5.0456611545367638e-2, pkt(aDr0, aDr1, false, 3,
+    1500))] :; 
+[tp(2.1045661154536762e-2, 2.56611545367634e-2,
+    3.04611545367631e-2, pkt(bDr0, bDr1, false, 1, 52)) ;; tp(
+    4.0456611545367629e-2, 2.5456611545367634e-2, 3.0456611545367631e-2,
+    pkt(bDr0, bDr1, false, 1, 1500))]
+)
+***************
+red tolByFlow(tmL0, mtFTOL) .
+***(
+ (flow(aDr0, aDr1, 0) >> tm(1.2129300074488858e-3,
+    1.4042894572811203e-3, 1.6167725515807982e-3, to aDr0 from aDr1 : Q0))
+    (flow(aDr1, aDr0, 0) >> tm(1.8660735806613231e-3,
+    2.6039156608958728e-3, 2.1616652487777173e-3, to aDr1 from aDr0 : Q1))
+    flow(bDr0, bDr1, 0) >> tm(1.656334999531973e-3, 2.032445014314726e-3,
+    1.6709835267974993e-3, to bDr0 from bDr1 : Q3)
+)
+    
+red tolByFlow(mergeTOL(tmL0,tmL1) , mtFTOL) .  --- missing some flows
+
+red tolByFlow(mergeTOL(tpL0,tpL1) , mtFTOL) . 
+red ftol2toll(tolByFlow(mergeTOL(tpL0,tpL1) , mtFTOL),nilTOL) . 
+
+red tolByFlow(mergeTOL(tpL0,tmL1) , mtFTOL) . 
+red ftol2toll(tolByFlow(mergeTOL(tpL0,tmL1) , mtFTOL) , nilTOL) .
+
+red mergeTOL(tmL0,tmL1) .
+***(
+
+tm(1.2129300074488858e-3, 1.4042894572811203e-3, 1.6167725515807982e-3, to aDr0 from aDr1 : Q0) ;; 
+tm( 1.6358449236908927e-3, 1.8091359796700997e-3, 2.466495551732369e-3, to aDr1 from aDr0 : Q1) ;; 
+tm(1.656334999531973e-3, 2.032445014314726e-3, 1.6709835267974993e-3, to aDr0 from aDr1 : Q3) ;; 
+tm(1.7847280164342374e-3, 3.3586502367677169e-3, 3.0620359053951688e-3, to aDr0 from aDr1 : Q0) ;; 
+tm( 1.8660735806613231e-3, 2.6039156608958728e-3, 2.1616652487777173e-3, to aDr1 from aDr0 : Q1) ;; 
+tm( 1.8948197013954633e-3, 2.8573863608622923e-3, 2.3337748846109026e-3, to aDr0 from aDr1 : Q2)
+)
+
+red mergeTOL(tmL1,tmLo0) .
+*** ok
+
+red mergeTOL(tpL0,tpL1) .
+***(
+tp(2.0456611545367629e-2, 2.5456611545367634e-2, 3.0456611545367631e-2, pkt(aDr0, aDr1, false, 0, 52)) ;; 
+tp( 3.0456611545367628e-2, 4.5456611545367634e-2, 5.0456611545367638e-2, pkt(aDr1, aDr0, false, 0, 52)) ;; 
+tp( 4.007037259216234e-2, 2.570372592162341e-2, 3.0703725921623407e-2, pkt(aDr1, aDr0, false, 0, 1500)) ;;
+tp(4.0456611545367629e-2, 2.5456611545367634e-2, 3.0456611545367631e-2, pkt(aDr0, aDr1, false, 0, 1500)) ;; 
+tp(8.0456611545367623e-2, 4.5456611545367634e-2, 5.0456611545367638e-2, pkt(aDr0, aDr1, false, 0, 1500)) ;; 
+tp(1.0045661154536761e-1, 4.5456611545367634e-2, 5.0456611545367638e-2, pkt(aDr0, aDr1, false, 0, 252))
+)
+

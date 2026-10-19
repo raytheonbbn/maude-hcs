@@ -1,0 +1,362 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../../dns/maude/probabilistic/iodine_dns.maude
+sload ../../dns/maude/common/_aux.maude
+
+sload ../../common/maude/irc-action-actor-v2.maude
+sload ../../irc/irc_prob-v2.maude
+sload ../../irc/ircMonitor.maude
+sload ../../irc/irc-byteseq-interface.maude
+sload ../../irc/irc-mamodel-v2.maude
+sload ../../network/tcp.maude
+sload ../../network/net_prob.maude
+sload ../../../deps/dns_formalization/Maude/common/apmaude.maude
+sload ../../common/maude/structured-addresses.maude
+
+mod TEST_IODINE_IRC is
+  pr IRC-V2 .
+  pr IRC_MONITOR .
+  pr IRC-MAMODEL-V2 .
+  pr IRC-USER-ACTION-ACTOR-V2 .
+  pr IRC-BYTESEQ-INTERFACE .
+  pr TCP_SOCKET .
+  pr NETWORK_CONNECTION .
+  inc STRUCTURED-ADDRESSES .
+  pr IODINE_NODE .
+  pr IODINE_DNS .
+
+  eq MAModelMap = ("irc-test" |-> irc-mamodel-v2 ) .
+
+  ---------------------------------------------------
+  --- Iodine parameters and configs
+  ---------------------------------------------------
+  eq packetSize = 1000 .
+  eq maxPacketSize  = 967 .
+
+  op aliceZonePwnd2Com : -> List{Record} .
+  eq aliceZonePwnd2Com =
+    < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+    < 'ns . 'pwnd2 . 'com . root, a, 3600.0, serverAliceIodineServerAddr >
+    < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+    < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+    < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr >
+  .
+  op bobZonePwnd2Com : -> List{Record} .
+  eq bobZonePwnd2Com =
+    < 'pwnd2 . 'com . root, soa, 3600.0, soaData(3600.0) >
+    < 'pwnd2 . 'com . root, ns, 3600.0, 'ns . 'pwnd2 . 'com . root >
+    < 'ns . 'pwnd2 . 'com . root, a, 3600.0, serverBobIodineServerAddr >
+    < 'www0 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 0 . 1 . 2 >
+    < 'www1 . 'pwnd2 . 'com . root, a, 3600.0, 2 . 1 . 1 . 2 >
+    < wildcard . 'pwnd2 . 'com . root, txt, 3600.0, nullAddr >
+  .
+
+  ---------------------------------------------------
+  --- Addresses
+  ---------------------------------------------------
+  ops aliceIrcClientAddr bobIrcClientAddr : -> Address .
+  ops aliceIrcUserModelAddr bobIrcUserModelAddr : -> Address .
+  ops ircServerAddr : -> Address .
+  ops ircMonitorAddr iodineMonitorAddr    : -> Address .
+  ops aliceIfaceAddr bobIfaceAddr             : -> Address .
+  ops serverAliceIfaceAddr serverBobIfaceAddr : -> Address .
+  ops aliceSendAppAddr aliceIodineClientAddr                : -> Address .
+  ops bobSendAppAddr bobIodineClientAddr                    : -> Address .
+  ops serverAliceRcvAppAddr serverBobRcvAppAddr             : -> Address .
+  ops serverAliceIodineServerAddr serverBobIodineServerAddr : -> Address .
+  ops aliceNetClientAddr bobNetClientAddr : -> Address .
+  ops serverAliceNetServerAddr serverBobNetServerAddr : -> Address .
+
+  eq aliceIrcClientAddr = a(cl[1],hcs,irc,cl,1) .
+  eq bobIrcClientAddr = a(cl[2],hcs,irc,cl,1) .
+  eq aliceIrcUserModelAddr = a(cl[1],hcs,irc,um,1) .
+  eq bobIrcUserModelAddr = a(cl[2],hcs,irc,um,1) .
+  eq ircServerAddr = a(srvN,srv,irc,srv,0) .
+
+  eq aliceIfaceAddr = a(cl[1],hcs,irc,if,1) .
+  eq bobIfaceAddr = a(cl[2],hcs,irc,if,1) .
+  eq serverAliceIfaceAddr = a(srvN[1],hcs,irc,if,1) .
+  eq serverBobIfaceAddr = a(srvN[2],hcs,irc,if,1) .
+
+  eq aliceSendAppAddr = a(cl[1],hcs,iod,app,1) .
+  eq aliceIodineClientAddr = a(cl[1],hcs,iod,cl,1) .
+  eq bobSendAppAddr = a(cl[2],hcs,iod,app,1) .
+  eq bobIodineClientAddr = a(cl[2],hcs,iod,cl,1) .
+  eq serverAliceRcvAppAddr = a(srvN[1],hcs,iod,app,1) .
+  eq serverBobRcvAppAddr = a(srvN[2],hcs,iod,app,1) .
+  eq serverAliceIodineServerAddr = a(srvN[1],hcs,iod,iodSrv,1) .
+  eq serverBobIodineServerAddr = a(srvN[2],hcs,iod,iodSrv,1) .
+
+  eq aliceNetClientAddr = a(cl[1],tcp,iod,cl,1) .
+  eq bobNetClientAddr = a(cl[2],tcp,iod,cl,1) .
+  eq serverAliceNetServerAddr = a(srvN[1],tcp,iod,srv,1) .
+  eq serverBobNetServerAddr = a(srvN[2],tcp,iod,srv,1) .
+
+  eq transport(any:Address) = tcp(any:Address) .
+
+  ---------------------------------------------------
+  --- Message schedules
+  ---
+  --- imd(delaySeconds, room, messageSize)
+  --- The delay is relative to the first scheduled send (set via ircMsgSendTime).
+  --- Message text is generated by genIrcText(userId, counter, size).
+  ---------------------------------------------------
+
+  ---------------------------------------------------
+  --- Actors
+  ---------------------------------------------------
+  ops aliceIrcClient bobIrcClient ircServer ircMonitor iodineMonitor                  : -> Actor . 
+  ops aliceIrcUserModel bobIrcUserModel                                               : -> Actor .
+  ops aliceIface bobIface serverAliceIface serverBobIface                             : -> Actor . 
+  ops aliceSendApp bobSendApp serverAliceRcvApp serverBobRcvApp                       : -> Actor .  
+  ops aliceIodineClient bobIodineClient serverAliceIodineServer serverBobIodineServer : -> Actor .  
+  ops aliceNetClient bobNetClient serverAliceNetServer serverBobNetServer             : -> Actor .
+
+  op advAddr : -> Address .
+  op advActor : -> Actor .
+  eq advActor = mkAdversaryCp3(advAddr) .
+
+  --- IRC Actors ---
+  eq aliceIrcClient = mkIrcClient-v2(aliceIrcClientAddr,
+                                  aliceIfaceAddr,
+                                  "alice")
+  .
+  eq bobIrcClient   = mkIrcClient-v2(bobIrcClientAddr,
+                                  bobIfaceAddr,
+                                  "bob")
+  .
+  eq aliceIrcUserModel = mkIrcUMV2Actor(aliceIrcUserModelAddr, "irc-test", aliceIrcClientAddr) .
+  eq bobIrcUserModel = mkIrcUMV2Actor(bobIrcUserModelAddr, "irc-test", bobIrcClientAddr) .
+  eq ircServer      = mkIrcServer(ircServerAddr) .
+  eq ircMonitor     = mkIrcMonitor(ircMonitorAddr)
+  .
+
+  --- Interface Actors ---
+  eq aliceIface       = mkIrcByteSeqIface(aliceIfaceAddr,
+                                          aliceIrcClientAddr,
+                                          aliceSendAppAddr)
+  .
+  eq bobIface         = mkIrcByteSeqIface(bobIfaceAddr,
+                                          bobIrcClientAddr,
+                                          bobSendAppAddr)
+  .
+  eq serverAliceIface = mkIrcByteSeqIface(serverAliceIfaceAddr,
+                                          ircServerAddr,
+                                          serverAliceRcvAppAddr)
+  .
+  eq serverBobIface   = mkIrcByteSeqIface(serverBobIfaceAddr,
+                                          ircServerAddr,
+                                          serverBobRcvAppAddr)
+  .
+
+  --- Iodine Actors ---
+  eq iodineMonitor            = mkWMonitor(iodineMonitorAddr) .
+  eq aliceSendApp             = mkSendApp(aliceSendAppAddr,
+                                          serverAliceRcvAppAddr,
+                                          aliceIfaceAddr,
+                                          aliceIodineClientAddr)
+  .
+  eq bobSendApp               = mkSendApp(bobSendAppAddr,
+                                          serverBobRcvAppAddr,
+                                          bobIfaceAddr,
+                                          bobIodineClientAddr)
+  .
+  eq serverAliceRcvApp        = mkRcvApp(serverAliceRcvAppAddr,
+                                         aliceSendAppAddr,
+                                         serverAliceIfaceAddr,
+                                         serverAliceIodineServerAddr)
+  .
+  eq serverBobRcvApp          = mkRcvApp(serverBobRcvAppAddr,
+                                         bobSendAppAddr,
+                                         serverBobIfaceAddr,
+                                         serverBobIodineServerAddr)
+  .
+  eq aliceIodineClient        = makeWClient(aliceIodineClientAddr,
+                                            serverAliceIodineServerAddr, 
+                                            'pwnd2 . 'com . root,
+                                            a,
+                                            0.0)
+  .
+  eq bobIodineClient          = makeWClient(bobIodineClientAddr,
+                                            serverBobIodineServerAddr,
+                                            'pwnd2 . 'com . root,
+                                            a,
+                                            0.0)
+  .
+  eq serverAliceIodineServer  = makeWNameServer(serverAliceIodineServerAddr,
+                                                0.0,
+                                                (aliceZonePwnd2Com))
+  .
+  eq serverBobIodineServer    = makeWNameServer(serverBobIodineServerAddr,
+                                                0.0,
+                                                (bobZonePwnd2Com))
+  .
+  
+  eq aliceNetClient = makeNetClient(aliceNetClientAddr,
+                                    serverAliceIodineServerAddr,
+                                    aliceIodineClientAddr,
+                                    true,
+                                    nullAddr,
+                                    nullName) .
+  eq bobNetClient   = makeNetClient(bobNetClientAddr,
+                                    serverBobIodineServerAddr,
+                                    bobIodineClientAddr,
+                                    true,
+                                    nullAddr,
+                                    nullName) .
+
+  eq serverAliceNetServer = makeNetServer(serverAliceNetServerAddr,
+                                          serverAliceIodineServerAddr) .
+  eq serverBobNetServer   = makeNetServer(serverBobNetServerAddr,
+                                          serverBobIodineServerAddr) .
+
+  ---------------------------------------------------
+  --- Link model parameters
+  ---------------------------------------------------
+  op LinkParams : -> AttributeSet .
+  eq LinkParams =
+    (4stateLoss: (p13: 0.0,
+                  p31: 1.0,
+                  p32: 0.0,
+                  p23: 0.0,
+                  p14: 0.0,
+                  oneWayDelay: 0.01))
+  .
+
+  **** op LocalLinkParams : -> AttributeSet .
+  **** eq LocalLinkParams =
+  ****   (4stateLoss: (p13: 0.0, p31: 1.0, p32: 0.0, p23: 0.0, p14: 0.0, oneWayDelay: 0.0))
+  **** .
+
+  eq LinkData =
+    --- Iodine network links
+    aaa(aliceIodineClientAddr, serverAliceIodineServerAddr, LinkParams)
+    aaa(serverAliceIodineServerAddr, aliceIodineClientAddr, LinkParams)
+    aaa(bobIodineClientAddr, serverBobIodineServerAddr, LinkParams)
+    aaa(serverBobIodineServerAddr, bobIodineClientAddr, LinkParams)
+
+    aaa(serverAliceIodineServerAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, serverAliceIodineServerAddr, LinkParams)
+    aaa(aliceIodineClientAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, aliceIodineClientAddr, LinkParams)
+
+    aaa(serverBobIodineServerAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, serverBobIodineServerAddr, LinkParams)
+    aaa(bobIodineClientAddr, IXP-DEFAULT-ADDR, LinkParams)
+    aaa(IXP-DEFAULT-ADDR, bobIodineClientAddr, LinkParams)
+    
+  ****  --- NetClient links
+  ****  aaa(aliceNetClientAddr, serverAliceNetServerAddr, LinkParams)
+  ****  aaa(serverAliceNetServerAddr, aliceNetClientAddr, LinkParams)
+  ****  aaa(bobNetClientAddr, serverBobNetServerAddr, LinkParams)
+  ****  aaa(serverBobNetServerAddr, bobNetClientAddr, LinkParams)
+
+  ****  --- Local Hops for Alice
+  ****  aaa(aliceIrcClientAddr, aliceIfaceAddr, LocalLinkParams)
+  ****  aaa(aliceIfaceAddr, aliceIrcClientAddr, LocalLinkParams)
+  ****  aaa(aliceIfaceAddr, aliceSendAppAddr, LocalLinkParams)
+  ****  aaa(aliceSendAppAddr, aliceIfaceAddr, LocalLinkParams)
+  ****  aaa(serverAliceRcvAppAddr, aliceSendAppAddr, LocalLinkParams)
+  ****  aaa(aliceSendAppAddr, serverAliceRcvAppAddr, LocalLinkParams)
+  ****  aaa(serverAliceRcvAppAddr, serverAliceIfaceAddr, LocalLinkParams)
+  ****  aaa(serverAliceIfaceAddr, serverAliceRcvAppAddr, LocalLinkParams)
+  ****  aaa(serverAliceIfaceAddr, ircServerAddr, LocalLinkParams)
+  ****  aaa(ircServerAddr, serverAliceIfaceAddr, LocalLinkParams)
+
+  ****  --- Local Hops for Bob
+  ****  aaa(bobIrcClientAddr, bobIfaceAddr, LocalLinkParams)
+  ****  aaa(bobIfaceAddr, bobIrcClientAddr, LocalLinkParams)
+  ****  aaa(bobIfaceAddr, bobSendAppAddr, LocalLinkParams)
+  ****  aaa(bobSendAppAddr, bobIfaceAddr, LocalLinkParams)
+  ****  aaa(serverBobRcvAppAddr, bobSendAppAddr, LocalLinkParams)
+  ****  aaa(bobSendAppAddr, serverBobRcvAppAddr, LocalLinkParams)
+  ****  aaa(serverBobRcvAppAddr, serverBobIfaceAddr, LocalLinkParams)
+  ****  aaa(serverBobIfaceAddr, serverBobRcvAppAddr, LocalLinkParams)
+  ****  aaa(serverBobIfaceAddr, ircServerAddr, LocalLinkParams)
+  ****  aaa(ircServerAddr, serverBobIfaceAddr, LocalLinkParams)
+  .
+
+  ---------------------------------------------------
+  --- Initial configuration
+  ---------------------------------------------------
+  op initState : -> Config .
+  eq initState =
+    rCtr(0)
+    aliceIrcClient
+    bobIrcClient
+    aliceIrcUserModel
+    bobIrcUserModel
+    ircServer
+    ircMonitor
+    aliceIface
+    bobIface
+    serverAliceIface
+    serverBobIface
+    iodineMonitor
+    aliceSendApp
+    bobSendApp
+    serverAliceRcvApp
+    serverBobRcvApp
+    aliceIodineClient
+    bobIodineClient
+    serverAliceIodineServer
+    serverBobIodineServer
+    aliceNetClient
+    bobNetClient
+    serverAliceNetServer
+    serverBobNetServer
+    advActor
+
+    [25.0, to aliceIrcUserModelAddr from aliceIrcUserModelAddr : burstDelayTO, 0]
+    [26.0, to bobIrcUserModelAddr from bobIrcUserModelAddr : burstDelayTO, 0]
+    [0.1, to aliceIodineClientAddr : startPeriodicPings(aliceSendAppAddr, serverAliceRcvAppAddr), 0]
+    [0.1, to bobIodineClientAddr : startPeriodicPings(bobSendAppAddr, serverBobRcvAppAddr), 0]
+  .
+
+  ---------------------------------------------------
+  --- Run parameters
+  ---------------------------------------------------
+  op limit : -> Float .
+  eq limit = 300.0 .    --- simulate 30 simulated seconds
+
+  op initConfig : -> Config .
+  eq initConfig = run({0.0 | nil} initState, limit) .
+  op allClientsAddr : -> AddrList .
+  eq allClientsAddr = aliceIrcClientAddr ; bobIrcClientAddr .
+
+endm
+
+set print attribute on .
+rew initConfig .
+q
+eof
+

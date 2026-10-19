@@ -20,14 +20,137 @@ eval E[Goodput()] with delta = 2 ;
 // Integrity 
 ///////////////
 
+// getSystemIntegrity (monitor, irc_server, Tstart, Tend)
+// getClientIntegrity (monitor, irc_server, client, Tstart, Tend)
+
 Integrity() = s.rval("getSystemIntegrity(getMonitor(C), getIrcSrv(C), 0.0, 1000.0)");
+IntegrityClient() = s.rval("getClientIntegrity(getMonitor(C), getIrcSrv(C), wtCl1IrcAddr, 0.0, 1000.0)");
 
 eval E[Integrity()] ;
+// eval E[IntegrityClient()] ;
 
 ///////////////
 // Availabolity
 ///////////////
 
+// getMTBF (monitor, irc_server, Tn, Tstart, Tend)
+
 MTBF() = s.rval("getMTBF(getMonitor(C), 16.0, 0.0, 1000.0)");
 
 eval E[MTBF()] with delta = 2 ;
+
+//////////////////
+// Confidentiality 
+//////////////////
+
+// getCUSUM (adversary, vantage_point, feature, Tstart, Tend, window_size (seconds), bin_size (seconds), baselineCDF, K) 
+// getBaselineCDF(baseline, vantage_point, feature, baseline Tstart, baseline Tend, bin_size) 
+// getBaselineK(baseline, vantage_point, feature, baseline Tstart, baseline Tend, window_size, bin_size) 
+
+// Cumulative t0_15 : Tstart = 0.0, Tend = 900.0, offset by hcsDelay 
+// Cumulative t0_30 : Tstart = 0.0, Tend = 1800.0, offset by hcsDelay  
+
+// feature : dnsQueryRate dnsQuerySize dnsRespSize tcpUpRate tcpDownRate tcpUpToDownRate tcpOutPktRate tcpInPktRate tcpOutToInPktRate tcpPktSizeStdDev tcpPktSize tcpPktInterarrival tcpDirectionChange tcpActiveFlow tcpNewCnx  
+
+CumulativeCUSUMTcpOutPktRate() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpOutPktRate, 100.0, 300.0, 60.0, 10.0, 
+                                     getBaselineCDF(getBaseline(C), ixpN, tcpOutPktRate, 0.0, 100.0, 10.0), 
+                                       getBaselineK(getBaseline(C), ixpN, tcpOutPktRate, 0.0, 100.0, 60.0, 10.0))");
+
+// srvN masN minN dnsN ixpN cl[i] in visibilityMap
+
+CumulativeCUSUMTcpOutPktRateSrvN() = s.rval("getCUSUM (getAdversary(C), srvN, tcpOutPktRate, 100.0, 300.0, 60.0, 10.0, 
+                                         getBaselineCDF(getBaseline(C), srvN, tcpOutPktRate, 0.0, 100.0, 10.0), 
+                                           getBaselineK(getBaseline(C), srvN, tcpOutPktRate, 0.0, 100.0, 60.0, 10.0))");
+
+// Independent t0_15 : Tstart = 0.0, Tend = 900.0, offset by hcsDelay 
+// Independent t15_30 : Tstart = 900.0, Tend = 1800.0, offset by hcsDelay 
+
+IndependentCUSUMTcpOutPktRate() = s.rval("getCUSUM (getAdversary(C), ixpN, tcpOutPktRate, 100.0, 300.0, 60.0, 10.0, 
+                                     getBaselineCDF(getBaseline(C), ixpN, tcpOutPktRate, 0.0, 100.0, 10.0), 
+                                       getBaselineK(getBaseline(C), ixpN, tcpOutPktRate, 0.0, 100.0, 60.0, 10.0))");
+
+// eval E[CumulativeCUSUMDnsQueryRate()] ;
+// eval E[CumulativeCUSUMDnsQuerySize()] ;
+// eval E[CumulativeCUSUMDnsRespSize()] ;
+// eval E[CumulativeCUSUMTcpUpRate()] ;
+// eval E[CumulativeCUSUMTcpDownRate()] ;
+// eval E[CumulativeCUSUMTcpUpToDownRate()] ;
+// eval E[CumulativeCUSUMTcpOutPktRate()] ;
+// eval E[CumulativeCUSUMTcpInPktRate()] ;
+// eval E[CumulativeCUSUMTcpOutToInPktRate()] ;
+// eval E[CumulativeCUSUMTcpPktSizeStdDev()] ;
+// eval E[CumulativeCUSUMTcpPktSize()] ;
+// eval E[CumulativeCUSUMTcpPktInterarrival()] ;
+// eval E[CumulativeCUSUMTcpDirectionChange()] ;
+// eval E[CumulativeCUSUMTcpActiveFlow()] ;
+// eval E[CumulativeCUSUMTcpNewCnx()] ;
+
+// eval E[CumulativeCUSUMTcpOutPktRateSrvN()] ;
+
+// eval E[IndependentCUSUMDnsQueryRate()] ;
+// eval E[IndependentCUSUMDnsQuerySize()] ;
+// eval E[IndependentCUSUMDnsRespSize()] ;
+// eval E[IndependentCUSUMTcpUpRate()] ;
+// eval E[IndependentCUSUMTcpDownRate()] ;
+// eval E[IndependentCUSUMTcpUpToDownRate()] ;
+// eval E[IndependentCUSUMTcpOutPktRate()] ;
+// eval E[IndependentCUSUMTcpInPktRate()] ;
+// eval E[IndependentCUSUMTcpOutToInPktRate()] ;
+// eval E[IndependentCUSUMTcpPktSizeStdDev()] ;
+// eval E[IndependentCUSUMTcpPktSize()] ;
+// eval E[IndependentCUSUMTcpPktInterarrival()] ;
+// eval E[IndependentCUSUMTcpDirectionChange()] ;
+// eval E[IndependentCUSUMTcpActiveFlow()] ;
+// eval E[IndependentCUSUMTcpNewCnx()] ;
+
+//  from pwnd-cp3/src/adversary/configs/thresholds.json
+//  "dns_query_rate": 2.5,
+//  "dns_query_size_mean": 2.5,
+//  "dns_response_size_mean": 2.5,
+//  "tcp_upload_rate": 3.5,
+//  "tcp_download_rate": 3.5,
+//  "tcp_upload_download_ratio": 5.0,
+//  "tcp_outgoing_packet_rate": 3.5,
+//  "tcp_incoming_packet_rate": 3.5,
+//  "tcp_packet_upload_download_ratio": 5.0,
+//  "packet_size_std_dev": 4.0,
+//  "packet_size_mean": 3.0,
+//  "packet_interarrival_mean": 3.0,
+//  "direction_change_count": 4.0,
+//  "active_flow_count": 2.5,
+//  "tcp_new_conn_count": 3.5
+
+// getToD (adversary, vantage_point, feature, Tstart, Tend, window_size (seconds), bin_size (seconds), threshold) 
+// getToD (adversary, vantage_point, feature, Tstart, Tend, window_size (seconds), bin_size (seconds), threshold, baselineCDF, K) 
+
+ToDDnsQueryRate() = s.rval("getToD (getAdversary(C), ixpN, dnsQueryRate, 100.0, 300.0, 60.0, 10.0, dns_query_rate)");
+ToDDnsQuerySize() = s.rval("getToD (getAdversary(C), ixpN, dnsQuerySize, 100.0, 300.0, 60.0, 10.0, dns_query_size_mean)");
+ToDDnsRespSize() = s.rval("getToD (getAdversary(C), ixpN, dnsRespSize, 100.0, 300.0, 60.0, 10.0, dns_response_size_mean)");
+ToDTcpUpRate() = s.rval("getToD (getAdversary(C), ixpN, tcpUpRate, 100.0, 300.0, 60.0, 10.0, tcp_upload_rate)");
+ToDTcpDownRate() = s.rval("getToD (getAdversary(C), ixpN, tcpDownRate, 100.0, 300.0, 60.0, 10.0, tcp_download_rate)");
+ToDTcpUpToDownRate() = s.rval("getToD (getAdversary(C), ixpN, tcpUpToDownRate, 100.0, 300.0, 60.0, 10.0, tcp_upload_download_ratio)");
+ToDTcpOutPktRate() = s.rval("getToD (getAdversary(C), ixpN, tcpOutPktRate, 100.0, 300.0, 60.0, 10.0, tcp_outgoing_packet_rate)");
+ToDTcpInPktRate() = s.rval("getToD (getAdversary(C), ixpN, tcpInPktRate, 100.0, 300.0, 60.0, 10.0, tcp_incoming_packet_rate)");
+ToDTcpOutToInPktRate() = s.rval("getToD (getAdversary(C), ixpN, tcpOutToInPktRate, 100.0, 300.0, 60.0, 10.0, tcp_packet_upload_download_ratio)");
+ToDTcpPktSizeStdDev() = s.rval("getToD (getAdversary(C), ixpN, tcpPktSizeStdDev, 100.0, 300.0, 60.0, 10.0, packet_size_std_dev)");
+ToDTcpPktSize() = s.rval("getToD (getAdversary(C), ixpN, tcpPktSize, 100.0, 300.0, 60.0, 10.0, packet_size_mean)");
+ToDTcpPktInterarrival() = s.rval("getToD (getAdversary(C), ixpN, tcpPktInterarrival, 100.0, 300.0, 60.0, 10.0, packet_interarrival_mean)");
+ToDTcpDirectionChange() = s.rval("getToD (getAdversary(C), ixpN, tcpDirectionChange, 100.0, 300.0, 60.0, 10.0, direction_change_count)");
+ToDTcpActiveFlow() = s.rval("getToD (getAdversary(C), ixpN, tcpActiveFlow, 100.0, 300.0, 60.0, 10.0, active_flow_count)");
+ToDTcpNewCnx() = s.rval("getToD (getAdversary(C), ixpN, tcpNewCnx, 100.0, 300.0, 60.0, 10.0, tcp_new_conn_count)");
+
+// eval E[ToDDnsQueryRate()] ;
+// eval E[ToDDnsQuerySize()] ;
+// eval E[ToDDnsRespSize()] ;
+// eval E[ToDTcpUpRate()] ;
+// eval E[ToDTcpDownRate()] ;
+// eval E[ToDTcpUpToDownRate()] ;
+// eval E[ToDTcpOutPktRate()] ;
+// eval E[ToDTcpInPktRate()] ;
+// eval E[ToDTcpOutToInPktRate()] ;
+// eval E[ToDTcpPktSizeStdDev()] ;
+// eval E[ToDTcpPktSize()] ;
+// eval E[ToDTcpPktInterarrival()] ;
+// eval E[ToDTcpDirectionChange()] ;
+// eval E[ToDTcpActiveFlow()] ;
+// eval E[ToDTcpNewCnx()] ;

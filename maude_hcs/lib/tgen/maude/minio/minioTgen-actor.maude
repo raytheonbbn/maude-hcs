@@ -8,12 +8,16 @@
 sload ../../../common/maude/sampler-x
 sload ../../../common/maude/cp2-interfaces
 sload ../../../s3/s3_protocol
+sload ../ftp/ftp-utils.maude
+sload ../../../common/maude/user-action-actor-v2-aux
 
 mod MINIO-TGEN is
   inc CP2-COMMON .
   inc SAMPLER-X .
   inc S3_PROTOCOL .
   inc TGEN-INTERFACE .
+  inc FTP-UTILS .
+  inc CONVERSION .
 
   --- MinIO task types (what we're waiting for from S3)
   sort MinioTask .
@@ -30,6 +34,7 @@ mod MINIO-TGEN is
   op w4:_ : MinioTask -> Attribute [ctor] .
   op replyTo:_ : Config -> Attribute [ctor] .
   op reqId:_ : Nat -> Attribute [ctor] .
+  op umModelName:_ : String -> Attribute [ctor] .
 
   vars dAddr umAddr s3Addr : Address .
   vars attrs attrs1 attrs2 : AttributeSet .
@@ -44,15 +49,61 @@ mod MINIO-TGEN is
   vars data body : ByteSeq .
 
   --- Constructor
-  op mkMinioTgenA : Address Address String -> Actor .
-  eq mkMinioTgenA(dAddr, s3Addr, bucketName) =
+  op mkMinioTgenA : Address Address String String -> Actor .
+  eq mkMinioTgenA(dAddr, s3Addr, bucketName, mname) =
     < dAddr : MinioTgen |
       s3Addr: s3Addr,
       bucket: bucketName,
       w4: noMinioTask,
       replyTo: null,
-      reqId: 0
+      reqId: 0,
+      umModelName: mname
     > .
+
+  --- Size Generation Helpers
+  op genFilesSize : Nat Nat Nat Nat Nat -> NatNat .
+  eq genFilesSize(rj, 0, minS, maxS, accum) = {accum, rj} .
+  ceq genFilesSize(rj, s count, minS, maxS, accum) = 
+      genFilesSize(rj1, count, minS, maxS, accum + size) 
+      if {size, rj1} := getRand(rj, minS, maxS) .
+
+  op genDirsSize : Nat Nat Nat Nat Nat Nat Nat Nat Nat -> NatNat .
+  eq genDirsSize(rj, 0, depth, maxDepth, maxDirs, maxFiles, minS, maxS, accum) = {accum, rj} .
+  ceq genDirsSize(rj, s count, depth, maxDepth, maxDirs, maxFiles, minS, maxS, accum) = 
+      genDirsSize(rj2, count, depth, maxDepth, maxDirs, maxFiles, minS, maxS, accum2)
+      if {accum1, rj1} := genTreeSize(rj, depth + 1, maxDepth, maxDirs, maxFiles, minS, maxS, 0)
+      /\ accum2 := accum + accum1 
+      /\ rj2 := rj1 .
+
+  op genTreeSize : Nat Nat Nat Nat Nat Nat Nat Nat -> NatNat .
+  ceq genTreeSize(rj, depth, maxDepth, maxDirs, maxFiles, minS, maxS, accum) = 
+      if depth >= maxDepth 
+      then {accum1, rj2} 
+      else genDirsSize(rj3, numDirs, depth, maxDepth, maxDirs, maxFiles, minS, maxS, accum1) fi
+      if {numFiles, rj1} := getRand(rj, 1, maxFiles) 
+      /\ {accum1, rj2} := genFilesSize(rj1, numFiles, minS, maxS, accum)
+      /\ {numDirs, rj3} := getRand(rj2, 1, maxDirs) .
+
+  op genRandomZipSize : String Nat -> NatNat .
+  ceq genRandomZipSize(mname, rj) =
+    genTreeSize(rj, 1, maxDepth, maxDirs, maxFiles, minSize, maxSize, 0)
+    if pars := getPars(mname) 
+    /\ js(strDepth) := pars["max_zip_depth"]
+    /\ maxDepth := rat(strDepth, 10)
+    /\ js(strDirs) := pars["max_zip_dirs"]
+    /\ maxDirs := rat(strDirs, 10)
+    /\ js(strFiles) := pars["max_zip_files"]
+    /\ maxFiles := rat(strFiles, 10)
+    /\ js(strMinSize) := pars["min_file_size"]
+    /\ minSize := rat(strMinSize, 10)
+    /\ js(strMaxSize) := pars["max_file_size"]
+    /\ maxSize := rat(strMaxSize, 10) .
+    
+  eq genRandomZipSize(mname, rj) = {100, rj} [owise] .
+
+  vars strDepth strDirs strFiles strMinSize strMaxSize mname : String .
+  vars maxDepth maxDirs maxFiles minSize maxSize zSize numFiles numDirs accum accum1 accum2 accum3 minS maxS count depth size rj0 rj2 rj3 : Nat .
+  vars pars : Map{String,JV} .
 
   --- =========================================================
   --- Receive actionQ from UM-V2 and dispatch to S3
@@ -61,7 +112,7 @@ mod MINIO-TGEN is
     rCtr(rj)
     {T, (to dAddr from umAddr : actionQ(ract))}
     < dAddr : MinioTgen | attrs, w4: noMinioTask, replyTo: null,
-                          s3Addr: s3Addr, bucket: bucketName, reqId: reqId >
+                          s3Addr: s3Addr, bucket: bucketName, reqId: reqId, umModelName: mname >
   =>
     rCtr(rj1)
     < dAddr : MinioTgen | attrs1 >
@@ -69,18 +120,18 @@ mod MINIO-TGEN is
   if {attrs1, smsgs, rj1} :=
        dispatchAction((attrs, w4: noMinioTask,
                        replyTo: (to dAddr from umAddr : actionQ(ract)),
-                       s3Addr: s3Addr, bucket: bucketName, reqId: s reqId),
-                      ract, dAddr, s3Addr, bucketName, rj)
+                       s3Addr: s3Addr, bucket: bucketName, reqId: s reqId, umModelName: mname),
+                      ract, dAddr, s3Addr, bucketName, mname, rj)
   [print "(" T ") MinioTgen rcvMinioAction " ract] .
 
   --- =========================================================
   --- Dispatch action based on type string
   --- =========================================================
-  op dispatchAction : AttributeSet Map{String,JV} Address Address String Nat
+  op dispatchAction : AttributeSet Map{String,JV} Address Address String String Nat
                       -> AttributeSetMsgsNat .
 
   --- browse_list: S3 GET on bucket (list objects)
-  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, mname, rj) =
     { (attrs, reqId: reqId, w4: waitS3Get(bucketName, "list-" + string(reqId,10))),
       smsgs, j1 }
   if js("browse_list") := ract["type"]
@@ -89,7 +140,7 @@ mod MINIO-TGEN is
   .
 
   --- browse_stat: Same as browse_list (stat = list with metadata in real S3)
-  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, mname, rj) =
     { (attrs, reqId: reqId, w4: waitS3Get(bucketName, "stat-" + string(reqId,10))),
       smsgs, j1 }
   if js("browse_stat") := ract["type"]
@@ -98,7 +149,7 @@ mod MINIO-TGEN is
   .
 
   --- browse_cd: S3 GET on bucket (list prefixes to find dirs)
-  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, mname, rj) =
     { (attrs, reqId: reqId, w4: waitS3Get(bucketName, "cd-" + string(reqId,10))),
       smsgs, j1 }
   if js("browse_cd") := ract["type"]
@@ -107,19 +158,20 @@ mod MINIO-TGEN is
   .
 
   --- upload_store: S3 PUT (new object)
-  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, mname, rj) =
     { (attrs, reqId: reqId, w4: waitS3Put(bucketName, "upload-" + string(reqId,10))),
       smsgs, j1 }
   if js("upload_store") := ract["type"]
+  /\ {zSize, rj0} := genRandomZipSize(mname, rj)
   /\ msg := (to s3Addr from dAddr :
               S3PutObjReq(bucketName, "upload-" + string(reqId,10),
-                          restToByteSeq("mock_zip_data")))
-  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+                          file(reqId, zSize)))
+  /\ {smsgs, j1} := delayMsgsX(rj0, msg, null)
   .
 
   --- upload_appe: S3 GET existing + PUT combined (append)
   --- First do a GET; on response, we'll re-PUT with combined data
-  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, mname, rj) =
     { (attrs, reqId: reqId, w4: waitS3GetForAppend(bucketName, "append-" + string(reqId,10))),
       smsgs, j1 }
   if js("upload_appe") := ract["type"]
@@ -129,7 +181,7 @@ mod MINIO-TGEN is
   .
 
   --- download_retr: S3 GET (download object)
-  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+  ceq dispatchAction((attrs, reqId: reqId, w4: task), ract, dAddr, s3Addr, bucketName, mname, rj) =
     { (attrs, reqId: reqId, w4: waitS3Get(bucketName, "retr-" + string(reqId,10))),
       smsgs, j1 }
   if js("download_retr") := ract["type"]
@@ -139,7 +191,7 @@ mod MINIO-TGEN is
   .
 
   --- *_noop actions: immediate actionR("ok"), no S3 call
-  ceq dispatchAction((attrs, replyTo: (to dAddr from umAddr : ac), w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+  ceq dispatchAction((attrs, replyTo: (to dAddr from umAddr : ac), w4: task), ract, dAddr, s3Addr, bucketName, mname, rj) =
     { (attrs, replyTo: null, w4: noMinioTask), smsgs, j1 }
   if js(cmd) := ract["type"]
   /\ find(cmd, "noop", 0) :: Nat
@@ -148,7 +200,7 @@ mod MINIO-TGEN is
   .
 
   --- Fallback: unknown action → immediate actionR("ok")
-  ceq dispatchAction((attrs, replyTo: (to dAddr from umAddr : ac), w4: task), ract, dAddr, s3Addr, bucketName, rj) =
+  ceq dispatchAction((attrs, replyTo: (to dAddr from umAddr : ac), w4: task), ract, dAddr, s3Addr, bucketName, mname, rj) =
     { (attrs, replyTo: null, w4: noMinioTask), smsgs, j1 }
   if msg := (to umAddr from dAddr : actionR("ok"))
   /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
@@ -209,16 +261,17 @@ mod MINIO-TGEN is
     rCtr(rj)
     {T, (to dAddr from s3Addr : S3GetObjRes(bucketName, uuid, body))}
     < dAddr : MinioTgen | w4: waitS3GetForAppend(bucketName, uuid),
-                          s3Addr: s3Addr, attrs >
+                          s3Addr: s3Addr, umModelName: mname, reqId: reqId, attrs >
   =>
     rCtr(j1)
     < dAddr : MinioTgen | w4: waitS3Put(bucketName, uuid),
-                          s3Addr: s3Addr, attrs >
+                          s3Addr: s3Addr, umModelName: mname, reqId: reqId, attrs >
     smsgs
-  if msg := (to s3Addr from dAddr :
+  if {zSize, rj0} := genRandomZipSize(mname, rj)
+  /\ msg := (to s3Addr from dAddr :
               S3PutObjReq(bucketName, uuid,
-                          restToByteSeq("mock_append_data")))
-  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+                          file(reqId, zSize)))
+  /\ {smsgs, j1} := delayMsgsX(rj0, msg, null)
   [print "(" T ") MinioTgen rcvS3GetForAppend -> re-PUT " bucketName "/" uuid] .
 
   --- S3 GET error for APPEND → just PUT new data anyway
@@ -226,16 +279,17 @@ mod MINIO-TGEN is
     rCtr(rj)
     {T, (to dAddr from s3Addr : S3GetObjErr(bucketName, uuid))}
     < dAddr : MinioTgen | w4: waitS3GetForAppend(bucketName, uuid),
-                          s3Addr: s3Addr, attrs >
+                          s3Addr: s3Addr, umModelName: mname, reqId: reqId, attrs >
   =>
     rCtr(j1)
     < dAddr : MinioTgen | w4: waitS3Put(bucketName, uuid),
-                          s3Addr: s3Addr, attrs >
+                          s3Addr: s3Addr, umModelName: mname, reqId: reqId, attrs >
     smsgs
-  if msg := (to s3Addr from dAddr :
+  if {zSize, rj0} := genRandomZipSize(mname, rj)
+  /\ msg := (to s3Addr from dAddr :
               S3PutObjReq(bucketName, uuid,
-                          restToByteSeq("mock_new_data")))
-  /\ {smsgs, j1} := delayMsgsX(rj, msg, null)
+                          file(reqId, zSize)))
+  /\ {smsgs, j1} := delayMsgsX(rj0, msg, null)
   [print "(" T ") MinioTgen rcvS3GetErrForAppend -> fresh PUT " bucketName "/" uuid] .
 
 endm

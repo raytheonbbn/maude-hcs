@@ -1,3 +1,33 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
 sload  ../../../deps/dns_formalization/Maude/common/actor.maude
 sload ../../common/maude/byteseq
 
@@ -42,12 +72,6 @@ eq setWHashtag((attrs, wHashtag: byteseq), byteseq0)
 eq setWHashtag(attrs,byteseq)
    = (attrs, wHashtag: byteseq) [owise] .
 
-***(
----- set wHashtag/bHashtag to noBytes.
-op clearHashtag : AttributeSet -> AttributeSet .
-eq clearHashtag(attrs) = setHashtag(attrs, noBytes) .
-)
-
 ----- set wHashtag/bHashtag to the next hashtag to use.
 ---- application specific
 op  nextWHashtag : AttributeSet -> AttributeSet .
@@ -86,25 +110,56 @@ fmod HASHTAG-MANAGER is
  op hashStr:_ : String -> Attribute [ctor] .
  op bHashCtr:_ : Nat -> Attribute [ctor] .  --- initally 0
  op wHashCtr:_ : Nat -> Attribute [ctor] .  --- initally 0
+op  wInUse:_   : Bool    -> Attribute [ctor] .
+op  rollHashtag:_ : Bool -> Attribute [ctor] .
 
- eq nextWHashtag(attrs, hashStr: str, wHashCtr: j, wHashtag: bytes)
+ eq nextWHashtag(attrs, hashStr: str, wHashCtr: j, wHashtag: bytes, rollHashtag: DUMMY:Bool)
    = attrs, hashStr: str, wHashCtr: s j, 
-            wHashtag: hashTag(str + "W" + string(s j,10) ) .
-
- eq nextBHashtag(attrs, hashStr: str, bHashCtr: j, bHashtag: bytes)
-   = attrs, hashStr: str, bHashCtr: s j, 
-            bHashtag: hashTag(str + "B" + string(s j,10) ) .
-
+            wHashtag: hashTag(str + "W" + string(s j,10) ) 
+  .
 
 op initHashtagAttrs : String -> AttributeSet .
 eq initHashtagAttrs(str) = 
 hashStr: str, 
 bHashCtr: 0, 
 wHashCtr: 0, 
-bHashtag: hashTag(str + "B" + "0"),
-wHashtag: hashTag(str + "W" + "0")
+bHashtag: hashTag(str),
+wHashtag: hashTag(str),
+wInUse: false
+[ print "Creating non-rollable hashtags " str "." ]
 .
 
+op initHashtagAttrsWRoll : String -> AttributeSet .
+eq initHashtagAttrsWRoll(str) = 
+hashStr: str, 
+bHashCtr: 0, 
+wHashCtr: 0, 
+bHashtag: hashTag(str + "B" + "0"),
+wHashtag: hashTag(str + "W" + "0"),
+wInUse: false,
+rollHashtag: true
+[ print "Creating rollable hashtags " str "B0 and " str "W0." ]
+.
+
+op rollHashtag : AttributeSet Bool -> AttributeSet .
+eq rollHashtag(attrs, isWeird:Bool)
+  = (if ((isWeird:Bool == true) or (getWinUse(attrs) == true))
+      then nextWHashtag(attrs)
+      else nextBHashtag(attrs)
+    fi)
+.
+
+op getWinUse : AttributeSet -> Bool .
+eq getWinUse(attrs, wInUse: W:Bool) = W:Bool .
+eq getWinUse(attrs) = false [owise] .
+
+op getCurrentHashtag : AttributeSet Bool -> ByteSeq .
+eq getCurrentHashtag(attrs, isWeird:Bool)
+  = (if ((isWeird:Bool == true) or (getWinUse(attrs) == true))
+      then getWHashtag(attrs)
+      else getBHashtag(attrs)
+    fi)
+.
 
 endfm
 
@@ -120,19 +175,19 @@ eof
 
 red HTattrs .
 
-bHashtag: hashTag("htdstrB0"), 
-wHashtag: hashTag("htdstrW0"), 
+bHashtag: hashTag("htdstr"), 
+wHashtag: hashTag("htdstr"), 
 hashStr: "htdstr", bHashCtr: 0, wHashCtr: 0
 
 red setBHashtag(HTattrs,hashTag("a0"))   .
 
 bHashtag: hashTag("a0"), 
-wHashtag: hashTag("htdstrW0"),
+wHashtag: hashTag("htdstr"),
 hashStr: "htdstr", bHashCtr: 0, wHashCtr: 0
 
 red nextWHashtag(HTattrs) .
 
-bHashtag: hashTag("htdstrB0"), 
-wHashtag: hashTag("htdstrW1"), 
+bHashtag: hashTag("htdstr"), 
+wHashtag: hashTag("htdstr"), 
 hashStr: "htdstr", bHashCtr: 0, wHashCtr: 1
 

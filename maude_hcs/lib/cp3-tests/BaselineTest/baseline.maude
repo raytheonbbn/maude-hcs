@@ -1,0 +1,229 @@
+set show advisories off .
+
+sload test_skyhook_irc_net-only-tgen.maude
+sload ../../smc/smc_cp3
+
+
+mod BASELINE is
+  inc HCS_TEST .
+  inc SMC_CP3 .
+  
+  vars vp nid : NetId .
+  vars vpts : NetIdList .
+  vars obsF : Feature .
+  vars obsFs : FeatureList .
+  vars TOL F0Z GtZ mTOL pTOL : TimesObsList .
+  vars bcdf : List{Float} .
+  vars Tstart Tend winSize binSize  k : Float .
+  vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+  vars blist : BaseLineList .
+  vars conf conf0 : Config .
+  vars b : Bool .
+  vars blAct : Actor .
+  vars aAddr : Address .
+  
+  sort NetIdList .
+  subsort NetId < NetIdList .
+  op nilNetId : -> NetIdList .
+  op _:;_ : NetIdList NetIdList -> NetIdList 
+            [ctor assoc id: nilNetId] .
+  
+  sort FeatureList .
+  subsort Feature < FeatureList .
+  op nilFeature : -> FeatureList .
+  op _:;_ : FeatureList FeatureList -> FeatureList 
+           [ctor assoc id: nilFeature] .
+  
+op isDnsFeature : Feature -> Bool .
+eq isDnsFeature(dnsQueryRate) = true .
+eq isDnsFeature(dnsQuerySize) = true .
+eq isDnsFeature(dnsRespSize) = true .
+eq isDnsFeature(obsF) = false [owise] .
+
+sorts BaseLineElement BaseLineList .
+subsort BaseLineElement < BaseLineList .
+op nilBaseLine : -> BaseLineList .
+op _:;_ : BaseLineList BaseLineList -> BaseLineList
+               [ctor assoc id: nilBaseLine] .
+op bl : NetId Feature Float List{Float}  
+        -> BaseLineElement [ctor] .
+  
+op baseLineAddr : -> Address .
+op BaseLineMonitor : -> ActorType .
+
+op viewPts:_ : NetIdList -> Attribute [ctor] .
+op features:_ : FeatureList -> Attribute [ctor] .
+op baseLine:_ : BaseLineList -> Attribute [ctor] .
+ops tStart:_ tEnd:_ : Float -> Attribute [ctor] .
+ops winSize:_ binSize:_ : Float -> Attribute [ctor] .
+
+op mkBaseLineAttrs : NetIdList FeatureList 
+               Float Float Float Float -> AttributeSet .
+eq  mkBaseLineAttrs(vpts,obsFs, 
+                    Tstart,Tend,winSize,binSize) =
+      (viewPts: vpts,
+      features: obsFs,
+      tStart: Tstart,
+      tEnd: Tend,
+      winSize: winSize,
+      binSize: binSize,
+      baseLine: nilBaseLine)
+       .
+
+op addToBaseLine : AttributeSet NetId Feature 
+                 Float List{Float} -> AttributeSet .
+ceq addToBaseLine(attrs,vp,obsF,k,bcdf) =
+   attrs0, baseLine: (blist :; bl(vp,obsF,k,bcdf) ) 
+if attrs0,baseLine: blist := attrs
+.
+eq addToBaseLine(attrs,nid,obsF,k,bcdf) = attrs [owise] .
+
+
+op genBaseLine : Config NetIdList FeatureList 
+                Float Float Float Float Bool -> Config .
+ceq genBaseLine(conf,vpts,obsFs, 
+                Tstart,Tend,winSize,binSize,b)
+   =  blAct (if b then conf else null fi)
+if attrs := mkBaseLineAttrs(vpts,obsFs, 
+                      Tstart,Tend,winSize,binSize)
+/\ conf0 < aAddr : Adversary | attrs0, 
+                               dns: mTOL, tcp: pTOL >
+     := conf
+/\ attrs1 := genBaseLineX(attrs,vpts, obsFs,
+                  Tstart,Tend,winSize,binSize,
+                  mTOL,pTOL)  
+/\ blAct := <  baseLineAddr : BaseLineMonitor | attrs1 >
+.
+                         
+eq genBaseLine(conf,vpts,obsFs,
+                Tstart,Tend,winSize,binSize,b) = 
+    (if b then conf else null  fi) [owise]  .
+
+
+op genBaseLineX : AttributeSet NetIdList FeatureList
+                  Float Float Float Float 
+                  TimesObsList TimesObsList
+                  -> AttributeSet .
+
+op genBaseLineXX : AttributeSet NetId FeatureList
+                  Float Float Float Float 
+                  TimesObsList TimesObsList
+                  -> AttributeSet .
+
+eq  genBaseLineX(attrs, nilNetId, obsFs,
+                  Tstart,Tend,winSize,binSize,
+                   mTOL, pTOL)  
+          = attrs .                     
+
+ceq  genBaseLineX(attrs, (vp :; vpts), obsFs,
+                  Tstart,Tend,winSize,binSize,
+                   mTOL, pTOL)  
+          =  
+      genBaseLineX(attrs1, vpts, obsFs,  
+                Tstart,Tend,winSize,binSize, mTOL,pTOL)  
+
+if attrs1 := genBaseLineXX(attrs,vp,obsFs, 
+               Tstart,Tend,winSize,binSize,mTOL,pTOL)
+.
+
+eq  genBaseLineXX(attrs, vp, nilFeature,
+                  Tstart,Tend,winSize,binSize,
+                   mTOL, pTOL)  
+          = attrs .                     
+
+ceq  genBaseLineXX(attrs, vp, (obsF :; obsFs),
+                  Tstart,Tend,winSize,binSize,
+                   mTOL, pTOL)  
+          =  
+      genBaseLineXX(attrs1, vp, obsFs,  
+              Tstart,Tend,winSize,binSize, mTOL, pTOL)  
+if F0Z := (if isDnsFeature(obsF) then mTOL else pTOL fi)
+/\ bcdf := getBaselineCDFObsFeature (vp, obsF, F0Z,
+                             Tstart, Tend, binSize) 
+/\ k := getKObsFeatureB (vp, obsF, bcdf, F0Z, Tstart, Tend, winSize, binSize) 
+/\ attrs1 := addToBaseLine(attrs,vp,obsF,k,bcdf)
+.
+
+  op getKObsFeatureB : NetId Feature 
+                       List{Float} TimesObsList 
+                       Float Float Float Float -> Float .
+  eq getKObsFeatureB (vp, obsF, bcdf, TOL, Tstart, Tend, winSize, binSize) = 
+  expectedKObsFeature(vp, obsF,bcdf,TOL, 
+             Tstart, Tend, winSize, binSize, 0.0, 0) .
+  
+endm
+
+mod RUN-BASELINE is
+  inc BASELINE .
+
+ops sT eT wS bS : -> Float .
+eq sT = 0.0 .
+*** eq eT = 200.0 .
+eq wS =  4. .
+eq bS = 10. .
+
+**** slimit default is 1hr == 3600.0
+**** eq slimit = <what ever you like>
+
+eq hcsDelay = slimit + slimit .  --- prevent hcs to start
+
+op Vpts : -> NetIdList .
+eq Vpts = (ixpN :; cl[1] :;  cl[2]) .
+op ObsFs : -> FeatureList .
+eq ObsFs = (dnsQueryRate :; tcpUpRate :; tcpOutPktRate) .
+
+eq finalize(c:Config) =
+  genBaseLine(c:Config,Vpts,ObsFs,sT,slimit,wS,bS,false)  .
+endm  
+
+rew initConfig .  
+q
+eof
+sload advExample 
+
+mod TEST-BASELINE is
+  inc BASELINE .
+  inc ADV-EXAMPLE .
+
+ops sT eT wS bS : -> Float .
+eq sT = 0.0 .
+eq eT = 200.0 .
+eq wS =  4. .
+eq bS = 10. .
+
+op Vpts : -> NetIdList .
+eq Vpts = (ixpN :; cl[1] :;  cl[2]) .
+op ObsFs : -> FeatureList .
+eq ObsFs = (dnsQueryRate :; tcpUpRate :; tcpOutPktRate) .
+
+op baseAttrs : -> AttributeSet .
+eq baseAttrs = mkBaseLineAttrs(Vpts,ObsFs, sT,eT,wS,bS) .
+
+
+ops cdfD cdfT : -> List{Float} [memo] .
+
+eq cdfD = getBaselineCDFObsFeature (cl[1], dnsQueryRate, mTObsL, sT, eT, bS) .
+***  1.0000000000000001e-1
+
+eq cdfT = getBaselineCDFObsFeature (cl[1], tcpOutPktRate, pTObsL, sT, eT, bS) .
+*** 2.9999999999999999e-1
+
+
+ops kD kT : -> Float [memo] .
+eq kD = getKObsFeatureB (cl[1], dnsQueryRate, cdfD, mTObsL, sT, eT, wS, bS) .
+
+eq kT = getKObsFeatureB (cl[1], tcpOutPktRate, cdfT, pTObsL, sT, eT, wS, bS) .
+  
+op baseAttrs1 : -> AttributeSet [memo] .
+eq baseAttrs1 =  
+  genBaseLineXX(baseAttrs, cl[1], 
+                (dnsQueryRate :; tcpOutPktRate), 
+                sT, eT, wS,bS, mTObsL, pTObsL) .
+                
+op baseC : -> Config [memo] .
+eq baseC = 
+    genBaseLine(advX,Vpts,ObsFs,sT,eT,wS,bS,false)  .
+
+
+endm
+eof

@@ -9,10 +9,17 @@ mod FTP-MESSAGES is
   inc STRING .
   inc CP2-COMMON .
   
+  --- The transport to be used for ftp.
+  --- It can be nothing (transport(any:Address) = any:Address) or tcp.
+  op transport : Address -> Address .
+  eq transport(any:Address) = any:Address [owise] .
+
+  
   op getSize : Content -> Nat . ---- CLT: MOVE to ACTOR or ???
   
   vars n : Nat .
   vars str1 str2 : String .
+  vars size : Nat .
   
   sorts FtpReq FtpRes FtpData .
   subsorts FtpReq FtpRes FtpData < Content .
@@ -24,19 +31,22 @@ mod FTP-MESSAGES is
   op ftpRes : Nat String String -> FtpRes .
  
   
-  --- ftpData(id, dataPayload)
-  op ftpData : Nat String -> FtpData .
+  --- ftpData(id, dataPayloadSize)
+  op ftpData : Nat Nat -> FtpData .
   
   --- FTP Command timeouts
   op ftpTO : FtpReq -> Content .
   op ftpDataTO : FtpReq -> Content .
  
  **** getSize required by tcp transport model
- ***** using constant  150 from skyhook  
+  --- RFC 959: FTP command format is "<CMD> <ARGS>\r\n" or "<CMD>\r\n"
   eq getSize(ftpReq(n,str1,str2)) =
-       150 + length(str1) + length(str2) .
+       (if length(str2) > 0 then length(str1) + length(str2) + 3 else length(str1) + 2 fi) .
+  --- RFC 959: FTP reply format is "<code> <text>\r\n" or "<code>\r\n"
   eq getSize(ftpRes(n,str1,str2)) =
-       150 + length(str1) + length(str2) .
-  eq getSize(ftpData(n,str1)) = 150 + length(str1) .
+       (if length(str2) > 0 then length(str1) + length(str2) + 3 else length(str1) + 2 fi) .
+  --- FTP data connection carries the raw payload data bytes
+  eq getSize(ftpData(n,size)) = size .
+  eq getSize(AnyContent:Content) = 0 [owise] .
       
 endm

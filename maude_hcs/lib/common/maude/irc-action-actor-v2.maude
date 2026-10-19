@@ -31,62 +31,83 @@
 set show advisories off .
 
 sload user-action-actor-v2-aux.maude
+sload structured-addresses.maude
 
 mod IRC-USER-ACTION-ACTOR-V2 is
   inc USER-ACTION-ACTOR-V2-SHARED .
+  inc MAP{Nat,String} .
+  inc IRC_NAMES .
+  inc IRC_AUX .
+  inc IRC_NODE .
+  inc STRUCTURED-ADDRESSES .
   
 vars mname str mstr mstr1 astr astr1 rstr 
-     type room room1 : String .
-vars cmAddr  umAddr addr : Address .
+     type room room0 : String .
+vars cmAddr umAddr addr C_ADDR : Address .
+vars ircSrvAddr ircClAddr ircSrvIfaceAddr : Address .
 vars attrs attrs0 attrs1 attrs2 : AttributeSet .
-vars nd nd1 nb  nb1 ns nj j j0 j1 j2 : Nat .
-vars T Ts d  bd  bp fl flc flf : Float .
-vars smsgs msgs : Config .
+vars nd nd1 nb  nb1  nj j j0 j1 j2  n : Nat .
+vars T Ts d d0 bd  bp fl flc flf : Float .
+vars smsgs smsgs2 msgs : Config .
 vars msg : Msg .
 vars dmsg : ScheduleMsg .
-vars mj mj0 mj1 stateB pars acts aspec  aspec1 
-     : Map{String,JV} .
+vars mj mj0 mj1 stateB pars acts aspec  aspec1 aspec0 markov
+     wts  : Map{String,JV} .
 vars b : Bool .
+vars ns ns0 NS_VAR : Map{Nat,String} .
+vars jv : JV .
 
-op getInitialRoom :  Map{String,JV} -> String .
-eq getInitialRoom(pars) =
-    if $hasMapping (pars,"initial_room")
-    then jv2str(pars["initial_room"])
-    else "#default_room"
-    fi
-  .
+op strJn2natStr : Map{String,JV} -> Map{Nat,String} .
+op strJn2natStrX : Map{String,JV} Map{Nat,String}
+                 -> Map{Nat,String} .
+eq strJn2natStr(mj) = strJn2natStrX(mj,empty) .
+eq strJn2natStrX(empty,ns) = ns .
+eq strJn2natStrX(((str |-> jn(n)),mj),ns) = 
+     strJn2natStrX(mj, (ns, (n |-> str))) .
+eq strJn2natStrX(((str |-> jv),mj),ns) = 
+     strJn2natStrX(mj, ns) [owise] .     
 
 
-op mkIrcUMV2Actor : Address String Address -> Actor .
-eq mkIrcUMV2Actor(umAddr,mname,cmAddr) =
+ops ircSrvAddr:_ ircSrvIfaceAddr:_ : Address -> Attribute [ctor] .
+
+op mkIrcUMV2Actor : Address String Address Address Address -> Actor .
+eq mkIrcUMV2Actor(umAddr,mname,cmAddr,ircSrvAddr,ircSrvIfaceAddr) =
   < umAddr : UM-V2 | 
     v2mname:  mname,
-    cmAddr:  cmAddr, ---- (role of fnmap),
+    cmAddr:  cmAddr, ---- ircClAddr
+    ircSrvAddr: ircSrvAddr,
+    ircSrvIfaceAddr: ircSrvIfaceAddr,
     stopTime:  getModelTimeOut(getPars(mname)),
     modelSteps: getModelSteps(getPars(mname)),
     nextMode: getInitialState(mname), --- starting_state
-    nextRoom: getInitialRoom(getPars(mname)),
+    nextRoom: "",
     newMode: false,
     isIrc: true,
     dwellSteps: 0,
     burstSteps: 0,
     nextAction: "",
     curState: empty,  ---- sm[curMode]
+    roomMap: empty,
     w4: null
   >
   .        
 
+op getIrcSrvAddr : AttributeSet -> Address .
+eq getIrcSrvAddr((attrs,  ircSrvAddr: ircSrvAddr)) = ircSrvAddr .
+
+op getIrcSrvIfaceAddr : AttributeSet -> Address .
+eq getIrcSrvIfaceAddr((attrs, ircSrvIfaceAddr: ircSrvIfaceAddr))
+       = ircSrvIfaceAddr .
+
+op getIrcClientAddr : AttributeSet -> Address .
+eq getIrcClientAddr((attrs,  cmAddr: cmAddr)) = cmAddr .  
+
 ------------------------------------------
 eq exeActionIrc(attrs,umAddr,j) = {attrs,null,j} [owise] .
 
-ceq exeActionIrc(attrs,umAddr,j) =
-  (if type == "delay"
-   then exeIrcDelay(attrs2,umAddr,aspec1,j1)
-   else (if type == "select_room"
-        then exeIrcRoom(attrs2,umAddr,aspec1,j1)
-        else exeIrcMsg(attrs2,umAddr,aspec1,j1)
-        fi)                   
-  fi)
+ceq [exeActionIrc]:
+exeActionIrc(attrs,umAddr,j) =
+    exeActionIrcType(attrs2,umAddr,type,aspec1, s j1)
 if attrs0, cmAddr: cmAddr, curState: stateB := attrs
 /\ attrs1, w4: null,  nextAction: astr  := attrs
 /\ jo(acts) := stateB["actions"]
@@ -96,50 +117,131 @@ if attrs0, cmAddr: cmAddr, curState: stateB := attrs
 /\ jo(mj) := stateB["markov"]
 /\ astr1 := nextByWt(astr, mj, j1)
 /\ attrs2 := attrs1, w4: null, nextAction: astr1
+[print "exeActionIrc action type: " type ]
 .
 
-op exeIrcDelay : AttributeSet Address Map{String,JV} Nat
-                 -> AttributeSetMsgsNat .
-op exeIrcRoom : AttributeSet Address Map{String,JV} Nat
-                 -> AttributeSetMsgsNat .
-op exeIrcMsg : AttributeSet Address Map{String,JV} Nat
-                 -> AttributeSetMsgsNat .                 
-  
-ceq exeIrcDelay(attrs2,umAddr,aspec1,j1) = {decrDwellSteps(attrs2),dmsg,j1}
-if jf(fl) := aspec1["duration_seconds"]
-/\ msg := to umAddr from umAddr : burstDelayTO
-/\ dmsg := [fl,msg,0]
-.
+op exeActionIrcType : AttributeSet Address 
+                       String Map{String,JV} Nat
+                       -> AttributeSetMsgsNat .
 
-  
-ceq exeIrcRoom(attrs2,umAddr,aspec1,j1) = {attrs,smsgs,j0}
-if attrs0, w4: null, nextRoom: room := attrs2
-/\ attrs1, cmAddr: cmAddr,  v2mname: mname := attrs2
-/\ room1 := nextByWt("rooms",getPars(mname), j1)
-/\ msg := to cmAddr from umAddr : 
-            actionQ(("type" |-> js("joinmsg"),
-                     "room" |-> js(room)) )
-/\ attrs := attrs0, w4: msg, nextRoom: room1
-/\ {smsgs,j0} := delayMsgsX(s j1,msg,null)
-.
+eq[eceActionIrcType]:
+  exeActionIrcType(attrs,umAddr,type,aspec, j)
+  =  {attrs,null,j} 
+[owise print "IrcUM exeActionIrcType failed. type " type "\n aspec " aspec]  .
 
-ceq exeIrcMsg(attrs2,umAddr,aspec1,j1) =
-   {attrs,smsgs,j2}
-if attrs0, w4: null := attrs2
-/\ attrs1, cmAddr: cmAddr, nextRoom: room := attrs2
-/\ aspec := (aspec1, ("room" |-> js(room)))
-/\ msg := (to cmAddr from umAddr : actionQ(aspec))
-/\ attrs := attrs0, w4: msg
-/\ {smsgs,j2} := delayMsgsX(j1,msg,null)
-.
 
 ***(
- "type" |-> "roommsg",
- "message_length_bytes" |-> jf(fl)
+jo((("type" |-> js("set_room_numbers")), 
+("rooms" |-> jo((("#chat" |-> jn(0)), ("#general" |-> jn(1)), ("#random" |-> jn(2))))))),
+setRoomMap call rcvActRv2 (T == 0.0)
 )
- 
+***(
+  op SetRoomNumbersCmd : Address Map{Nat,String} -> Content [ctor] .
 
- 
+  vars N M : Nat .
+  vars srvIfaceAddr ircClientAddr IRC_SERVER_ADDR : Address .
+  vars attrsUM attrsSrv attrsSrv1 attrsSrv2 : AttributeSet .
+
+  op getServerIfaceForClient : Address -> Address .
+  eq getServerIfaceForClient(a(cl[N], hcs, irc, cl, M)) = a(srvN[N], hcs, irc, if, M) .
+  eq getServerIfaceForClient(addr) = addr [owise] .
+
+  op registerClientRooms : AttributeSet Map{Nat,String} Address Address Float -> AttributeSet .
+  eq registerClientRooms(attrsSrv, empty, ircClientAddr, srvIfaceAddr, T) = attrsSrv .
+  ceq registerClientRooms(attrsSrv, ((n |-> room), ns), ircClientAddr, srvIfaceAddr, T)
+    = registerClientRooms(attrsSrv2, ns, ircClientAddr, srvIfaceAddr, T)
+  if attrsSrv1 := registerIrcUser(attrsSrv, makeIrcChannelName(room), ircClientAddr)
+  /\ attrsSrv2 := registerIrcUserAddress(attrsSrv1, makeIrcUserName(ircClientAddr), srvIfaceAddr)
+  .
+
+  op addMsgToRes : AttributeSetMsgsNat Config -> AttributeSetMsgsNat .
+  eq addMsgToRes({attrs2, smsgs2, j2}, smsgs) = {attrs2, smsgs smsgs2, j2} .
+
+  op getCmAddr : AttributeSet -> Address .
+  eq getCmAddr((attrs0, cmAddr: cmAddr)) = cmAddr .
+  eq getCmAddr(attrs0) = nullAddr [owise] .
+)
+
+
+  op addMsgToRes : AttributeSetMsgsNat Config -> AttributeSetMsgsNat .
+  eq addMsgToRes({attrs2, smsgs2, j2}, smsgs) = {attrs2, smsgs smsgs2, j2} .
+
+  op setRoomMap : AttributeSet Map{Nat,String} -> AttributeSet .
+  eq setRoomMap((attrs0, roomMap: ns0), ns) = (attrs0, roomMap: ns) .
+  eq setRoomMap(attrs0, ns) = (attrs0, roomMap: ns) [owise] .
+
+op genJoinMsgs : Map{Nat,String} Address Address Address Float Nat Config -> ConfigNat .
+eq genJoinMsgs(empty, 
+               ircClAddr,ircSrvAddr,ircSrvIfaceAddr, 
+               d,j,smsgs) = {smsgs,j} .
+
+ceq genJoinMsgs((ns, (n |-> str)), 
+               ircClAddr,ircSrvAddr,ircSrvIfaceAddr, 
+               d,j,smsgs)
+  = genJoinMsgs(ns, 
+               ircClAddr,ircSrvAddr,ircSrvIfaceAddr, 
+               d0, s j,smsgs dmsg)
+if msg := (to ircSrvAddr from ircSrvIfaceAddr :
+   JoinChannel(makeIrcChannelName(str), ircClAddr))
+/\ d0 := d + genRandomX(j,0.0,0.000001)
+/\ dmsg := [d0,msg,0] 
+.
+
+
+ceq exeActionIrcType(attrs,umAddr,"set_room_numbers",aspec, j)
+  = addMsgToRes(rcvActRv2(setRoomMap(attrs, ns),umAddr,0.0,j), smsgs)
+if mj := getJOmap(aspec["rooms"])
+/\ ns := strJn2natStr(mj) ---- inverts map
+/\ ircSrvAddr := getIrcSrvAddr(attrs)
+/\ ircClAddr := getIrcClientAddr(attrs)
+/\ ircSrvIfaceAddr := getIrcSrvIfaceAddr(attrs)
+/\ {smsgs,j1} := genJoinMsgs(ns,ircClAddr,ircSrvAddr,ircSrvIfaceAddr,
+                             0.0,j,null)
+.
+
+ceq exeActionIrcType(attrs,umAddr,"select_room",aspec, j)
+   = rcvActRv2(attrs1,umAddr,0.0,s j)
+if attrs0, roomMap: ns, nextRoom: room0 := attrs
+/\ n := jv2nat(if $hasMapping(aspec,"choice")
+                 then aspec["choice"]
+                 else jn(0)
+                 fi)
+/\ room := (if $hasMapping(ns,n)
+            then ns[n]
+            else "#chat"
+            fi)
+/\ attrs1 := attrs0, roomMap: ns, nextRoom: room
+.
+
+ceq exeActionIrcType(attrs,umAddr,"wait",aspec, j)
+     = exeWait(attrs,umAddr,fl,actionDelayTO,j)
+if jf(fl) := aspec["sleep"]
+.
+
+--- Used by the converter for a top-level idle/wait state.
+eq exeActionIrcType(attrs,umAddr,"noop",aspec,j) =
+   rcvActRv2(attrs,umAddr,0.0,j) .
+
+ceq exeActionIrcType(attrs,umAddr,"roommsg",aspec, j)
+   =   {attrs2,smsgs,j1}
+if attrs0, w4: null := attrs
+/\ attrs1, cmAddr: cmAddr, nextRoom: room := attrs
+/\ aspec1 := (aspec, ("room" |-> js(room)))
+/\ msg := (to cmAddr from umAddr : actionQ(aspec1))
+/\ attrs2 := attrs0, w4: msg
+/\ {smsgs,j1} := delayMsgsX(j,msg,null)
+.
+
+ ***(
+  crl [server-handle-set-room-numbers]:
+  < IRC_SERVER_ADDR : IrcServer | attrsSrv >
+    {T, (to IRC_SERVER_ADDR from ircClientAddr : SetRoomNumbersCmd(ircClientAddr, ns))}
+  =>
+  < IRC_SERVER_ADDR : IrcServer | attrsSrv1 >
+  if srvIfaceAddr := getServerIfaceForClient(ircClientAddr)
+  /\ attrsSrv1 := registerClientRooms(refreshUser(attrsSrv, ircClientAddr, T), ns, ircClientAddr, srvIfaceAddr, T)
+  [print "(" T ") IRC Server registered rooms for " ircClientAddr " from set_room_numbers." ]
+  .
+)
 endm
 eof
-

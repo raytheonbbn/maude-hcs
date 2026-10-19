@@ -28,28 +28,7 @@
 ---
 --- MAUDE_HCS: end
 
-**** sload ../common/maude/markov-action-model.maude
-**** sload ../common/maude/cp2-interfaces 
 sload cm-aux.maude
-**** sload user-interface 
-
-***(
-req/rsp for CMServer
-
-UM -actionQ(downloadAct)-> CMC 
-    (replyTo: ummsg)
-            [ht := curHashtag]  --- pend if any, ow bHash
-            CMC -fetchQ(ht)-> MC
-    (w4c: mcmsg)
-            CMC <fetchR(images) - MC
-            [process fetch results ]
-    (if file complete
-     then [Bob <file,ht- CMS]
-     else null fi)
-    (w4c: null)            
-UM <actionR("ok")- CMC   
-    (replyTo: null)
-)
 
 fmod RB-DEFRAGMENT is
   inc BYTESEQ .
@@ -58,7 +37,6 @@ vars bytes bytes0 efrag ef efile : ByteSeq .
 vars efl efl1 efl0 : ByteSeqL .
 vars id n j k l l0 cap tot tot0 oh ix ix0  : Nat .
 vars fragMx last accum : Nat .
-
 
 ---- accumulate efragments in sorted list
 ---- if efl is sorted by increasing ix
@@ -91,7 +69,6 @@ eq addEfrag(efrag(bytes,tot,ix,l),
  [owise print "Bad frag dropped " bytes " expected " bytes0]
   .
 
-
 ---- efl is sorted by ix,  should have 0 1 ... last
 op efraglComplete? : ByteSeqL -> ByteSeqL . --- nil or efile
 op efraglComplete?X : ByteSeqL Nat -> Bool .
@@ -110,7 +87,7 @@ eq  efraglComplete?X(efl,ix) = false [owise] .
 
 eq hasLastFrag(efl :: efrag(efile,tot,ix,l)) 
    =
-   (if tot >= nbytes(efile) 
+   (if tot >= getSize(efile) 
     then efile
     else nilBS
     fi )
@@ -131,7 +108,7 @@ mod CONTENT-MANAGER-RECEIVER-AUX is
   inc TGEN-INTERFACE .
 ****  inc USER-INTERFACE .
 
-vars attrs attrs0 attrs1 attrs2 hattrs hattrs0 : AttributeSet .
+vars attrs attrs0 attrs1 attrs2 attrsNext attrsTrans hattrs hattrs0 : AttributeSet .
 vars cmsAtts cmsAtts1 cmsAtts2 : AttributeSet .
 vars msg msg0 msg1 : Msg .
 vars msgs msgs0 config config0 : Config .
@@ -141,6 +118,7 @@ vars T : Float .
 vars mcResponse : Content .
 vars efile efrag image ht hashtag bytes : ByteSeq .
 vars efilel efragl efragl0 efragl1 efragl3 imagel hashtagl : ByteSeqL .
+vars processed newImages : ByteSeqL .
 vars str : String .
 vars ract : Map{String,JV} .
 
@@ -159,12 +137,12 @@ ceq srcvActionQ(attrs, "download", msg0) = {attrs2,msg}
 if (to cmsAddr from umAddr : actionQ(ract) ) := msg0
 /\ attrs0, replyTo: null, w4c: null := attrs
 /\ attrs1, mcAddress: mcAddr := attrs
-/\ hashtag := getWHashtag(getRcvHashTagAttrs(attrs))
+/\ hashtag := getCurrentRecvHashtag(attrs)
 /\ msg1 := (to mcAddr from cmsAddr : fetchQ(hashtag))
 /\ msg := (to mcAddr from cmsAddr : 
              translateFetchQ(fetchQ(hashtag)))
 /\ attrs2 := attrs0, replyTo: msg0, w4c: msg1
-**** [ print "Raceboat cm : cmsAddr " got fetch request, set replyTo " msg0 " and w4c " msg1 ]
+[ print "Raceboat cm " cmsAddr " got fetch request, set replyTo " msg0 " and w4c " msg1 ]
 .
 
 
@@ -174,33 +152,56 @@ vars  tag : Tag .
  ---- rcv fetchR , ask ed to decode imagel
  ---- only fetching with weird hash tags
  
+--- Compare complete encoded images, including their embedded bytes.
+op hasProcessedImage : ByteSeq ByteSeqL -> Bool .
+eq hasProcessedImage(image, image :: imagel) = true .
+eq hasProcessedImage(image, nilBS) = false .
+eq hasProcessedImage(image, bytes :: imagel)
+  = hasProcessedImage(image,imagel) [owise]
+.
+
+--- Keep new images in order, dropping repeats within the fetch as well.
+op newImageList : ByteSeqL ByteSeqL -> ByteSeqL .
+eq newImageList(nilBS,processed) = nilBS .
+eq newImageList(image :: imagel,processed)
+  = (if hasProcessedImage(image,processed)
+     then newImageList(imagel,processed)
+     else image :: newImageList(imagel,processed :: image)
+     fi)
+.
+
 op srcvFetchR : AttributeSet Msg -> AttributeSetMsgs .
 eq srcvFetchR(attrs,msg) = {attrs,null} [owise] .
 
----- w Hashtag download no images
+---- w Hashtag download no new images
 ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
-                       fetchR(nilBS,ht)) )  
+                       fetchR(imagel,ht)) )
          = {attrs2,msg}
-if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
+if attrs0, processedImages: processed,
+    w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
     replyTo: (to cmsAddr from umAddr : actionQ(ract))
            := attrs
+/\ nilBS := newImageList(imagel,processed)
 **** assume responses to earlier hts won't occur
 /\ msg := (to umAddr from cmsAddr : actionR("ok"))
-/\ attrs2 := attrs0,  w4c: null, replyTo: null
-**** [ print "Raceboat server has download of pending hashtag " ht ", no images." ]
+/\ attrs2 := attrs0, processedImages: processed, w4c: null, replyTo: null
+[ print "Raceboat " mcAddr " has download of pending hashtag " ht ", no images." ]
 .   
  
----- wHashtag download non nil result
+---- wHashtag download with new images
 ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
-                       fetchR(image :: imagel,ht)) )  
+                       fetchR(imagel,ht)) )
          = {attrs2,msg}
-if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)) 
+if attrs0, processedImages: processed,
+    w4c: (to mcAddr from cmsAddr : fetchQ(ht))
            := attrs
+/\ newImages := newImageList(imagel,processed)
+/\ newImages =/= nilBS
 /\ attrs1,  edAddress: edAddr := attrs
 /\ msg := 
-    (to edAddr from cmsAddr : decQ(image :: imagel))    
-/\ attrs2 := attrs0,  w4c: msg
-**** [ print "Raceboat server has weird download for tag " ht  ]
+    (to edAddr from cmsAddr : decQ(newImages))
+/\ attrs2 := attrs0, processedImages: processed, w4c: msg
+[ print "Raceboat " cmsAddr " has weird download for tag " ht  ]
 .    
 
 var efileX : ByteSeqL .
@@ -214,32 +215,32 @@ op srcvDecR : AttributeSet  Msg -> AttributeSetMsgs .
  eq srcvDecR(attrs, msg) = {attrs,null}
 [owise print "srcvDecR no match for msg " msg] .
 
- ceq srcvDecR(attrs, 
-            (to cmsAddr from edAddr : decR(efragl))) 
-    = {attrs2, msg0 msgs0}
-if attrs0, w4c: (to edAddr from cmsAddr : decQ(imagel)),
-   replyTo: (to cmsAddr from umAddr : actionQ(ract)),
-   currentFragsR: efragl0 := attrs    
-/\ efragl1 := addEfrags(efragl,efragl0)
-/\ efileX := efraglComplete?(efragl1)
-/\ efragl3 := (if efileX == nilBS
-               then efragl1 else nilBS fi)
-/\ msg0 := (to umAddr from cmsAddr : actionR("ok"))
-/\ msgs0 :=
-    (if efileX == nilBS 
-     then null
-     else (to getReceiverAddress(attrs) from cmsAddr
-              : efileX )
-    fi)
-/\ hattrs := (if efileX == nilBS 
-              then getRcvHashTagAttrs(attrs0)
-              else nextWHashtag(getRcvHashTagAttrs(attrs0))
-               fi)
-              
-/\ attrs2 := setRcvHashTagAttrs(attrs0,hattrs),
-             w4c: null, replyTo: null,
-             currentFragsR: efragl3
-       .        
+ceq srcvDecR((attrs,
+              receivedChunks: previousChunks:ByteSeqL,
+              processedImages: processed,
+              w4c: (to edAddr from cmsAddr : decQ(imagel)),
+              replyTo: (to cmsAddr from umAddr : actionQ(ract))),
+              (to cmsAddr from edAddr : decR(efragl)))
+  = {attrsNext, msgs}
+  if newReceivedChunks:ByteSeqL := $insertInOrder(previousChunks:ByteSeqL, efragl)
+    /\ {recombined:ByteSeqL, remaining:ByteSeqL} := $decode(newReceivedChunks:ByteSeqL,
+                                                            nilBS,
+                                                            nilBS)
+    /\ attrsTrans := (attrs,
+                      receivedChunks: remaining:ByteSeqL,
+                      processedImages: (processed :: imagel),
+                      w4c: null,
+                      replyTo: null)
+    /\ attrsNext := (if efragl == nilBS
+                      then attrsTrans
+                      else rollRecvHashtag(attrsTrans)
+                    fi)
+    /\ msgs := (to umAddr from cmsAddr : actionR("ok"))
+                unpackToMsgs(recombined:ByteSeqL,
+                             getReceiverAddress(attrsNext),
+                             cmsAddr)
+  [ print "Raceboat " cmsAddr " received decoded payload " efragl ", adding to receive buffer." ]
+.
 
 endm
 

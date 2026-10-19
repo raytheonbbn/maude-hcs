@@ -1,3 +1,33 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
 sload  ../../../deps/dns_formalization/Maude/common/actor.maude
 sload ../../common/maude/byteseq
 
@@ -86,6 +116,7 @@ fmod HASHTAG-MANAGER is
  op hashStr:_ : String -> Attribute [ctor] .
  op bHashCtr:_ : Nat -> Attribute [ctor] .  --- initally 0
  op wHashCtr:_ : Nat -> Attribute [ctor] .  --- initally 0
+op  rollHashtag:_ : Bool -> Attribute [ctor] .
 
  eq nextWHashtag(attrs, hashStr: str, wHashCtr: j, wHashtag: bytes)
    = attrs, hashStr: str, wHashCtr: s j, 
@@ -101,10 +132,21 @@ eq initHashtagAttrs(str) =
 hashStr: str, 
 bHashCtr: 0, 
 wHashCtr: 0, 
-bHashtag: hashTag(str + "B" + "0"),
-wHashtag: hashTag(str + "W" + "0")
+bHashtag: hashTag(str),
+wHashtag: hashTag(str)
+[ print "Creating non-rollable hashtags " str "." ]
 .
 
+op initHashtagAttrsWRoll : String -> AttributeSet .
+eq initHashtagAttrsWRoll(str) = 
+hashStr: str, 
+bHashCtr: 0, 
+wHashCtr: 0, 
+bHashtag: hashTag(str + "B" + "0"),
+wHashtag: hashTag(str + "W" + "0"),
+rollHashtag: true
+[ print "Creating rollable hashtags " str "B0 and " str "W0." ]
+.
 
 endfm
 
@@ -120,19 +162,19 @@ eof
 
 red HTattrs .
 
-bHashtag: hashTag("htdstrB0"), 
-wHashtag: hashTag("htdstrW0"), 
+bHashtag: hashTag("htdstr"), 
+wHashtag: hashTag("htdstr"), 
 hashStr: "htdstr", bHashCtr: 0, wHashCtr: 0
 
 red setBHashtag(HTattrs,hashTag("a0"))   .
 
 bHashtag: hashTag("a0"), 
-wHashtag: hashTag("htdstrW0"),
+wHashtag: hashTag("htdstr"),
 hashStr: "htdstr", bHashCtr: 0, wHashCtr: 0
 
 red nextWHashtag(HTattrs) .
 
-bHashtag: hashTag("htdstrB0"), 
-wHashtag: hashTag("htdstrW1"), 
+bHashtag: hashTag("htdstr"), 
+wHashtag: hashTag("htdstr"), 
 hashStr: "htdstr", bHashCtr: 0, wHashCtr: 1
 

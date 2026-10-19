@@ -1,0 +1,102 @@
+import functools
+import shutil
+import random
+import uuid
+import os
+
+from pathlib import Path
+from argparse import Namespace
+
+from maude_hcs.main import handle_command
+from maude_hcs.lib import GLOBALS
+
+from .context import BuildConfig, RunConfig
+
+# We just need this so we can have a module to execute tests in where both TEST and TEST-UTILS are available,
+# without having TEST directly include TEST-UTILS or vice versa (which would be impossible in this setup)
+TEST_ENV = f"""
+sload ./test.maude
+sload {GLOBALS.LIB_DIR}/test-utils/test-utils.maude
+
+mod TEST-ENV is
+  inc TEST .
+  inc TEST-UTILS .
+endm
+"""
+
+def batch_convert_dir_v1(dir: Path, proto: str) -> None:
+    """dir should just contain json files representing markov models.
+    This function will convert all of them into maude files, placing the results alongside the original jsons.
+    """
+    markov_args = Namespace(
+        verbose=False,
+        command='markov-v1',
+        protocol=proto,
+        input_dir=str(dir),
+        output_dir=str(dir),
+    )
+
+    handle_command(markov_args.command, None, markov_args)
+
+def batch_convert_dir_v2(dir: Path, proto: str) -> None:
+    """dir should just contain json files representing markov models.
+    This function will convert all of them into maude files, placing the results alongside the original jsons.
+    """
+    markov_args = Namespace(
+        verbose=False,
+        command='markov-v2',
+        protocol=proto,
+        markov_command='batch',
+        input_dir=str(dir),
+        output_dir=str(dir),
+    )
+
+    handle_command(markov_args.command, None, markov_args)
+
+def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path) -> Path:
+    gen_args = build_cfg.gen_args
+    params = gen_args.params
+
+    build_dir = (Path(run_cfg.temp_dir) / f"{build_cfg.name}-{uuid.uuid4().hex}").resolve()
+    shutil.copytree(src_dir, build_dir)
+
+    for dir, proto in build_cfg.markov_v1_dirs:
+        batch_convert_dir_v1(build_dir / dir, proto)
+
+    for dir, proto in build_cfg.markov_v2_dirs:
+        batch_convert_dir_v2(build_dir / dir, proto)
+
+    if run_cfg.override_run_time is not None:
+        slimit = run_cfg.override_run_time
+    else:
+        slimit = params.run_time
+
+    args = Namespace(
+        verbose=True,
+        command='generate',
+        yaml_file=str(build_dir / params.yaml_filename),
+        quatex=True,
+        baselineTime=params.baseline_time,
+        runTime=slimit,
+        hcsDelay=params.hcs_delay,
+        tgenDelay=params.tgen_delay,
+        outDir=str(build_dir),
+        scenarioName='test',
+        notgens=params.no_tgens,
+
+        feats=gen_args.feats,
+        vpts=gen_args.vpts,
+
+        parallelizeBaseline=gen_args.parallelize_baseline,
+        confidentiality=gen_args.confidentiality,
+        perf=gen_args.performance,
+    )
+
+    handle_command(args.command, None, args)
+
+    with open(build_dir / 'test-env.maude', 'w') as f:
+        f.write(TEST_ENV)
+
+    os.mkdir(build_dir / "logs")
+
+    return build_dir

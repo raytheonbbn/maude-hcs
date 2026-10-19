@@ -1,0 +1,162 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+**** sload ../common/maude/markov-action-model.maude
+**** sload ../common/maude/cp2-interfaces 
+sload cm-aux-oneHash.maude
+**** sload user-interface 
+
+***(
+req/rsp for CMServer
+
+UM -actionQ(downloadAct)-> CMC 
+    (replyTo: ummsg)
+            [ht := curHashtag]  --- pend if any, ow bHash
+            CMC -fetchQ(ht)-> MC
+    (w4c: mcmsg)
+            CMC <fetchR(images) - MC
+            [process fetch results ]
+    (if file complete
+     then [Bob <file,ht- CMS]
+     else null fi)
+    (w4c: null)            
+UM <actionR("ok")- CMC   
+    (replyTo: null)
+)
+
+mod CONTENT-MANAGER-RECEIVER-AUX is
+  inc CONTENT-MANAGER .
+  inc CP2_SORTS .  ---- AttributeSetMsgs from _aux
+  inc CP2-COMMON .
+  inc MC-INTERFACE  .
+  inc ED-INTERFACE .
+  inc TGEN-INTERFACE .
+****  inc USER-INTERFACE .
+
+vars attrs attrs0 attrs1 attrs2 hattrs hattrs0 : AttributeSet .
+vars cmsAtts cmsAtts1 cmsAtts2 : AttributeSet .
+vars msg msg0 msg1 : Msg .
+vars msgs msgs0 config config0 : Config .
+vars j j1 i k l n cap : Nat .
+vars bAddr cmsAddr umAddr edAddr mcAddr : Address .
+vars T : Float .
+vars mcResponse : Content .
+vars efile efrag image ht hashtag bytes : ByteSeq .
+vars efilel efragl efragl0 efragl1 efragl3 imagel hashtagl efl : ByteSeqL .
+vars str : String .
+vars ract : Map{String,JV} .
+
+--- Hashtag searches return newest toots first. Order each message's chunks
+--- before using the byte-stream decoder; seen media are filtered by the CM.
+op orderChunks : ByteSeqL -> ByteSeqL .
+op insertChunk : ByteSeq ByteSeqL -> ByteSeqL .
+eq orderChunks(nilBS) = nilBS .
+eq orderChunks(bytes :: efragl) = insertChunk(bytes, orderChunks(efragl)) .
+ceq insertChunk(makeByteSeqChunk(bytes, n, i),
+                efragl0 :: makeByteSeqChunk(bytes, l, j) :: efragl1)
+  = efragl0 :: makeByteSeqChunk(bytes, n, i)
+            :: makeByteSeqChunk(bytes, l, j) :: efragl1
+  if i < j .
+eq insertChunk(bytes, efragl) = efragl :: bytes [owise] .
+
+op srcvActionQ : AttributeSet String Msg
+                   -> AttributeSetMsgs . 
+
+ceq srcvActionQ(attrs,str,msg) = {attrs,msg0}
+if (to cmsAddr from umAddr : actionQ(ract)) := msg
+/\ msg0 := (to umAddr from cmsAddr : actionR("notRecognized"))
+ [owise] .
+
+---- download case fetch using current W hashTag 
+---- until fragments assembled and forwarded
+ceq srcvActionQ(attrs, "download", msg0) = {attrs2,msg}
+if (to cmsAddr from umAddr : actionQ(ract) ) := msg0
+/\ attrs0, replyTo: null, w4c: null := attrs
+/\ attrs1, mcAddress: mcAddr := attrs
+/\ hashtag := getWHashtag(getRcvHashTagAttrs(attrs))
+/\ msg1 := (to mcAddr from cmsAddr : fetchQ(hashtag))
+/\ msg := (to mcAddr from cmsAddr : 
+             translateFetchQ(fetchQ(hashtag)))
+/\ attrs2 := attrs0, replyTo: msg0, w4c: msg1
+**** [ print "Raceboat cm : cmsAddr " got fetch request, set replyTo " msg0 " and w4c " msg1 ]
+.
+
+
+vars  mediaFileList : MediaFileList .
+vars  tag : Tag .
+
+ ---- rcv fetchR , ask ed to decode imagel
+ ---- only fetching with weird hash tags
+ 
+op srcvFetchR : AttributeSet Msg -> AttributeSetMsgs .
+eq srcvFetchR(attrs,msg) = {attrs,null} [owise] .
+
+---- w Hashtag download no images
+ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
+                       fetchR(nilBS,ht)) )  
+         = {attrs2,msg}
+if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)),
+    replyTo: (to cmsAddr from umAddr : actionQ(ract))
+           := attrs
+**** assume responses to earlier hts won't occur
+/\ msg := (to umAddr from cmsAddr : actionR("ok"))
+/\ attrs2 := attrs0,  w4c: null, replyTo: null
+**** [ print "Raceboat server has download of pending hashtag " ht ", no images." ]
+.   
+ 
+---- wHashtag download non nil result
+ceq srcvFetchR(attrs,(to cmsAddr from mcAddr :
+                       fetchR(image :: imagel,ht)) )  
+         = {attrs2,msg}
+if attrs0, w4c: (to mcAddr from cmsAddr : fetchQ(ht)) 
+           := attrs
+/\ attrs1,  edAddress: edAddr := attrs
+/\ msg := 
+    (to edAddr from cmsAddr : decQ(image :: imagel))    
+/\ attrs2 := attrs0,  w4c: msg
+**** [ print "Raceboat server has weird download for tag " ht  ]
+.    
+
+var efileX : ByteSeqL .
+
+
+op srcvDecR : AttributeSet Msg -> AttributeSetMsgs .
+eq srcvDecR(attrs, msg) = {attrs, null} [owise] .
+ceq srcvDecR(attrs, (to cmsAddr from edAddr : decR(efragl)))
+  = {attrs0, w4c: null, replyTo: null, currentFragsR: efragl3,
+     (to umAddr from cmsAddr : actionR("ok"))
+     unpackToMsgs(efileX, getReceiverAddress(attrs), cmsAddr)}
+  if attrs0, w4c: (to edAddr from cmsAddr : decQ(imagel)),
+             replyTo: (to cmsAddr from umAddr : actionQ(ract)),
+             currentFragsR: efragl0 := attrs
+  /\ {efileX, efragl3} := $decode(orderChunks(efragl0 :: efragl), nilBS, nilBS) .
+endm
+
+eof

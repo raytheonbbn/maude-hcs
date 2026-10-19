@@ -1,0 +1,148 @@
+set clear rules off .
+set print attribute off .
+set show advisories off .
+
+
+sload ../../deps/dns_formalization/Maude/common/actor
+sload ../common/maude/structured-addresses
+sload ../common/maude/adversary-cp3
+
+mod SMC-BASELINE-SHARED is
+  inc ACTOR-MODEL .
+  inc ADVERSARY-CP3 .
+  inc STRUCTURED-ADDRESSES .
+  inc LIST{Float} .
+  
+  vars vp nid : NetId .
+  vars vpts : NetIdList .
+  vars obsF : Feature .
+  vars obsFs : FeatureList .
+  vars TOL F0Z GtZ mTOL pTOL : TimesObsList .
+  vars bcdf : List{Float} .
+  vars tStart tEnd winSize binSize  k : Float .
+  vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+  vars blist : BaseLineList .
+  var  belem : BaseLineElement .
+  vars conf conf0 : Config .
+  vars b : Bool .
+  vars blAct : Actor .
+  vars aAddr : Address .
+  
+**** defined in scm_cp3  
+***  op getBaselineCDFObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
+  op expectedKObsFeature : NetId Feature List{Float} FloatLL Float Float Float Float Float Nat -> Float .
+
+*** op getECDFObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} [memo] . 
+
+op KsStatisticZ : List{Float} List{Float} Float -> Float .
+
+**** optimized hopefully
+  op getBaselineCDFObsFeature : NetId Feature TimesObsList TimesObsLL Float Float Float -> List{Float} .
+
+  op getECDFObsFeature : NetId Feature TimesObsList TimesObsLL Float Float Float -> List{Float} . 
+                          
+  sort Feature .
+  ops dnsQueryRate dnsQuerySize dnsRespSize : -> Feature .
+  ops tcpUpRate tcpDownRate tcpUpToDownRate tcpOutPktRate tcpInPktRate tcpOutToInPktRate tcpPktSizeStdDev tcpPktSize tcpPktInterarrival tcpDirectionChange tcpActiveFlow tcpNewCnx : -> Feature .
+  
+op  ircServerAddr : -> Address .
+op allClientsAddr : -> AddrList .
+
+  sort NetIdList .
+  subsort NetId < NetIdList .
+  op nilNetId : -> NetIdList .
+  op _:;_ : NetIdList NetIdList -> NetIdList 
+            [ctor assoc id: nilNetId] .
+  
+  sort FeatureList .
+  subsort Feature < FeatureList .
+  op nilFeature : -> FeatureList .
+  op _:;_ : FeatureList FeatureList -> FeatureList 
+           [ctor assoc id: nilFeature] .
+  
+op isDnsFeature : Feature -> Bool .
+eq isDnsFeature(dnsQueryRate) = true .
+eq isDnsFeature(dnsQuerySize) = true .
+eq isDnsFeature(dnsRespSize) = true .
+eq isDnsFeature(obsF) = false [owise] .
+
+sorts BaseLineElement BaseLineList .
+subsort BaseLineElement < BaseLineList .
+op nilBaseLine : -> BaseLineList .
+op _:;_ : BaseLineList BaseLineList -> BaseLineList
+               [ctor assoc id: nilBaseLine] .
+op bl : NetId Feature Float List{Float}  
+        -> BaseLineElement [ctor] .
+
+op len : BaseLineList -> Nat .
+eq len(nilBaseLine) = 0 .
+eq len(belem :; blist) = s len(blist) .
+
+sort FloatLL .
+op nilFloatL : -> FloatLL [ctor] .
+op `[_`] : List{Float} -> FloatLL [ctor] .
+op __ : FloatLL FloatLL -> FloatLL [ctor assoc id: nilFloatL] .
+
+op bl : NetId Feature Float FloatLL -> BaseLineElement .
+op bl : NetId Feature Float List{Float} FloatLL 
+       -> BaseLineElement .
+
+  
+op baseLineAddr : -> Address .
+op BaseLineMonitor : -> ActorType .
+
+**** blm attributes
+op viewPts:_ : NetIdList -> Attribute [ctor] .
+op features:_ : FeatureList -> Attribute [ctor] .
+op baseLine:_ : BaseLineList -> Attribute [ctor] .
+ops winSize:_ binSize:_ : Float -> Attribute [ctor] .
+ops tStart:_ tEnd:_ : Float -> Attribute [ctor] .
+op binStart:_  : Float -> Attribute [ctor] .
+
+op wdoKsList:_ : BaseLineList -> Attribute [ctor] .
+op gt:_ : BaseLineList -> Attribute .
+op maxBLsize:_ : Float -> Attribute [ctor] .
+
+op  windowTO : -> Content .   --- delay winSize
+op  binTObase : -> Content .      --- delay binSize
+op  binTOexe : -> Content .      --- delay binSize
+op initKs : -> Content .
+op initBase : -> Content .
+
+
+ops sT wS bS  eT : -> Float .
+op Vpts : -> NetIdList .
+op ObsFs : -> FeatureList .
+op BL : -> BaseLineList .
+op MaxBLSize : -> Float .
+
+op BaseLineInitAttrs : -> AttributeSet .
+eq  BaseLineInitAttrs =
+      (viewPts: Vpts,
+      features: ObsFs,
+      winSize: wS,
+      binSize: bS,
+      tStart: sT,
+      tEnd: eT,
+      maxBLsize: MaxBLSize,      
+      baseLine: BL)
+       .
+
+op baseLineAct : -> Actor .
+eq baseLineAct =
+    <  baseLineAddr : BaseLineMonitor | BaseLineInitAttrs >
+.
+
+***(
+op addToBaseLine : AttributeSet NetId Feature 
+                 Float List{Float} -> AttributeSet .
+ceq addToBaseLine(attrs,vp,obsF,k,bcdf) =
+   attrs0, baseLine: (blist :; bl(vp,obsF,k,bcdf) ) 
+if attrs0,baseLine: blist := attrs
+.
+eq addToBaseLine(attrs,nid,obsF,k,bcdf) = attrs [owise] .
+)
+endm
+eof
+
+

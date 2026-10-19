@@ -1,0 +1,188 @@
+--- Gorilla Chat Protocol & Server
+---
+--- Defines the WebSocket chat protocol messages and a broadcast
+--- chat server actor for use with the gorilla chat tgen.
+---
+--- The server models the gorilla/websocket hub from the Go code:
+---   - Maintains a set of connected client addresses
+---   - When a client sends a message, broadcasts to members of that room
+---   - Acknowledges the send to the originating client
+---
+
+sload ../../../common/maude/cp2-interfaces
+sload ../../../common/maude/delay-drop-x
+
+mod GORILLACHAT-PROTOCOL is
+  inc CP2-COMMON .
+  inc DELAY-X .
+  inc TGEN-INTERFACE .
+
+  --- =========================================================
+  --- Transport Wrapper (Default identity)
+  --- =========================================================
+  op transport : Address -> Address .
+  eq transport(any:Address) = any:Address [owise] .
+
+  --- =========================================================
+  --- Room Sets & Client Room Mappings
+  --- =========================================================
+  sort RoomSet .
+  subsort String < RoomSet .
+  op noRoom : -> RoomSet [ctor] .
+  op _rm_ : RoomSet RoomSet -> RoomSet [ctor assoc comm id: noRoom] .
+
+  sort ClientRooms .
+  op _hasRooms_ : Address RoomSet -> ClientRooms [ctor] .
+
+  sort ClientRoomsSet .
+  subsort ClientRooms < ClientRoomsSet .
+  op noClientRooms : -> ClientRoomsSet [ctor] .
+  op _cr_ : ClientRoomsSet ClientRoomsSet -> ClientRoomsSet [ctor assoc comm id: noClientRooms] .
+
+  --- =========================================================
+  --- Chat protocol messages (Content constructors)
+  --- =========================================================
+
+  --- Client -> Server: send message to room
+  ---   room: channel name (e.g. "#tgen_chat")
+  ---   msgLen: message payload length in bytes
+  op chatSend : String Nat -> Content [ctor] .
+
+  --- Server -> Sender: acknowledge the send was processed
+  op chatSendAck : -> Content [ctor] .
+
+  --- Server -> All Clients: broadcast a message
+  ---   room: channel the message was sent to
+  ---   sender: address of the client that sent the message
+  ---   msgLen: message payload length in bytes
+  op chatBroadcast : String Address Nat -> Content [ctor] .
+
+  --- Client -> Server: register client rooms (sent on set_room_numbers)
+  op setClientRooms : Address RoomSet -> Content [ctor] .
+
+  --- =========================================================
+  --- Message Sizes (WebSocket RFC 6455 over-the-wire framing)
+  --- =========================================================
+  --- Client -> Server: masked (4 bytes mask key + 2 bytes base header + extended length)
+  op wsClientOverhead : Nat -> Nat .
+  eq wsClientOverhead(N:Nat) =
+       (if N:Nat < 126
+        then 6
+        else (if N:Nat <= 65535 then 8 else 14 fi)
+        fi) .
+
+  --- Server -> Client: unmasked (0 bytes mask key + 2 bytes base header + extended length)
+  op wsServerOverhead : Nat -> Nat .
+  eq wsServerOverhead(N:Nat) =
+       (if N:Nat < 126
+        then 2
+        else (if N:Nat <= 65535 then 4 else 10 fi)
+        fi) .
+
+  op getSize : Content -> Nat .
+  --- Client -> Server chatSend: room prefix + space + message payload + masked WebSocket framing
+  eq getSize(chatSend(rm:String, ml:Nat)) =
+       wsClientOverhead(length(rm:String) + 1 + ml:Nat) + length(rm:String) + 1 + ml:Nat .
+  --- Server -> Client chatSendAck: unmasked WebSocket frame with ack payload (e.g. {"status":"ok"} -> 15 bytes + 2 bytes header = 17 bytes)
+  eq getSize(chatSendAck) = wsServerOverhead(15) + 15 .
+  --- Server -> Client chatBroadcast: room + space + sender + space + message payload + unmasked WebSocket framing
+  eq getSize(chatBroadcast(rm:String, sd:Address, ml:Nat)) =
+       wsServerOverhead(length(rm:String) + ml:Nat + 12) + length(rm:String) + ml:Nat + 12 .
+  --- setClientRooms: internal registration message (0 wire bytes)
+  eq getSize(setClientRooms(ca:Address, rs:RoomSet)) = 0 .
+  eq getSize(AnyContent:Content) = 0 [owise] .
+
+  --- =========================================================
+  --- Room & ClientRooms helper operations
+  --- =========================================================
+  op extractRoomNames : Map{String,JV} -> RoomSet .
+  eq extractRoomNames(empty) = noRoom .
+  eq extractRoomNames((rm:String |-> jv:JV, rms:Map{String,JV})) =
+    rm:String rm extractRoomNames(rms:Map{String,JV}) .
+
+  op hasRoom : Address String ClientRoomsSet -> Bool .
+  eq hasRoom(ca:Address, rm:String,
+             (ca:Address hasRooms (rm:String rm rs:RoomSet)) cr crs:ClientRoomsSet) = true .
+  eq hasRoom(ca:Address, rm:String, crs:ClientRoomsSet) = false [owise] .
+
+  op updateClientRooms : Address RoomSet ClientRoomsSet -> ClientRoomsSet .
+  eq updateClientRooms(ca:Address, rs:RoomSet,
+                       (ca:Address hasRooms ors:RoomSet) cr crs:ClientRoomsSet) =
+    (ca:Address hasRooms rs:RoomSet) cr crs:ClientRoomsSet .
+  eq updateClientRooms(ca:Address, rs:RoomSet, crs:ClientRoomsSet) =
+    (ca:Address hasRooms rs:RoomSet) cr crs:ClientRoomsSet [owise] .
+
+  --- =========================================================
+  --- Address set for tracking connected clients
+  --- Uses _addr_ operator to avoid kind-level conflict with
+  --- the S3HeaderList ;; operator loaded transitively.
+  --- =========================================================
+  sort AddressSet .
+  subsort Address < AddressSet .
+  op noAddr : -> AddressSet [ctor] .
+  op _addr_ : AddressSet AddressSet -> AddressSet [ctor assoc comm id: noAddr] .
+
+  --- =========================================================
+  --- Server actor
+  --- =========================================================
+  op GorillaChatServer : -> ActorType .
+
+  --- Server attributes
+  op clients:_ : AddressSet -> Attribute [ctor] .
+  op clientRooms:_ : ClientRoomsSet -> Attribute [ctor] .
+
+  --- Variables
+  vars sAddr cAddr sender : Address .
+  vars attrs : AttributeSet .
+  vars room : String .
+  vars msgLen : Nat .
+  vars rj j1 : Nat .
+  vars T : Float .
+  vars cs : AddressSet .
+  vars smsgs : Config .
+  vars rSet : RoomSet .
+  vars cRoomsSet : ClientRoomsSet .
+
+  --- Constructor
+  op mkGorillaChatServer : Address AddressSet -> Actor .
+  eq mkGorillaChatServer(sAddr, cs) =
+    < sAddr : GorillaChatServer | clients: cs, clientRooms: noClientRooms > .
+
+  --- =========================================================
+  --- Server rule: register client rooms (from set_room_numbers)
+  --- =========================================================
+  rl [serverSetClientRooms]:
+    {T, (to sAddr from cAddr : setClientRooms(cAddr, rSet))}
+    < sAddr : GorillaChatServer | clientRooms: cRoomsSet, attrs >
+  =>
+    < sAddr : GorillaChatServer | clientRooms: updateClientRooms(cAddr, rSet, cRoomsSet), attrs >
+  [print "(" T ") GorillaChatServer registered rooms for " cAddr ": " rSet] .
+
+  --- =========================================================
+  --- Server rule: receive chatSend, broadcast to room members, ack sender
+  --- =========================================================
+  crl [serverBroadcast]:
+    rCtr(rj)
+    {T, (to sAddr from cAddr : chatSend(room, msgLen))}
+    < sAddr : GorillaChatServer | clients: cs, clientRooms: cRoomsSet, attrs >
+  =>
+    rCtr(j1)
+    < sAddr : GorillaChatServer | clients: cs, clientRooms: cRoomsSet, attrs >
+    smsgs
+  if {smsgs, j1} := delayMsgsX(rj,
+       mkBroadcast(cs, cRoomsSet, sAddr, room, cAddr, msgLen)
+       (to transport(cAddr) from sAddr : chatSendAck),
+       null)
+  [print "(" T ") GorillaChatServer: " cAddr " sent roommsg (len=" msgLen ") to room " room ", broadcasting to members"] .
+
+  --- Helper: generate broadcast messages to clients having room in clientRooms
+  op mkBroadcast : AddressSet ClientRoomsSet Address String Address Nat -> Config .
+  eq mkBroadcast(noAddr, cRoomsSet, sAddr, room, sender, msgLen) = null .
+  eq mkBroadcast((cAddr addr cs), cRoomsSet, sAddr, room, sender, msgLen) =
+    (if hasRoom(cAddr, room, cRoomsSet)
+     then (to transport(cAddr) from sAddr : chatBroadcast(room, sender, msgLen))
+     else null
+     fi)
+    mkBroadcast(cs, cRoomsSet, sAddr, room, sender, msgLen) .
+
+endm

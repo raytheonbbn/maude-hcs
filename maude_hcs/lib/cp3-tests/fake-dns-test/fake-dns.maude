@@ -1,0 +1,142 @@
+sload ../../../deps/dns_formalization/Maude/dns/common/prelim
+sload ../../common/maude/cp2-interfaces
+sload ../../common/maude/_aux
+sload ../../common/maude/delay-drop-x
+
+
+mod FAKE-DNS is
+  inc ACTOR-MODEL .
+  inc MSG .
+  inc  CP2-COMMON .
+  inc CP2_SORTS .
+  inc DELAY-X .
+  
+  vars myAddr rsvAddr  addr addr0 : Address .
+  vars conf : Config .
+  vars T : Float .
+  vars smsgs : Config .
+  vars j j1 j2 : Nat .
+  vars attrs attrs0 attrs1 attrs2 : AttributeSet .
+  vars msg : Msg .
+  
+  **** need to put this declaration in a shared place
+  **** NOT repeated in every tunnel client ....
+  op transport : Address -> Address .
+  eq transport(addr) = addr [owise] .
+  
+  ops FakeFwd FakeRsv : -> ActorType .
+  
+  op q2r : Query -> Response .
+  eq q2r(query(i:Id,n:Name,r:RType))
+       = response(i:Id,n:Name,nil,nil,nil,0) .
+  
+  op rsv:_ : Address -> Attribute [ctor] .
+  op w4:_ : Config -> Attribute [ctor] .
+
+  op mkFakeFwd : Address Address -> Actor .
+  op mkFakeRsv : Address -> Actor .
+  
+  eq mkFakeFwd(myAddr, rsvAddr) 
+       = < myAddr : FakeFwd | rsv: rsvAddr, w4: null > .
+  eq mkFakeRsv(myAddr) = < myAddr : FakeRsv | noneAS > .
+  
+   
+crl[fakeRsv-rcvQ]:
+  {T, to myAddr from addr : Q:Query}
+  rCtr(j)
+  < myAddr : FakeRsv | attrs > 
+  =>
+  rCtr(j1)
+  < myAddr : FakeRsv | attrs > 
+  smsgs  
+  if msg := to transport(addr) from myAddr : q2r(Q:Query)
+  /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+ [print "( " T " ) fakeRsv-rcvQ sends" msg ]
+  .
+  
+crl[fakeFwd-rcvQ]:
+  {T, to myAddr from addr : Q:Query}
+  rCtr(j)
+  < myAddr : FakeFwd | attrs > 
+  =>
+  rCtr(j1)
+  < myAddr : FakeFwd | attrs2 > 
+  smsgs  
+  if attrs0, rsv: rsvAddr := attrs
+  /\ attrs1, w4: conf := attrs
+  /\ msg := to transport(rsvAddr) from myAddr : Q:Query
+  /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+  /\ attrs2 := attrs1, 
+              w4: (conf (to myAddr from addr : Q:Query) )
+ [print "( " T " ) fakeFwd-rcvQ sends" msg ]
+  .
+
+crl[fakeFwd-rcvR]:
+  {T, to myAddr from rsvAddr : R:Response}
+  rCtr(j)
+  < myAddr : FakeFwd | attrs > 
+  =>
+  rCtr(j1)
+  < myAddr : FakeFwd | attrs1 > 
+  smsgs
+  if attrs0, rsv: rsvAddr := attrs
+  /\ {attrs1, msg} := 
+    routeDnsR(attrs,to myAddr from rsvAddr : R:Response)
+  /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+ [print "( " T " ) fakeFwd-rcvR sends " msg ]
+.
+
+op routeDnsR : AttributeSet Msg  -> AttributeSetMsgs .
+eq routeDnsR(attrs,msg)  = {attrs,null} [owise] .
+ceq routeDnsR(attrs,to myAddr from rsvAddr : R:Response)
+    = {(attrs0, w4: conf), msg}
+if attrs0, w4: (conf (to myAddr from addr : Q:Query)) := attrs
+/\ qrMatches(Q:Query,R:Response)
+/\ msg := (to addr from myAddr : R:Response)
+.
+
+op qrMatches : Query Response  -> Bool .
+
+eq qrMatches(query(id:Id,name:Name,r:RType),
+             response(id:Id,name:Name,l1:List{Record}, 
+                      l2:List{Record} ,l3:List{Record}, j) )
+   = true .             
+eq qrMatches(Q:Query,R:Response) = false [owise] .
+
+
+
+endm
+eof
+
+
+**** dnsFakes
+ops corpAFwd corpBFwd corpSFwd pubRsv : -> Actor .
+op pubRsvAddr : -> Address .
+eq pubRsv = a(dnsN,dns,dns,srv,0) .
+
+eq corpAFwd = mkFakeFwd(a(cl[1],dns,dns,cl,0), pubRsvAddr) .
+eq corpBFwd = mkFakeFwd(a(cl[2],dns,dns,cl,0), pubRsvAddr) .
+eq corpSFwd = mkFakeFwd(a(srvN,dns,dns,cl,0), pubRsvAddr) .
+  
+eq pubRsv = mkFakeRsv(pubRsvAddr) .
+  
+**** the associated network actors
+ops corpANetClient corpBNetClient corpSNetClient
+     pubRsvNetClient : -> Actor .
+
+eq corpANetClient =
+    makeNetClient(a(cl[1],udp,dns,cl,0), pubRsv,
+                  a(cl[1],dns,dns,cl,0),true) .
+eq corpBNetClient =
+    makeNetClient(a(cl[2],udp,dns,cl,0), pubRsv,
+                  a(cl[2],dns,dns,cl,0),true) .
+
+eq corpSNetClient =
+    makeNetClient(a(srvN,udp,dns,cl,0), pubRsv,
+                  a(srvN,dns,dns,cl,0),true) .
+
+eq pubRsvNetClient =
+    makeNetClient(a(dnsN,udp,dns,cl,0), pubRsv,
+                  pubRsv,true) .
+
+  
