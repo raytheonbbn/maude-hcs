@@ -14,7 +14,6 @@ from pytest_regressions.file_regression import FileRegressionFixture
 from maude_hcs.lib import GLOBALS
 
 from ..utils.context import TestManager, Context, TestConfig, TestRunner, RunConfig, BuildConfig
-from ..utils.tgen_independence import load_compositionality_suite, run_suite, select_suite
 from ..utils.confidentiality import Case, load_confidentiality_suite, run_suite as run_conf_suite
 from ..utils.context import TestConfig, Context, TestRunner
 from ..utils.keys import run_cfg_key
