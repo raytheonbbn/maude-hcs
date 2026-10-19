@@ -27,7 +27,6 @@ from maude_hcs.generate_cp3 import FEATURES
 from maude_hcs.lib import GLOBALS
 from maude_hcs.query import parse_quatex
 from maude_hcs.result import SimParams
-from .tgen_interventions import apply_intervention, validate_intervention
 from .build import build
 from .context import BuildConfig, Context, GenArgs, TestConfig, TestRunner, RunConfig
 from ..regression.test_regression import run
