@@ -435,7 +435,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, not
     return "\n".join(lines), hcs_client_ids
 
 # Generate scenario1.maude (ZERO structured addresses!)
-def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=False, notgens=False, features=None):
+def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=False, force_observer=False, notgens=False, features=None):
     features = FEATURES if features is None else features
     lines = []
     L = lines.append
@@ -1389,7 +1389,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  eq masSrvAct      = makeMastodonServer(masSrvAddr) .")
     L("  eq masNetSrv       = makeNetServer(masNetSrvAddr, masSrvAddr) .")
     L("  eq iodineMonitor  = mkWMonitor(iodineMonitorAddr) .")
-    adv_use_tcp = "false" if perf else "true"
+    adv_use_tcp = "false" if perf and not force_observer else "true"
     L(f"  eq advActor       = mkAdversaryCp3(advAddr, {adv_use_tcp}) .")
     L("")
     
@@ -1822,10 +1822,12 @@ def generate(args: argparse.Namespace):
     else:
         selected_feats = FEATURES
 
+    logger.info("arg.vpts: %s", args.vpts)
     if args.vpts is not None:
         selected_vpts = filter_vpts(args.vpts)
     else:
         selected_vpts = VANTAGE_POINTS
+    logger.info("selected_vpts: %s", selected_vpts)
 
     delay = max(hcs_delay, tgen_delay)
 
@@ -1843,9 +1845,10 @@ def generate(args: argparse.Namespace):
     logger.info("hcs_nodes: %s", hcs_nodes)
     logger.info("Net id mapping: %s", json.dumps(net_id_map, indent=4))
 
-
-    valid_vpts = filter(lambda x: x in net_id_map, selected_vpts)
+    valid_vpts = list(filter(lambda x: x in net_id_map, selected_vpts))
+    logger.info("valid_vpts: %s", valid_vpts)
     maude_vpts = list(map(lambda vpt: net_id_map[vpt], valid_vpts))
+    logger.info("maude_vpts: %s", maude_vpts)
     
     if run_time is None:
         logger.info("Loaded duration: %ss", yaml_duration)
@@ -1876,10 +1879,10 @@ def generate(args: argparse.Namespace):
 
     # Generate main file
     main_content = gen_main_file(
-        tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, run_time,
+        tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, run_time+delay,
         hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map,
         hcs_delay, tgen_delay, maude_vpts, features=selected_feats,
-        perf=args.perf, notgens=args.notgens,
+        perf=args.perf, force_observer=args.force_observer, notgens=args.notgens,
     )
     main_path = os.path.join(out_dir, f"{scenario_name}.maude")
     with open(main_path, "w") as f:
@@ -1889,7 +1892,7 @@ def generate(args: argparse.Namespace):
     all_clients = get_client_lst(hcs_client_ids)
 
     logger.info("Features: %s", selected_feats)
-    logger.info("Vantage points: %s", maude_vpts)
+    logger.warning("Vantage points: %s", maude_vpts)
     logger.info("Clients: %s", all_clients)
 
     # Write queries to chosen quatex file path
@@ -1942,7 +1945,7 @@ def generate(args: argparse.Namespace):
             logger.info("Wrote %s (%s) lines", eq_path, len(baselin_eq_content.splitlines()))
     
     # Generate run file
-    run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, perf=args.perf, run_time=run_time)
+    run_content = gen_baselineOrRun_file(scenario_name, isBaseline=False, perf=args.perf, run_time=run_time+delay)
 
     run_filename = f"{scenario_name}-run.maude"    
     run_path = os.path.join(out_dir, run_filename)
