@@ -316,7 +316,7 @@ mod TCP-ANALYTICAL-MODEL is
   op ssLoop : Float Nat Nat Nat Nat Float Float Float ChannelCfg FloatList
               -> SSResult .
 
-  vars T OW OWOFF SRHOP RTT0 DT PA PP EDel EDT WM0 TSC0 WR WNO CNX PLOSS OWD1 OWD2 : Float .
+  vars T OW OWOFF SRHOP RTT0 DT PA PP EDel EDT WM0 TSC0 WR WNO CNX PLOSS OWD1 OWD2 DT_REC P_DROP : Float .
   vars CC1 CC2 : ChannelCfg .
   vars isNew ISNEW : Bool .
   vars CWND CWND0 : Float .
@@ -328,7 +328,7 @@ mod TCP-ANALYTICAL-MODEL is
   vars SX  B : Bool .
 
   --- Buffer-path variables (ssLoopBuf / caLoopBuf)
-  vars P0CH P0B PLB BDRP RTTB DTB : Float .
+  vars P0CH P0B PLB BDRP RTTB DTB DT_RECB : Float .
   vars P0CH2 PACH2 CADRP EDelB EDT0B EDTB : Float .
   vars CWFB WMFB TSCF0B TSCFB : Float .
   vars PLLB CWB0 CWB1 CWB2 WMXB : Float .
@@ -355,11 +355,13 @@ mod TCP-ANALYTICAL-MODEL is
   /\ P0 := frP0(FR)
   /\ PL := 1.0 - P0
   /\ RTT0 := 2.0 * OW
-  /\ DT := P0 * RTT0 + PL * (2.0 * RTT0 + RTT0 * rackF)
-  /\ NSEGS := genSSSegs(0, f2n(CWND_SS), N, SG, T + OWOFF, SRHOP)
+  /\ DT_REC := 2.0 * RTT0 + RTT0 * rackF
+  /\ DT := P0 * RTT0 + PL * DT_REC
+  /\ P_DROP := chLossP(CC)
+  /\ NSEGS := genSSSegs(0, f2n(CWND_SS), N, SG, T + OWOFF + P_DROP * DT_REC, SRHOP)
   /\ WNXT := min(WSS + WSS, 1000)
   /\ FR2 := flightStats(WNXT, CC)
-  /\ SX := (frEl(FR2) >= 5.0e-1 or float(WSS) >= 1000.0)
+  /\ SX := (frEl(FR) >= 5.0e-1 or frEl(FR2) >= 5.0e-1 or float(WSS) >= 1000.0)
   .
 
 
@@ -403,16 +405,16 @@ mod TCP-ANALYTICAL-MODEL is
   /\ P0B := 1.0 - PLB
   --- Time step: dt = p0*RTT + p_l*(2*RTT + RTT*rackF)*0.5
   /\ RTTB := 2.0 * OW
-  /\ DTB := P0B * RTTB
-             + PLB * ((2.0 * RTTB + RTTB * rackF)
-                       * 5.0e-1)
+  /\ DT_RECB := (2.0 * RTTB + RTTB * rackF) * 5.0e-1
+  /\ DTB := P0B * RTTB + PLB * DT_RECB
   --- Segments
-  /\ NSEGB := genSSSegs(0, WSS, N, SG, T + OWOFF, SRHOP)
+  /\ NSEGB := genSSSegs(0, WSS, N, SG, T + OWOFF + PLB * DT_RECB, SRHOP)
   --- Next flight for exit check (cap at 1000)
   /\ WNXTB := if WSS + WSS > 1000 then 1000 else WSS + WSS fi
   /\ FRB2 := flightStats(WNXTB, CC)
   --- Exit: el > 0.5 or buffer overflow happened or at max cwnd
-  /\ SXB := (frEl(FRB2) >= 5.0e-1
+  /\ SXB := (frEl(FRB) >= 5.0e-1
+             or frEl(FRB2) >= 5.0e-1
              or BDRP > 0.0
              or WSS >= 1000)
   .
