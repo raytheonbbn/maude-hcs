@@ -30,13 +30,17 @@
 
 sload sampler-x.maude
 sload ../../../deps/dns_formalization/Maude/common/parameters.maude
+sload ../../network/tcp.maude
+sload ../../network/udp.maude
 
 mod DELAY-X is
  inc SAMPLER-X .
+ pr TCP_SOCKET .
+ pr UDP_SOCKET .
  inc PARAMETERS-BASE-COMMON  .
  inc RANDOM .
  
-vars j : Nat .
+vars j nextJ : Nat .
 vars Min Max R : Float .
 vars config msgs0 : Config .
 vars msg : Msg .
@@ -74,6 +78,13 @@ eq delayParamdX(j,msg) =
       
 sorts ConfigNat .
 op `{_`,_`} : Config Nat -> ConfigNat [ctor] .
+op getConfig : ConfigNat -> Config .
+eq getConfig({config, j}) = config .
+eq getConfig(default:ConfigNat) = null [owise] .
+
+op getNat : ConfigNat -> Nat .
+eq getNat({config, j}) = j .
+eq getNat(default:ConfigNat) = 0 [owise] .
 
 **** uses one random call
 op delayMsgsX : Nat Config Config -> ConfigNat .
@@ -81,7 +92,79 @@ eq delayMsgsX(j,null,config) = {config,j} .
 eq delayMsgsX(j, msg msgs0, config) =
   delayMsgsX(s j,msgs0, config [delayParamdX(j,msg),msg,0] )
   .
+eq delayMsgsX(j, [T:Float, msg, N:Nat] msgs0, config) =
+  delayMsgsX(s j, msgs0, config [delayParamdX(j, msg) + T:Float, msg, N:Nat])
+.
   
+--- Returns the random counter.
+--- Add jitter to all messages so the scheduler does not schedule them at the 
+--- same time.
+op jitterMsgs : Config Nat -> ConfigNat .
+eq jitterMsgs(config, j) = $jitterMsgs(config, null, j) .
+
+---               MsgsToSch ScheduledMsgs randCounter  
+--- Returns scheduled messages as config and new random counter.
+op $jitterMsgs :  Config    Config        Nat -> ConfigNat .
+eq $jitterMsgs(null, config, j) = {config, j} .
+eq $jitterMsgs([T:Float, msg, N:Nat] msgs0, config, j)
+  = $jitterMsgs(msgs0, config [genRandomX(j, 0., 0.0001) + T:Float, msg, N:Nat], s j)
+.
+eq $jitterMsgs(msg msgs0, config, j)
+  = $jitterMsgs(msgs0, config [genRandomX(j, 0., 0.0001), msg, 0], s j)
+.
+
+--- The transport.
+--- It can be nothing (transport(any:Address) = any:Address) or tcp.
+op transport : Address -> Address .
+eq transport(any:Address) = any:Address [owise] .
+
+--- Check if an address has a transport.
+op hasTransport : Address -> Bool .
+eq hasTransport(tcp(any:Address)) = true .
+eq hasTransport(udp(any:Address)) = true .
+eq hasTransport(any:Address) = false [owise] .
+
+--- Check if a message is to a transport socket (tcp or udp).
+op hasTransport : Msg -> Bool .
+eq hasTransport(to tcp(DST:Address) from SRC:Address : content:Content)
+  = true
+.
+eq hasTransport(to udp(DST:Address) from SRC:Address : content:Content)
+  = true
+.
+eq hasTransport(ANY:Config) = false [owise] .
+
+--- Schedule sending messages. This checks if there is a transport requested.
+--- If so, only add jitter (net clients will do the link delay).
+--- If not, add link delay now, there will be no net client capture.
+op scheduleSendMsgs : Config Nat -> ConfigNat .
+eq scheduleSendMsgs(config, j) = $scheduleSendMsgs(config, null, j) .
+
+---                     MsgsToSch ScheduledMsgs randCounter  
+--- Returns scheduled messages as config and new random counter.
+op $scheduleSendMsgs :  Config    Config        Nat -> ConfigNat .
+eq $scheduleSendMsgs(null, config, j) = {config, j} .
+ceq $scheduleSendMsgs(msg msgs0, config, j)
+  = $scheduleSendMsgs(msgs0, config jitteredMsg:Config, nextJ)
+  if {jitteredMsg:Config, nextJ} := $jitterMsgs(msg, null, j)
+    /\ hasTransport(msg) == true
+  [ print "Adding jitter to tcp msg." msg]
+.
+ceq $scheduleSendMsgs(MSG:Config msgs0, config, j)
+  = $scheduleSendMsgs(msgs0, config jitteredMsg:Config, nextJ)
+  if {jitteredMsg:Config, nextJ} := $jitterMsgs(MSG:Config, null, j)
+    /\ [T:Float, msg, N:Nat] := MSG:Config
+    /\ hasTransport(msg) == true
+  [ print "Adding jitter to tcp scheduled msg " msg ]
+.
+ceq $scheduleSendMsgs(MSG:Config msgs0, config, j)
+  = $scheduleSendMsgs(msgs0, config delayedMsg:Config, nextJ)
+  if {delayedMsg:Config, nextJ} := delayMsgsX(j, MSG:Config, null)
+  [owise print "Cmerlin " MSG:Config ]
+.
+eq $scheduleSendMsgs(msg, config, j)
+  = {config, j} [owise print "problem with " msg] .
+                
 
 **** uses two random calls
 op delayDropMsgsX : Nat Config Config -> ConfigNat .
@@ -92,3 +175,4 @@ eq delayDropMsgsX(j, msg msgs0, config) =
   .
 
 endm
+

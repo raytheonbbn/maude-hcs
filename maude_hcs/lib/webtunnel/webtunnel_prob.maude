@@ -93,10 +93,10 @@ mod WEBTUNNEL is
   rCtr(j1)
   < THIS_ADDR : WtClient | tunnelState: Connecting, attrs >
     smsgs
-  if {smsgs, j1} := delayMsgsX(j,
-       (to transport(getServerProxyAddr(attrs)) from THIS_ADDR
-         : makeHttpRequest(getRequest, url("https://" + getTlsServerName(attrs) + "/" + getUpgradePath(attrs)))),
-       null)
+  if {smsgs, j1} :=
+      scheduleSendMsgs((to transport(getServerProxyAddr(attrs)) from THIS_ADDR
+                         : makeHttpRequest(getRequest, url("https://" + getTlsServerName(attrs) + "/" + getUpgradePath(attrs)))),
+                        j)
   [ print "(" T ") WtClient " THIS_ADDR " initiating tunnel." ]
   .
 
@@ -111,7 +111,7 @@ mod WEBTUNNEL is
   rCtr(j1)
   < THIS_ADDR : WtClient | tunnelState: Open, pendingMsgs: emptyQueue, attrs >
     smsgs
-  if {smsgs, j1} := delayMsgsX(j, flushQueue(THIS_ADDR, PROXY_ADDR, Q), null)
+  if {smsgs, j1} := scheduleSendMsgs(flushQueue(THIS_ADDR, transport(PROXY_ADDR), Q), j)
   [ print "(" T ") WtClient " THIS_ADDR " tunnel now Open." ]
   .
 
@@ -125,9 +125,10 @@ mod WEBTUNNEL is
   rCtr(j1)
   < THIS_ADDR : WtClient | tunnelState: Open, ircClientAddr: newIrcClientAddr, attrs >
     smsgs
-  if {smsgs, j1} := delayMsgsX(j,
-       (to transport(getServerProxyAddr(attrs)) from THIS_ADDR : makeHttpRequest(getRequest, IRC_MSG)),
-       null)
+  if {smsgs, j1} :=
+      scheduleSendMsgs((to transport(getServerProxyAddr(attrs)) from THIS_ADDR
+                        : makeHttpRequest(getRequest, IRC_MSG)),
+                        j)
     /\ newIrcClientAddr := (if OLD_ADDR == nullAddr
                             then IRC_CLIENT_ADDR
                             else OLD_ADDR
@@ -162,9 +163,8 @@ mod WEBTUNNEL is
   rCtr(j1)
   < THIS_ADDR : WtClient | ircClientAddr: IRC_CLIENT_ADDR, attrs >
     smsgs
-  if {smsgs, j1} := delayMsgsX(j,
-       (to IRC_CLIENT_ADDR from THIS_ADDR : IRC_MSG),
-       null)
+  if {smsgs, j1} := jitterMsgs((to IRC_CLIENT_ADDR from THIS_ADDR : IRC_MSG),
+                                j)
   [ print "(" T ") WtClient " THIS_ADDR " delivering " IRC_MSG " to " IRC_CLIENT_ADDR "." ]
   .
 
@@ -204,9 +204,8 @@ mod WEBTUNNEL is
   if REGISTERED_ADDR := getIrcClientAddr(attrs)
     /\ forward:Bool := isKnownWtClient(REGISTERED_ADDR, WT_CLIENT_ADDR)
     /\ {smsgs, j1} := (if forward:Bool
-                        then delayMsgsX(j,
-                                        (to getIrcServerAddr(attrs) from THIS_ADDR : IRC_MSG),
-                                        null)
+                        then scheduleSendMsgs((to getIrcServerAddr(attrs) from THIS_ADDR : IRC_MSG),
+                                              j)
                         else {null, j}
                       fi)
   [ print "(" T ") WtServerProxy " THIS_ADDR " forwarding " IRC_MSG
@@ -226,9 +225,10 @@ mod WEBTUNNEL is
     smsgs
   if WT_CLIENT_ADDR := getIrcClientAddr(attrs)
     /\ isKnownWtClient(WT_CLIENT_ADDR, WT_CLIENT_ADDR)
-    /\ {smsgs, j1} := delayMsgsX(j,
-         (to transport(WT_CLIENT_ADDR) from THIS_ADDR : makeHttpResponse("OK", IRC_MSG)),
-         null)
+    /\ {smsgs, j1} :=
+          scheduleSendMsgs((to transport(WT_CLIENT_ADDR) from THIS_ADDR
+                            : makeHttpResponse("OK", IRC_MSG)),
+                            j)
   [ print "(" T ") WtServerProxy " THIS_ADDR " routing " IRC_MSG
           " to tunnel " WT_CLIENT_ADDR "." ]
   .
