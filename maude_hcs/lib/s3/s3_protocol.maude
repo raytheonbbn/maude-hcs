@@ -29,12 +29,14 @@
 --- MAUDE_HCS: end
 
 sload ./s3_aux
+sload ./s3_delays.maude
 sload ../skyhook/_skyhook_aux
 sload ../common/maude/cp2-interfaces
-sload ../common/maude/delay-drop-x
+sload ../common/maude/delay-drop-x.maude
 
 mod S3_PROTOCOL is
   pr S3_AUX .
+  pr S3_DELAYS .
   pr SKYHOOK_AUX .
   inc CP2-COMMON .
   inc DELAY-X .
@@ -57,14 +59,9 @@ mod S3_PROTOCOL is
   vars headers : S3HeaderList .
   vars data : ByteSeq .
   
-  --- The transport to be used for S3.
-  --- It can be nothing (transport(any:Address) = any:Address) or tcp.
-  op transport : Address -> Address .
-  eq transport(any:Address) = any:Address [owise] .
-
-  -----------------------------------------------------------
---- SDK CLIENT RULES (Translate internal abstract -> S3 HTTP)
------------------------------------------------------------
+  -------------------------------------------------------------
+  --- SDK CLIENT RULES (Translate internal abstract -> S3 HTTP)
+  -------------------------------------------------------------
 
   crl [sdk-put-obj]:
   rCtr(j)
@@ -89,7 +86,7 @@ mod S3_PROTOCOL is
                   "HTTP/1.1",
                   headers,
                   noBytes))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+    /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") "  "--> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "/" UUID " (Expect: 100-continue, Request-ID: " ID ")" ]
   .
 
@@ -113,7 +110,7 @@ mod S3_PROTOCOL is
                     "HTTP/1.1",
                     headers,
                     noBytes))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+    /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") " "--> SDK -> AWS: [HttpS3Req] GET /" BUCKET "/" UUID " (Request-ID: " ID ")" ] .
 
   crl [sdk-delete-obj]:
@@ -135,7 +132,7 @@ mod S3_PROTOCOL is
                   "HTTP/1.1", 
                   headers,
                   noBytes))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+    /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") "  "--> SDK -> AWS: [HttpS3Req] DELETE /" BUCKET "/" UUID " (Request-ID: " ID ")" ]
   .
 
@@ -162,7 +159,7 @@ mod S3_PROTOCOL is
                   "HTTP/1.1",
                   headers,                  
                   noBytes))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") "  "--> SDK -> AWS: [HttpS3Req] PUT /" BUCKET " (Expect: 100-continue, Request-ID: " ID ")" ]
   .
 
@@ -185,7 +182,7 @@ crl [sdk-put-policy]:
                   "HTTP/1.1", 
                   headers,
                   noBytes))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") "  "--> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "?policy (Expect: 100-continue, Request-ID: " ID ")" ]
   .
 
@@ -208,7 +205,7 @@ crl [sdk-put-policy]:
                   "HTTP/1.1", 
                   headers,
                   noBytes))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") "  "--> SDK -> AWS: [HttpS3Req] PUT /" BUCKET "?publicAccessBlock (Expect: 100-continue, Request-ID: " ID ")" ]
   .
 
@@ -230,7 +227,7 @@ crl [sdk-put-policy]:
   if REQ_ID == string(ID, 10)
     /\ msg := 
        (to transport(AWS_ADDR) from CLIENT : HttpS3ReqBody("/" + BUCKET + "/" + UUID, ID, DATA))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") " "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Body Chunk for Request-ID: " ID ] 
   .
 
@@ -251,7 +248,7 @@ crl [sdk-put-policy]:
                               "</LocationConstraint></CreateBucketConfiguration>")
     /\ msg := (to transport(AWS_ADDR) from CLIENT
                : HttpS3ReqBody("/" + BUCKET, ID, data))  
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") "  "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Body XML for Request-ID: " ID ]
   .
 
@@ -270,7 +267,7 @@ crl [sdk-put-policy]:
     /\ msg := (to transport(AWS_ADDR) from CLIENT
       : HttpS3ReqBody("/" + BUCKET + "?policy", ID,
                       restToByteSeq(POLICY)))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") "  "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Policy Body for Request-ID: " ID ]
   .
 
@@ -291,7 +288,7 @@ crl [sdk-put-policy]:
         restToByteSeq("<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>")
     /\ msg := (to transport(AWS_ADDR) from CLIENT
         : HttpS3ReqBody("/" + BUCKET + "?publicAccessBlock",ID,data))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") " "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Access Block XML for Request-ID: " ID ]
   .
 
@@ -439,7 +436,8 @@ crl [sdk-put-policy]:
                           "HTTP/1.1",
                           header("x-amz-request-id", REQ_ID),
                           noBytes))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(scheduleWS3ProcDelay(attrs, msg),
+                                        j)
   [ print "(" T ") "  "=== AWS SERVER: Responding 100 Continue for PUT " URI ]
   .
 
@@ -457,7 +455,8 @@ crl [sdk-put-policy]:
                   "HTTP/1.1",
                   header("x-amz-request-id", string(ID, 10)),
                   noBytes))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(scheduleWS3ProcDelay(attrs, msg),
+                                        j)
   [ print "(" T ") "  "=== AWS SERVER: Absorbing Body Chunk. Storing " BODY " in InMemory S3DataMap -> " URI ". Responding 200 OK." ]
   .
 
@@ -478,7 +477,8 @@ crl [sdk-put-policy]:
                   "HTTP/1.1",
                   header("x-amz-request-id", REQ_ID),
                   BODY))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(scheduleWS3ProcDelay(attrs, msg),
+                                        j)
   [ print "(" T ") "  "=== AWS SERVER: Looked up Node ID " URI ". Responding 200 OK w/ payload body." ]
   .
 
@@ -500,7 +500,8 @@ crl [sdk-put-policy]:
                       "HTTP/1.1",
                       header("x-amz-request-id", REQ_ID),
                       noBytes))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(scheduleWS3ProcDelay(attrs, msg),
+                                        j)
   [ print "(" T ") "  "=== AWS SERVER: Looked up Node ID " URI " but not found. Responding 404 Not Found." ]
   .
 
@@ -520,7 +521,8 @@ crl [sdk-put-policy]:
                         "HTTP/1.1",
                         header("x-amz-request-id", REQ_ID),
                         noBytes))
-    /\ {smsgs,j1} := delayMsgsX(j,msg,null)               
+    /\ {smsgs, j1} := scheduleSendMsgs(scheduleWS3ProcDelay(attrs, msg),
+                                        j)
   [ print "(" T ") "  "(" T ") " "=== AWS SERVER: Erasing Local Object " URI ". Responding 204 No Content." ]
   .
 
