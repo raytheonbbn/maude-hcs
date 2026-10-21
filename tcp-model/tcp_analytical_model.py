@@ -172,17 +172,18 @@ def _build_timeline(max_k=2000):
             total_el += el_fwd
 
         current_flight_size = min(int(W_ss), LOCAL_MAX_CWND)
+        dt_recovery = (2.0 * RTT + RTT * RACK_FRAC) * (0.5 if is_none else 1.0)
+        p_drop = p_l if is_none else _path.drop_prob
 
         for i in range(current_flight_size):
             k = seg + i + 1
             if k <= max_k:
                 # Arrival at First Hop (Link 1) vs Final Destination (Link 1 + Link 2)
-                times_first[k] = t + OWD1 + i * SER1
-                times_dest[k]  = t + OWD  + i * SER
+                times_first[k] = t + OWD1 + i * SER1 + p_drop * dt_recovery
+                times_dest[k]  = t + OWD  + i * SER  + p_drop * dt_recovery
                 flts[k]        = flt
         seg += current_flight_size
 
-        dt_recovery = (2.0 * RTT + RTT * RACK_FRAC) * (0.5 if is_none else 1.0)
         dt = p0 * RTT + p_l * dt_recovery
         t += dt
         flt += 1
@@ -190,7 +191,7 @@ def _build_timeline(max_k=2000):
         W_next_ss = min(W_ss * 2, LOCAL_MAX_CWND)
         p0_next, _, el_fwd_next, _ = _path.flight_stats_path(W_next_ss)
 
-        if el_fwd_next >= 0.5 or (seg + W_ss > BUFFER_CAPACITY) or current_flight_size >= LOCAL_MAX_CWND:
+        if el_fwd >= 0.5 or el_fwd_next >= 0.5 or (seg + W_ss > BUFFER_CAPACITY) or current_flight_size >= LOCAL_MAX_CWND:
             last_p0 = p0_next if p_l == 0.0 else p0
             break
         W_ss = W_next_ss
