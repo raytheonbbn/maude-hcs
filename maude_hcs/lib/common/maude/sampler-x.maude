@@ -58,13 +58,59 @@ fmod SAMPLER-X is
     else Min +  (float(random(j) / 4294967296) * (Max - Min))
     fi) .
   
+  --- Acklam's rational approximation to the standard normal quantile.
+  --- Defined for probabilities strictly between 0 and 1.
+  **** https://github.com/lballabio/QuantLib/blob/master/ql/math/distributions/normaldistribution.hpp
+  op inverseNormalCDF : Float -> [Float] .
+  op $inverseNormalCentral : Float Float -> Float .
+  op $inverseNormalTail : Float -> Float .
+
+  ceq inverseNormalCDF(RAND) = $inverseNormalTail(sqrt(- 2.0 * log(RAND)))
+    if 0.0 < RAND and RAND < 0.02425
+  .
+  ceq inverseNormalCDF(RAND) =
+      $inverseNormalCentral(RAND - 0.5, (RAND - 0.5) * (RAND - 0.5))
+    if 0.02425 <= RAND and RAND <= 0.97575
+  .
+  ceq inverseNormalCDF(RAND) = - $inverseNormalTail(sqrt(- 2.0 * log(1.0 - RAND)))
+    if 0.97575 < RAND and RAND < 1.0
+  .
+
+  --- Q is the centered probability; R is its square.
+  eq $inverseNormalCentral(Q:Float, R) =
+    (((((- 3.969683028665376e+1 * R + 2.209460984245205e+2)
+        * R - 2.759285104469687e+2)
+        * R + 1.383577518672690e+2)
+        * R - 3.066479806614716e+1)
+        * R + 2.506628277459239) * Q:Float
+    / (((((- 5.447609879822406e+1 * R + 1.615858368580409e+2)
+        * R - 1.556989798598866e+2)
+        * R + 6.680131188771972e+1)
+        * R - 1.328068155288572e+1) * R + 1.0) .
+
+  --- Q is sqrt(-2 log(p)) for the lower tail; use symmetry above 0.5.
+  eq $inverseNormalTail(Q:Float) =
+    (((((- 7.784894002430293e-3 * Q:Float - 3.223964580411365e-1)
+        * Q:Float - 2.400758277161838)
+        * Q:Float - 2.549732539343734)
+        * Q:Float + 4.374664141464968)
+        * Q:Float + 2.938163982698783)
+    / ((((7.784695709041462e-3 * Q:Float + 3.224671290700398e-1)
+        * Q:Float + 2.445134137142996)
+        * Q:Float + 3.754408661907416) * Q:Float + 1.0) .
+
   op sampleNormalX : Nat -> [Float] .
   op $sampleNormalX : Float -> [Float] .
-  eq sampleNormalX(j) = 
-      $sampleNormalX(float(random(j) / 4294967296) ) .
-  eq $sampleNormalX(RAND) = 
-       sqrt(- 2.0 * log(RAND)) * cos(2.0 * pi * RAND) .
- 
+  --- One random draw, mapped to (0,1) to keep both tail endpoints finite.
+  eq sampleNormalX(j) =
+      $sampleNormalX((float(random(j)) + 0.5) / 4294967296.0) .
+  eq $sampleNormalX(RAND) = inverseNormalCDF(RAND) .
+  --- Get a sample from a Normal distribution using Box-Muller.
+  --- Note: This code contains a defect: RAND should not be reused twice.
+  op $sampleNormalXBM : Float -> [Float] .
+  eq $sampleNormalXBM(RAND) = 
+    sqrt(- 2.0 * log(RAND)) * cos(2.0 * pi * RAND) .
+
   op sampleNormalWithMeanSdX : Float Float Nat -> [Float] .
   eq sampleNormalWithMeanSdX(MEAN, SD, j) 
     = MEAN + (SD * sampleNormalX(j)) .
