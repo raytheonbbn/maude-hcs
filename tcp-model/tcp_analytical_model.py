@@ -137,9 +137,23 @@ def _cubic_w(t, w_max):
     K = ((1.0 - CUBIC_B) * w_max / CUBIC_C) ** (1.0 / 3.0)
     return max(1.0, CUBIC_C * (t - K) ** 3 + w_max)
 
+class TcpState:
+    """Encapsulates TCP congestion state across connection transfers."""
+    def __init__(self, cwnd=10.0, w_max=None, t_since=0.0, in_slow_start=True):
+        self.cwnd = float(cwnd)
+        self.w_max = float(w_max if w_max is not None else (self.cwnd / CUBIC_B))
+        self.t_since = float(t_since)
+        self.in_slow_start = bool(in_slow_start)
+
+    def __repr__(self):
+        return f"TcpState(cwnd={self.cwnd:.6f}, w_max={self.w_max:.6f}, t_since={self.t_since:.6f}, in_slow_start={self.in_slow_start})"
+
+def init_tcp_state():
+    return TcpState(10.0, 10.0 / CUBIC_B, 0.0, in_slow_start=True)
+
 # ─────────────────────── Timeline Generation ───────────────────────
 
-def _build_timeline(max_k=2000):
+def _build_timeline(max_k=2000, is_new=True, state=None):
     times_first = np.full(max_k + 1, np.nan)
     times_dest  = np.full(max_k + 1, np.nan)
     flts        = np.zeros(max_k + 1, dtype=int)
@@ -148,123 +162,155 @@ def _build_timeline(max_k=2000):
     times_dest[0]  = 0.0
     total_el = 0.0
 
-    # Phase 1: Handshake (TCP 3-way HS + TLS HS completes at t = 2 * RTT; App Data starts at t = 2 * RTT)
-    t = 2.0 * RTT
-    seg = 0
-    flt = 1
-
-    # Phase 2: Slow Start
     LOCAL_MAX_CWND = 1000
-    W_ss = IW
-    last_p0 = 1.0
     is_none = _path.drop_prob <= 1e-10
 
-    while seg < max_k:
-        p0, pa, el_fwd, attr = _path.flight_stats_path(W_ss)
-        p_l = 1.0 - p0
-
-        if is_none and (seg + W_ss > BUFFER_CAPACITY):
-            dropped_packets = (seg + W_ss) - BUFFER_CAPACITY
-            p_l = dropped_packets / float(W_ss)
-            p0 = 1.0 - p_l
-            total_el += float(dropped_packets)
+    if is_new:
+        # Phase 1: Handshake (TCP 3-way HS + TLS HS completes at t = 2 * RTT; App Data starts at t = 2 * RTT)
+        t = 2.0 * RTT
+        seg = 0
+        flt = 1
+        W_ss = IW
+        in_slow_start = True
+    else:
+        # Reused connection: bypass Handshake
+        t = 0.0
+        seg = 0
+        flt = 1
+        if state is None:
+            state = init_tcp_state()
+        in_slow_start = getattr(state, 'in_slow_start', False)
+        if in_slow_start:
+            W_ss = max(1, int(round(state.cwnd)))
         else:
-            total_el += el_fwd
+            cwnd = max(2.0, min(float(state.cwnd), float(LOCAL_MAX_CWND)))
+            w_max = max(1.0, min(float(state.w_max), float(LOCAL_MAX_CWND)))
+            t_since = float(state.t_since)
 
-        current_flight_size = min(int(W_ss), LOCAL_MAX_CWND)
-        dt_recovery = (2.0 * RTT + RTT * RACK_FRAC) * (0.5 if is_none else 1.0)
-        p_drop = p_l if is_none else _path.drop_prob
+    if in_slow_start:
+        last_p0 = 1.0
+        exited_due_to_loss = False
 
-        for i in range(current_flight_size):
-            k = seg + i + 1
-            if k <= max_k:
-                # Arrival at First Hop (Link 1) vs Final Destination (Link 1 + Link 2)
-                times_first[k] = t + OWD1 + i * SER1 + p_drop * dt_recovery
-                times_dest[k]  = t + OWD  + i * SER  + p_drop * dt_recovery
-                flts[k]        = flt
-        seg += current_flight_size
+        while seg < max_k:
+            p0, pa, el_fwd, attr = _path.flight_stats_path(W_ss)
+            p_l = 1.0 - p0
 
-        dt = p0 * RTT + p_l * dt_recovery
-        t += dt
-        flt += 1
+            if is_none and (seg + W_ss > BUFFER_CAPACITY):
+                dropped_packets = (seg + W_ss) - BUFFER_CAPACITY
+                p_l = dropped_packets / float(W_ss)
+                p0 = 1.0 - p_l
+                total_el += float(dropped_packets)
+            else:
+                total_el += el_fwd
 
-        W_next_ss = min(W_ss * 2, LOCAL_MAX_CWND)
-        p0_next, _, el_fwd_next, _ = _path.flight_stats_path(W_next_ss)
+            current_flight_size = min(int(W_ss), LOCAL_MAX_CWND)
+            dt_recovery = (2.0 * RTT + RTT * RACK_FRAC) * (0.5 if is_none else 1.0)
+            p_drop = p_l if is_none else _path.drop_prob
 
-        if el_fwd >= 0.5 or el_fwd_next >= 0.5 or (seg + W_ss > BUFFER_CAPACITY) or current_flight_size >= LOCAL_MAX_CWND:
-            last_p0 = p0_next if p_l == 0.0 else p0
-            break
-        W_ss = W_next_ss
+            for i in range(current_flight_size):
+                k = seg + i + 1
+                if k <= max_k:
+                    # Arrival at First Hop (Link 1) vs Final Destination (Link 1 + Link 2)
+                    times_first[k] = t + OWD1 + i * SER1 + p_drop * dt_recovery
+                    times_dest[k]  = t + OWD  + i * SER  + p_drop * dt_recovery
+                    flts[k]        = flt
+            seg += current_flight_size
 
-    # Transition to CA
-    p_l_last = 1.0 - last_p0
-    cwnd = max(2.0, min(last_p0 * float(W_ss * 2) + p_l_last * max(float(W_ss) * CUBIC_B, 2.0), LOCAL_MAX_CWND))
-    w_max = min(cwnd / CUBIC_B, LOCAL_MAX_CWND)
-    t_since = 0.0
+            dt = p0 * RTT + p_l * dt_recovery
+            t += dt
+            flt += 1
 
-    # Phase 3: Congestion Avoidance
-    for _ in range(100_000):
-        if seg >= max_k:
-            break
+            W_next_ss = min(W_ss * 2, LOCAL_MAX_CWND)
+            p0_next, _, el_fwd_next, _ = _path.flight_stats_path(W_next_ss)
 
-        W = max(1, int(round(cwnd)))
-        p0, pa, el_fwd, attr = _path.flight_stats_path(W)
+            if el_fwd >= 0.5 or el_fwd_next >= 0.5 or (seg + W_ss > BUFFER_CAPACITY) or current_flight_size >= LOCAL_MAX_CWND:
+                last_p0 = p0_next if p_l == 0.0 else p0
+                exited_due_to_loss = True
+                break
+            W_ss = W_next_ss
 
-        if is_none and W > BUFFER_CAPACITY and W > int(round(w_max)):
-            ca_dropped = W - BUFFER_CAPACITY
-            p_l_ca = ca_dropped / float(W)
-            p0 = max(0.0, 1.0 - p_l_ca)
-            pa = 0.0
-            total_el += float(ca_dropped)
+        if exited_due_to_loss:
+            in_slow_start = False
+            p_l_last = 1.0 - last_p0
+            cwnd = max(2.0, min(last_p0 * float(W_ss * 2) + p_l_last * max(float(W_ss) * CUBIC_B, 2.0), LOCAL_MAX_CWND))
+            w_max = min(cwnd / CUBIC_B, LOCAL_MAX_CWND)
+            t_since = 0.0
         else:
-            total_el += el_fwd
+            in_slow_start = True
+            cwnd = float(W_next_ss)
+            w_max = min(cwnd / CUBIC_B, LOCAL_MAX_CWND)
+            t_since = 0.0
 
-        pp = max(0.0, 1.0 - p0 - pa)
-        E_del = float(W)
+    if not in_slow_start:
+        # Phase 3: Congestion Avoidance
+        for _ in range(100_000):
+            if seg >= max_k:
+                break
 
-        seg_start = int(np.floor(seg))
-        seg_end   = int(np.floor(seg + E_del))
+            W = max(1, int(round(cwnd)))
+            p0, pa, el_fwd, attr = _path.flight_stats_path(W)
 
-        E_dt_nominal = p0 * RTT + pp * (2.0 * RTT + RTT * RACK_FRAC) + pa * RTO_MIN
-        E_dt = max(E_del * SER, E_dt_nominal)
+            if is_none and W > BUFFER_CAPACITY and W > int(round(w_max)):
+                ca_dropped = W - BUFFER_CAPACITY
+                p_l_ca = ca_dropped / float(W)
+                p0 = max(0.0, 1.0 - p_l_ca)
+                pa = 0.0
+                total_el += float(ca_dropped)
+            else:
+                total_el += el_fwd
 
-        for k_idx in range(seg_start + 1, seg_end + 1):
-            if k_idx <= max_k:
-                fractional_offset = (k_idx - 1 - seg_start) / max(1.0, E_del)
-                times_first[k_idx] = t + OWD1 + (fractional_offset * W * SER1)
-                times_dest[k_idx]  = t + OWD  + (fractional_offset * W * SER)
-                flts[k_idx]        = flt
+            pp = max(0.0, 1.0 - p0 - pa)
+            E_del = float(W)
 
-        seg += E_del
-        t   += E_dt
+            seg_start = int(np.floor(seg))
+            seg_end   = int(np.floor(seg + E_del))
 
-        # CUBIC dynamics
-        p_loss_event = pp + pa
-        if p_loss_event > 1e-15:
-            w_max = (1.0 - p_loss_event) * w_max + p_loss_event * cwnd
-            t_since = (1.0 - p_loss_event) * (t_since + E_dt)
-        else:
-            t_since += E_dt
+            E_dt_nominal = p0 * RTT + pp * (2.0 * RTT + RTT * RACK_FRAC) + pa * RTO_MIN
+            E_dt = max(E_del * SER, E_dt_nominal)
 
-        w_reno = cwnd + (1.0 / max(1.0, cwnd))
-        w_no   = max(_cubic_w(t_since, w_max), w_reno)
+            for k_idx in range(seg_start + 1, seg_end + 1):
+                if k_idx <= max_k:
+                    fractional_offset = (k_idx - 1 - seg_start) / max(1.0, E_del)
+                    times_first[k_idx] = t + OWD1 + (fractional_offset * W * SER1)
+                    times_dest[k_idx]  = t + OWD  + (fractional_offset * W * SER)
+                    flts[k_idx]        = flt
 
-        cwnd_next = p0 * w_no + pp * (cwnd * CUBIC_B) + pa * 1.0
-        cwnd = max(2.0, min(cwnd_next, LOCAL_MAX_CWND))
-        flt += 1
+            seg += E_del
+            t   += E_dt
 
-    return times_first, times_dest, flts, total_el
+            # CUBIC dynamics
+            p_loss_event = pp + pa
+            if p_loss_event > 1e-15:
+                w_max = (1.0 - p_loss_event) * w_max + p_loss_event * cwnd
+                t_since = (1.0 - p_loss_event) * (t_since + E_dt)
+            else:
+                t_since += E_dt
+
+            w_reno = cwnd + (1.0 / max(1.0, cwnd))
+            w_no   = max(_cubic_w(t_since, w_max), w_reno)
+
+            cwnd_next = p0 * w_no + pp * (cwnd * CUBIC_B) + pa * 1.0
+            cwnd = max(2.0, min(cwnd_next, LOCAL_MAX_CWND))
+            flt += 1
+
+    final_state = TcpState(cwnd=cwnd, w_max=w_max, t_since=t_since, in_slow_start=in_slow_start)
+    return times_first, times_dest, flts, total_el, final_state
 
 # ─────────────────────── Public API ───────────────────────
 
 _cache: dict = {}
+
+def simulate_transfer(num_segments, is_new=True, state=None):
+    """Simulates transmission of num_segments, returning (times_first, times_dest, final_state)."""
+    t_first, t_dest, _, _, final_state = _build_timeline(num_segments, is_new=is_new, state=state)
+    return t_first[1:num_segments + 1], t_dest[1:num_segments + 1], final_state
 
 def expected_time_k(k):
     """Returns (t_first_hop, t_destination, flight_id) for segment k."""
     global _cache
     if 'times_dest' not in _cache or k >= len(_cache['times_dest']):
         n = max(2000, k + 500)
-        t_first, t_dest, f, el = _build_timeline(n)
+        t_first, t_dest, f, el, _ = _build_timeline(n)
         _cache = {
             'times_first': t_first,
             'times_dest': t_dest,
