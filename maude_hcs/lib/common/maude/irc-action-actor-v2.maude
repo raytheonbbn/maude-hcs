@@ -70,6 +70,10 @@ eq strJn2natStrX(((str |-> jv),mj),ns) =
 
 ops ircSrvAddr:_ ircSrvIfaceAddr:_ : Address -> Attribute [ctor] .
 
+op mkIrcUMV2Actor : Address String Address -> Actor .
+eq mkIrcUMV2Actor(umAddr,mname,cmAddr) =
+  mkIrcUMV2Actor(umAddr,mname,cmAddr,nullAddr,nullAddr) .
+
 op mkIrcUMV2Actor : Address String Address Address Address -> Actor .
 eq mkIrcUMV2Actor(umAddr,mname,cmAddr,ircSrvAddr,ircSrvIfaceAddr) =
   < umAddr : UM-V2 | 
@@ -94,10 +98,12 @@ eq mkIrcUMV2Actor(umAddr,mname,cmAddr,ircSrvAddr,ircSrvIfaceAddr) =
 
 op getIrcSrvAddr : AttributeSet -> Address .
 eq getIrcSrvAddr((attrs,  ircSrvAddr: ircSrvAddr)) = ircSrvAddr .
+eq getIrcSrvAddr(attrs) = nullAddr [owise] .
 
 op getIrcSrvIfaceAddr : AttributeSet -> Address .
 eq getIrcSrvIfaceAddr((attrs, ircSrvIfaceAddr: ircSrvIfaceAddr))
        = ircSrvIfaceAddr .
+eq getIrcSrvIfaceAddr(attrs) = nullAddr [owise] .
 
 op getIrcClientAddr : AttributeSet -> Address .
 eq getIrcClientAddr((attrs,  cmAddr: cmAddr)) = cmAddr .  
@@ -189,14 +195,24 @@ if msg := (to ircSrvAddr from ircSrvIfaceAddr :
 
 
 ceq exeActionIrcType(attrs,umAddr,"set_room_numbers",aspec, j)
-  = addMsgToRes(rcvActRv2(setRoomMap(attrs, ns),umAddr,0.0,j), smsgs)
+  = (if ircSrvAddr == nullAddr
+     then {attrs2, smsgs, j1}
+     else addMsgToRes(rcvActRv2(setRoomMap(attrs, ns),umAddr,0.0,j2), smsgs2)
+     fi)
 if mj := getJOmap(aspec["rooms"])
 /\ ns := strJn2natStr(mj) ---- inverts map
 /\ ircSrvAddr := getIrcSrvAddr(attrs)
 /\ ircClAddr := getIrcClientAddr(attrs)
 /\ ircSrvIfaceAddr := getIrcSrvIfaceAddr(attrs)
-/\ {smsgs,j1} := genJoinMsgs(ns,ircClAddr,ircSrvAddr,ircSrvIfaceAddr,
-                             0.0,j,null)
+/\ msg := (to ircClAddr from umAddr : actionQ(aspec))
+/\ attrs1 := setRoomMap(attrs, ns)
+/\ attrs0, w4: null := attrs1
+/\ attrs2 := attrs0, w4: msg
+/\ {smsgs,j1} := delayMsgsX(j,msg,null)
+/\ {smsgs2,j2} := (if ircSrvAddr == nullAddr
+                   then {null, j}
+                   else genJoinMsgs(ns,ircClAddr,ircSrvAddr,ircSrvIfaceAddr,0.0,j,null)
+                   fi)
 .
 
 ceq exeActionIrcType(attrs,umAddr,"select_room",aspec, j)

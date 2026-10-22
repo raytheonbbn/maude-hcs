@@ -1,0 +1,260 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Challenge Problem 4 (CP4) IRC Failover Baseline Test
+--- Reproduces the CP4 testbed 4-server tree + 6-client failover architecture
+--- from pwnd_pkg_v1_0_0_10022026 with outgoing IRC messages DROPPED (not buffered)
+--- while a client is disconnected or failing over to its backup server.
+
+set show advisories off .
+
+sload irc-mamodel-v2
+sload ../common/maude/irc-action-actor-v2.maude
+sload irc_prob-v2
+sload ircMonitor
+sload irc-byteseq-interface
+
+mod IRC-CP4-FAILOVER-BASELINE-TEST is
+  inc IRC-USER-ACTION-ACTOR-V2 .
+  inc IRC-MAMODEL-V2 .
+  inc IRC-V2 .
+  inc IRC-BYTESEQ-INTERFACE .
+  inc IRC_MONITOR .
+
+  --- Global constants
+  eq MAModelMap = ("irc-test" |-> irc-mamodel-v2) .
+  eq noiseMax(msg:Msg) = 0.00001 .
+  eq IRC-STALE-DURATION-S = 340.0 .
+  eq IRC-PING-INTV-S = 300.0 .
+
+  --- -------------------------------------------------------------------------
+  --- CP4 Reference Architecture Addresses
+  --- 4 IRC Servers in tree topology:
+  ---   S1 <-> S2, S1 <-> S3, S2 <-> S4
+  --- 6 IRC Clients (Alice 1 .. Alice 6) each with Primary & Backup servers
+  --- -------------------------------------------------------------------------
+  ops ircSAd1 ircSAd2 ircSAd3 ircSAd4 : -> Address .
+  op  ircMonAd : -> Address .
+
+  --- Server-to-Server bidirectional interface addresses
+  ops ifs12 ifs21 ifs13 ifs31 ifs24 ifs42 : -> Address .
+
+  --- Client addresses and UM addresses
+  ops ircCAd1 ircCAd2 ircCAd3 ircCAd4 ircCAd5 ircCAd6 : -> Address .
+  ops ircUAd1 ircUAd2 : -> Address .
+
+  --- Client-to-Server primary (p) and backup (b) interface pairs
+  --- Alice 1: Primary S1, Backup S2
+  ops ifc1p ifs1c1 ifc1b ifs2c1 : -> Address .
+  --- Alice 2: Primary S2, Backup S3
+  ops ifc2p ifs2c2 ifc2b ifs3c2 : -> Address .
+  --- Alice 3: Primary S4, Backup S2
+  ops ifc3p ifs4c3 ifc3b ifs2c3 : -> Address .
+  --- Alice 4: Primary S3, Backup S1
+  ops ifc4p ifs3c4 ifc4b ifs1c4 : -> Address .
+  --- Alice 5: Primary S1, Backup S4
+  ops ifc5p ifs1c5 ifc5b ifs4c5 : -> Address .
+  --- Alice 6: Primary S3, Backup S1
+  ops ifc6p ifs3c6 ifc6b ifs1c6 : -> Address .
+
+  --- -------------------------------------------------------------------------
+  --- Server Actors & Server-to-Server Tree Interfaces
+  --- -------------------------------------------------------------------------
+  ops ircServer1 ircServer2 ircServer3 ircServer4 ircMonitor : -> Actor .
+  ops srvIf12 srvIf21 srvIf13 srvIf31 srvIf24 srvIf42 : -> Actor .
+
+  --- S1 peers with S2 (via ifs12) and S3 (via ifs13)
+  eq ircServer1 = mkIrcServer(ircSAd1, (ifs12 ; ifs13)) .
+  --- S2 peers with S1 (via ifs21) and S4 (via ifs24)
+  eq ircServer2 = mkIrcServer(ircSAd2, (ifs21 ; ifs24)) .
+  --- S3 peers with S1 (via ifs31)
+  eq ircServer3 = mkIrcServer(ircSAd3, ifs31) .
+  --- S4 peers with S2 (via ifs42)
+  eq ircServer4 = mkIrcServer(ircSAd4, ifs42) .
+
+  eq srvIf12 = mkIrcByteSeqIface(ifs12, ircSAd1, ifs21) .
+  eq srvIf21 = mkIrcByteSeqIface(ifs21, ircSAd2, ifs12) .
+  eq srvIf13 = mkIrcByteSeqIface(ifs13, ircSAd1, ifs31) .
+  eq srvIf31 = mkIrcByteSeqIface(ifs31, ircSAd3, ifs13) .
+  eq srvIf24 = mkIrcByteSeqIface(ifs24, ircSAd2, ifs42) .
+  eq srvIf42 = mkIrcByteSeqIface(ifs42, ircSAd4, ifs24) .
+
+  eq ircMonitor = mkIrcMonitor(ircMonAd) .
+
+  op serverTreeConfig : -> Config .
+  eq serverTreeConfig =
+    ircServer1 ircServer2 ircServer3 ircServer4
+    srvIf12 srvIf21 srvIf13 srvIf31 srvIf24 srvIf42
+    ircMonitor
+  .
+
+  --- -------------------------------------------------------------------------
+  --- Client-to-Server Interfaces (Primary + Backup for Alice 1 .. 6)
+  --- -------------------------------------------------------------------------
+  ops cIf1p sIf1c1 cIf1b sIf2c1 : -> Actor .
+  ops cIf2p sIf2c2 cIf2b sIf3c2 : -> Actor .
+  ops cIf3p sIf4c3 cIf3b sIf2c3 : -> Actor .
+  ops cIf4p sIf3c4 cIf4b sIf1c4 : -> Actor .
+  ops cIf5p sIf1c5 cIf5b sIf4c5 : -> Actor .
+  ops cIf6p sIf3c6 cIf6b sIf1c6 : -> Actor .
+
+  eq cIf1p  = mkIrcByteSeqIface(ifc1p,  ircCAd1, ifs1c1) .
+  eq sIf1c1 = mkIrcByteSeqIface(ifs1c1, ircSAd1, ifc1p) .
+  eq cIf1b  = mkIrcByteSeqIface(ifc1b,  ircCAd1, ifs2c1) .
+  eq sIf2c1 = mkIrcByteSeqIface(ifs2c1, ircSAd2, ifc1b) .
+
+  eq cIf2p  = mkIrcByteSeqIface(ifc2p,  ircCAd2, ifs2c2) .
+  eq sIf2c2 = mkIrcByteSeqIface(ifs2c2, ircSAd2, ifc2p) .
+  eq cIf2b  = mkIrcByteSeqIface(ifc2b,  ircCAd2, ifs3c2) .
+  eq sIf3c2 = mkIrcByteSeqIface(ifs3c2, ircSAd3, ifc2b) .
+
+  eq cIf3p  = mkIrcByteSeqIface(ifc3p,  ircCAd3, ifs4c3) .
+  eq sIf4c3 = mkIrcByteSeqIface(ifs4c3, ircSAd4, ifc3p) .
+  eq cIf3b  = mkIrcByteSeqIface(ifc3b,  ircCAd3, ifs2c3) .
+  eq sIf2c3 = mkIrcByteSeqIface(ifs2c3, ircSAd2, ifc3b) .
+
+  eq cIf4p  = mkIrcByteSeqIface(ifc4p,  ircCAd4, ifs3c4) .
+  eq sIf3c4 = mkIrcByteSeqIface(ifs3c4, ircSAd3, ifc4p) .
+  eq cIf4b  = mkIrcByteSeqIface(ifc4b,  ircCAd4, ifs1c4) .
+  eq sIf1c4 = mkIrcByteSeqIface(ifs1c4, ircSAd1, ifc4b) .
+
+  eq cIf5p  = mkIrcByteSeqIface(ifc5p,  ircCAd5, ifs1c5) .
+  eq sIf1c5 = mkIrcByteSeqIface(ifs1c5, ircSAd1, ifc5p) .
+  eq cIf5b  = mkIrcByteSeqIface(ifc5b,  ircCAd5, ifs4c5) .
+  eq sIf4c5 = mkIrcByteSeqIface(ifs4c5, ircSAd4, ifc5b) .
+
+  eq cIf6p  = mkIrcByteSeqIface(ifc6p,  ircCAd6, ifs3c6) .
+  eq sIf3c6 = mkIrcByteSeqIface(ifs3c6, ircSAd3, ifc6p) .
+  eq cIf6b  = mkIrcByteSeqIface(ifc6b,  ircCAd6, ifs1c6) .
+  eq sIf1c6 = mkIrcByteSeqIface(ifs1c6, ircSAd1, ifc6b) .
+
+  op clientIfacesConfig : -> Config .
+  eq clientIfacesConfig =
+    cIf1p sIf1c1 cIf1b sIf2c1
+    cIf2p sIf2c2 cIf2b sIf3c2
+    cIf3p sIf4c3 cIf3b sIf2c3
+    cIf4p sIf3c4 cIf4b sIf1c4
+    cIf5p sIf1c5 cIf5b sIf4c5
+    cIf6p sIf3c6 cIf6b sIf1c6
+  .
+
+  --- -------------------------------------------------------------------------
+  --- Channel Lists per Client (matching reference_architecture_config.yaml)
+  --- -------------------------------------------------------------------------
+  ops chsAlice1 chsAlice2 chsAlice3 chsAlice4 chsAlice5 chsAlice6 : -> IrcChannelNameList .
+  eq chsAlice1 = makeIrcChannelName("#chat") :: makeIrcChannelName("#general") .
+  eq chsAlice2 = makeIrcChannelName("#chat") :: makeIrcChannelName("#random") .
+  eq chsAlice3 = makeIrcChannelName("#chat") :: makeIrcChannelName("#general") :: makeIrcChannelName("#random") .
+  eq chsAlice4 = makeIrcChannelName("#chat") :: makeIrcChannelName("#general") .
+  eq chsAlice5 = makeIrcChannelName("#general") :: makeIrcChannelName("#random") .
+  eq chsAlice6 = makeIrcChannelName("#chat") :: makeIrcChannelName("#general") .
+
+  --- -------------------------------------------------------------------------
+  --- CP4 Failover Clients (Alice 1 .. Alice 6)
+  ---
+  --- Scenario timeline:
+  --- 1. t = 0.01..0.06: All 6 clients connect to their Primary servers:
+  ---    - Alice 1 -> S1, Alice 2 -> S2, Alice 3 -> S4,
+  ---      Alice 4 -> S3, Alice 5 -> S1, Alice 6 -> S3
+  ---    - Complete Welcome/MOTD + 3-ping RTT baseline + channel joins
+  ---    - S1..S4 propagate SrvJoinChannel across the server tree.
+  --- 2. t = 2.0..6.0: Pre-failover messages sent across the server tree:
+  ---    - Alice 1 (on S1) sends to #chat and #general
+  ---    - Alice 2 (on S2) sends to #chat
+  ---    - Alice 3 (on S4) sends to #random
+  --- 3. t = 10.0: Link between Alice 2 and Primary S2 (ifc2p <-> ifs2c2) is
+  ---    DISCONNECTED (as in 1_single_failover.yaml).
+  ---    - At t = 12.0, Alice 2 attempts to send a message to #chat on the
+  ---      broken link -> message is DROPPED (not buffered!) and triggers
+  ---      immediate failover of Alice 2 from S2 to Backup S3 (ifc2b).
+  ---    - At t = 12.00001 (while Alice 2 is still in waiting-motd / rtt-baseline
+  ---      handshake with Backup S3), Alice 2 attempts another scheduled message ->
+  ---      DROPPED immediately because connection/channels on S3 are not ready yet!
+  ---    - Once Alice 2 completes RTT baseline + channel rejoins on S3, at t = 16.0
+  ---      Alice 2 sends a message on S3 which succeeds and is relayed across the tree!
+  --- 4. t = 15.0: Link between Alice 1 and Primary S1 (ifc1p <-> ifs1c1) is
+  ---    DISCONNECTED while Alice 1 is idle (as in one.yaml / 1_single_failover.yaml).
+  ---    - Alice 1's liveness timer (pingTimeout = 8.0s) detects stale data,
+  ---      sends a liveness Ping, times out waiting for Pong (pongTimeout = 5 * RTT),
+  ---      and fails over to Backup S2 (ifc1b).
+  ---    - At t = 25.0, after completing failover to S2, Alice 1 sends a message
+  ---      to #general via Backup S2 which is delivered locally and across the tree!
+  --- -------------------------------------------------------------------------
+  ops ircClient1 ircClient2 ircClient3 ircClient4 ircClient5 ircClient6 : -> Actor .
+
+  --- Alice 1: Primary S1 (ifc1p), Backup S2 (ifc1b), pingTO=8.0, basePongTO=5.0
+  --- Scheduled messages at t=2.0 (pre-failover on S1) and t=25.0 (23.0s later, post-failover on S2)
+  eq ircClient1 =
+    mkIrcClient-cp4(ircCAd1, (ifc1p ; ifc1b), "alice1", chsAlice1, 8.0, 5.0,
+      imd(2.0, "#chat", 64) ::
+      imd(23.0, "#general", 72) ::
+      nilIMD) .
+
+  --- Alice 2: Primary S2 (ifc2p), Backup S3 (ifc2b), pingTO=30.0, basePongTO=5.0
+  --- Scheduled messages:
+  ---   1) dt=3.0 (t~3.0): sent on Primary S2 before disconnect
+  ---   2) dt=9.0 (t~12.0): sent after S2 link disconnect at t=10.0 -> DROPPED & triggers failover to S3
+  ---   3) dt=0.00005 (t~12.00005): sent while failing over to S3 -> DROPPED (not connected/ready)
+  ---   4) dt=4.0 (t~16.0): sent after failover to Backup S3 completes -> DELIVERED via S3!
+  eq ircClient2 =
+    mkIrcClient-cp4(ircCAd2, (ifc2p ; ifc2b), "alice2", chsAlice2, 30.0, 5.0,
+      imd(3.0, "#chat", 60) ::
+      imd(9.0, "#chat", 80) ::
+      imd(0.00005, "#random", 90) ::
+      imd(4.0, "#chat", 100) ::
+      nilIMD) .
+
+  --- Alice 3: Primary S4 (ifc3p), Backup S2 (ifc3b)
+  eq ircClient3 =
+    mkIrcClient-cp4(ircCAd3, (ifc3p ; ifc3b), "alice3", chsAlice3, 30.0, 5.0,
+      imd(4.0, "#random", 68) ::
+      imd(24.0, "#chat", 84) ::
+      nilIMD) .
+
+  --- Alice 4: Primary S3 (ifc4p), Backup S1 (ifc4b)
+  eq ircClient4 =
+    mkIrcClient-cp4(ircCAd4, (ifc4p ; ifc4b), "alice4", chsAlice4, 30.0, 5.0,
+      imd(5.0, "#general", 64) ::
+      nilIMD) .
+
+  --- Alice 5: Primary S1 (ifc5p), Backup S4 (ifc5b)
+  eq ircClient5 =
+    mkIrcClient-cp4(ircCAd5, (ifc5p ; ifc5b), "alice5", chsAlice5, 30.0, 5.0,
+      nilIMD) .
+
+  --- Alice 6: Primary S3 (ifc6p), Backup S1 (ifc6b)
+  eq ircClient6 =
+    mkIrcClient-cp4(ircCAd6, (ifc6p ; ifc6b), "alice6", chsAlice6, 30.0, 5.0,
+      nilIMD) .
+
+  op baselineInitConfig : Nat -> Config .
+  eq baselineInitConfig(j:Nat) =
+    rCtr(j:Nat)
+    serverTreeConfig
+    clientIfacesConfig
+    ircClient1 ircClient2 ircClient3 ircClient4 ircClient5 ircClient6
+
+    --- Initiate connections for all 6 clients
+    [0.01, (to ircCAd1 from ircCAd1 : ClientStartConnect), 0]
+    [0.02, (to ircCAd2 from ircCAd2 : ClientStartConnect), 0]
+    [0.03, (to ircCAd3 from ircCAd3 : ClientStartConnect), 0]
+    [0.04, (to ircCAd4 from ircCAd4 : ClientStartConnect), 0]
+    [0.05, (to ircCAd5 from ircCAd5 : ClientStartConnect), 0]
+    [0.06, (to ircCAd6 from ircCAd6 : ClientStartConnect), 0]
+
+    --- At t = 10.0, disconnect Alice 2 from Primary Server 2
+    mkDisconnect(10.0, ifc2p, ifs2c2)
+
+    --- At t = 15.0, disconnect Alice 1 from Primary Server 1
+    mkDisconnect(15.0, ifc1p, ifs1c1)
+  .
+
+  op runBaselineTest : -> Config .
+  rl [init-baseline]:
+    runBaselineTest => run({0.0 | nil} baselineInitConfig(10), 30.0) .
+
+endm
+
+set print attribute on .
+rew runBaselineTest .
+q
+eof
