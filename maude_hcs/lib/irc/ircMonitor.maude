@@ -15,6 +15,7 @@ mod IRC_MONITOR is
   vars mattrs  mattrs0 mattrs1 attrs attrs1 : AttributeSet .
   vars T GT t1 : Float .
   vars ircMsg : IrcMsg .
+  vars ircMsgs : IrcMsgList .
   vars currentHash size : Nat .
   vars currentStr  TEXT : String .
   vars IRC_NAME : IrcName .
@@ -88,33 +89,38 @@ eq mkIrcMonitor(addr) =
 
 
 ************* logging mechanism
-***(
-{T,(to TO_ADDR from FROM_ADDR : ircMsg)}
->>
-messageTimestamp(T, FROM_ADDR, TO_ADDR, getSize(ircMsg),
-                 getIrcDest(ircMsg), stringHash(getText(ircMsg)))
-
-IrcIface calls
-ircLogSent(mattrs, T, epAddr,ircAddr,ircMsg)
-ircLogRcvd(mattrs, T,ircAddr, epAddr,ircMsg)
-)
-
 *********                          toAddr  fromAddr
-op ircLogSent : AttributeSet Float Address Address IrcMsg 
-   -> AttributeSet .
-op ircLogRcvd : AttributeSet Float Address Address IrcMsg 
-   -> AttributeSet .
+op ircLogSent : AttributeSet Float Address Address IrcMsg     -> AttributeSet .
+op ircLogSent : AttributeSet Float Address Address IrcMsgList -> AttributeSet .
+op ircLogRcvd : AttributeSet Float Address Address IrcMsg     -> AttributeSet .
+op ircLogRcvd : AttributeSet Float Address Address IrcMsgList -> AttributeSet .
    
 ceq ircLogSent (mattrs, T, epAddr,ircAddr,ircMsg) =
      mattrs0, msgSent: (tml ; tmsgs)
 if mattrs0, msgSent: tml := mattrs
 /\ tmsgs := genMTS(T,epAddr,ircAddr,ircMsg)
 .
+eq ircLogSent(mattrs, T, epAddr, ircAddr, emptyIrcMsgList) = mattrs .
+eq ircLogSent(mattrs, T, epAddr, ircAddr, ircMsg ;; ircMsgs)
+  = ircLogSent(ircLogSent(mattrs, T, epAddr, ircAddr, ircMsg),
+                T,
+                epAddr,
+                ircAddr,
+                ircMsgs)
+.
 
 ceq ircLogRcvd (mattrs, T, epAddr,ircAddr,ircMsg) =
      mattrs0, msgRcvd: (tml ; tmsgs)
 if mattrs0, msgRcvd: tml := mattrs
 /\ tmsgs := genMTS(T,epAddr,ircAddr,ircMsg)
+.
+eq ircLogRcvd(mattrs, T, epAddr, ircAddr, emptyIrcMsgList) = mattrs [owise] .
+eq ircLogRcvd(mattrs, T, epAddr, ircAddr, ircMsg ;; ircMsgs)
+  = ircLogRcvd(ircLogRcvd(mattrs, T, epAddr, ircAddr, ircMsg),
+                T,
+                epAddr,
+                ircAddr,
+                ircMsgs)
 .
 
 op genMTS : Float Address Address Content 

@@ -36,7 +36,7 @@ set show advisories off .
 
 sload ../../deps/dns_formalization/Maude/common/actor.maude
 sload ../common/maude/byteseq
-sload ../common/maude/delay-drop-x
+sload ../common/maude/delay-drop-x.maude
 sload ../common/maude/cp2-interfaces
 sload _irc_aux
 sload ircMonitor
@@ -53,17 +53,34 @@ vars j j1 : Nat .
 vars attrs attrs0 mattrs mattrs1 : AttributeSet .
 vars ifAddr ircAddr epAddr monAddr : Address .
 vars msg : Msg .
-vars ircMsg : IrcMsg .
+vars ircMsg IRC_MSG : IrcMsg .
+vars IRC_MSGS : IrcMsgList .
 vars byteseq : ByteSeq .
 vars T : Float .
-vars smsgs : Config .
+vars msgs smsgs : Config .
 
-op ircToByteseq : IrcMsg -> ByteSeq [ctor] .
+op ircMsgToByteseq : IrcMsg -> ByteSeq [ctor] .
+op ircToByteseq : IrcMsgList -> ByteSeq [ctor] .
+eq ircToByteseq(IRC_MSG ;; IRC_MSGS) = pack(ircToByteseqL(IRC_MSG ;; IRC_MSGS)) .
+eq ircToByteseq(IRC_MSG) = ircMsgToByteseq(IRC_MSG) .
+eq ircToByteseq(emptyIrcMsgList) = noBytes .
+op ircToByteseqL : IrcMsgList -> ByteSeqL [ctor] .
+eq ircToByteseqL(IRC_MSG ;; IRC_MSGS) = ircMsgToByteseq(IRC_MSG) :: ircToByteseqL(IRC_MSGS) .
+eq ircToByteseqL(emptyIrcMsgList) = nilBS .
 op ircFromByteseq : ByteSeq -> IrcMsg .
-eq ircFromByteseq(ircToByteseq(ircMsg)) = ircMsg .
+eq ircFromByteseq(ircMsgToByteseq(ircMsg)) = ircMsg .
 
-**** op getSize : Content -> Nat .
-eq getSize(ircToByteseq(ircMsg)) = getSize(ircMsg) .
+eq getSize(ircMsgToByteseq(ircMsg)) = getSize(ircMsg) .
+eq getSize(pack(byteseq)) = getSize(byteseq) .
+
+ **** op getSrcAddr : ByteSeq -> Address .
+ **** eq getSrcAddr(ircToByteseq(ircMsg))
+ ****   = getIrcSrcAddr((ircMsg))
+ **** .
+ **** eq getSrcAddr(byteseq)  = nullAddr [owise] .
+
+  eq getHashString(ircMsgToByteseq(ircMsg)) = getHashString(ircMsg) .
+
 
 op IrcByteSeqIface : -> ActorType .
 op ircAddress:_  : Address -> Attribute [ctor] .
@@ -80,7 +97,7 @@ eq mkIrcByteSeqIface(ifAddr,ircAddr,epAddr)
 
 crl [fromIrc2ep]:
   rCtr(j)
-  {T, (to ifAddr from ircAddr : ircMsg)}
+  {T, (to ifAddr from ircAddr : IRC_MSGS)}
   < ifAddr : IrcByteSeqIface | attrs >
   < monAddr : IrcMonitor | mattrs >
  =>
@@ -89,10 +106,28 @@ crl [fromIrc2ep]:
   < monAddr : IrcMonitor | mattrs1 >
   smsgs
   if attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
-  /\ msg := (to epAddr from ifAddr : ircToByteseq(ircMsg))
+  /\ msg := (to epAddr from ifAddr : ircToByteseq(IRC_MSGS))
   /\ {smsgs,j1} := delayMsgsX(j,msg,null)
-  /\ mattrs1 := ircLogSent(mattrs,T, epAddr, ircAddr,ircMsg)
-[print "(" T ") " "IrcIface " ifAddr " transforms " ircMsg]  
+  /\ mattrs1 := ircLogSent(mattrs,T, epAddr, ircAddr, IRC_MSGS)
+[print "(" T ") " "IrcIface " ifAddr " transforms " IRC_MSGS]  
+.
+
+--- Translate a config of messages (with IrcMsg as content) and turn into a list
+--- of Irc Messages.
+op configToIrcMsgList : Config -> IrcMsgList .
+eq configToIrcMsgList(null) = emptyIrcMsgList .
+eq configToIrcMsgList((to DST:Address from SRC:Address : ircMsg) rest:Config)
+  = (ircMsg ;; configToIrcMsgList(rest:Config))
+.
+
+--- Decode messages from individual messages of a ByteSeq to IRC Messages.
+op decodeIrcMsgs : Config -> Config .
+eq decodeIrcMsgs(null) = null .
+eq decodeIrcMsgs(
+     (to DST:Address from SRC:Address : ircMsgToByteseq(IRC_MSG))
+     REST:Config)
+  = (to DST:Address from SRC:Address : IRC_MSG)
+    decodeIrcMsgs(REST:Config)
 .
 
 crl [fromEp2Irc]:
@@ -106,10 +141,12 @@ crl [fromEp2Irc]:
   < ifAddr : IrcByteSeqIface |  attrs >
   < monAddr : IrcMonitor | mattrs1 >
  if attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
- /\ ircMsg := ircFromByteseq(byteseq)
- /\ msg := (to ircAddr from ifAddr : ircMsg )
- /\ {smsgs,j1} := delayMsgsX(j,msg,null)
- /\ mattrs1 := ircLogRcvd(mattrs,T,ircAddr, epAddr,ircMsg)
+   --- Translate multiple (or a single) byteseq(IrcMsg) into multiple messages
+   --- with a single IrcMsg.
+ /\ MSGS:Config := decodeIrcMsgs(unpackToMsgs(byteseq, ircAddr, ifAddr))
+ /\ {smsgs,j1} := delayMsgsX(j, MSGS:Config, null)
+ /\ IRC_MSGS := configToIrcMsgList(MSGS:Config)
+ /\ mattrs1 := ircLogRcvd(mattrs,T,ircAddr, epAddr, IRC_MSGS)
 
 [print "(" T ") " "IrcIface " ifAddr "  rcvd " byteseq ]  .
 

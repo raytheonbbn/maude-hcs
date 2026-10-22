@@ -108,15 +108,13 @@ mod CONTENT-MANAGER-SIMPLE-BI is
   
   --- Start a socket write, or queue bytes until the current write completes.
   op receiveSocketBytes : AttributeSet ByteSeq -> AttributeSet .
-  eq receiveSocketBytes((attrs, writeBlocked: false,
-                               pendingFiles: nilBS),bytes)
-    = (attrs, writeBlocked: true,
-              pendingFiles: bytes)
+  eq receiveSocketBytes((attrs, writeBlocked: false, pendingFiles: nilBS),
+                        bytes)
+    = (attrs, writeBlocked: true, pendingFiles: unpack(bytes))
   .
-  eq receiveSocketBytes((attrs, writeBlocked: true,
-                               socketWriteQueue: byteseql),bytes)
-    = (attrs, writeBlocked: true,
-              socketWriteQueue: (byteseql :: bytes))
+  eq receiveSocketBytes((attrs, writeBlocked: true, socketWriteQueue: byteseql),
+                        bytes)
+    = (attrs, writeBlocked: true, socketWriteQueue: (byteseql :: unpack(bytes)))
   .
 
   --- After post ack, read queued bytes for the next write.
@@ -138,7 +136,7 @@ mod CONTENT-MANAGER-SIMPLE-BI is
   < cmAddr : CMSimpleBi | cmAttrs,
                          appAddress: appAddr >
   =>
-  < cmAddr : CMSimpleBi | receiveSocketBytes(cmAttrs,bytes),
+  < cmAddr : CMSimpleBi | receiveSocketBytes(cmAttrs, bytes),
                          appAddress: appAddr >
   [print "(" T ") Raceboat " cmAddr " got socket bytes " bytes " from " appAddr ]
   .
@@ -249,11 +247,13 @@ mod CONTENT-MANAGER-SIMPLE-BI is
 
 endm  
 
+eof
 sload ../../common/maude/cp2-interfaces.maude
 
 mod TEST-CM-SIMPLE-BI is
   inc CONTENT-MANAGER-SIMPLE-BI .
-  inc IRC-DISPATCHER-INTERFACE .
+  inc IRC-BYTESEQ-INTERFACE .
+  ****inc IRC-DISPATCHER-INTERFACE .
 
 vars T : Float .
 vars ract : Map{String,JV} .

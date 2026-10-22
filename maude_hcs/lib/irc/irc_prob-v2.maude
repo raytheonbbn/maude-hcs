@@ -50,18 +50,21 @@ mod IRC-V2 is
   inc IRC-MSG-MODEL .
   inc DELAY-X .
 
-  vars IRC_CLIENT_ADDR IRC_SERVER_ADDR ircSourceAddr
+  vars IRC_CLIENT_ADDR DST_ADDR SRC_ADDR IRC_SERVER_ADDR ircSourceAddr
        ircDestinationAddr : Address .
   vars rbAddr addr ircAddr umAddr : Address .
   vars channelClientAddrs : AddrList .
   vars attrs attrsTrans attrsTrans1 attrsNext : AttributeSet .
+  vars ACTION : Content .
   vars ircName  : IrcName .
   vars ircDestinationName  IRC_CLIENT_NAME ircUserName : IrcUserName .
+  vars IRC_MSG : IrcMsg .
+  vars IRC_MSGS : IrcMsgList .
   vars clientsMap CLIENTS_MAP : NameClientsMap .
   vars chatText ircDestination ircSource : String .
-  vars T : Float . ---timestamp
+  vars NOW T TIME_DELTA : Float . ---timestamp
   vars dmsg : ScheduleMsg .
-  vars msgs smsgs : Config .
+  vars actionMsg msgs smsgs outgoingMsgs BUFFERED_MSGS : Config .
   vars msg msg0 msg1 : Msg .
   vars  attrs0 attrs1 attrs2 : AttributeSet .
   vars ctr j j1  size : Nat .
@@ -71,18 +74,115 @@ mod IRC-V2 is
   vars ircMsg : IrcMsg .
   vars aspec : Map{String,JV} .
 
+  --- Buffer the outgoing IRC Messages in the outputBuffer of the attribute set.
+  --- It expects the config to have relative times. It will buffer them as a 
+  --- list of messages with absolute times (adding now).
+  ---                 Attributes    ToBuffer  Now
+  op $bufferIrcMsgs : AttributeSet Config  Float -> AttributeSet .
+  --- There is already an outputBuffer to a Destination, append.
+  eq $bufferIrcMsgs((attrs, outputBufferTo DST_ADDR : BUFFERED_MSGS),
+                    ([TIME_DELTA, (to DST_ADDR from SRC_ADDR : ircMsg), 0]
+                      rest:Config),
+                    NOW)
+    = $bufferIrcMsgs((attrs,
+                      outputBufferTo DST_ADDR : BUFFERED_MSGS
+                                                [NOW + TIME_DELTA, (to DST_ADDR from SRC_ADDR : ircMsg), 0]),
+                     rest:Config,
+                     NOW)
+  .
+  --- There is not already an outputBuffer to a Destination, create.
+  eq $bufferIrcMsgs(attrs,
+                    ([TIME_DELTA, (to DST_ADDR from SRC_ADDR : ircMsg), 0]
+                      rest:Config),
+                    NOW)
+    = $bufferIrcMsgs((attrs,
+                      outputBufferTo DST_ADDR : [NOW + TIME_DELTA, (to DST_ADDR from SRC_ADDR : ircMsg), 0]),
+                     rest:Config,
+                     NOW)
+    [owise]
+  .
+  eq $bufferIrcMsgs(attrs, null, NOW) = attrs .
 
-  ---- Make a V2 IrcClient  driven by UM
-  ----             ItsAddr  RBAddr UserId 
-  op mkIrcClient-v2 : Address Address String  -> Actor .
-  eq mkIrcClient-v2(ircAddr, rbAddr,userId) =
-    < ircAddr : IrcClient |
-        thisAddr: ircAddr,
-        raceboatAddr: rbAddr,
-        ircName: makeIrcUserName(ircAddr),
-        userId: userId,
-        msgCtr: 0
-    >  .
+  ---                 AlreadyBuffd  ToBuff  Now
+  op $bufferIrcMsgs : Config        Config  Float -> Config .
+  eq $bufferIrcMsgs(alreadyBuffered:Config,
+                    ([TIME_DELTA, MSG:Msg, 0] rest:Config),
+                    NOW)
+    = $bufferIrcMsgs(alreadyBuffered:Config
+                        [NOW + TIME_DELTA, MSG:Msg, 0],
+                      rest:Config,
+                      NOW)
+  .
+  eq $bufferIrcMsgs(alreadyBuffered:Config, null, NOW)
+    = alreadyBuffered:Config
+  .
+
+  --- Schedule flushes for the output buffer (sending to Raceboat).
+  ---                   AlreadySchd ToSch   Self
+  --- Returns the scheduled flush messages.
+  op $scheduleFlushes : Config      Config  Address -> Config .
+  eq $scheduleFlushes(scheduled:Config,
+                        [TIME_DELTA, (to DST_ADDR from SRC_ADDR : ircMsg), 0] rest:Config,
+                      IRC_CLIENT_ADDR)
+    = $scheduleFlushes(scheduled:Config
+                          [TIME_DELTA + IRCOUTPUTDELAY, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : FlushIrcOutput(DST_ADDR)), 0],
+                        rest:Config,
+                        IRC_CLIENT_ADDR)
+  .
+  eq $scheduleFlushes(scheduled:Config, null, IRC_CLIENT_ADDR)
+    = scheduled:Config
+  .
+
+  --- Send the messages in the outputBuffer that are within IRCOUTPUTDELAY of
+  --- now. It expects a config of scheduled messages with absolute times.
+  ---                       Attributes    Address Now
+  op releaseBufferedMsgs :  AttributeSet  Address Float -> AttributeSetMsgs .
+  ceq releaseBufferedMsgs((attrs, outputBufferTo DST_ADDR : bufferedMsgs:Config),
+                          DST_ADDR,
+                          NOW)
+    = {attrsNext, MSG:Msg}
+    if {CURRENT:IrcMsgList, REMAINING:Config}
+        := $releaseBufferedMsgs(bufferedMsgs:Config, NOW)
+      /\ attrsNext := (attrs,
+                       outputBufferTo DST_ADDR : REMAINING:Config)
+      /\ MSG:Msg := (if CURRENT:IrcMsgList == emptyIrcMsgList
+                      then nullMsg
+                      else (to DST_ADDR from getThisAddr(attrs) : CURRENT:IrcMsgList)
+                    fi)
+  .
+  eq releaseBufferedMsgs(attrs, DST_ADDR, NOW) = {attrs, nullMsg} [owise] .
+
+  op hasEarlier : Config Float -> Bool .
+
+  ceq hasEarlier([TX_T:Float, MSG:Msg, 0] REST:Config, AT:Float)
+    = true
+    if TX_T:Float < AT:Float
+  .
+  eq hasEarlier(BUFFER:Config, AT:Float) = false [owise] .
+
+  ---                       RemTx   Now
+  op $releaseBufferedMsgs : Config  Float -> IrcMsgListConfig .
+  eq $releaseBufferedMsgs(BUFFERED:Config, NOW) = {emptyIrcMsgList, BUFFERED:Config} [owise] .
+  ceq $releaseBufferedMsgs([AT:Float, (to DST_ADDR from SRC_ADDR : IRC_MSG), 0] REST:Config,
+                            NOW)
+  --- Release / flush anything that is before now (IRC already wayed IRCOUTPUTDELAY.
+    = {IRC_MSG ;; READY:IrcMsgList, REMAINING:Config}
+    if AT:Float <= NOW
+      /\ not hasEarlier(REST:Config, AT:Float)
+      /\ {READY:IrcMsgList, REMAINING:Config} := $releaseBufferedMsgs(REST:Config, NOW)
+  .
+
+  --- Flush the output buffer (to mimick writing multiple messages in succession
+  --- but being read off the socket at once).
+  crl [irc-flush-send] :
+    < ircAddr : IRC_ACTOR:ActorType | attrs >
+    {T, (to ircAddr from ircAddr : FlushIrcOutput(DST_ADDR))}
+  =>
+    < ircAddr : IRC_ACTOR:ActorType | attrsNext >
+    (if msg == nullMsg then null else [0., msg, 0] fi)
+    if {attrsNext, msg} := releaseBufferedMsgs(attrs, DST_ADDR, T)
+    [ print "(" T ") IRC " ircAddr " flushing output messages " msg "." ]
+  .
 
   ------------------------
   --- IRC Client Rules ---
@@ -96,12 +196,18 @@ mod IRC-V2 is
     {T, (to ircAddr from umAddr : actionQ(aspec) )}
   =>
   rCtr(j1)
-  < ircAddr : IrcClient | attrs1 >
-    smsgs
-    if {attrs1, smsgs, j1} := 
+  < ircAddr : IrcClient | attrsNext >
+  flushMsgs:Config actionMsg
+  if {attrs1, smsgs, j1} := 
        ircExeAction(attrs, ircAddr, umAddr,
-                    jv2str(aspec["type"]),aspec,j)            
-[print "(" T ") IRC Client " ircAddr " received actionQ : " aspec " sending " smsgs ]
+                    jv2str(aspec["type"]), aspec, j)
+    *** Schedule the flush events, one per outgoing message.
+    /\ (outgoingMsgs actionMsg) := smsgs
+    /\ [JITTERED:Float, (to umAddr from ircAddr : ACTION), DROP:Nat] := actionMsg
+    /\ flushMsgs:Config := $scheduleFlushes(null, outgoingMsgs, ircAddr)
+    *** Buffer the outgoing messages, with a time of release.
+    /\ attrsNext := $bufferIrcMsgs(attrs1, outgoingMsgs, T)
+  [print "(" T ") IRC Client " ircAddr " received actionQ : " aspec " sending " smsgs ]
   .
   
  op ircExeAction : AttributeSet Address Address String
@@ -170,16 +276,20 @@ if js(room) := aspec["room"]
   .
 
   --- Handle server ping, respond with a pong if alive.
- crl [irc-client-handle-ping]:
+  crl [irc-client-handle-ping]:
   rCtr(j)
-  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    < IRC_CLIENT_ADDR : IrcClient | attrs >
     {T, (to IRC_CLIENT_ADDR from rbAddr : Ping(ircDestinationName, IRC_SERVER_ADDR))}
   =>
   rCtr(j1)
-  < IRC_CLIENT_ADDR : IrcClient | attrs >
- smsgs
-if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CLIENT_ADDR : Pong(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), null)
-    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling incoming ping from Server." ]
+    < IRC_CLIENT_ADDR : IrcClient | attrsNext >
+    flushMsgs:Config
+  if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CLIENT_ADDR : Pong(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), null)
+    *** Schedule the flush events, one per outgoing message.
+    /\ flushMsgs:Config := $scheduleFlushes(null, smsgs, IRC_CLIENT_ADDR)
+    *** Buffer the outgoing messages, with a time of release.
+    /\ attrsNext := $bufferIrcMsgs(attrs, smsgs, T)
+  [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling incoming ping from Server." ]
   .
 
   --- Handle (ignore) server messages of other clients joining or leaving.
@@ -209,7 +319,7 @@ if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CL
   =>
   rCtr(j1)
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
-  smsgs
+  flushMsgs:Config
   *** For CP3, disable Pings.
   ***[IRC-STALE-DURATION-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(ircSourceAddr)), 0]
   if CLIENTS_MAP := getChannelMap(attrs)
@@ -219,8 +329,12 @@ if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CL
                                        makeIrcUserName(ircSourceAddr),
                                        clientList:IrcUserNameList,
                                        chatText)
-    /\ attrsNext := refreshUser(attrs, makeIrcUserName(ircSourceAddr), T)
+    /\ attrsTrans := refreshUser(attrs, makeIrcUserName(ircSourceAddr), T)
     /\ {smsgs,j1} := delayMsgsX(j,msgs:Config,null)
+    *** Schedule the flush events, one per outgoing message.
+    /\ flushMsgs:Config := $scheduleFlushes(null, smsgs, IRC_SERVER_ADDR)
+    *** Buffer the outgoing messages, with a time of release.
+    /\ attrsNext := $bufferIrcMsgs(attrsTrans, smsgs, T)
     [ print "(" T ") IRC Server handling incoming chat " chatText " from " ircSourceAddr " to " ircName ", turning chat around w/ msgs "  msgs:Config ]
   .
 
@@ -262,21 +376,25 @@ if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CL
   --- Handle a user parting (leaving) a channel.
   crl [server-handle-part-channel]:
   rCtr(j)
-  < IRC_SERVER_ADDR : IrcServer | attrs >
+    < IRC_SERVER_ADDR : IrcServer | attrs >
     {T, (to IRC_SERVER_ADDR from rbAddr : incomingContent:Content)}
   =>
   rCtr(j1)
-  < IRC_SERVER_ADDR : IrcServer | attrsNext >
-   smsgs
+    < IRC_SERVER_ADDR : IrcServer | attrsNext >
+    flushMsgs:Config
   if PartChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) := incomingContent:Content
-    /\ attrsNext := clearUser(attrs, IRC_CLIENT_ADDR)
-    /\ CLIENTS_MAP := getChannelMap(attrsNext)
+    /\ attrsTrans := clearUser(attrs, IRC_CLIENT_ADDR)
+    /\ CLIENTS_MAP := getChannelMap(attrsTrans)
     /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
-    /\ msgs:Config := createIrcMsg(attrsNext,
+    /\ msgs:Config := createIrcMsg(attrsTrans,
                                    makeIrcUserName(IRC_CLIENT_ADDR),
                                    clientList:IrcUserNameList,
                                    incomingContent:Content)
   /\ {smsgs,j1}  :=  delayMsgsX(j,msgs:Config, null)
+    *** Schedule the flush events, one per outgoing message.
+    /\ flushMsgs:Config := $scheduleFlushes(null, smsgs, IRC_SERVER_ADDR)
+    *** Buffer the outgoing messages, with a time of release.
+    /\ attrsNext := $bufferIrcMsgs(attrsTrans, smsgs, T)
   [ print "(" T ") IRC Server handling part channel for " IRC_CLIENT_ADDR ", sending " msgs:Config ]
   .
 
@@ -286,11 +404,11 @@ if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CL
   < IRC_SERVER_ADDR : IrcServer | attrs >
     {T, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR))}
   =>
-  < IRC_SERVER_ADDR : IrcServer | attrs >
+  < IRC_SERVER_ADDR : IrcServer | attrsNext >
   rCtr(j1)
   (if (addr == nullAddr)
     then null
-    else smsgs
+    else flushMsgs:Config
      delayMsgs(
         (to addr from IRC_SERVER_ADDR : --- getRaceboatAddr(attrs) 
           Ping(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), 
@@ -307,6 +425,10 @@ if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CL
         delayMsgsX(j, (to addr from IRC_SERVER_ADDR : 
           Ping(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), 
         null)
+    *** Schedule the flush events, one per outgoing message.
+    /\ flushMsgs:Config := $scheduleFlushes(null, smsgs, IRC_SERVER_ADDR)
+    *** Buffer the outgoing messages, with a time of release.
+    /\ attrsNext := $bufferIrcMsgs(attrs, smsgs, T)
   [ print "(" T ") IRC Server handling ping timeout for " IRC_CLIENT_ADDR ", sending ping." ]
   .
 
@@ -324,16 +446,20 @@ if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CL
     {T, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PongTimeout(ircSourceAddr))}
   =>
   ---                             clear user checks for staleness.
-  < IRC_SERVER_ADDR : IrcServer | clearUser(attrs, ircSourceAddr, T) >
+  < IRC_SERVER_ADDR : IrcServer | clearUser(attrsNext, ircSourceAddr, T) >
   rCtr(j)
     (if isStale:Bool
-      then smsgs
+      then flushMsgs:Config
       else null
     fi)
   if isStale:Bool := isUserStale(getClientTimestampMap(attrs),
                                  makeIrcUserName(ircSourceAddr),
                                  T)
   /\ {smsgs,j1} := delayMsgsX(j,createUserQuitMsgs(attrs, ircSourceAddr), null) 
+    *** Schedule the flush events, one per outgoing message.
+    /\ flushMsgs:Config := $scheduleFlushes(null, smsgs, IRC_SERVER_ADDR)
+    *** Buffer the outgoing messages, with a time of release.
+    /\ attrsNext := $bufferIrcMsgs(attrs, smsgs, T)
   [ print "(" T ") IRC Server handling pong timeout for " ircSourceAddr ". If stale true consider clearing, otherwise ignore: " isStale:Bool "." ]
   .
 
