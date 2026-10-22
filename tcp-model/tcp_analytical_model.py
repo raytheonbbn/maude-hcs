@@ -139,21 +139,26 @@ def _cubic_w(t, w_max):
 
 class TcpState:
     """Encapsulates TCP congestion state across connection transfers."""
-    def __init__(self, cwnd=10.0, w_max=None, t_since=0.0, in_slow_start=True):
+    def __init__(self, cwnd=10.0, w_max=None, t_since=0.0, in_slow_start=True,
+                 last_send_time=None, last_ack_time=None):
         self.cwnd = float(cwnd)
         self.w_max = float(w_max if w_max is not None else (self.cwnd / CUBIC_B))
         self.t_since = float(t_since)
         self.in_slow_start = bool(in_slow_start)
+        self.last_send_time = last_send_time
+        self.last_ack_time = last_ack_time
 
     def __repr__(self):
-        return f"TcpState(cwnd={self.cwnd:.6f}, w_max={self.w_max:.6f}, t_since={self.t_since:.6f}, in_slow_start={self.in_slow_start})"
+        return (f"TcpState(cwnd={self.cwnd:.6f}, w_max={self.w_max:.6f}, "
+                f"t_since={self.t_since:.6f}, in_slow_start={self.in_slow_start}, "
+                f"last_send_time={self.last_send_time}, last_ack_time={self.last_ack_time})")
 
 def init_tcp_state():
     return TcpState(10.0, 10.0 / CUBIC_B, 0.0, in_slow_start=True)
 
 # ─────────────────────── Timeline Generation ───────────────────────
 
-def _build_timeline(max_k=2000, is_new=True, state=None):
+def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
     times_first = np.full(max_k + 1, np.nan)
     times_dest  = np.full(max_k + 1, np.nan)
     flts        = np.zeros(max_k + 1, dtype=int)
@@ -164,6 +169,9 @@ def _build_timeline(max_k=2000, is_new=True, state=None):
 
     LOCAL_MAX_CWND = 1000
     is_none = _path.drop_prob <= 1e-10
+
+    if start_time is None:
+        start_time = (state.last_ack_time if state is not None and state.last_ack_time is not None else 0.0)
 
     if is_new:
         # Phase 1: Handshake (TCP 3-way HS + TLS HS completes at t = 2 * RTT; App Data starts at t = 2 * RTT)
@@ -180,12 +188,27 @@ def _build_timeline(max_k=2000, is_new=True, state=None):
         if state is None:
             state = init_tcp_state()
         in_slow_start = getattr(state, 'in_slow_start', False)
+        cwnd = max(2.0, min(float(state.cwnd), float(LOCAL_MAX_CWND)))
+        w_max = max(1.0, min(float(state.w_max), float(LOCAL_MAX_CWND)))
+        t_since = float(state.t_since)
+        # Linux's default tcp_slow_start_after_idle behavior is only applied
+        # when the previous flight has drained and the sender has been idle
+        # for more than its RTO. RTO_MIN is the model's RTO approximation.
+        if (state.last_send_time is not None and state.last_ack_time is not None
+                and start_time >= state.last_ack_time):
+            idle = start_time - state.last_send_time
+            if idle > RTO_MIN:
+                while idle > RTO_MIN and cwnd > float(IW):
+                    cwnd = max(float(IW), float(int(cwnd) // 2))
+                    idle -= RTO_MIN
+                in_slow_start = cwnd <= float(IW)
+                if in_slow_start:
+                    cwnd = min(cwnd, float(IW))
+                    t_since = 0.0
         if in_slow_start:
-            W_ss = max(1, int(round(state.cwnd)))
+            W_ss = max(1, int(round(cwnd)))
         else:
-            cwnd = max(2.0, min(float(state.cwnd), float(LOCAL_MAX_CWND)))
-            w_max = max(1.0, min(float(state.w_max), float(LOCAL_MAX_CWND)))
-            t_since = float(state.t_since)
+            pass
 
     if in_slow_start:
         last_p0 = 1.0
@@ -293,16 +316,27 @@ def _build_timeline(max_k=2000, is_new=True, state=None):
             cwnd = max(2.0, min(cwnd_next, LOCAL_MAX_CWND))
             flt += 1
 
-    final_state = TcpState(cwnd=cwnd, w_max=w_max, t_since=t_since, in_slow_start=in_slow_start)
+    valid_dest = times_dest[np.isfinite(times_dest)]
+    if len(valid_dest) > 1:
+        last_dest = float(np.max(valid_dest[1:]))
+        last_send_time = start_time + last_dest - OWD
+        last_ack_time = start_time + last_dest + OWD
+    else:
+        last_send_time = state.last_send_time if state is not None else None
+        last_ack_time = state.last_ack_time if state is not None else None
+    final_state = TcpState(cwnd=cwnd, w_max=w_max, t_since=t_since,
+                           in_slow_start=in_slow_start,
+                           last_send_time=last_send_time, last_ack_time=last_ack_time)
     return times_first, times_dest, flts, total_el, final_state
 
 # ─────────────────────── Public API ───────────────────────
 
 _cache: dict = {}
 
-def simulate_transfer(num_segments, is_new=True, state=None):
+def simulate_transfer(num_segments, is_new=True, state=None, *, start_time):
     """Simulates transmission of num_segments, returning (times_first, times_dest, final_state)."""
-    t_first, t_dest, _, _, final_state = _build_timeline(num_segments, is_new=is_new, state=state)
+    t_first, t_dest, _, _, final_state = _build_timeline(
+        num_segments, is_new=is_new, state=state, start_time=start_time)
     return t_first[1:num_segments + 1], t_dest[1:num_segments + 1], final_state
 
 def expected_time_k(k):

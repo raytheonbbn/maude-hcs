@@ -14,13 +14,13 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
 import tcp_analytical_model
 
-def get_python_transfer(profile, num_bytes, is_new=True, state=None):
+def get_python_transfer(profile, num_bytes, is_new=True, state=None, *, start_time):
     tcp_analytical_model.set_active_profile(profile)
     num_segments = num_bytes // 1448
-    _, t_dest, final_state = tcp_analytical_model.simulate_transfer(num_segments, is_new=is_new, state=state)
+    _, t_dest, final_state = tcp_analytical_model.simulate_transfer(num_segments, is_new=is_new, state=state, start_time=start_time)
     return list(t_dest), final_state
 
-def get_maude_transfer(profile, num_bytes, is_new=True, state=None):
+def get_maude_transfer(profile, num_bytes, is_new=True, state=None, *, start_time):
     if profile in tcp_analytical_model.PROFILES:
         drop_p = tcp_analytical_model.PROFILES[profile]
     elif isinstance(profile, (int, float)):
@@ -37,13 +37,15 @@ def get_maude_transfer(profile, num_bytes, is_new=True, state=None):
         state_str = 'initTcpState'
     else:
         in_ss_str = 'true' if getattr(state, 'in_slow_start', False) else 'false'
-        state_str = f'tcpState({state.cwnd}, {state.w_max}, {state.t_since}, {in_ss_str})'
+        last_send = -1.0 if state.last_send_time is None else state.last_send_time
+        last_ack = -1.0 if state.last_ack_time is None else state.last_ack_time
+        state_str = f'tcpState({state.cwnd}, {state.w_max}, {state.t_since}, {in_ss_str}, {last_send}, {last_ack})'
         
     py_runner = f"""import maude, re
 maude.init()
 maude.load('{tcp_maude_path}')
 m = maude.getCurrentModule()
-term = m.parseTerm('tcpFinalDestResult({num_bytes}, (dropP: {drop_p}, oneWayDelay: {O}), (dropP: {drop_p}, oneWayDelay: {O}), {is_new_str}, {state_str})')
+term = m.parseTerm('tcpFinalDestResult({num_bytes}, (dropP: {drop_p}, oneWayDelay: {O}), (dropP: {drop_p}, oneWayDelay: {O}), {is_new_str}, {state_str}, {start_time})')
 term.reduce()
 print('RESULT_TAG:', str(term))
 """
@@ -54,7 +56,7 @@ print('RESULT_TAG:', str(term))
             maude.init()
             maude.load(tcp_maude_path)
             m = maude.getCurrentModule()
-        term = m.parseTerm(f'tcpFinalDestResult({num_bytes}, (dropP: {drop_p}, oneWayDelay: {O}), (dropP: {drop_p}, oneWayDelay: {O}), {is_new_str}, {state_str})')
+        term = m.parseTerm(f'tcpFinalDestResult({num_bytes}, (dropP: {drop_p}, oneWayDelay: {O}), (dropP: {drop_p}, oneWayDelay: {O}), {is_new_str}, {state_str}, {start_time})')
         term.reduce()
         res_str = str(term)
     except Exception:
@@ -64,14 +66,19 @@ print('RESULT_TAG:', str(term))
         idx = out.rfind('RESULT_TAG:')
         res_str = out[idx + len('RESULT_TAG:'):].strip()
 
-    state_match = re.search(r'tcpState\(([^,]+),\s*([^,]+),\s*([^,)]+)(?:,\s*([^)]+))?\)', res_str)
+    state_match = re.search(r'tcpState\(([^,]+),\s*([^,]+),\s*([^,]+),\s*(true|false),\s*([^,]+),\s*([^)]+)\)', res_str)
     if not state_match:
         raise ValueError(f"Could not parse state from: {res_str}")
     cwnd = float(state_match.group(1))
     w_max = float(state_match.group(2))
     t_since = float(state_match.group(3))
-    in_ss = (state_match.group(4).strip() == 'true') if state_match.group(4) else False
-    final_state = tcp_analytical_model.TcpState(cwnd, w_max, t_since, in_slow_start=in_ss)
+    in_ss = state_match.group(4).strip() == 'true'
+    last_send = float(state_match.group(5))
+    last_ack = float(state_match.group(6))
+    final_state = tcp_analytical_model.TcpState(
+        cwnd, w_max, t_since, in_slow_start=in_ss,
+        last_send_time=last_send if last_send >= 0.0 else None,
+        last_ack_time=last_ack if last_ack >= 0.0 else None)
 
     times_part = res_str[res_str.find('tlR(') + 4: state_match.start()].rstrip(', ')
     tokens = times_part.replace('\n', ' ').replace('::', ' ').replace('nilFL', ' ').split()
@@ -95,9 +102,9 @@ def main():
         print(f"\n{'='*20} Testing {prof_desc} {'='*20}")
         # --- Transfer 1 (New Connection) ---
         print(f"Running Python Transfer 1 (New Connection, 40 segments)...")
-        py_t1, py_s1 = get_python_transfer(prof_name, bytes_t1, is_new=True)
+        py_t1, py_s1 = get_python_transfer(prof_name, bytes_t1, is_new=True, start_time=0.0)
         print(f"Running Maude Transfer 1 (New Connection, 40 segments)...")
-        md_t1, md_s1 = get_maude_transfer(prof_name, bytes_t1, is_new=True)
+        md_t1, md_s1 = get_maude_transfer(prof_name, bytes_t1, is_new=True, start_time=0.0)
         
         diff_t1 = max(abs(p - m) for p, m in zip(py_t1, md_t1))
         diff_s1_cwnd = abs(py_s1.cwnd - md_s1.cwnd)
@@ -109,9 +116,9 @@ def main():
         
         # --- Transfer 2 (Reused Connection) ---
         print(f"Running Python Transfer 2 (Reused Connection, 80 segments)...")
-        py_t2, py_s2 = get_python_transfer(prof_name, bytes_t2, is_new=False, state=py_s1)
+        py_t2, py_s2 = get_python_transfer(prof_name, bytes_t2, is_new=False, state=py_s1, start_time=py_s1.last_ack_time)
         print(f"Running Maude Transfer 2 (Reused Connection, 80 segments)...")
-        md_t2, md_s2 = get_maude_transfer(prof_name, bytes_t2, is_new=False, state=md_s1)
+        md_t2, md_s2 = get_maude_transfer(prof_name, bytes_t2, is_new=False, state=md_s1, start_time=md_s1.last_ack_time)
         
         diff_t2 = max(abs(p - m) for p, m in zip(py_t2, md_t2))
         diff_s2_cwnd = abs(py_s2.cwnd - md_s2.cwnd)
