@@ -62,8 +62,9 @@ mod NETWORK_CONNECTION is
   vars advAddr  rsvAddr : Address .
   vars advAttrs advAttrs0 advAttrs1 attrs0 attrs1 attrs
        netAttrs0 netAttrs1 netAttrs2 flowAttrs0
-       netAttrsNext0 linkAttrs1 linkAttrs2 
+       netAttrsNext0 netAttrsNext1 linkAttrs1 linkAttrs2 
        : AttributeSet .  
+  vars curTcpState nextTcpState : TcpState .
   vars tpl tml : TimesObsList .
   vars tmsg : TimesMsg .
   vars smsgs amsgs amsgs0 conf msgs : Config .
@@ -157,7 +158,7 @@ eq [netClientGenTcp] :
 
 ceq [netClientGenTcp]:
  netClientGenTcp(netAttrs,advAttrs,netAddr,j)
-  = { (netAttrsNext0, pending: amsgs0),advAttrs1,
+  = { (netAttrsNext1, pending: amsgs0),advAttrs1,
      [delay:Float, transportMsg, 0],jNext}
   if netAttrs0, remoteChannelAddr: REMOTE_ADDR, 
                 localIfaceAddr: LOCAL_ADDR, 
@@ -178,20 +179,22 @@ ceq [netClientGenTcp]:
            getLinkData(msg_src_to_ixp)
     /\ linkAttrs2 := 
            getLinkData(msg_ixp_to_tgt)
+    /\ curTcpState := getTcpState(netAttrs)
     /\ (pktAttrs, nextJ: jTrans) :=
          getFinalDestSegmentDistribution(j, msg,
-               linkAttrs1, linkAttrs2,b)  
+               linkAttrs1, linkAttrs2, b, curTcpState)  
     /\ (timePacketList: TIME_LIST,attrs) := pktAttrs
+    /\ nextTcpState := getTcpState(pktAttrs)
     /\ delay:Float := msgDelay(TIME_LIST)
     /\ transportMsg := 
      (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
 **** get the pkt size list     
-     /\ size_list := tcpDeliverySizes(msgSize, TIME_LIST) 
+     /\ size_list := tcpDeliverySizes(msgSize, TIME_LIST, b) 
     *** Now do to IXP router only.
     /\ (pktAttrsAtIxp, nextJ: jNext) := 
         getFirstHopSegmentDistribution(jTrans,
            msg_src_to_ixp, 
-           linkAttrs1, linkAttrs2,b)
+           linkAttrs1, linkAttrs2, b, curTcpState)
     /\ (timePacketList: TIME_LIST_TO_IXP) := pktAttrsAtIxp
 **** log the packets 
     /\ netAttrs1, connectionCount: ctr, newCnx: b := netAttrs
@@ -201,6 +204,7 @@ ceq [netClientGenTcp]:
                      else advAttrs
                      fi)
     /\ netAttrsNext0, pending: amsgs := netAttrsNext
+    /\ netAttrsNext1 := updateTcpState(netAttrsNext0, nextTcpState)
     --- /\ numPkts:Nat := lenFL(TIME_LIST) 
     
     [ print "(" T ") netClientGenTcp " netAddr " sending " transportMsg " with delay " delay:Float ]
