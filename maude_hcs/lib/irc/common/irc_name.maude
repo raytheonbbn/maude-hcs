@@ -196,6 +196,9 @@ NB clt the above allows duplicates of a client in the list. If that is not the i
                client)
     = CLIENT_TIMESTAMP_MAP
   .
+  eq pruneUser(CLIENT_TIMESTAMP_MAP, client)
+    = CLIENT_TIMESTAMP_MAP [owise]
+  .
 
   op pruneUserAddr : ClientAddressMap Address -> ClientAddressMap .
   eq pruneUserAddr((clientAddressMap
@@ -219,6 +222,16 @@ NB clt the above allows duplicates of a client in the list. If that is not the i
   --- Unregister a user by address from specific channels.
   op unregisterIrcUserFromChannels : NameClientsMap IrcChannelNameList Address -> NameClientsMap .
   eq unregisterIrcUserFromChannels(NAME_CLIENTS_MAP,
+                                   nilIrcChannelName,
+                                   CLIENT_ADDR:Address)
+    = NAME_CLIENTS_MAP
+  .
+  eq unregisterIrcUserFromChannels(NAME_CLIENTS_MAP,
+                                   emptyIrcChannelNameList,
+                                   CLIENT_ADDR:Address)
+    = NAME_CLIENTS_MAP
+  .
+  eq unregisterIrcUserFromChannels(NAME_CLIENTS_MAP,
                                    IRC_CHANNEL_NAME:IrcChannelName :: IRC_CHANNEL_NAME_LIST:IrcChannelNameList,
                                    CLIENT_ADDR:Address)
     = unregisterIrcUserFromChannels(unregisterIrcUserFromChannel(NAME_CLIENTS_MAP,
@@ -226,11 +239,6 @@ NB clt the above allows duplicates of a client in the list. If that is not the i
                                                                  CLIENT_ADDR:Address),
                                     IRC_CHANNEL_NAME_LIST:IrcChannelNameList,
                                     CLIENT_ADDR:Address)
-  .
-  eq unregisterIrcUserFromChannels(NAME_CLIENTS_MAP,
-                                   emptyIrcChannelNameList,
-                                   CLIENT_ADDR:Address)
-    = NAME_CLIENTS_MAP
   .
 
   --- Unregister a user by address from a single channel.
@@ -278,14 +286,17 @@ NB clt the above allows duplicates of a client in the list. If that is not the i
   eq getClients(nameClientsMap, IRC_USER_NAME) = emptyIrcUserNameList [owise] .
 
   op getAllClients : NameClientsMap IrcChannelNameList -> IrcUserNameList .
+  eq getAllClients(NAME_CLIENTS_MAP, nilIrcChannelName)
+    = emptyIrcUserNameList
+  .
+  eq getAllClients(NAME_CLIENTS_MAP, emptyIrcChannelNameList)
+    = emptyIrcUserNameList
+  .
   eq getAllClients(NAME_CLIENTS_MAP,
                    (IRC_CHANNEL_NAME:IrcChannelName :: IRC_CHANNEL_NAME_LIST:IrcChannelNameList))
     = getClients(NAME_CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
       : getAllClients(NAME_CLIENTS_MAP,
                       IRC_CHANNEL_NAME_LIST:IrcChannelNameList)
-  .
-  eq getAllClients(NAME_CLIENTS_MAP, emptyIrcChannelNameList)
-    = emptyIrcUserNameList
   .
 
   ---
@@ -330,5 +341,32 @@ NB clt the above allows duplicates of a client in the list. If that is not the i
                  now:Float)
     = false [owise]
   .
+
+  --- Channel list and address list helpers for CP4 failover.
+  vars chL chLR : IrcChannelNameList .
+  vars ch ch1 : IrcChannelName .
+  vars idx : Nat .
+
+  op insertChannelName : IrcChannelNameList IrcChannelName -> IrcChannelNameList .
+  eq insertChannelName((chL :: ch :: chLR), ch) = (chL :: ch :: chLR) .
+  eq insertChannelName(chL, ch) = (chL :: ch) [owise] .
+
+  op removeChannelName : IrcChannelNameList IrcChannelName -> IrcChannelNameList .
+  eq removeChannelName((chL :: ch :: chLR), ch) = removeChannelName((chL :: chLR), ch) .
+  eq removeChannelName(chL, ch) = chL [owise] .
+
+  op channelListLen : IrcChannelNameList -> Nat .
+  eq channelListLen(emptyIrcChannelNameList) = 0 .
+  eq channelListLen(nilIrcChannelName) = 0 .
+  eq channelListLen(ch :: chL) = s channelListLen(chL) .
+
+  op addrListLen : AddrList -> Nat .
+  eq addrListLen(nil) = 0 .
+  eq addrListLen(addr ; addrL) = s addrListLen(addrL) .
+
+  op getNthAddr : AddrList Nat -> Address .
+  eq getNthAddr(nil, idx) = nullAddr .
+  eq getNthAddr(addr ; addrL, 0) = addr .
+  eq getNthAddr(addr ; addrL, s idx) = getNthAddr(addrL, idx) .
 endm
 

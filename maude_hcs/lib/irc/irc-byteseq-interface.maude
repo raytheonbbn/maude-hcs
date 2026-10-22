@@ -68,6 +68,34 @@ eq getSize(ircToByteseq(ircMsg)) = getSize(ircMsg) .
 op IrcByteSeqIface : -> ActorType .
 op ircAddress:_  : Address -> Attribute [ctor] .
 op epAddress:_  : Address -> Attribute [ctor] .  --- tunnel
+op linkUp:_ : Bool -> Attribute [ctor] .
+
+op SetLinkState : Bool -> Content [ctor] .
+
+op getLinkUp : AttributeSet -> Bool .
+eq getLinkUp((attrs, linkUp: b:Bool)) = b:Bool .
+eq getLinkUp(attrs) = true [owise] .
+
+op setLinkUp : AttributeSet Bool -> AttributeSet .
+eq setLinkUp((attrs, linkUp: b0:Bool), b:Bool) = (attrs, linkUp: b:Bool) .
+eq setLinkUp(attrs, b:Bool) = (attrs, linkUp: b:Bool) [owise] .
+
+--- Helpers to schedule disconnect / reconnect of a bidirectional interface pair at time dt
+op mkDisconnect : Float Address Address -> Config .
+eq mkDisconnect(dt:Float, if1:Address, if2:Address) =
+  [dt:Float, (to if1:Address from if1:Address : SetLinkState(false)), 0]
+  [dt:Float, (to if2:Address from if2:Address : SetLinkState(false)), 0]
+.
+
+op mkReconnect : Float Address Address -> Config .
+eq mkReconnect(dt:Float, if1:Address, if2:Address) =
+  [dt:Float, (to if1:Address from if1:Address : SetLinkState(true)), 0]
+  [dt:Float, (to if2:Address from if2:Address : SetLinkState(true)), 0]
+.
+
+op isPrivMsgReq : IrcMsg -> Bool .
+eq isPrivMsgReq(PrivMsgReq(ircName:IrcName, ircUser:IrcUserName, txt:String)) = true .
+eq isPrivMsgReq(ircMsg) = false [owise] .
 
 op mkIrcByteSeqIface : Address Address Address  
                    -> Actor .
@@ -75,8 +103,17 @@ eq mkIrcByteSeqIface(ifAddr,ircAddr,epAddr)
    =
    < ifAddr : IrcByteSeqIface | 
       ircAddress: ircAddr,  --- wants ircMsg
-      epAddress: epAddr    --- wants bytseq
+      epAddress: epAddr,    --- wants bytseq
+      linkUp: true
       >  .
+
+rl [iface-set-link-state]:
+  {T, (to ifAddr from srcAddr:Address : SetLinkState(b:Bool))}
+  < ifAddr : IrcByteSeqIface | attrs >
+ =>
+  < ifAddr : IrcByteSeqIface | setLinkUp(attrs, b:Bool) >
+[print "(" T ") IrcIface " ifAddr " linkUp set to " b:Bool]
+.
 
 crl [fromIrc2ep]:
   rCtr(j)
@@ -88,11 +125,26 @@ crl [fromIrc2ep]:
   < ifAddr : IrcByteSeqIface | attrs >
   < monAddr : IrcMonitor | mattrs1 >
   smsgs
-  if attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
+  if getLinkUp(attrs) == true
+  /\ attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
   /\ msg := (to epAddr from ifAddr : ircToByteseq(ircMsg))
   /\ {smsgs,j1} := delayMsgsX(j,msg,null)
   /\ mattrs1 := ircLogSent(mattrs,T, epAddr, ircAddr,ircMsg)
 [print "(" T ") " "IrcIface " ifAddr " transforms " ircMsg]  
+.
+
+crl [fromIrc2ep-dropped]:
+  {T, (to ifAddr from ircAddr : ircMsg)}
+  < ifAddr : IrcByteSeqIface | attrs >
+ =>
+  < ifAddr : IrcByteSeqIface | attrs >
+  (if isPrivMsgReq(ircMsg)
+   then [0.0, (to ircAddr from ifAddr : ClientConnLost), 0]
+   else null
+   fi)
+  if getLinkUp(attrs) == false
+  /\ attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
+[print "(" T ") IrcIface " ifAddr " Link DOWN - dropped outgoing " ircMsg]
 .
 
 crl [fromEp2Irc]:
@@ -105,13 +157,23 @@ crl [fromEp2Irc]:
   smsgs
   < ifAddr : IrcByteSeqIface |  attrs >
   < monAddr : IrcMonitor | mattrs1 >
- if attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
+ if getLinkUp(attrs) == true
+ /\ attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
  /\ ircMsg := ircFromByteseq(byteseq)
  /\ msg := (to ircAddr from ifAddr : ircMsg )
  /\ {smsgs,j1} := delayMsgsX(j,msg,null)
  /\ mattrs1 := ircLogRcvd(mattrs,T,ircAddr, epAddr,ircMsg)
 
 [print "(" T ") " "IrcIface " ifAddr "  rcvd " byteseq ]  .
+
+crl [fromEp2Irc-dropped]:
+  {T, (to ifAddr from epAddr : byteseq)}
+  < ifAddr : IrcByteSeqIface | attrs >
+ =>
+  < ifAddr : IrcByteSeqIface | attrs >
+ if getLinkUp(attrs) == false
+ /\ attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
+[print "(" T ") IrcIface " ifAddr " Link DOWN - dropped incoming " byteseq] .
 
 endm
 

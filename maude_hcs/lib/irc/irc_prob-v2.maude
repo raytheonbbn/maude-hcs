@@ -72,6 +72,16 @@ mod IRC-V2 is
   vars aspec : Map{String,JV} .
 
 
+  vars failoverEps peerAddrs : AddrList .
+  vars sidIdx nextSidIdx ep seq rttCnt fCtr dCtr : Nat .
+  vars rttS rttExp lastPing lastR pingTO pongTO basePongTO sampleRtt avgRtt newPongTO : Float .
+  vars cs : IrcConnState .
+  vars chReady schStarted : Bool .
+  vars chList pendJoins remJoins : IrcChannelNameList .
+  vars chName IRC_CHANNEL_NAME : IrcChannelName .
+  vars origSrvAddr peerSrvAddr : Address .
+  vars roomMapJV : Map{String,JV} .
+
   ---- Make a V2 IrcClient  driven by UM
   ----             ItsAddr  RBAddr UserId 
   op mkIrcClient-v2 : Address Address String  -> Actor .
@@ -83,6 +93,157 @@ mod IRC-V2 is
         userId: userId,
         msgCtr: 0
     >  .
+
+  ------------------------------------------------------------------
+  --- CP4 Client Connection, Join, and Failover Helper Functions ---
+  ------------------------------------------------------------------
+
+  --- Extract IrcChannelNameList from a Map{String,JV} room map
+  op roomMapToChannelList : Map{String,JV} IrcChannelNameList -> IrcChannelNameList .
+  eq roomMapToChannelList(empty, chList) = chList .
+  eq roomMapToChannelList(((room |-> jv:JV), roomMapJV), chList) =
+    roomMapToChannelList(roomMapJV, insertChannelName(chList, makeIrcChannelName(room))) .
+
+  op setJoinedChannels : AttributeSet IrcChannelNameList -> AttributeSet .
+  eq setJoinedChannels((attrs0, joinedChannels: pendJoins), chList) = (attrs0, joinedChannels: chList) .
+  eq setJoinedChannels(attrs, chList) = attrs [owise] .
+
+  op setJoinedChannelsIfEmpty : AttributeSet IrcChannelNameList -> AttributeSet .
+  eq setJoinedChannelsIfEmpty((attrs0, joinedChannels: emptyIrcChannelNameList), chList)
+    = (attrs0, joinedChannels: chList) .
+  eq setJoinedChannelsIfEmpty(attrs, chList) = attrs [owise] .
+
+  op getPingEpoch : AttributeSet -> Nat .
+  eq getPingEpoch((attrs, pingEpoch: ep)) = ep .
+  eq getPingEpoch(attrs) = 0 [owise] .
+
+  op getRttCount : AttributeSet -> Nat .
+  eq getRttCount((attrs, rttCount: rttCnt)) = rttCnt .
+  eq getRttCount(attrs) = 0 [owise] .
+
+  --- Generate JoinChannel messages for a list of channels from a client to its current rbAddr
+  op genClientChannelJoins : Address Address IrcChannelNameList -> Config .
+  eq genClientChannelJoins(ircAddr, rbAddr, emptyIrcChannelNameList) = null .
+  eq genClientChannelJoins(ircAddr, rbAddr, chName :: chList) =
+    (to transport(rbAddr) from ircAddr : JoinChannel(chName, ircAddr))
+    genClientChannelJoins(ircAddr, rbAddr, chList) .
+
+  --- Start scheduled chat timer if msgSched is non-empty and not yet started
+  op maybeStartMsgSched : AttributeSet Address -> AttributeSetMsgs .
+  ceq maybeStartMsgSched((attrs, schedStarted: false, msgSched: (imd(dt, room, size) :: dml)), ircAddr)
+    = {(attrs, schedStarted: true, msgSched: (imd(dt, room, size) :: dml)),
+       [dt, (to ircAddr from ircAddr : SendScheduledChat), 0]}
+  if dt >= 0.0 .
+  eq maybeStartMsgSched(attrs, ircAddr) = {attrs, null} [owise] .
+
+  op nextSchedChatMsg : IrcMsgDelayList Address -> Config .
+  eq nextSchedChatMsg((imd(dt, room, size) :: dml), IRC_CLIENT_ADDR) =
+    [dt, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : SendScheduledChat), 0] .
+  eq nextSchedChatMsg(dml, IRC_CLIENT_ADDR) = null [owise] .
+
+  op handleClientLivenessPong : AttributeSet Address Float -> AttributeSetMsgs .
+  eq handleClientLivenessPong((attrs0,
+                               connState: waiting-liveness-pong,
+                               pingEpoch: ep,
+                               pingTimeout: pingTO,
+                               lastRcvd: lastR),
+                              IRC_CLIENT_ADDR,
+                              T)
+    = {(attrs0,
+        connState: connected,
+        pingEpoch: ep,
+        pingTimeout: pingTO,
+        lastRcvd: T),
+       [pingTO, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientCheckStale(ep)), 0]} .
+  eq handleClientLivenessPong(attrs, IRC_CLIENT_ADDR, T)
+    = {touchClientRcvd(attrs, T), null} [owise] .
+
+  op handleClientChannelGo : AttributeSet Address Content Float -> AttributeSetMsgs .
+  ceq handleClientChannelGo((attrs0,
+                             connState: joining-channels,
+                             channelsReady: chReady,
+                             pendingJoins: pendJoins,
+                             pingEpoch: ep,
+                             pingTimeout: pingTO),
+                            IRC_CLIENT_ADDR,
+                            JoinChannel(chName, IRC_CLIENT_ADDR),
+                            T)
+    = (if remJoins == emptyIrcChannelNameList
+       then {attrs2, msgs [pingTO, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientCheckStale(ep)), 0]}
+       else {touchClientRcvd((attrs0,
+                              connState: joining-channels,
+                              channelsReady: false,
+                              pendingJoins: remJoins,
+                              pingEpoch: ep,
+                              pingTimeout: pingTO), T),
+             null}
+       fi)
+  if remJoins := removeChannelName(pendJoins, chName)
+  /\ attrs1 := touchClientRcvd((attrs0,
+                                connState: connected,
+                                channelsReady: true,
+                                pendingJoins: emptyIrcChannelNameList,
+                                pingEpoch: ep,
+                                pingTimeout: pingTO), T)
+  /\ {attrs2, msgs} := maybeStartMsgSched(attrs1, IRC_CLIENT_ADDR)
+  .
+  eq handleClientChannelGo(attrs, IRC_CLIENT_ADDR, goMsg:Content, T)
+    = {touchClientRcvd(attrs, T), null} [owise] .
+
+  --- Start connection to server at sidIdx in failoverList
+  op startClientConnect : AttributeSet Address Nat Nat Nat Float Nat -> AttributeSetMsgsNat .
+  ceq startClientConnect(attrs, ircAddr, sidIdx, ep, fCtr, T, j)
+    = {attrs1, smsgs [basePongTO, (to ircAddr from ircAddr : ClientMotdTimeout(ep)), 0], j1}
+  if (attrs0,
+      raceboatAddr: rbAddr,
+      failoverList: failoverEps,
+      currentSidIdx: nextSidIdx,
+      connState: cs,
+      channelsReady: chReady,
+      pendingJoins: pendJoins,
+      pingEpoch: seq,
+      rttCount: rttCnt,
+      rttSum: rttS,
+      lastRcvd: lastR,
+      pongTimeout: pongTO,
+      basePongTimeout: basePongTO,
+      failoverCtr: ctr) := attrs
+  /\ addr := getNthAddr(failoverEps, sidIdx)
+  /\ attrs1 := (attrs0,
+                raceboatAddr: addr,
+                failoverList: failoverEps,
+                currentSidIdx: sidIdx,
+                connState: waiting-motd,
+                channelsReady: false,
+                pendingJoins: emptyIrcChannelNameList,
+                pingEpoch: ep,
+                rttCount: 0,
+                rttSum: 0.0,
+                lastRcvd: T,
+                pongTimeout: basePongTO,
+                basePongTimeout: basePongTO,
+                failoverCtr: fCtr)
+  /\ msg0 := (to transport(addr) from ircAddr : ClientConnect(ircAddr, ep))
+  /\ {smsgs, j1} := delayMsgsX(j, msg0, null)
+  .
+
+  --- Trigger failover to the next server in failoverList
+  op triggerClientFailover : AttributeSet Address Float Nat -> AttributeSetMsgsNat .
+  ceq triggerClientFailover(attrs, ircAddr, T, j)
+    = startClientConnect(attrs, ircAddr, nextSidIdx, seq, s fCtr, T, j)
+  if (attrs0,
+      failoverList: failoverEps,
+      currentSidIdx: sidIdx,
+      pingEpoch: ep,
+      failoverCtr: fCtr) := attrs
+  /\ seq := s ep
+  /\ nextSidIdx := (if addrListLen(failoverEps) > 0
+                    then (s sidIdx) rem addrListLen(failoverEps)
+                    else 0
+                    fi)
+  [print "(" T ") IRC Client " ircAddr " starting FAILOVER from sidIdx " sidIdx " to sidIdx " nextSidIdx " (epoch " ep " -> " seq ")"]
+  .
+  eq triggerClientFailover(attrs, ircAddr, T, j) = {attrs, null, j} [owise] .
 
   ------------------------
   --- IRC Client Rules ---
@@ -116,9 +277,11 @@ ceq [irc-action-not-understood] :
  [owise print "IRC client " ircAddr " action " astr " not understood "]
   .
 
+--- Connected and ready: send PrivMsgReq normally
 ceq ircExeAction(attrs,ircAddr,umAddr,"roommsg",aspec,j) 
     =  {attrs2,smsgs,j1}
-if jf(fl) := aspec["message_length_bytes"]
+if isClientConnectedAndReady(attrs) == true
+/\ jf(fl) := aspec["message_length_bytes"]
 /\ js(room) := aspec["room"]
 /\ attrs0, msgCtr: ctr := attrs
 /\ attrs1, userId: userId, raceboatAddr: rbAddr := attrs
@@ -130,6 +293,31 @@ if jf(fl) := aspec["message_length_bytes"]
 /\ attrs2 := attrs0, msgCtr: s ctr
 .
 
+--- Disconnected or failing over: DROP outgoing IRC message (do NOT buffer)
+ceq ircExeAction(attrs,ircAddr,umAddr,"roommsg",aspec,j) 
+    =  {attrs2,smsgs,j1}
+if isClientConnectedAndReady(attrs) == false
+/\ cs := getConnState(attrs)
+/\ chReady := isChannelsReady(attrs)
+/\ jf(fl) := aspec["message_length_bytes"]
+/\ js(room) := aspec["room"]
+/\ attrs0, msgCtr: ctr := attrs
+/\ msg1 := to umAddr from ircAddr : actionR("ok")     
+/\ {smsgs,j1} := delayMsgsX(j,msg1,null)
+/\ attrs1 := incDroppedMsgCtr((attrs0, msgCtr: s ctr))
+/\ attrs2 := attrs1
+[print "IRC Client " ircAddr " DROPPED outgoing roommsg to " room " (connState=" cs ", channelsReady=" chReady ")"]
+.
+
+--- Handle set_room_numbers delegated from 3-arg UM-V2
+ceq ircExeAction(attrs,ircAddr,umAddr,"set_room_numbers",aspec,j)
+    = {attrs2, smsgs, j1}
+if jo(roomMapJV) := aspec["rooms"]
+/\ chList := roomMapToChannelList(roomMapJV, emptyIrcChannelNameList)
+/\ msg1 := (to umAddr from ircAddr : actionR("ok"))
+/\ {smsgs, j1} := delayMsgsX(j, msg1, null)
+/\ attrs2 := setJoinedChannelsIfEmpty(attrs, chList)
+.
 
 ceq  ircExeAction(attrs,ircAddr,umAddr,"joinmsg",aspec,j) 
      = {attrs,smsgs,j1}
@@ -157,6 +345,363 @@ if js(room) := aspec["room"]
        JoinChannel(makeIrcChannelName(room),ircAddr) 
   .       
 
+  -------------------------------------------------------------
+  --- CP4 Client Connection, RTT, Liveness & Failover Rules ---
+  -------------------------------------------------------------
+
+  --- Initiate connection to primary server
+  crl [irc-client-start-connect]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from ircSourceAddr : ClientStartConnect)}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs1 >
+  smsgs
+  if (attrs0, currentSidIdx: sidIdx, pingEpoch: ep, failoverCtr: fCtr) := attrs
+  /\ seq := s ep
+  /\ {attrs1, smsgs, j1} := startClientConnect(attrs, IRC_CLIENT_ADDR, sidIdx, seq, fCtr, T, j)
+  [print "(" T ") IRC Client " IRC_CLIENT_ADDR " initiating connection to server idx " sidIdx " (epoch " seq ")"]
+  .
+
+  --- Receive ServerWelcomeMotd -> begin 3-ping RTT baseline measurement
+  crl [irc-client-rcv-welcome-motd]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from rbAddr : ServerWelcomeMotd(IRC_CLIENT_ADDR, ep))}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs1 >
+  smsgs
+  [basePongTO, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientRttTimeout(ep, 1)), 0]
+  if (attrs0,
+      connState: waiting-motd,
+      pingEpoch: ep,
+      rttCount: rttCnt,
+      rttSum: rttS,
+      lastPingSentAt: lastPing,
+      lastRcvd: lastR,
+      basePongTimeout: basePongTO) := attrs
+  /\ attrs1 := (attrs0,
+                connState: rtt-baseline,
+                pingEpoch: ep,
+                rttCount: 0,
+                rttSum: 0.0,
+                lastPingSentAt: T,
+                lastRcvd: T,
+                basePongTimeout: basePongTO)
+  /\ msg0 := (to transport(getRaceboatAddr(attrs1)) from IRC_CLIENT_ADDR :
+                RttPing(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR, ep, 1))
+  /\ {smsgs, j1} := delayMsgsX(j, msg0, null)
+  [print "(" T ") IRC Client " IRC_CLIENT_ADDR " received MOTD (epoch " ep "), starting RTT baseline ping 1/3."]
+  .
+
+  --- Ignore stale ServerWelcomeMotd
+  crl [irc-client-rcv-welcome-motd-stale]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from rbAddr : ServerWelcomeMotd(IRC_CLIENT_ADDR, ep))}
+  =>
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+  if (getConnState(attrs) =/= waiting-motd) or (getPingEpoch(attrs) =/= ep)
+  .
+
+  --- MOTD timeout -> trigger failover
+  crl [irc-client-motd-timeout]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientMotdTimeout(ep))}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs1 >
+  smsgs
+  if (attrs0, connState: cs, pingEpoch: seq) := attrs
+  /\ {attrs1, smsgs, j1} :=
+       (if (cs == waiting-motd and seq == ep)
+        then triggerClientFailover(attrs, IRC_CLIENT_ADDR, T, j)
+        else {attrs, null, j}
+        fi)
+  .
+
+  --- Receive RttPong (1/3 or 2/3) -> send next RttPing
+  crl [irc-client-rcv-rtt-pong-next]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from rbAddr : RttPong(ircUserName, IRC_SERVER_ADDR, ep, seq))}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs1 >
+  smsgs
+  [basePongTO, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientRttTimeout(ep, nextSidIdx)), 0]
+  if (attrs0,
+      connState: rtt-baseline,
+      pingEpoch: ep,
+      rttCount: rttCnt,
+      rttSum: rttS,
+      lastPingSentAt: lastPing,
+      lastRcvd: lastR,
+      basePongTimeout: basePongTO) := attrs
+  /\ seq == s rttCnt
+  /\ seq < 3
+  /\ nextSidIdx := s seq
+  /\ sampleRtt := max(0.0001, T - lastPing)
+  /\ attrs1 := (attrs0,
+                connState: rtt-baseline,
+                pingEpoch: ep,
+                rttCount: seq,
+                rttSum: (rttS + sampleRtt),
+                lastPingSentAt: T,
+                lastRcvd: T,
+                basePongTimeout: basePongTO)
+  /\ msg0 := (to transport(getRaceboatAddr(attrs1)) from IRC_CLIENT_ADDR :
+                RttPing(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR, ep, nextSidIdx))
+  /\ {smsgs, j1} := delayMsgsX(j, msg0, null)
+  [print "(" T ") IRC Client " IRC_CLIENT_ADDR " RTT pong " seq "/3 (sample=" sampleRtt "), sending ping " nextSidIdx "/3."]
+  .
+
+  --- Receive RttPong (3/3) -> compute rttExpected and pongTimeout = 5 * rttExpected, then join channels
+  crl [irc-client-rcv-rtt-pong-done]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from rbAddr : RttPong(ircUserName, IRC_SERVER_ADDR, ep, 3))}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs2 >
+  smsgs
+  msgs
+  if (attrs0,
+      connState: rtt-baseline,
+      channelsReady: chReady,
+      joinedChannels: chList,
+      pendingJoins: pendJoins,
+      pingEpoch: ep,
+      rttCount: 2,
+      rttSum: rttS,
+      rttExpected: rttExp,
+      lastPingSentAt: lastPing,
+      lastRcvd: lastR,
+      pingTimeout: pingTO,
+      pongTimeout: pongTO) := attrs
+  /\ sampleRtt := max(0.0001, T - lastPing)
+  /\ avgRtt := (rttS + sampleRtt) / 3.0
+  /\ newPongTO := max(0.05, 5.0 * avgRtt)
+  /\ attrs1 := (if chList == emptyIrcChannelNameList
+                then (attrs0,
+                      connState: connected,
+                      channelsReady: true,
+                      joinedChannels: chList,
+                      pendingJoins: emptyIrcChannelNameList,
+                      pingEpoch: ep,
+                      rttCount: 3,
+                      rttSum: (rttS + sampleRtt),
+                      rttExpected: avgRtt,
+                      lastPingSentAt: lastPing,
+                      lastRcvd: T,
+                      pingTimeout: pingTO,
+                      pongTimeout: newPongTO)
+                else (attrs0,
+                      connState: joining-channels,
+                      channelsReady: false,
+                      joinedChannels: chList,
+                      pendingJoins: chList,
+                      pingEpoch: ep,
+                      rttCount: 3,
+                      rttSum: (rttS + sampleRtt),
+                      rttExpected: avgRtt,
+                      lastPingSentAt: lastPing,
+                      lastRcvd: T,
+                      pingTimeout: pingTO,
+                      pongTimeout: newPongTO)
+                fi)
+  /\ {attrs2, msgs} := (if chList == emptyIrcChannelNameList
+                        then maybeStartMsgSched(attrs1, IRC_CLIENT_ADDR)
+                        else {attrs1, [newPongTO, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientJoinTimeout(ep)), 0]}
+                        fi)
+  /\ {smsgs, j1} := (if chList == emptyIrcChannelNameList
+                     then {[pingTO, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientCheckStale(ep)), 0], j}
+                     else delayMsgsX(j, genClientChannelJoins(IRC_CLIENT_ADDR, getRaceboatAddr(attrs1), chList), null)
+                     fi)
+  [print "(" T ") IRC Client " IRC_CLIENT_ADDR " RTT baseline complete: rttExpected=" avgRtt ", pongTimeout=" newPongTO ", joining channels: " chList]
+  .
+
+  --- Ignore stale RttPong
+  crl [irc-client-rcv-rtt-pong-stale]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from rbAddr : RttPong(ircUserName, IRC_SERVER_ADDR, ep, seq))}
+  =>
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+  if (getConnState(attrs) =/= rtt-baseline)
+     or (getPingEpoch(attrs) =/= ep)
+     or (seq =/= s getRttCount(attrs))
+  .
+
+  --- RTT baseline timeout -> trigger failover
+  crl [irc-client-rtt-timeout]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientRttTimeout(ep, seq))}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs1 >
+  smsgs
+  if (attrs0, connState: cs, pingEpoch: fCtr, rttCount: rttCnt) := attrs
+  /\ {attrs1, smsgs, j1} :=
+       (if (cs == rtt-baseline and fCtr == ep and seq == s rttCnt)
+        then triggerClientFailover(attrs, IRC_CLIENT_ADDR, T, j)
+        else {attrs, null, j}
+        fi)
+  .
+
+  --- Channel Join timeout -> trigger failover
+  crl [irc-client-join-timeout]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientJoinTimeout(ep))}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs1 >
+  smsgs
+  if (attrs0, connState: cs, pingEpoch: seq, pendingJoins: pendJoins) := attrs
+  /\ {attrs1, smsgs, j1} :=
+       (if (cs == joining-channels and seq == ep and pendJoins =/= emptyIrcChannelNameList)
+        then triggerClientFailover(attrs, IRC_CLIENT_ADDR, T, j)
+        else {attrs, null, j}
+        fi)
+  .
+
+  --- Idle liveness check (models data_is_stale() -> do_one_ping() in connection_mgr.py)
+  crl [irc-client-check-stale]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientCheckStale(ep))}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs1 >
+  smsgs
+  if (attrs0,
+      connState: cs,
+      pingEpoch: seq,
+      lastPingSentAt: lastPing,
+      lastRcvd: lastR,
+      pingTimeout: pingTO,
+      pongTimeout: pongTO) := attrs
+  /\ {attrs1, smsgs, j1} :=
+       (if (cs == connected and seq == ep)
+        then (if (T - lastR) >= (pingTO - 0.0001)
+              then {(attrs0,
+                     connState: waiting-liveness-pong,
+                     pingEpoch: seq,
+                     lastPingSentAt: T,
+                     lastRcvd: lastR,
+                     pingTimeout: pingTO,
+                     pongTimeout: pongTO),
+                    [0.0, (to transport(getRaceboatAddr(attrs)) from IRC_CLIENT_ADDR :
+                             Ping(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), 0]
+                    [pongTO, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR :
+                                ClientLivenessPongTimeout(ep)), 0],
+                    j}
+              else {attrs,
+                    [max(0.001, pingTO - (T - lastR)),
+                     (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientCheckStale(ep)), 0],
+                    j}
+              fi)
+        else {attrs, null, j}
+        fi)
+  [print "(" T ") IRC Client " IRC_CLIENT_ADDR " liveness check (epoch " ep ", state=" cs ", lastRcvd=" lastR ")"]
+  .
+
+  --- Receive Pong from server in response to client liveness Ping
+  crl [irc-client-rcv-liveness-pong]:
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from rbAddr : Pong(ircDestinationName, IRC_SERVER_ADDR))}
+  =>
+  < IRC_CLIENT_ADDR : IrcClient | attrs1 >
+  msgs
+  if {attrs1, msgs} := handleClientLivenessPong(attrs, IRC_CLIENT_ADDR, T)
+  [print "(" T ") IRC Client " IRC_CLIENT_ADDR " received liveness Pong from server " IRC_SERVER_ADDR]
+  .
+
+  --- Client liveness Pong timeout -> if no data arrived during pongTimeout, trigger failover!
+  crl [irc-client-liveness-pong-timeout]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientLivenessPongTimeout(ep))}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs1 >
+  smsgs
+  if (attrs0,
+      connState: cs,
+      pingEpoch: seq,
+      lastRcvd: lastR,
+      pingTimeout: pingTO,
+      pongTimeout: pongTO) := attrs
+  /\ {attrs1, smsgs, j1} :=
+       (if (cs == waiting-liveness-pong and seq == ep)
+        then (if (T - lastR) >= (pongTO - 0.0001)
+              then triggerClientFailover(attrs, IRC_CLIENT_ADDR, T, j)
+              else {(attrs0,
+                     connState: connected,
+                     pingEpoch: seq,
+                     lastRcvd: lastR,
+                     pingTimeout: pingTO,
+                     pongTimeout: pongTO),
+                    [pingTO, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientCheckStale(ep)), 0],
+                    j}
+              fi)
+        else {attrs, null, j}
+        fi)
+  [print "(" T ") IRC Client " IRC_CLIENT_ADDR " liveness Pong timeout check (epoch " ep ", state=" cs ")"]
+  .
+
+  --- Send-triggered disconnect detection (when IrcByteSeqIface drops outgoing PrivMsgReq on down link)
+  --- Increments droppedMsgCtr and immediately initiates failover without buffering the dropped message.
+  crl [irc-client-conn-lost]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from rbAddr : ClientConnLost)}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs1 >
+  smsgs
+  if cs := getConnState(attrs)
+  /\ {attrs1, smsgs, j1} :=
+       (if (rbAddr == getRaceboatAddr(attrs) and (cs == connected or cs == waiting-liveness-pong))
+        then triggerClientFailover(incDroppedMsgCtr(attrs), IRC_CLIENT_ADDR, T, j)
+        else {attrs, null, j}
+        fi)
+  [print "(" T ") IRC Client " IRC_CLIENT_ADDR " detected broken connection on send (dropped msg, triggering failover)."]
+  .
+
+  --- Scheduled chat message generation from msgSched (drops outgoing message if not connected & ready!)
+  crl [irc-client-send-scheduled-chat]:
+  rCtr(j)
+  < IRC_CLIENT_ADDR : IrcClient | attrs >
+    {T, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : SendScheduledChat)}
+  =>
+  rCtr(j1)
+  < IRC_CLIENT_ADDR : IrcClient | attrs2 >
+  smsgs
+  nextSchedChatMsg(dml, IRC_CLIENT_ADDR)
+  if (attrs0,
+      userId: userId,
+      msgCtr: ctr,
+      msgSched: (imd(fl, room, size) :: dml)) := attrs
+  /\ ircMsg := genPrivMsgReq(IRC_CLIENT_ADDR, ctr, userId, room, size)
+  /\ attrs1 := (attrs0,
+                userId: userId,
+                msgCtr: s ctr,
+                msgSched: dml)
+  /\ chReady := isClientConnectedAndReady(attrs1)
+  /\ attrs2 := (if chReady
+                then attrs1
+                else incDroppedMsgCtr(attrs1)
+                fi)
+  /\ {smsgs, j1} := (if chReady
+                     then delayMsgsX(j, (to transport(getRaceboatAddr(attrs1)) from IRC_CLIENT_ADDR : ircMsg), null)
+                     else {null, j}
+                     fi)
+  [print "(" T ") IRC Client " IRC_CLIENT_ADDR " scheduled chat " ircMsg " (connectedReady=" chReady ")"]
+  .
 
 
   **** ircDestinationName >> ircName
@@ -165,7 +710,7 @@ if js(room) := aspec["room"]
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     {T, (to IRC_CLIENT_ADDR from rbAddr : PrivMsgRes(ircName, makeIrcUserName(ircSourceAddr), chatText))}
   =>
-  < IRC_CLIENT_ADDR : IrcClient | attrs >
+  < IRC_CLIENT_ADDR : IrcClient | touchClientRcvd(attrs, T) >
 [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received chat >>>" chatText "<<< from " ircSourceAddr ]
   .
 
@@ -176,29 +721,75 @@ if js(room) := aspec["room"]
     {T, (to IRC_CLIENT_ADDR from rbAddr : Ping(ircDestinationName, IRC_SERVER_ADDR))}
   =>
   rCtr(j1)
-  < IRC_CLIENT_ADDR : IrcClient | attrs >
+  < IRC_CLIENT_ADDR : IrcClient | touchClientRcvd(attrs, T) >
  smsgs
 if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CLIENT_ADDR : Pong(makeIrcUserName(IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)), null)
     [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " handling incoming ping from Server." ]
   .
 
-  --- Handle (ignore) server messages of other clients joining or leaving.
+  --- Handle server messages of clients joining or leaving (completes channel join readiness for self-joins).
   crl [irc-client-handle-channel-go]:
   < IRC_CLIENT_ADDR : IrcClient | attrs >
     {T, (to IRC_CLIENT_ADDR from rbAddr : goMsg:Content)}
   =>
-  < IRC_CLIENT_ADDR : IrcClient | attrs >
+  < IRC_CLIENT_ADDR : IrcClient | attrs2 >
+  msgs
   if isChannelGoMessage(goMsg:Content)
---- TODO: Figure how to do this.  
----    JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, ircSourceAddr) := goMsg:Content
----    or (PartChannel(IRC_CHANNEL_NAME:IrcChannelName, ircSourceAddr) := goMsg:Content)
-    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received go channel message. (Ignore)." ]
+  /\ {attrs2, msgs} := handleClientChannelGo(attrs, IRC_CLIENT_ADDR, goMsg:Content, T)
+  /\ chReady := isClientConnectedAndReady(attrs2)
+    [ print "(" T ") IRC Client " IRC_CLIENT_ADDR " received channel go message " goMsg:Content " (ready=" chReady ")." ]
   .
 
-  ------------------------
-  --- IRC Server Rules ---
-  ------------------------
-  --- Handle incoming chat: forward to all users in the channel.
+  -------------------------------------------------------
+  --- IRC Server Rules (Client-Server & Server-Server) ---
+  -------------------------------------------------------
+
+  --- Handle CP4 client connection request -> respond with ServerWelcomeMotd
+  crl [server-handle-client-connect]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr : ClientConnect(IRC_CLIENT_ADDR, ep))}
+  =>
+  rCtr(j1)
+  < IRC_SERVER_ADDR : IrcServer | attrsNext >
+  smsgs
+  if attrsTrans := registerIrcUserAddress(attrs, makeIrcUserName(IRC_CLIENT_ADDR), rbAddr)
+  /\ attrsNext := refreshUser(attrsTrans, IRC_CLIENT_ADDR, T)
+  /\ msg0 := (to transport(rbAddr) from IRC_SERVER_ADDR : ServerWelcomeMotd(IRC_CLIENT_ADDR, ep))
+  /\ {smsgs, j1} := delayMsgsX(j, msg0, null)
+  [print "(" T ") IRC Server " IRC_SERVER_ADDR " handling ClientConnect from " IRC_CLIENT_ADDR " (epoch " ep "), sending Welcome/MOTD."]
+  .
+
+  --- Handle CP4 client RTT baseline ping -> respond with RttPong
+  crl [server-handle-rtt-ping]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr : RttPing(ircUserName, IRC_CLIENT_ADDR, ep, seq))}
+  =>
+  rCtr(j1)
+  < IRC_SERVER_ADDR : IrcServer | refreshUser(attrs, ircUserName, T) >
+  smsgs
+  if msg0 := (to transport(rbAddr) from IRC_SERVER_ADDR : RttPong(ircUserName, IRC_SERVER_ADDR, ep, seq))
+  /\ {smsgs, j1} := delayMsgsX(j, msg0, null)
+  [print "(" T ") IRC Server " IRC_SERVER_ADDR " handling RttPing " seq "/3 from " IRC_CLIENT_ADDR " (epoch " ep ")."]
+  .
+
+  --- Handle CP4 client liveness Ping -> respond with Pong
+  crl [server-handle-client-ping]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr : Ping(ircUserName, IRC_CLIENT_ADDR))}
+  =>
+  rCtr(j1)
+  < IRC_SERVER_ADDR : IrcServer | refreshUser(attrs, ircUserName, T) >
+  smsgs
+  if msg0 := (to transport(rbAddr) from IRC_SERVER_ADDR : Pong(ircUserName, IRC_SERVER_ADDR))
+  /\ {smsgs, j1} := delayMsgsX(j, msg0, null)
+  [print "(" T ") IRC Server " IRC_SERVER_ADDR " handling liveness Ping from client " IRC_CLIENT_ADDR ", sending Pong."]
+  .
+
+  --- Handle incoming chat from local client: forward to all local users in the channel
+  --- AND forward SrvPrivMsg to linked peer servers in the server tree.
   crl [server-handle-incoming-chat]:
   rCtr(j)
   < IRC_SERVER_ADDR : IrcServer | attrs >
@@ -219,16 +810,54 @@ if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CL
                                        makeIrcUserName(ircSourceAddr),
                                        clientList:IrcUserNameList,
                                        chatText)
+                      createPeerSrvMsgs(IRC_SERVER_ADDR,
+                                        getPeerServers(attrs),
+                                        rbAddr,
+                                        nullAddr,
+                                        SrvPrivMsg(ircName,
+                                                   makeIrcUserName(ircSourceAddr),
+                                                   chatText,
+                                                   IRC_SERVER_ADDR))
     /\ attrsNext := refreshUser(attrs, makeIrcUserName(ircSourceAddr), T)
     /\ {smsgs,j1} := delayMsgsX(j,msgs:Config,null)
-    [ print "(" T ") IRC Server handling incoming chat " chatText " from " ircSourceAddr " to " ircName ", turning chat around w/ msgs "  msgs:Config ]
+    [ print "(" T ") IRC Server " IRC_SERVER_ADDR " handling incoming chat " chatText " from " ircSourceAddr " to " ircName ", turning chat around w/ msgs "  msgs:Config ]
   .
 
-  --- Handle a user joining a channel: tell all members of channel.
-  --- TODO: Forward topic, authors, list of users.
-  **** CLT  the joiner doesn't get confirmation?
-  **** TODO: Currently the plan is to have joins as part of initial setup
-  **** (unmeasured) and to ensure joins are successful (T&E via Slack).
+  --- Handle server-to-server relayed chat (SrvPrivMsg): deliver to local channel members
+  --- on this server and forward along remaining branches of the server tree.
+  crl [server-handle-srv-privmsg]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr :
+         SrvPrivMsg(ircName,
+                    makeIrcUserName(ircSourceAddr),
+                    chatText,
+                    origSrvAddr))}
+  =>
+  rCtr(j1)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+  smsgs
+  if CLIENTS_MAP := getChannelMap(attrs)
+  /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, ircName)
+  /\ msgs:Config := createPrivMsgRes(attrs,
+                                     ircName,
+                                     makeIrcUserName(ircSourceAddr),
+                                     clientList:IrcUserNameList,
+                                     chatText)
+                    createPeerSrvMsgs(IRC_SERVER_ADDR,
+                                      getPeerServers(attrs),
+                                      rbAddr,
+                                      origSrvAddr,
+                                      SrvPrivMsg(ircName,
+                                                 makeIrcUserName(ircSourceAddr),
+                                                 chatText,
+                                                 IRC_SERVER_ADDR))
+  /\ {smsgs, j1} := delayMsgsX(j, msgs:Config, null)
+  [print "(" T ") IRC Server " IRC_SERVER_ADDR " received SrvPrivMsg " chatText " from peer server " origSrvAddr " for channel " ircName ", forwarding to local clients and downstream peers."]
+  .
+
+  --- Handle a local user joining a channel: register locally, send confirmation to joiner
+  --- and local channel members, and propagate SrvJoinChannel to linked peer servers.
   crl [server-handle-join-channel]:
   rCtr(j)
   < IRC_SERVER_ADDR : IrcServer | attrs >
@@ -236,27 +865,65 @@ if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CL
   =>
   rCtr(j1)
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
- ****   smsgs    
+  smsgs    
   *** For CP3, disable Pings.
   ***  [IRC-PING-INTV-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR)), 0]
   if JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) := incomingContent:Content
-    /\ attrsTrans := registerIrcUser(attrs, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) 
+    /\ attrsTrans := registerIrcUser(unregisterRemoteIrcUserFromChannel(attrs, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR),
+                                     IRC_CHANNEL_NAME:IrcChannelName,
+                                     IRC_CLIENT_ADDR) 
 **** recording user connection address    
     /\ attrsTrans1 := registerIrcUserAddress(attrsTrans,
                         makeIrcUserName(IRC_CLIENT_ADDR),rbAddr)
     /\ attrsNext := refreshUser(attrsTrans1, IRC_CLIENT_ADDR, T)
     /\ CLIENTS_MAP := getChannelMap(attrsNext)
     /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
-    --- This config should include other messages too; the server sends 
-    --- channel info back to joiner.
-    --- Not modeled here because we think Joins are all taking place before
-    --- adversary captures.
-    /\ msgs:Config := createIrcMsg(attrsNext,
-                                   makeIrcUserName(IRC_CLIENT_ADDR),
-                                   clientList:IrcUserNameList,
-                                   incomingContent:Content)
+    /\ msgs:Config := createIrcMsgIncludingSelf(attrsNext,
+                                                clientList:IrcUserNameList,
+                                                incomingContent:Content)
+                      createPeerSrvMsgs(IRC_SERVER_ADDR,
+                                        getPeerServers(attrsNext),
+                                        rbAddr,
+                                        nullAddr,
+                                        SrvJoinChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                                       IRC_CLIENT_ADDR,
+                                                       IRC_SERVER_ADDR))
    /\ {smsgs,j1} := delayMsgsX(j,msgs:Config, null)
-    [ print "(" T ") IRC Server handling request for " IRC_CLIENT_ADDR " to join " IRC_CHANNEL_NAME:IrcChannelName " channel." ]
+    [ print "(" T ") IRC Server " IRC_SERVER_ADDR " handling request for " IRC_CLIENT_ADDR " to join " IRC_CHANNEL_NAME:IrcChannelName " channel." ]
+  .
+
+  --- Handle server-to-server channel join propagation (SrvJoinChannel)
+  --- If user failed over from this server to a remote server, remove them from local channelMap
+  --- and record them in remoteChannelMap, notify local members, and propagate down the server tree.
+  crl [server-handle-srv-join-channel]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr :
+         SrvJoinChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR, origSrvAddr))}
+  =>
+  rCtr(j1)
+  < IRC_SERVER_ADDR : IrcServer | attrsNext >
+  smsgs
+  if attrsTrans := (if getClientAddr(getClientAddressMap(attrs), makeIrcUserName(IRC_CLIENT_ADDR)) =/= nullAddr
+                    then unregisterIrcUser(attrs, IRC_CLIENT_ADDR)
+                    else attrs
+                    fi)
+  /\ attrsNext := registerRemoteIrcUser(attrsTrans, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR)
+  /\ CLIENTS_MAP := getChannelMap(attrsNext)
+  /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
+  /\ msgs:Config := createIrcMsg(attrsNext,
+                                 makeIrcUserName(IRC_CLIENT_ADDR),
+                                 clientList:IrcUserNameList,
+                                 JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR))
+                    createPeerSrvMsgs(IRC_SERVER_ADDR,
+                                      getPeerServers(attrsNext),
+                                      rbAddr,
+                                      origSrvAddr,
+                                      SrvJoinChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                                     IRC_CLIENT_ADDR,
+                                                     IRC_SERVER_ADDR))
+  /\ {smsgs, j1} := delayMsgsX(j, msgs:Config, null)
+  [print "(" T ") IRC Server " IRC_SERVER_ADDR " received SrvJoinChannel for " IRC_CLIENT_ADDR " in " IRC_CHANNEL_NAME:IrcChannelName " from peer server " origSrvAddr]
   .
 
   --- Handle a user parting (leaving) a channel.
@@ -276,8 +943,81 @@ if {smsgs,j1} :=  delayMsgsX(j,(to transport(getRaceboatAddr(attrs)) from IRC_CL
                                    makeIrcUserName(IRC_CLIENT_ADDR),
                                    clientList:IrcUserNameList,
                                    incomingContent:Content)
+                      createPeerSrvMsgs(IRC_SERVER_ADDR,
+                                        getPeerServers(attrsNext),
+                                        rbAddr,
+                                        nullAddr,
+                                        SrvPartChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                                       IRC_CLIENT_ADDR,
+                                                       IRC_SERVER_ADDR))
   /\ {smsgs,j1}  :=  delayMsgsX(j,msgs:Config, null)
   [ print "(" T ") IRC Server handling part channel for " IRC_CLIENT_ADDR ", sending " msgs:Config ]
+  .
+
+  --- Handle server-to-server channel part propagation (SrvPartChannel)
+  crl [server-handle-srv-part-channel]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr :
+         SrvPartChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR, origSrvAddr))}
+  =>
+  rCtr(j1)
+  < IRC_SERVER_ADDR : IrcServer | attrsNext >
+  smsgs
+  if attrsNext := unregisterRemoteIrcUserFromChannel(attrs, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR)
+  /\ CLIENTS_MAP := getChannelMap(attrsNext)
+  /\ clientList:IrcUserNameList := getClients(CLIENTS_MAP, IRC_CHANNEL_NAME:IrcChannelName)
+  /\ msgs:Config := createIrcMsg(attrsNext,
+                                 makeIrcUserName(IRC_CLIENT_ADDR),
+                                 clientList:IrcUserNameList,
+                                 PartChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR))
+                    createPeerSrvMsgs(IRC_SERVER_ADDR,
+                                      getPeerServers(attrsNext),
+                                      rbAddr,
+                                      origSrvAddr,
+                                      SrvPartChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                                     IRC_CLIENT_ADDR,
+                                                     IRC_SERVER_ADDR))
+  /\ {smsgs, j1} := delayMsgsX(j, msgs:Config, null)
+  .
+
+  --- Handle server-to-server Quit propagation (SrvQuit)
+  crl [server-handle-srv-quit]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr : SrvQuit(IRC_CLIENT_ADDR, origSrvAddr))}
+  =>
+  rCtr(j1)
+  < IRC_SERVER_ADDR : IrcServer | attrsNext >
+  smsgs
+  if attrsNext := unregisterRemoteIrcUser(attrs, IRC_CLIENT_ADDR)
+  /\ msgs:Config := createUserQuitMsgs(attrsNext, IRC_CLIENT_ADDR)
+                    createPeerSrvMsgs(IRC_SERVER_ADDR,
+                                      getPeerServers(attrsNext),
+                                      rbAddr,
+                                      origSrvAddr,
+                                      SrvQuit(IRC_CLIENT_ADDR, IRC_SERVER_ADDR))
+  /\ {smsgs, j1} := delayMsgsX(j, msgs:Config, null)
+  .
+
+  --- Handle server-to-server Ping / Pong
+  crl [server-handle-srv-ping]:
+  rCtr(j)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr : SrvPing(origSrvAddr, IRC_SERVER_ADDR))}
+  =>
+  rCtr(j1)
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+  smsgs
+  if msg0 := (to transport(rbAddr) from IRC_SERVER_ADDR : SrvPong(IRC_SERVER_ADDR, origSrvAddr))
+  /\ {smsgs, j1} := delayMsgsX(j, msg0, null)
+  .
+
+  rl [server-handle-srv-pong]:
+  < IRC_SERVER_ADDR : IrcServer | attrs >
+    {T, (to IRC_SERVER_ADDR from rbAddr : SrvPong(origSrvAddr, IRC_SERVER_ADDR))}
+  =>
+  < IRC_SERVER_ADDR : IrcServer | attrs >
   .
 
 **** CLT lookup rbAddr associated to client

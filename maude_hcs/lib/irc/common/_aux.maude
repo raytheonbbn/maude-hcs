@@ -74,6 +74,29 @@ mod IRC_NODE is
   op msgCtr:_ : Nat -> Attribute [ctor] .
   op userId:_ : String -> Attribute [ctor] .
 
+  ---- CP4 Failover Client State & Attributes
+  sort IrcConnState .
+  ops disconnected waiting-motd rtt-baseline joining-channels connected waiting-liveness-pong : -> IrcConnState [ctor] .
+
+  op failoverList:_ : AddrList -> Attribute [ctor] .
+  op currentSidIdx:_ : Nat -> Attribute [ctor] .
+  op connState:_ : IrcConnState -> Attribute [ctor] .
+  op channelsReady:_ : Bool -> Attribute [ctor] .
+  op joinedChannels:_ : IrcChannelNameList -> Attribute [ctor] .
+  op pendingJoins:_ : IrcChannelNameList -> Attribute [ctor] .
+  op pingEpoch:_ : Nat -> Attribute [ctor] .
+  op rttCount:_ : Nat -> Attribute [ctor] .
+  op rttSum:_ : Float -> Attribute [ctor] .
+  op rttExpected:_ : Float -> Attribute [ctor] .
+  op lastPingSentAt:_ : Float -> Attribute [ctor] .
+  op lastRcvd:_ : Float -> Attribute [ctor] .
+  op pingTimeout:_ : Float -> Attribute [ctor] .
+  op pongTimeout:_ : Float -> Attribute [ctor] .
+  op basePongTimeout:_ : Float -> Attribute [ctor] .
+  op droppedMsgCtr:_ : Nat -> Attribute [ctor] .
+  op failoverCtr:_ : Nat -> Attribute [ctor] .
+  op schedStarted:_ : Bool -> Attribute [ctor] .
+
   ---- Make an IrcClient with no messages to send (no userId)
   -----               ItsAddr  RBAddr
   op mkIrcClient :    Address  Address -> Actor .
@@ -113,6 +136,48 @@ mod IRC_NODE is
     >
   .
 
+  ---- Make a CP4 Failover-capable IrcClient
+  ----                 ItsAddr  FailoverEps UserId Channels            PingTO BasePongTO MsgSched
+  op mkIrcClient-cp4 : Address  AddrList    String IrcChannelNameList Float  Float      IrcMsgDelayList -> Actor .
+  eq mkIrcClient-cp4(IRC_CLIENT_ADDR, failoverEps:AddrList, uid:String, chList:IrcChannelNameList, pingTO:Float, basePongTO:Float, delayMsgL:IrcMsgDelayList) =
+    < IRC_CLIENT_ADDR : IrcClient |
+        thisAddr: IRC_CLIENT_ADDR,
+        raceboatAddr: getNthAddr(failoverEps:AddrList, 0),
+        ircName: makeIrcUserName(IRC_CLIENT_ADDR),
+        userId: uid:String,
+        msgCtr: 0,
+        msgSched: delayMsgL:IrcMsgDelayList,
+        failoverList: failoverEps:AddrList,
+        currentSidIdx: 0,
+        connState: disconnected,
+        channelsReady: false,
+        joinedChannels: chList:IrcChannelNameList,
+        pendingJoins: emptyIrcChannelNameList,
+        pingEpoch: 0,
+        rttCount: 0,
+        rttSum: 0.0,
+        rttExpected: 0.0,
+        lastPingSentAt: 0.0,
+        lastRcvd: 0.0,
+        pingTimeout: pingTO:Float,
+        pongTimeout: basePongTO:Float,
+        basePongTimeout: basePongTO:Float,
+        droppedMsgCtr: 0,
+        failoverCtr: 0,
+        schedStarted: false
+    >
+  .
+
+  op mkIrcClient-cp4 : Address AddrList String IrcChannelNameList Float Float -> Actor .
+  eq mkIrcClient-cp4(IRC_CLIENT_ADDR, failoverEps:AddrList, uid:String, chList:IrcChannelNameList, pingTO:Float, basePongTO:Float) =
+    mkIrcClient-cp4(IRC_CLIENT_ADDR, failoverEps:AddrList, uid:String, chList:IrcChannelNameList, pingTO:Float, basePongTO:Float, nilIMD)
+  .
+
+  op mkIrcClient-cp4 : Address AddrList String IrcChannelNameList -> Actor .
+  eq mkIrcClient-cp4(IRC_CLIENT_ADDR, failoverEps:AddrList, uid:String, chList:IrcChannelNameList) =
+    mkIrcClient-cp4(IRC_CLIENT_ADDR, failoverEps:AddrList, uid:String, chList:IrcChannelNameList, 120.0, 120.0, nilIMD)
+  .
+
   op getThisAddr : AttributeSet -> Address .
   eq getThisAddr(attrs, thisAddr: IRC_CLIENT_ADDR) = IRC_CLIENT_ADDR .
 
@@ -121,6 +186,31 @@ mod IRC_NODE is
 
   op getIrcName : AttributeSet -> IrcUserName .
   eq getIrcName(attrs, ircName: IRC_USER_NAME) = IRC_USER_NAME .
+
+  op getConnState : AttributeSet -> IrcConnState .
+  eq getConnState(attrs, connState: cs:IrcConnState) = cs:IrcConnState .
+  eq getConnState(attrs) = connected [owise] .
+
+  op isChannelsReady : AttributeSet -> Bool .
+  eq isChannelsReady(attrs, channelsReady: b:Bool) = b:Bool .
+  eq isChannelsReady(attrs) = true [owise] .
+
+  op isClientConnectedAndReady : AttributeSet -> Bool .
+  eq isClientConnectedAndReady(attrs) =
+    (getConnState(attrs) == connected or getConnState(attrs) == waiting-liveness-pong)
+    and isChannelsReady(attrs) .
+
+  op getDroppedMsgCtr : AttributeSet -> Nat .
+  eq getDroppedMsgCtr(attrs, droppedMsgCtr: n:Nat) = n:Nat .
+  eq getDroppedMsgCtr(attrs) = 0 [owise] .
+
+  op incDroppedMsgCtr : AttributeSet -> AttributeSet .
+  eq incDroppedMsgCtr((attrs, droppedMsgCtr: n:Nat)) = (attrs, droppedMsgCtr: s n:Nat) .
+  eq incDroppedMsgCtr(attrs) = (attrs, droppedMsgCtr: 1) [owise] .
+
+  op touchClientRcvd : AttributeSet Float -> AttributeSet .
+  eq touchClientRcvd((attrs, lastRcvd: t0:Float), newHeardTime) = (attrs, lastRcvd: newHeardTime) .
+  eq touchClientRcvd(attrs, newHeardTime) = attrs [owise] .
   
   op getNextDelayMsgText : AttributeSet -> String .
   eq getNextDelayMsgText(attrs,
@@ -141,6 +231,10 @@ mod IRC_NODE is
   op clientTimestampMap:_ : ClientTimestampMap -> Attribute [ctor] .
   --- The map of IRC name to address for multi client responses.
   op clientAddressMap:_ : ClientAddressMap -> Attribute [ctor] .
+  --- CP4 Server-Server linked neighbor servers in the topology tree.
+  op peerServers:_ : AddrList -> Attribute [ctor] .
+  --- CP4 Remote channel membership map across peer servers.
+  op remoteChannelMap:_ : NameClientsMap -> Attribute [ctor] .
   --- Other common attributes ---
   --- This server's address.
   ---op thisAddr:_ : Address -> Attribute [ctor] .
@@ -164,15 +258,55 @@ mod IRC_NODE is
     >
   .
 
-  --- Make an IrcServer ItsAddr without redundant argument
-  op mkIrcServer :    Address  -> Actor .
-  eq mkIrcServer(IRC_SERVER_ADDR) =
+  --- Make a CP4 IrcServer with linked neighbor servers in the server tree
+  op mkIrcServer : Address AddrList -> Actor .
+  eq mkIrcServer(IRC_SERVER_ADDR, peerAddrs:AddrList) =
     < IRC_SERVER_ADDR : IrcServer |
         thisAddr: IRC_SERVER_ADDR,
         channelMap: emptyNameClientsMap,
         clientTimestampMap: emptyClientTimestampMap,
-        clientAddressMap: emptyClientAddressMap
+        clientAddressMap: emptyClientAddressMap,
+        peerServers: peerAddrs:AddrList,
+        remoteChannelMap: emptyNameClientsMap
     >
+  .
+
+  op getPeerServers : AttributeSet -> AddrList .
+  eq getPeerServers((attrs, peerServers: peerAddrs:AddrList)) = peerAddrs:AddrList .
+  eq getPeerServers(attrs) = nil [owise] .
+
+  op getRemoteChannelMap : AttributeSet -> NameClientsMap .
+  eq getRemoteChannelMap((attrs, remoteChannelMap: CHANNEL_MAP)) = CHANNEL_MAP .
+  eq getRemoteChannelMap(attrs) = emptyNameClientsMap [owise] .
+
+  op registerRemoteIrcUser : AttributeSet IrcChannelName Address -> AttributeSet .
+  eq registerRemoteIrcUser((attrs, remoteChannelMap: CHANNEL_MAP),
+                           IRC_CHANNEL_NAME:IrcChannelName,
+                           IRC_CLIENT_ADDR)
+    = (attrs, remoteChannelMap: registerIrcUser(CHANNEL_MAP,
+                                                IRC_CHANNEL_NAME:IrcChannelName,
+                                                IRC_CLIENT_ADDR))
+  .
+  eq registerRemoteIrcUser(attrs, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR)
+    = attrs [owise]
+  .
+
+  op unregisterRemoteIrcUser : AttributeSet Address -> AttributeSet .
+  eq unregisterRemoteIrcUser((attrs, remoteChannelMap: CHANNEL_MAP), IRC_CLIENT_ADDR)
+    = (attrs, remoteChannelMap: unregisterIrcUser(CHANNEL_MAP, IRC_CLIENT_ADDR))
+  .
+  eq unregisterRemoteIrcUser(attrs, IRC_CLIENT_ADDR) = attrs [owise] .
+
+  op unregisterRemoteIrcUserFromChannel : AttributeSet IrcChannelName Address -> AttributeSet .
+  eq unregisterRemoteIrcUserFromChannel((attrs, remoteChannelMap: CHANNEL_MAP),
+                                        IRC_CHANNEL_NAME:IrcChannelName,
+                                        IRC_CLIENT_ADDR)
+    = (attrs, remoteChannelMap: unregisterIrcUserFromChannel(CHANNEL_MAP,
+                                                             IRC_CHANNEL_NAME:IrcChannelName,
+                                                             IRC_CLIENT_ADDR))
+  .
+  eq unregisterRemoteIrcUserFromChannel(attrs, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR)
+    = attrs [owise]
   .
 
   op getClientTimestampMap : AttributeSet -> ClientTimestampMap .
@@ -331,6 +465,61 @@ mod IRC_NODE is
     = null
   .
 
+  --- Create IRC message for all clients in list INCLUDING the source user,
+  --- used by IRC server on JOIN so joining client receives self-join confirmation.
+  op createIrcMsgIncludingSelf : AttributeSet IrcUserNameList IrcMsg -> Config .
+  eq createIrcMsgIncludingSelf(attrs, IRC_USER_NAME_LIST, ircMsg)
+    = $createIrcMsgIncludingSelf(getClientAddressMap(attrs),
+                                 getThisAddr(attrs),
+                                 ircMsg,
+                                 IRC_USER_NAME_LIST)
+  .
+
+  op $createIrcMsgIncludingSelf : ClientAddressMap Address IrcMsg IrcUserNameList -> Config .
+  ceq $createIrcMsgIncludingSelf(clientAddressMap,
+                                 SRC_ADDR,
+                                 ircMsg,
+                                 DST_IRC_USER_NAME : IRC_USER_NAME_LIST)
+    = (if DST_ADDR == nullAddr
+       then null
+       else (to transport(DST_ADDR) from SRC_ADDR :
+               setDest(ircMsg, getAddressFromUserName(DST_IRC_USER_NAME)))
+       fi)
+      $createIrcMsgIncludingSelf(clientAddressMap,
+                                 SRC_ADDR,
+                                 ircMsg,
+                                 IRC_USER_NAME_LIST)
+    if DST_ADDR := getClientAddr(clientAddressMap, DST_IRC_USER_NAME)
+  .
+  eq $createIrcMsgIncludingSelf(clientAddressMap,
+                                SRC_ADDR,
+                                ircMsg,
+                                emptyIrcUserNameList)
+    = null
+  .
+
+  --- Forward server-to-server IRC message across linked neighbor servers in the
+  --- server tree, excluding the link/server from which the message arrived.
+  op createPeerSrvMsgs : Address AddrList Address Address IrcMsg -> Config .
+  eq createPeerSrvMsgs(SRC_ADDR, nil, exclAddr1:Address, exclAddr2:Address, ircMsg)
+    = null
+  .
+  eq createPeerSrvMsgs(SRC_ADDR,
+                       peerAddr:Address ; peerAddrs:AddrList,
+                       exclAddr1:Address,
+                       exclAddr2:Address,
+                       ircMsg)
+    = (if (peerAddr:Address == exclAddr1:Address) or (peerAddr:Address == exclAddr2:Address)
+       then null
+       else (to transport(peerAddr:Address) from SRC_ADDR : ircMsg)
+       fi)
+      createPeerSrvMsgs(SRC_ADDR,
+                        peerAddrs:AddrList,
+                        exclAddr1:Address,
+                        exclAddr2:Address,
+                        ircMsg)
+  .
+
   --- Get the size of an IrcMsg.
   --- TODO: Fix and complete.
   op getSize : IrcMsg -> Nat .
@@ -357,6 +546,9 @@ mod IRC_NODE is
   eq getIrcSrc(PrivMsgRes(IRC_NAME, IRC_USER_NAME, MSG_TEXT))
     = IRC_USER_NAME
   .
+  eq getIrcSrc(SrvPrivMsg(IRC_NAME, IRC_USER_NAME, MSG_TEXT, SRV:Address))
+    = IRC_USER_NAME
+  .
   eq getIrcSrc(JoinChannel(IRC_NAME, SRC_ADDR))
     = makeIrcUserName(SRC_ADDR)
   .
@@ -373,6 +565,10 @@ mod IRC_NODE is
   eq getIrcDest(PrivMsgRes(IRC_NAME,
                            IRC_USER_NAME,
                            MSG_TEXT)) = IRC_NAME .
+  eq getIrcDest(SrvPrivMsg(IRC_NAME,
+                           IRC_USER_NAME,
+                           MSG_TEXT,
+                           SRV:Address)) = IRC_NAME .
 
   --- Get the text in an IrcMsg.
   --- TODO: Fix and complete.
@@ -383,6 +579,10 @@ mod IRC_NODE is
   eq getText(PrivMsgRes(IRC_NAME,
                         IRC_USER_NAME,
                         MSG_TEXT)) = MSG_TEXT .
+  eq getText(SrvPrivMsg(IRC_NAME,
+                        IRC_USER_NAME,
+                        MSG_TEXT,
+                        SRV:Address)) = MSG_TEXT .
 
   --- Refresh the timestamp when server last heard from a client.
   op refreshUser : AttributeSet IrcUserName Float -> AttributeSet .
