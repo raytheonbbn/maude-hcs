@@ -47,16 +47,19 @@ mod IRC_NODE is
   vars ircClientAddrs IRC_CLIENT_ADDRS : AddrList .
   vars attrs attrsNext attrsTrans : AttributeSet .
   vars CLIENT_TIMESTAMP_MAP timestampMap : ClientTimestampMap .
+  vars LAST_HEARD_TIME newHeardTime : Float .
   vars IRC_NAME ircName : IrcName .
   vars ircMsg IRC_MSG : IrcMsg .
   vars IRC_USER_NAME DST_IRC_USER_NAME SRC_IRC_USER_NAME : IrcUserName .
   vars IRC_USER_NAME_LIST : IrcUserNameList .
   vars CHANNEL_MAP : NameClientsMap .
   vars MSG_TEXT : String .
-  vars LAST_HEARD_TIME newHeardTime : Float .
 
   vars CLIENT_ADDRESS_MAP  clientAddressMap : ClientAddressMap .
   
+  op IRCOUTPUTDELAY : -> Float .
+  eq IRCOUTPUTDELAY = 0.002 .
+
   ----------------
   --- [IRC Client]
   ----------------
@@ -70,9 +73,24 @@ mod IRC_NODE is
   op ircName:_ : IrcUserName -> Attribute [ctor] .
  
   ---- attributes to support IRC Client message model
+  --- The list of IRC messages to be sent to the layer below, per destination.
+  op outputBufferTo_:_ : Address Config -> Attribute [ctor] .
   op msgSched:_ : IrcMsgDelayList -> Attribute [ctor] .
   op msgCtr:_ : Nat -> Attribute [ctor] .
   op userId:_ : String -> Attribute [ctor] .
+
+  ---- Make a V2 IrcClient  driven by UM
+  ----             ItsAddr  RBAddr UserId 
+  op mkIrcClient-v2 : Address Address String  -> Actor .
+  eq mkIrcClient-v2(IRC_CLIENT_ADDR, RB_ADDR, uid:String) =
+    < IRC_CLIENT_ADDR : IrcClient |
+        thisAddr: IRC_CLIENT_ADDR,
+        raceboatAddr: RB_ADDR,
+        ircName: makeIrcUserName(IRC_CLIENT_ADDR),
+        userId: uid:String,
+        msgCtr: 0
+    >
+  .
 
   ---- Make an IrcClient with no messages to send (no userId)
   -----               ItsAddr  RBAddr
@@ -131,6 +149,7 @@ mod IRC_NODE is
   .
   eq getNextDelayMsgText(attrs) = "DUMMY" [owise] .
 
+
   ----------------
   --- [IRC Server]
   ----------------
@@ -146,6 +165,8 @@ mod IRC_NODE is
   ---op thisAddr:_ : Address -> Attribute [ctor] .
   --- The Raceboat address.
   ---op raceboatAddr:_ : Address -> Attribute [ctor] .
+  --- The list of IRC messages to be sent to the layer below, per destination.
+  ---op outputBuffer:_ : Config -> Attribute [ctor] .
 
   --- Make an IrcServer ItsAddr
   --- Needs nothing else: the client address map will select the right interface
