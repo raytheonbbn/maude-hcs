@@ -55,8 +55,9 @@ mod SKYHOOK_AUX is
   op last : StringList ~> String .
   eq last(REST:StringList :: STR:String) = STR:String .
 
-  vars fetchBucketName postBucketName : String .
-  vars fetchUuid initialPostUuid postUuid : String .
+  vars fetchBucketName postBucketName BUCKET : String .
+  vars fetchUuid initialPostUuid postUuid UUID : String .
+  vars POLICY : String .
 
   --- Actors
   ----------------------------
@@ -96,6 +97,13 @@ mod SKYHOOK_AUX is
   --- Account Holder (Server) ---
   -------------------------------
   op SkyhookAccountHolder : -> ActorType [ctor] .
+
+  --- Define a stack for the OpMsg operations that need to happen.
+  sorts OpMsgStack .
+  subsorts Msg < OpMsgStack .
+  op nilOpMsg : -> OpMsgStack [ctor] .
+  op _:::_ : OpMsgStack OpMsgStack -> OpMsgStack [ctor assoc id: nilOpMsg] .
+
   --- op thisAddr:_ : Address -> Attribute [ctor] .
   --- op raceboatAddr:_ : Address -> Attribute [ctor] .
   --- op awsAddr:_ : Address -> Attribute [ctor] .
@@ -106,6 +114,8 @@ mod SKYHOOK_AUX is
   op openObjects:_ : Nat -> Attribute [ctor] .
   op initialFetchObjUuid:_ : String -> Attribute [ctor] .
   op initialPostObjUuid:_ : String -> Attribute [ctor] .
+  --- The opMsg stack.
+  op opMsgStack:_ : OpMsgStack -> Attribute [ctor] .
 
   ---                 ThisAddr  RB Addr S3Store FetchBucket PostBucket  FetchUuid initPostUuid  postUuid
   op makeSkyhookAH  : Address   Address Address String      String      String    String        String -> Actor .
@@ -128,7 +138,8 @@ mod SKYHOOK_AUX is
         initialFetchObjUuid: fetchUuid,
         initialPostObjUuid: initialPostUuid,
         openObjects: 1,
-        postObjUuid: postUuid
+        postObjUuid: postUuid,
+        opMsgStack: nilOpMsg
     >
   .
   
@@ -157,7 +168,8 @@ mod SKYHOOK_AUX is
         initialFetchObjUuid: fetchUuid:String,
         initialPostObjUuid: initialPostUuid:String,
         openObjects: j:Nat,
-        postObjUuid: postUuid:String
+        postObjUuid: postUuid:String,
+        opMsgStack: nilOpMsg
     >
   .
   
@@ -166,6 +178,30 @@ mod SKYHOOK_AUX is
 
   op getAwsAddr : AttributeSet -> Address .
   eq getAwsAddr(ATTRS:AttributeSet, awsAddr: AWS:Address) = AWS:Address .
+
+  op getOpMsg : AttributeSet -> OpMsgStack .
+  eq getOpMsg(ATTRS:AttributeSet, opMsgStack: STACK:OpMsgStack)
+    = STACK:OpMsgStack
+  .
+  eq getOpMsg(ATTRS:AttributeSet) = nilOpMsg [owise] .
+  
+  op expectedOpMsgResponse : Msg -> Msg .
+  eq expectedOpMsgResponse(to DST:Address from SRC:Address
+                                    : S3DeleteObjReq(BUCKET, UUID))
+    = (to SRC:Address from DST:Address : S3DeleteObjRes(BUCKET, UUID))
+  .
+  eq expectedOpMsgResponse(to DST:Address from SRC:Address
+                                  : S3PutBucketPolicyReq(BUCKET, POLICY))
+    = to SRC:Address from DST:Address : S3PutBucketPolicyRes(BUCKET)
+  .
+
+  op awaitingOpMsg : AttributeSet Msg -> Bool .
+  eq awaitingOpMsg(ATTRS:AttributeSet, RESPONSE:Msg) = false [owise] .
+  eq awaitingOpMsg((ATTRS:AttributeSet,
+                            opMsgStack: (REQUEST:Msg ::: STACK:OpMsgStack)),
+                          RESPONSE:Msg)
+    = (RESPONSE:Msg == expectedOpMsgResponse(REQUEST:Msg))
+  .
 
   op REGION : -> String .
   eq REGION = "us-east-1" .

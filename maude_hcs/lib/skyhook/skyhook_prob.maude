@@ -40,15 +40,47 @@ mod SKYHOOK is
   vars SKYHOOK_PU_ADDR SKYHOOK_AH_ADDR AWS_ADDR ADDR RB_ADDR : Address .
   vars attrs : AttributeSet .
   vars DATA : ByteSeq .
-  vars BUCKET FETCH_BUCKET POST_BUCKET UUID POLICY : String .
-  vars newUuid FETCH_UUID POST_UUID NEXT_UUID OLD_UUID INITIAL_FETCH_UUID INITIAL_POST_UUID : String .
+  vars smsgs msgs : Config .
+  vars T : Float .
   vars PUTTABLE_UUIDS FETCHABLE_UUIDS : StringList .
   vars OPEN_OBJECTS : Nat .
-  vars T : Float .
-  vars msg : Msg .
   vars j j1 n :  Nat .
-  vars smsgs msgs : Config .
+  vars msg ACK NEXT REQ RES : Msg .
+  vars STACK : OpMsgStack .
+  vars newUuid FETCH_UUID POST_UUID NEXT_UUID OLD_UUID INITIAL_FETCH_UUID INITIAL_POST_UUID : String .
+  vars BUCKET FETCH_BUCKET POST_BUCKET UUID POLICY : String .
   
+  --- Keep the in-flight request at the head until its response arrives.
+  crl [ah-operation-next]:
+    rCtr(j)
+    < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs,
+        opMsgStack: (REQ ::: (NEXT ::: STACK)) >
+    {T, RES}
+    =>
+    rCtr(j1)
+    < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs,
+        opMsgStack: (NEXT ::: STACK) >
+    smsgs
+    if STACK =/= nilOpMsg
+    /\ RES == expectedOpMsgResponse(REQ)
+    /\ {smsgs,j1} := delayMsgsX(j, NEXT, null)
+    [ print "(" T ") Skyhook operation completed " REQ "; sending " NEXT ]
+  .
+
+  --- The last action is the RB notification; send it and clear the stack.
+  crl [ah-operation-done]:
+    rCtr(j)
+    < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, opMsgStack: (REQ ::: ACK) >
+    {T, RES}
+    =>
+    rCtr(j1)
+    < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, opMsgStack: nilOpMsg >
+    smsgs
+    if RES == expectedOpMsgResponse(REQ)
+    /\ {smsgs,j1} := delayMsgsX(j, ACK, null)
+    [ print "(" T ") Skyhook operation completed; notifying Raceboat " ACK ]
+  .
+
   ---------------------------------
   --- [Skyhook PublicUser] Rules
   ---------------------------------
@@ -147,7 +179,24 @@ mod SKYHOOK is
   -----------------------------------
   --- [Skyhook AccountHolder] Rules
   -----------------------------------
-
+  ops generateDeleteFetchSequence generateDeletePostSequence 
+  --- BUCKET  NewUUID OldUUID Dst     Src  
+    : String  String  String  Address Address -> OpMsgStack .
+  eq generateDeleteFetchSequence(BUCKET, NEXT_UUID, OLD_UUID, TO:Address, SKYHOOK_AH_ADDR)
+    = (to TO:Address from SKYHOOK_AH_ADDR : S3DeleteObjReq(BUCKET, OLD_UUID))
+      ::: (to TO:Address from SKYHOOK_AH_ADDR : S3PutBucketPolicyReq(BUCKET, 
+                                                                     "policy-make-obj-unputtable"))
+      ::: (to TO:Address from SKYHOOK_AH_ADDR : S3DeleteObjReq(BUCKET, NEXT_UUID))
+      ::: (to TO:Address from SKYHOOK_AH_ADDR : S3PutBucketPolicyReq(BUCKET,
+                                                                     "policy-make-obj-puttable-" + NEXT_UUID))
+  .
+  eq generateDeletePostSequence(BUCKET, NEXT_UUID, OLD_UUID, TO:Address, SKYHOOK_AH_ADDR)
+    = (to TO:Address from SKYHOOK_AH_ADDR : S3DeleteObjReq(BUCKET, OLD_UUID))
+      ::: (to TO:Address from SKYHOOK_AH_ADDR : S3PutBucketPolicyReq(BUCKET,
+                                                                     "policy-make-obj-ungettable-" + OLD_UUID))
+      ::: (to TO:Address from SKYHOOK_AH_ADDR : S3PutBucketPolicyReq(BUCKET,
+                                                                     "policy-make-obj-gettable-" + NEXT_UUID))
+  .
 **** NB if the s3 server decides to pay attention to
 **** policy / access control msgs blasting out all these
 **** messages at once will likely fail
@@ -171,6 +220,7 @@ mod SKYHOOK is
       openObjects: n >
     smsgs
   if msgs :=      
+    --- TODO: Place in a stack.
     (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : 
         S3CreateBucketReq(FETCH_BUCKET, REGION))
     (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : 
@@ -209,31 +259,30 @@ mod SKYHOOK is
 
   crl [ah-handle-incoming-get-res]:
   rCtr(j)
-  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, 
-      fetchBucket: FETCH_BUCKET, 
-      puttableUuids: (OLD_UUID :: PUTTABLE_UUIDS) >
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs,
+                                              fetchBucket: FETCH_BUCKET, 
+                                              puttableUuids: (OLD_UUID :: PUTTABLE_UUIDS),
+                                              opMsgStack: nilOpMsg >
     {T, (to SKYHOOK_AH_ADDR from AWS_ADDR : S3GetObjRes(FETCH_BUCKET, OLD_UUID, DATA))}
   =>
   rCtr(j1)
-  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, 
-      fetchBucket: FETCH_BUCKET, 
-      puttableUuids: (PUTTABLE_UUIDS :: newUuid) >
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs,
+                                              fetchBucket: FETCH_BUCKET,
+                                              puttableUuids: (PUTTABLE_UUIDS :: newUuid),
+                                              opMsgStack: STACK >
     smsgs
   if getAwsAddr(attrs) == AWS_ADDR
     /\ newUuid := sha256(last(OLD_UUID :: PUTTABLE_UUIDS))
-    /\ msgs :=
-        (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3DeleteObjReq(FETCH_BUCKET, OLD_UUID))
-        (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : 
-          S3PutBucketPolicyReq(FETCH_BUCKET, 
-                               "policy-make-obj-unputtable"))
-        (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3DeleteObjReq(FETCH_BUCKET, newUuid))
-        (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : 
-          S3PutBucketPolicyReq(FETCH_BUCKET, 
-                               "policy-make-obj-puttable-" + newUuid))
-        (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR : SkyhookFetchAck(DATA))
+    /\ STACK := generateDeleteFetchSequence(FETCH_BUCKET,
+                                            newUuid,
+                                            OLD_UUID,
+                                            AWS_ADDR,
+                                            SKYHOOK_AH_ADDR)
+        ::: (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR : SkyhookFetchAck(DATA))
+    /\ msgs := (to AWS_ADDR from SKYHOOK_AH_ADDR : S3DeleteObjReq(FETCH_BUCKET, OLD_UUID))
     /\ {smsgs,j1} := delayMsgsX(j,msgs,null)
      
-  [ print "(" T ") Skyhook AccountHolder " SKYHOOK_AH_ADDR " fetched " OLD_UUID "; rolling puttable Uuid queue, adding " newUuid " , pushing data back to Raceboat." ]
+  [ print "(" T ") Skyhook AccountHolder " SKYHOOK_AH_ADDR " fetched " OLD_UUID "; rolling puttable Uuid queue, adding " newUuid " , starting operation." ]
   .
 
   --- Post on Action Thread
@@ -259,57 +308,61 @@ mod SKYHOOK is
   crl [ah-handle-incoming-put-res-overflow]:
   rCtr(j)
   < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, 
-      postBucket: POST_BUCKET, postObjUuid: POST_UUID, 
-      fetchableUuids: (OLD_UUID :: FETCHABLE_UUIDS), 
-      openObjects: OPEN_OBJECTS >
+                                              postBucket: POST_BUCKET,
+                                              postObjUuid: POST_UUID,
+                                              fetchableUuids: (OLD_UUID :: FETCHABLE_UUIDS),
+                                              openObjects: OPEN_OBJECTS,
+                                              opMsgStack: nilOpMsg >
     {T, (to SKYHOOK_AH_ADDR from AWS_ADDR : S3PutObjRes(POST_BUCKET, POST_UUID))}
   =>
   rCtr(j1)
-  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, 
-      postBucket: POST_BUCKET, 
-      postObjUuid: sha256(POST_UUID), 
-      fetchableUuids: (FETCHABLE_UUIDS :: POST_UUID), 
-      openObjects: OPEN_OBJECTS >
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs,
+                                              postBucket: POST_BUCKET,
+                                              postObjUuid: sha256(POST_UUID),
+                                              fetchableUuids: (FETCHABLE_UUIDS :: POST_UUID),
+                                              openObjects: OPEN_OBJECTS,
+                                              opMsgStack: STACK >
     smsgs
   if getAwsAddr(attrs) == AWS_ADDR 
     /\ listLen(OLD_UUID :: FETCHABLE_UUIDS) >= OPEN_OBJECTS
-    /\ msgs :=
-        (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR : S3DeleteObjReq(POST_BUCKET, OLD_UUID))
-        (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR 
-          : S3PutBucketPolicyReq(POST_BUCKET,
-                                 "policy-make-obj-ungettable-" + OLD_UUID))
-        (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR 
-          : S3PutBucketPolicyReq(POST_BUCKET,
-                                 "policy-make-obj-gettable-" + POST_UUID))
-        (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR : SkyhookPostAck)               
+    /\ STACK := generateDeletePostSequence(POST_BUCKET,
+                                            POST_UUID,
+                                            OLD_UUID,
+                                            AWS_ADDR,
+                                            SKYHOOK_AH_ADDR)
+        ::: (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR : SkyhookPostAck)
+    /\ msgs := (to AWS_ADDR from SKYHOOK_AH_ADDR : S3DeleteObjReq(POST_BUCKET, OLD_UUID))
     /\ {smsgs,j1} := delayMsgsX(j,msgs,null)
   [ print "(" T ") Skyhook AccountHolder " SKYHOOK_AH_ADDR " successfully posted " POST_UUID "; Uuid cap reached, shifting fetchable UUIDs." ]
   .
 
   crl [ah-handle-incoming-put-res-underflow]:
   rCtr(j)
-  < SKYHOOK_AH_ADDR : SkyhookAccountHolder |  attrs,
-       postBucket: POST_BUCKET,
-       postObjUuid: POST_UUID,
-       fetchableUuids: FETCHABLE_UUIDS,
-       openObjects: OPEN_OBJECTS >
-    {T, (to SKYHOOK_AH_ADDR from AWS_ADDR : 
-         S3PutObjRes(POST_BUCKET, POST_UUID))}
+  < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs,
+                                              postBucket: POST_BUCKET,
+                                              postObjUuid: POST_UUID,
+                                              fetchableUuids: FETCHABLE_UUIDS,
+                                              openObjects: OPEN_OBJECTS,
+                                              opMsgStack: nilOpMsg >
+    {T, (to SKYHOOK_AH_ADDR from AWS_ADDR : S3PutObjRes(POST_BUCKET, POST_UUID))}
   =>
   rCtr(j1)
   < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs, 
-       postBucket: POST_BUCKET, 
-       postObjUuid: sha256(POST_UUID),
-       fetchableUuids: (FETCHABLE_UUIDS :: POST_UUID),
-       openObjects: OPEN_OBJECTS >
+                                              postBucket: POST_BUCKET, 
+                                              postObjUuid: sha256(POST_UUID),
+                                              fetchableUuids: (FETCHABLE_UUIDS :: POST_UUID),
+                                              openObjects: OPEN_OBJECTS,
+                                              opMsgStack: STACK >
     smsgs
   if getAwsAddr(attrs) == AWS_ADDR
     /\ listLen(FETCHABLE_UUIDS) < OPEN_OBJECTS
-    /\ msgs := 
-        (to getAwsAddr(attrs) from SKYHOOK_AH_ADDR 
+    /\ STACK := (to AWS_ADDR from SKYHOOK_AH_ADDR
+                  : S3PutBucketPolicyReq(POST_BUCKET,
+                                         "policy-make-obj-gettable-" + POST_UUID))
+        ::: (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR : SkyhookPostAck)
+    /\ msgs := (to AWS_ADDR from SKYHOOK_AH_ADDR 
              : S3PutBucketPolicyReq(POST_BUCKET,
                                     "policy-make-obj-gettable-" + POST_UUID))
-        (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR : SkyhookPostAck)      
     /\ {smsgs,j1} := delayMsgsX(j,msgs,null)
   [ print "(" T ") Skyhook AccountHolder " SKYHOOK_AH_ADDR " successfully posted " POST_UUID "; Uuid cap not met, appending gettable policy." ]
   .
@@ -323,25 +376,28 @@ mod SKYHOOK is
   < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
     smsgs
   if getAwsAddr(attrs) == AWS_ADDR
-    /\ msg := (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR
-                : SkyhookFetchAck(noBytes))
+    /\ msg := (to getRaceboatAddr(attrs) from SKYHOOK_AH_ADDR : SkyhookFetchAck(noBytes))
     /\ {smsgs,j1} := delayMsgsX(j,msg,null)
   [ print "(" T ") Skyhook AccountHolder " SKYHOOK_AH_ADDR " failed to get for " BUCKET "/" UUID ]
   .
 
-  rl [ah-handle-aws-res]:
+  crl [ah-handle-aws-res]:
   < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
     {T, (to SKYHOOK_AH_ADDR from AWS_ADDR : S3DeleteObjRes(BUCKET, UUID))}
   =>
   < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
+    if not awaitingOpMsg(attrs ,
+                         (to SKYHOOK_AH_ADDR from AWS_ADDR : S3DeleteObjRes(BUCKET, UUID)))
     [ print "(" T ") Skyhook AccountHolder " SKYHOOK_AH_ADDR " received S3DeleteObjRes from AWS." ]
   .
 
-  rl [ah-handle-aws-res-2]:
+  crl [ah-handle-aws-res-2]:
   < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
     {T, (to SKYHOOK_AH_ADDR from AWS_ADDR : S3PutBucketPolicyRes(BUCKET))}
   =>
   < SKYHOOK_AH_ADDR : SkyhookAccountHolder | attrs >
+    if not awaitingOpMsg(attrs,
+                         (to SKYHOOK_AH_ADDR from AWS_ADDR : S3PutBucketPolicyRes(BUCKET)))
     [ print "(" T ") Skyhook AccountHolder " SKYHOOK_AH_ADDR " received S3PutBucketPolicyRes from AWS." ]
   .
 
