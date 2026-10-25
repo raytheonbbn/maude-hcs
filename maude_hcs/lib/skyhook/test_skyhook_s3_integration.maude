@@ -45,8 +45,8 @@ mod TEST_SKYHOOK_S3_INTEGRATION is
         awsAddr: sdkAddr,
         fetchBucket: "test-fetch-bucket",
         postBucket: "test-post-bucket",
-        fetchObjUuid: "fetch-uuid-1",
-        postObjUuid: "post-uuid-1"
+        fetchObjUuid: "0",
+        postObjUuid: "4"
     > .
 
   eq skyhookAH =
@@ -59,10 +59,10 @@ mod TEST_SKYHOOK_S3_INTEGRATION is
         region: "us-east-1",
         puttableUuids: emptyStringList,
         fetchableUuids: emptyStringList,
-        initialFetchObjUuid: "initial-fetch-1",
-        initialPostObjUuid: "initial-post-1",
+        initialFetchObjUuid: "0",
+        initialPostObjUuid: "0",
         openObjects: 3,
-        postObjUuid: "post-uuid-1"
+        postObjUuid: "4"
     > .
     
   eq awsServer =
@@ -79,10 +79,10 @@ mod TEST_SKYHOOK_S3_INTEGRATION is
     (to puAddr from userAddr : SkyhookPostCmd("recovered-payload-after-404")) .
 
   rl [test-5-orch-2]:
-    (to puAddr from sdkAddr : S3PutObjRes("test-fetch-bucket", "popped-fetch-uuid"))
+    (to puAddr from sdkAddr : S3PutObjRes("test-fetch-bucket", "1"))
     (to rbAddr from rbAddr : testToken("waiting-for-put"))
   =>
-    (to puAddr from sdkAddr : S3PutObjRes("test-fetch-bucket", "popped-fetch-uuid"))
+    (to puAddr from sdkAddr : S3PutObjRes("test-fetch-bucket", "1"))
     (to ahAddr from rbAddr : SkyhookFetchCmd) .
 
 endm
@@ -117,13 +117,13 @@ rew [1000] < ahAddr : SkyhookAccountHolder |
         fetchBucket: "test-fetch-bucket",
         postBucket: "test-post-bucket",
         region: "us-east-1",
-        puttableUuids: ("popped-fetch-uuid" :: emptyStringList),
+        puttableUuids: ("1" :: emptyStringList),
         fetchableUuids: emptyStringList,
-        initialFetchObjUuid: "initial-fetch-1",
-        initialPostObjUuid: "initial-post-1",
+        initialFetchObjUuid: "0",
+        initialPostObjUuid: "0",
         openObjects: 3,
-        postObjUuid: "post-uuid-1"
-    > awsSdkActor < awsAddr : AwsS3HttpServer | thisAddr: awsAddr, s3DataMap: ("/test-fetch-bucket/popped-fetch-uuid" -> "real-integration-data-payload-from-bucket") >
+        postObjUuid: "4"
+    > awsSdkActor < awsAddr : AwsS3HttpServer | thisAddr: awsAddr, s3DataMap: ("/test-fetch-bucket/1" -> "real-integration-data-payload-from-bucket") >
     (to ahAddr from rbAddr : SkyhookFetchCmd)
   .
 
@@ -138,13 +138,13 @@ rew [1000] < ahAddr : SkyhookAccountHolder |
         postBucket: "test-post-bucket",
         region: "us-east-1",
         puttableUuids: emptyStringList,
-        fetchableUuids: ("first" :: "second" :: "third" :: emptyStringList),
-        initialFetchObjUuid: "initial-fetch-1",
-        initialPostObjUuid: "initial-post-1",
+        fetchableUuids: ("1" :: "2" :: "3" :: emptyStringList),
+        initialFetchObjUuid: "0",
+        initialPostObjUuid: "0",
         openObjects: 3,
-        postObjUuid: "post-uuid-1"
+        postObjUuid: "4"
     > awsSdkActor awsServer
-    (to ahAddr from sdkAddr : S3PutObjRes("test-post-bucket", "post-uuid-1"))
+    (to ahAddr from sdkAddr : S3PutObjRes("test-post-bucket", "4"))
   .
 
 --- Test 5: Integration 404 Recovery Pipeline
@@ -159,12 +159,12 @@ rew [1000] < ahAddr : SkyhookAccountHolder |
         fetchBucket: "test-fetch-bucket",
         postBucket: "test-post-bucket",
         region: "us-east-1",
-        puttableUuids: ("popped-fetch-uuid" :: emptyStringList),
+        puttableUuids: ("1" :: emptyStringList),
         fetchableUuids: emptyStringList,
-        initialFetchObjUuid: "initial-fetch-1",
-        initialPostObjUuid: "initial-post-1",
+        initialFetchObjUuid: "0",
+        initialPostObjUuid: "0",
         openObjects: 3,
-        postObjUuid: "post-uuid-1"
+        postObjUuid: "4"
     >
     < puAddr : SkyhookPublicUser |
         thisAddr: puAddr,
@@ -172,8 +172,8 @@ rew [1000] < ahAddr : SkyhookAccountHolder |
         awsAddr: sdkAddr,
         fetchBucket: "test-post-bucket",
         postBucket: "test-fetch-bucket",
-        fetchObjUuid: "fetch-uuid-1",
-        postObjUuid: "popped-fetch-uuid" --- So that PU posts to the uuid AH expects to fetch
+        fetchObjUuid: "0",
+        postObjUuid: "4" --- So that PU posts to the uuid AH expects to fetch
     >
     awsSdkActor awsServer
     (to ahAddr from rbAddr : SkyhookFetchCmd)
