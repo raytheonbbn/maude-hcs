@@ -148,22 +148,21 @@ ceq $scheduleSendMsgs(msg msgs0, config, j)
   = $scheduleSendMsgs(msgs0, config jitteredMsg:Config, nextJ)
   if {jitteredMsg:Config, nextJ} := $jitterMsgs(msg, null, j)
     /\ hasTransport(msg) == true
-  [ print "Adding jitter to tcp msg." msg]
 .
 ceq $scheduleSendMsgs(MSG:Config msgs0, config, j)
   = $scheduleSendMsgs(msgs0, config jitteredMsg:Config, nextJ)
   if {jitteredMsg:Config, nextJ} := $jitterMsgs(MSG:Config, null, j)
     /\ [T:Float, msg, N:Nat] := MSG:Config
     /\ hasTransport(msg) == true
-  [ print "Adding jitter to tcp scheduled msg " msg ]
 .
 ceq $scheduleSendMsgs(MSG:Config msgs0, config, j)
   = $scheduleSendMsgs(msgs0, config delayedMsg:Config, nextJ)
-  if {delayedMsg:Config, nextJ} := delayMsgsX(j, MSG:Config, null)
-  [owise print "Cmerlin " MSG:Config ]
+  if MSG:Config =/= null
+    /\ {delayedMsg:Config, nextJ} := delayMsgsX(j, MSG:Config, null)
+  [owise]
 .
 eq $scheduleSendMsgs(msg, config, j)
-  = {config, j} [owise print "problem with " msg] .
+  = {config, j} [owise print "Error scheduling " msg] .
                 
 
 **** uses two random calls
