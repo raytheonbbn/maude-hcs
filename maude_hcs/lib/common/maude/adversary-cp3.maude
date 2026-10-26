@@ -112,6 +112,71 @@ eq toInsert(tol0 ;; to1,to0,tol1) =
   fi)
   .
 
+--- One immutable packed history for packet and DNS observations. Structured
+--- headers stay shared; varying scalar fields live in bounded native strings.
+inc LIST{String} .
+sorts PackedHistory ObservationHeader .
+op noPackedHistory : -> PackedHistory [ctor] .
+op packedHistory : PackedHistory ObservationHeader String -> PackedHistory [ctor] .
+op tcpHeader : Address Address Nat -> ObservationHeader [ctor] .
+op dnsHeader : Msg -> ObservationHeader [ctor] .
+op packTcpDnsHistory : -> Bool .
+eq packTcpDnsHistory = false [owise] .
+var PH : PackedHistory .
+var OH : ObservationHeader .
+vars PS PT SEP S0 S1 S2 S3 S4 : String .
+var PI : Nat .
+var FS : List{String} .
+
+op packTime : FloatInf -> String .
+eq packTime(infty) = "I" .
+eq packTime(tsnd) = string(tsnd) .
+op unpackTime : String -> FloatInf .
+eq unpackTime("I") = infty .
+eq unpackTime(PS) = float(PS) [owise] .
+
+op observationHeader : TimesObs -> ObservationHeader .
+eq observationHeader(tp(tsnd,tixp,trcv,pkt(tgt,src,new?,cnx,size))) = tcpHeader(tgt,src,cnx) .
+eq observationHeader(tm(tsnd,tixp,trcv,msg)) = dnsHeader(msg) .
+op observationFields : TimesObs -> String .
+eq observationFields(tp(tsnd,tixp,trcv,pkt(tgt,src,new?,cnx,size))) =
+  string(tsnd) + "," + packTime(tixp) + "," + packTime(trcv) + ","
+  + (if new? then "1" else "0" fi) + "," + string(size,10) + ";" .
+eq observationFields(tm(tsnd,tixp,trcv,msg)) =
+  string(tsnd) + "," + packTime(tixp) + "," + packTime(trcv) + ";" .
+
+op packHistory : TimesObsList PackedHistory -> PackedHistory .
+op appendPacked : PackedHistory ObservationHeader String -> PackedHistory .
+eq packHistory(nilTO,PH) = PH .
+eq packHistory(to0 ;; tol,PH) =
+  packHistory(tol,appendPacked(PH,observationHeader(to0),observationFields(to0))) .
+--- Coalesce adjacent equal headers, but cap each chunk around 16 KiB so final
+--- splitting cannot repeatedly traverse an unbounded growing history string.
+ceq appendPacked(packedHistory(PH,OH,PS),OH,PT) = packedHistory(PH,OH,PS + PT)
+  if length(PS) + length(PT) <= 16384 .
+eq appendPacked(PH,OH,PS) = packedHistory(PH,OH,PS) [owise] .
+
+--- Reuse the standard associative String list for temporary decoded fields.
+op splitHistory : String String -> List{String} .
+eq splitHistory("",SEP) = nil .
+ceq splitHistory(PS,SEP) = substr(PS,0,PI) splitHistory(substr(PS,PI + 1,length(PS)),SEP)
+  if PI := find(PS,SEP,0) .
+eq splitHistory(PS,SEP) = PS [owise] .
+op decodeObservation : ObservationHeader List{String} -> TimesObs .
+ceq decodeObservation(tcpHeader(tgt,src,cnx),S0 S1 S2 S3 S4) =
+  tp(float(S0),unpackTime(S1),unpackTime(S2),pkt(tgt,src,S3 == "1",cnx,size))
+  if size := rat(S4,10) .
+eq decodeObservation(dnsHeader(msg),S0 S1 S2) =
+  tm(float(S0),unpackTime(S1),unpackTime(S2),msg) .
+op decodeObservations : ObservationHeader List{String} -> TimesObsList .
+eq decodeObservations(OH,nil) = nilTO .
+eq decodeObservations(OH,PS FS) =
+  decodeObservation(OH,splitHistory(PS,",")) ;; decodeObservations(OH,FS) .
+op unpackHistory : PackedHistory -> TimesObsList .
+eq unpackHistory(noPackedHistory) = nilTO .
+eq unpackHistory(packedHistory(PH,OH,PS)) =
+  mergeTOL(unpackHistory(PH),decodeObservations(OH,splitHistory(PS,";"))) .
+
 ******** new stuff 26Aug12
 
   sort TimesObsLL .
@@ -170,7 +235,21 @@ op Adversary : -> ActorType .
 
 op dns:_ : TimesObsList -> Attribute [ctor] .
 op tcp:_ : TimesObsList -> Attribute [ctor] .
+op tcp:_ : PackedHistory -> Attribute [ctor] .
+op dns:_ : PackedHistory -> Attribute [ctor] .
 op useTcpTPL:_ : Bool -> Attribute [ctor] .
+
+--- Decode both attributes once at simulation termination, before analysis.
+var PH : PackedHistory .
+var AC : Config .
+var AS : AttributeSet .
+op unpackHistories : Config -> Config .
+eq unpackHistories(< addr : Adversary | AS, tcp: PH > AC) =
+  unpackHistories(< addr : Adversary | AS, tcp: unpackHistory(PH) > AC) .
+eq unpackHistories(< addr : Adversary | AS, dns: PH > AC) =
+  unpackHistories(< addr : Adversary | AS, dns: unpackHistory(PH) > AC) .
+eq unpackHistories(AC) = AC [owise] .
+
 
 op mkAdversaryCp3 : Address -> Actor .
 eq mkAdversaryCp3(addr) = mkAdversaryCp3(addr, true) .

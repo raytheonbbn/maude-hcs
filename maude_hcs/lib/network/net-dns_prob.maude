@@ -31,11 +31,14 @@ mod NET-DNS is
 
 
 op addTM2Dns : AttributeSet TimesObsList -> AttributeSet .
-eq addTM2Dns((attrs, dns: tml),tml1) =
-                            attrs, dns: mergeTOL(tml , tml1)
-               *****        (tml ;; tml1) 
-                             .
-eq addTM2Dns(attrs,tml1) = (attrs, dns: tml1 ).
+var PH : PackedHistory .
+eq addTM2Dns((attrs, dns: tml),tml1) = attrs,
+  (if packTcpDnsHistory then dns: packHistory(tml1,packHistory(tml,noPackedHistory))
+   else dns: mergeTOL(tml,tml1) fi) .
+eq addTM2Dns((attrs, dns: PH),tml1) = attrs, dns: packHistory(tml1,PH) .
+eq addTM2Dns(attrs,tml1) = attrs,
+  (if packTcpDnsHistory then dns: packHistory(tml1,noPackedHistory) else dns: tml1 fi)
+  [owise] .
 
 ops FwdDnsNetC PubDnsNetS : -> ActorType .
 
