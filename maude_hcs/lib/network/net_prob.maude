@@ -59,12 +59,17 @@ mod NETWORK_CONNECTION is
   
   vars k msgSize : Nat .
   vars b b0 : Bool .
+  vars isNewConnection : Bool .
+  vars fid : Nat .
   vars advAddr  rsvAddr : Address .
   vars advAttrs advAttrs0 advAttrs1 attrs0 attrs1 attrs
        netAttrs0 netAttrs1 netAttrs2 flowAttrs0
        netAttrsNext0 netAttrsNext1 linkAttrs1 linkAttrs2 
        : AttributeSet .  
   vars curTcpState nextTcpState : TcpState .
+  vars connectionAttrs : AttributeSet .
+  vars tcpStateMap : TcpStateMap .
+  vars clientFlowKey serverFlowKey : TcpFlowKey .
   vars tpl tml : TimesObsList .
   vars tmsg : TimesMsg .
   vars smsgs amsgs amsgs0 conf msgs : Config .
@@ -174,37 +179,47 @@ ceq [netClientGenTcp]:
     /\ msgSize := getSize(content)         
     /\ {netAttrsNext , flowAttrs} :=
                 getFlowInfo(netAttrs, msg) ---sets new
+    /\ fid := getFlowId(flowAttrs)
+    /\ clientFlowKey := clientFlow(REMOTE_ADDR, fid)
+    /\ connectionAttrs := findTcpState(getTcpStates(netAttrs), clientFlowKey)
+    /\ isNewConnection := (if getConnectionReuse(netAttrs)
+                           then connectionAttrs == noneAS
+                           else true
+                           fi)
     /\ flowAttrs0, newCnx: b := flowAttrs
+    /\ flowAttrs := flowAttrs0, newCnx: isNewConnection
     /\ linkAttrs1 := 
            getLinkData(msg_src_to_ixp)
     /\ linkAttrs2 := 
            getLinkData(msg_ixp_to_tgt)
-    /\ curTcpState := getTcpState(netAttrs)
+    /\ curTcpState := getTcpState(connectionAttrs)
     /\ (pktAttrs, nextJ: jTrans) :=
          getFinalDestSegmentDistribution(j, msg,
-               linkAttrs1, linkAttrs2, b, curTcpState, T)
+               linkAttrs1, linkAttrs2, isNewConnection, curTcpState, T)
     /\ (timePacketList: TIME_LIST,attrs) := pktAttrs
     /\ nextTcpState := getTcpState(pktAttrs)
     /\ delay:Float := msgDelay(TIME_LIST)
     /\ transportMsg := 
      (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)
 **** get the pkt size list     
-     /\ size_list := tcpDeliverySizes(msgSize, TIME_LIST, b) 
+     /\ size_list := tcpDeliverySizes(msgSize, TIME_LIST, isNewConnection)
     *** Now do to IXP router only.
     /\ (pktAttrsAtIxp, nextJ: jNext) := 
         getFirstHopSegmentDistribution(jTrans,
            msg_src_to_ixp, 
-           linkAttrs1, linkAttrs2, b, curTcpState, T)
+           linkAttrs1, linkAttrs2, isNewConnection, curTcpState, T)
     /\ (timePacketList: TIME_LIST_TO_IXP) := pktAttrsAtIxp
 **** log the packets 
     /\ netAttrs1, connectionCount: ctr, newCnx: b := netAttrs
     /\ advAttrs0, useTcpTPL: b0 := advAttrs
     /\ advAttrs1 := (if b0
-                     then addTPL2tcp(advAttrs, genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, size_list, ctr, b))
+                     then addTPL2tcp(advAttrs, genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, size_list, ctr, isNewConnection))
                      else advAttrs
                      fi)
     /\ netAttrsNext0, pending: amsgs := netAttrsNext
-    /\ netAttrsNext1 := updateTcpState(netAttrsNext0, nextTcpState)
+    /\ tcpStateMap := putTcpState(getTcpStates(netAttrsNext0), clientFlowKey,
+                                  (tcpState: nextTcpState))
+    /\ netAttrsNext1 := updateTcpStates(netAttrsNext0, tcpStateMap)
     --- /\ numPkts:Nat := lenFL(TIME_LIST) 
     
     [ print "(" T ") netClientGenTcp " netAddr " sending " transportMsg " with delay " delay:Float ]
@@ -277,10 +292,17 @@ eq qrMatch(Q:Query,R:Response) = false [owise] .
     {T, (to LOCAL_ADDR from REMOTE_ADDR : 
          content :: flowAttrs)}
   =>
-  < netAddr : NetClient | netAttrs >
+  < netAddr : NetClient | netAttrs1 >
   [0., (to LOCAL_ADDR from REMOTE_ADDR : content), 0]
   if netAttrs0, remoteChannelAddr: REMOTE_ADDR,
                localIfaceAddr: LOCAL_ADDR :=  netAttrs  
+  /\ fid := getFlowId(flowAttrs)
+  /\ clientFlowKey := clientFlow(REMOTE_ADDR, fid)
+  /\ netAttrs1 := (if getConnectionReuse(flowAttrs)
+                   then netAttrs
+                   else updateTcpStates(netAttrs,
+                          removeTcpState(getTcpStates(netAttrs), clientFlowKey))
+                   fi)
   [ print "(" T ") Net client " netAddr " handling response from " REMOTE_ADDR ", decapsulating transport." ]
   .
 
@@ -311,7 +333,7 @@ eq qrMatch(Q:Query,R:Response) = false [owise] .
     {T, (to tcp(REMOTE_ADDR) from LOCAL_ADDR : content)}
   =>
   rCtr(jNext)
-  < netAddr : NetServer | netAttrs >
+  < netAddr : NetServer | netAttrs1 >
 ****  < netAddr : NetServer | netAttrs1 >  *****???
   < advAddr : Adversary | advAttrs0 >
   [delay:Float, transportMsg, 0]
@@ -325,14 +347,22 @@ eq qrMatch(Q:Query,R:Response) = false [owise] .
           (to REMOTE_ADDR from IXP_ADDR : content)
     /\ msgSize := getSize(content)         
      /\ flowAttrs := getCurrentConnection(netAttrs,REMOTE_ADDR)
+    /\ fid := getFlowId(flowAttrs)
+    /\ serverFlowKey := serverFlow(REMOTE_ADDR, fid)
+    /\ connectionAttrs := findTcpState(getTcpStates(netAttrs), serverFlowKey)
+    /\ isNewConnection := (if getConnectionReuse(flowAttrs)
+                           then connectionAttrs == noneAS
+                           else true
+                           fi)
 ****    /\ flowAttrs0, newCnx: b := flowAttrs
     /\ linkAttrs1 := 
            getLinkData(msg_src_to_ixp)
     /\ linkAttrs2 := 
            getLinkData(msg_ixp_to_tgt)
+    /\ curTcpState := getTcpState(connectionAttrs)
     /\ (pktAttrs, nextJ: jTrans) :=
          getFinalDestSegmentDistribution(j, msg,
-               linkAttrs1, linkAttrs2, false, initTcpState, T)
+               linkAttrs1, linkAttrs2, isNewConnection, curTcpState, T)
     /\ (timePacketList: TIME_LIST,attrs) := pktAttrs
     /\ delay:Float := msgDelay(TIME_LIST)
     /\ transportMsg := 
@@ -343,17 +373,26 @@ eq qrMatch(Q:Query,R:Response) = false [owise] .
     /\ (pktAttrsAtIxp, nextJ: jNext) := 
         getFirstHopSegmentDistribution(jTrans,
            msg_src_to_ixp, 
-           linkAttrs1, linkAttrs2, false, initTcpState, T)
+           linkAttrs1, linkAttrs2, isNewConnection, curTcpState, T)
     /\ (timePacketList: TIME_LIST_TO_IXP) := pktAttrsAtIxp
 ****      /\ something to log the packets
    /\ flowAttrs0, flowId: ctr  := flowAttrs
    /\ advAttrs1, useTcpTPL: b0 := advAttrs
    /\ advAttrs0 := (if b0
-                    then addTPL2tcp(advAttrs, genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, size_list, ctr, false))
+                    then addTPL2tcp(advAttrs, genTcpTPL(T,msg,TIME_LIST,TIME_LIST_TO_IXP, size_list, ctr, isNewConnection))
                     else advAttrs
                     fi)
 **** I thought this was removed?    
-    /\ netAttrs1 := removeConnection(netAttrs,REMOTE_ADDR) 
+    /\ nextTcpState := getTcpState(pktAttrs)
+    /\ tcpStateMap := putTcpState(getTcpStates(netAttrs), serverFlowKey,
+                                  (tcpState: nextTcpState))
+    /\ netAttrs1 := updateTcpStates(netAttrs, tcpStateMap)
+    /\ netAttrs1 := (if getConnectionReuse(flowAttrs)
+                     then netAttrs1
+                     else updateTcpStates(
+                            removeConnection(netAttrs1,REMOTE_ADDR),
+                            removeTcpState(getTcpStates(netAttrs1),serverFlowKey))
+                     fi)
     [ print "(" T ") Net server " netAddr " handling response, sending " transportMsg "." ]
   .
 

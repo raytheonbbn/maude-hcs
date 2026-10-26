@@ -64,6 +64,18 @@ mod NETWORK_NODE is
   op `[_:->_`] : Address AttributeSet -> AddrAttrsElt [ctor] .
   op _::_ : AddrAttrsList AddrAttrsList -> AddrAttrsList
             [ctor assoc id: nilAddrAttrs] .
+
+  --- TCP state is keyed by the peer address and flow ID.
+  sorts TcpFlowKey TcpStateEntry TcpStateMap .
+  op clientFlow : Address Nat -> TcpFlowKey [ctor] .
+  op serverFlow : Address Nat -> TcpFlowKey [ctor] .
+  subsort TcpStateEntry < TcpStateMap .
+  op noTcpStates : -> TcpStateMap [ctor] .
+  op consTcpState : TcpStateEntry TcpStateMap -> TcpStateMap [ctor] .
+  op tcpStateEntry : TcpFlowKey AttributeSet -> TcpStateEntry [ctor] .
+  vars fid fid0 : Nat .
+  vars tcpFlowKey tcpFlowKey0 : TcpFlowKey .
+  vars tcpStateMap tcpStateMap0 : TcpStateMap .
           
   op NetClient : -> ActorType [ctor] .
   op NetServer : -> ActorType [ctor] .
@@ -81,6 +93,7 @@ mod NETWORK_NODE is
   **** Attribute for server only.
 ****  op currentConnection:_  : AttributeSet  -> Attribute [ctor] .
   op currentConnections:_ : AddrAttrsList -> Attribute [ctor] .
+  op tcpStates:_          : TcpStateMap -> Attribute [ctor] .
 
 **** netClient attributes specific to generating dnsQ/pkts
 op newCnx:_ : Bool -> Attribute [ctor] . 
@@ -118,6 +131,7 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
           remoteChannelAddr:  REMOTE_ADDR, --- the server?
 ****      remoteEndpointAddr: REMOTE_ADDR,   --- not used?
           localIfaceAddr:     LOCAL_ADDR,   --- the client
+          tcpStates:          noTcpStates,
           ixpAddr:            IXP-DEFAULT-ADDR,
           connectionReuse:    CONNECTION_REUSE,
           connectionCount:    0,
@@ -139,6 +153,7 @@ eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
           remoteChannelAddr:  REMOTE_ADDR,
      **** remoteEndpointAddr: REMOTE_ADDR,
           localIfaceAddr:     LOCAL_ADDR,
+          tcpStates:          noTcpStates,
           ixpAddr:            IXP-DEFAULT-ADDR,
           connectionReuse:    CONNECTION_REUSE,
           connectionCount:    0,
@@ -161,7 +176,8 @@ eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
      ****     remoteEndpointAddr: REMOTE_ADDR,   --- not used
           localIfaceAddr:     LOCAL_ADDR,
           ixpAddr:            IXP-DEFAULT-ADDR,
-          currentConnections:  nilAddrAttrs
+          currentConnections:  nilAddrAttrs,
+          tcpStates:           noTcpStates
       >
   .
   
@@ -175,7 +191,8 @@ eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
           remoteEndpointAddr: REMOTE_ADDR,
           localIfaceAddr:     LOCAL_ADDR,
           ixpAddr:            IXP-DEFAULT-ADDR,
-          currentConnections:  nilAddrAttrs
+          currentConnections:  nilAddrAttrs,
+          tcpStates:           noTcpStates
       >   .
 
   op getLocalIfaceAddr : AttributeSet -> Address .
@@ -222,6 +239,34 @@ eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
             aal0 :: aal :: [addr :-> attrs0] .
  eq addCnx(aal, addr,attrs) =  aal :: [addr :-> attrs] [owise]  .
 
+ op findTcpState : TcpStateMap TcpFlowKey -> AttributeSet .
+ eq findTcpState(consTcpState(tcpStateEntry(tcpFlowKey, attrs), tcpStateMap), tcpFlowKey) = attrs .
+ eq findTcpState(consTcpState(tcpStateEntry(tcpFlowKey0, attrs), tcpStateMap), tcpFlowKey) =
+      findTcpState(tcpStateMap, tcpFlowKey) [owise] .
+ eq findTcpState(noTcpStates, tcpFlowKey) = noneAS .
+
+ op removeTcpState : TcpStateMap TcpFlowKey -> TcpStateMap .
+ eq removeTcpState(consTcpState(tcpStateEntry(tcpFlowKey, attrs), tcpStateMap), tcpFlowKey) = tcpStateMap .
+ eq removeTcpState(consTcpState(tcpStateEntry(tcpFlowKey0, attrs), tcpStateMap), tcpFlowKey) =
+      consTcpState(tcpStateEntry(tcpFlowKey0, attrs), removeTcpState(tcpStateMap, tcpFlowKey)) [owise] .
+ eq removeTcpState(noTcpStates, tcpFlowKey) = noTcpStates .
+
+ op putTcpState : TcpStateMap TcpFlowKey AttributeSet -> TcpStateMap .
+ eq putTcpState(tcpStateMap, tcpFlowKey, attrs) =
+      consTcpState(tcpStateEntry(tcpFlowKey, attrs), removeTcpState(tcpStateMap, tcpFlowKey)) .
+
+ op getTcpStates : AttributeSet -> TcpStateMap .
+ eq getTcpStates((attrs, tcpStates: tcpStateMap)) = tcpStateMap .
+ eq getTcpStates(attrs) = noTcpStates [owise] .
+
+ op updateTcpStates : AttributeSet TcpStateMap -> AttributeSet .
+ eq updateTcpStates((attrs, tcpStates: tcpStateMap), tcpStateMap0) =
+      (attrs, tcpStates: tcpStateMap0) .
+ eq updateTcpStates(attrs, tcpStateMap) = (attrs, tcpStates: tcpStateMap) [owise] .
+
+ op getFlowId : AttributeSet -> Nat .
+ eq getFlowId(attrs, flowId: fid) = fid .
+
 
  op getCurrentConnection : AttributeSet Address 
     -> AttributeSet .
@@ -246,6 +291,7 @@ eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
     {attrsNext , (remoteChannelAddr: 
                       getRemoteChannelAddr(attrs),
                   flowId: count,
+                  connectionReuse: getConnectionReuse(attrs),
                   newCnx: b)}
     if attrsNext :=
         (if getConnectionReuse(attrs)
