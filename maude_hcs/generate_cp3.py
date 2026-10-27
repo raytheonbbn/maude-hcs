@@ -1071,9 +1071,10 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         add_bidir_link(f"corpSkyDnsAddr", f"publicDnsAddr", sky_link_dns_comp, "client_net_sky")
         link_entries.append("")
 
-    link_entries.append("    --- Minio/S3 server")    
-    add_bidir_ixp("s3SrvAddr", minio_net_link, "minio_net")
-    link_entries.append("")
+    if "minio_net" in networks:
+        link_entries.append("    --- Minio/S3 server")    
+        add_bidir_ixp("s3SrvAddr", minio_net_link, "minio_net")
+        link_entries.append("")
 
     if "client_net_mastodon" in networks:
         mas_link = link_param_name("client_net_mastodon")
