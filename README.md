@@ -355,6 +355,56 @@ The file workers.json (it can also be TOML or YAML) specifies the list of worker
 
 The scheck command will connect to the remote workers, pass them all the information they need, activate them, and process their results until the prescribed confidence level is reached. Instead of manually copying the files to every machine that runs a worker, the files are sent through the connection. Maude inclusions are resolved and a flattened version of the Maude sources is sent.  
 
+### Selecting a Statistical Method
+**Version 0.19 of umaudemc** adds alternative convergence methods and extends sample dump to distributed statistical model checking. The release supports method selection at the command or query level, clarifies how simulation limits interact with confidence-radius targets, and enables external construction and analysis of empirical cumulative distribution functions.
+
+The scheck command uses Chow Robbins by default. A different method can be selected globally with the following option:
+
+> --smethod “\<name\>”
+
+A QuaTEx query can override the global selection with a method modifier:
+
+> with method = "\<name\>"
+
+Multiple query modifiers are separated by commas. For example:
+
+> with method = "chow-robbins", delta = 0.2
+
+##### Available Methods
+
+| **Method**              | **Intended use**               | **Behavior**                                                                                                                                                       |
+|-------------------------|--------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **chow-robbins**        | General real-valued quantities | Classical Chow Robbins method and the default used by scheck.                                                                                                      |
+| **seq-clopper-pearson** | Probabilities                  | Sequential Clopper Pearson method.                                                                                                                                 |
+| **hoeffding(d)**        | Bounded real-valued quantities | Sound Hoeffding method for values almost surely contained in an interval of length d. It calculates the required number of executions in advance from d and delta. |
+| **okamoto**             | Probabilities                  | Equivalent to hoeffding(1.0), providing a sound method for probability-valued queries.                                                                             |
+| **chen**                | Probabilities                  | Two-phase Chen method.                                                                                                                                             |
+
+##### Simulation Counts and Convergence
+
+The statistical methods normally operate against a requested confidence-radius bound specified by delta. They can also be used with a minimum or fixed number of executions. In that case, the selected method determines the confidence interval that can be calculated from the available simulations.
+
+###### Behavior of delta and nsims
+
+When both --delta and --nsims are omitted, scheck applies the default delta value of 0.5. This default is not enforced when the user supplies a minimum or fixed number of executions with --nsims.
+
+Consequently, the following commands are not equivalent:
+
+> --nsims 100-  
+> --nsims 100- --delta 0.5
+
+The first command stops after 100 simulations because no confidence-radius target is enforced. The second command runs at least 100 simulations and may continue until the confidence-interval radius is below 0.5.
+
+###### Behavior of block
+
+Omitting --block is no longer equivalent to specifying --block 30. Non-sequential methods such as Hoeffding and Okamoto calculate the required number of simulations in advance, so scheck may execute the entire set as one block. To receive intermediate progress with verbose output, specify a block size explicitly.
+
+##### Distributed Dumps and ECDF Processing
+
+The --dump \<path\> option now works with distributed model checking. At the end of the operation, each worker sends its dumped samples to the main process, and a separate dump file is created for each worker. The path may include directories that do not yet exist; scheck creates the intermediate directories as needed.
+
+Combining Hoeffding's method with dumped sample values provides the data needed to construct an empirical cumulative distribution function. Plotting and further analysis are not built into scheck. They can be performed by an external script, using tools such as Matplotlib to plot an ECDF and SciPy to analyze the empirical distribution or fit a known probability distribution.
+
 ### Run QMaude for a standalone test   
 
 QMaude offers Statistical Model Checking (SMC) of the model in the same formalism.

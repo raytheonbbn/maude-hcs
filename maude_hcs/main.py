@@ -36,6 +36,7 @@ import sys
 import argparse
 import argcomplete
 import io
+import re
 
 from pathlib import Path
 from contextlib import redirect_stdout, redirect_stderr
@@ -105,6 +106,39 @@ def add_initial_data_args(parser):
     choices=['default', 'state', 'edge', 'no'],
     default='default'
   )
+
+HOEFFDING_RE = re.compile(
+    r"^hoeffding\("
+    r"((?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
+    r"\)$"
+)
+
+def validate_smethod(value):
+    fixed_methods = {
+        "chow-robbins",
+        "seq-clopper-pearson",
+        "okamoto",
+        "chen",
+        "cr",
+        "scp"
+    }
+
+    if value in fixed_methods:
+        return value
+
+    match = HOEFFDING_RE.fullmatch(value)
+    if match:
+        diameter = float(match.group(1))
+        if diameter <= 0.0:
+            raise argparse.ArgumentTypeError(
+                "the diameter in hoeffding(d) must be greater than zero"
+            )
+        return value
+
+    raise argparse.ArgumentTypeError(
+        "invalid statistical method; expected chow-robbins, "
+        "seq-clopper-pearson, hoeffding(d), okamoto, or chen"
+    )
 
 def build_cli_parser():
     parser = argparse.ArgumentParser("maude-hcs")
@@ -246,6 +280,14 @@ def build_cli_parser():
         '--plot', '-p',
         help='Plot the results of parametric queries (using Matplotlib)',
         action='store_true'
+    )
+    scheck_parser.add_argument(
+        "--smethod",
+        type=validate_smethod,
+        help=(
+            "Statistical method for calculating confidence intervals, default=chow-robbins"
+        ),
+        default="chow-robbins",
     )
     
     argcomplete.autocomplete(parser)
