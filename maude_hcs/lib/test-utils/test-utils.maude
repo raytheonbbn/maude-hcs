@@ -1,10 +1,19 @@
 sload ../irc/ircMonitor.maude
 sload ../irc/common/_aux.maude
 
+view TimesObsList from TRIV to ADVERSARY-CP3-DATA is
+  sort Elt to TimesObsList .
+endv
+
 mod TEST-UTILS is
 
   inc IRC_MONITOR .
   inc IRC_NODE .
+  inc VISIBILITY .
+  inc STRUCTURED-ADDRESSES .
+  inc ADVERSARY-CP3 .
+  inc LIST{TimesObsList} .
+  inc LIST{Bool} .
 
   op all-msgs-received _ : Config -> Bool .
   op non-zero-msgs-received _ : Config -> Bool .
@@ -101,6 +110,48 @@ mod TEST-UTILS is
     < addr:Address : IrcMonitor | attrs, msgRcvd: MTL0 > C) = $sumBytes(MTL0, 0)
     [owise]
   .
+
+  vars TOL0 TOL1 : TimesObsList .
+  var TO : TimesObs .
+  var B : Bool .
+  var NID : NetId .
+  var ADDR : Address .
+  var S : String .
+  var N : Nat .
+
+  op filter-visible : NetId TimesObsList -> TimesObsList .
+  op filter-visible-all : NetId TimesObsList -> TimesObsList .
+  op filter-visible-in : NetId TimesObsList -> TimesObsList .
+  op filter-visible-out : NetId TimesObsList -> TimesObsList .
+
+  eq filter-visible(NID, nilTO) = nilTO .
+  eq filter-visible(NID, (TO ;; TOL0)) =
+    if visible(NID, TO, 0.0, 100000.0, outgoing)
+    then TO ;; filter-visible(NID, TOL0)
+    else filter-visible(NID, TOL0)
+    fi .
+
+  op obs-printer : Nat String TimesObsList -> Bool .
+  --- eq obs-printer(N, S, TOL0) = true [print "\n" N " PACKETS AT " S ":    " TOL0 "\n"] .
+  eq obs-printer(N, S, TOL0) = true [print "\n" N " PACKETS AT " S "\n"] .
+
+  op print-visible-pkts : Config -> List{Bool} .
+  op print-visible-pkts-aux : TimesObsList String -> Bool .
+
+  eq print-visible-pkts (
+    < ADDR : Adversary | dns: TOL0, tcp: TOL1, useTcpTPL: B > C
+  ) =
+    --- print-visible-pkts-aux(filter-visible(ixpN, TOL1), "ixpN")
+    --- print-visible-pkts-aux(filter-visible(ixpN, TOL1), "ixpNasg")
+    print-visible-pkts-aux(filter-visible(srvN, TOL1), "srvN") 
+    --- print-visible-pkts-aux(filter-visible(dnsN, TOL1), "dnsN") 
+    print-visible-pkts-aux(filter-visible(cl[1], TOL1), "cl[1]") 
+    --- print-visible-pkts-aux(filter-visible(cl[2], TOL1), "cl[2]") 
+    --- print-visible-pkts-aux(filter-visible(cl[3], TOL1), "cl[3]") 
+  .
+
+  eq print-visible-pkts-aux(TOL0, S) = obs-printer(len(TOL0), S, TOL0) .
+
 endm
 
 mod TEST-UTILS_TEST is
@@ -108,6 +159,8 @@ mod TEST-UTILS_TEST is
 
   ops SRC-ADDR DST-ADDR : -> Address .
 endm
+
+eof
 
 rew getTotalBytesSent(< MON:Address : IrcMonitor |
                           msgSent: (messageTimestamp(1.0, SRC-ADDR, DST-ADDR, 90, makeIrcChannelName("BBN"), 44354)
