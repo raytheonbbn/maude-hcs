@@ -574,10 +574,8 @@ mod SMC_CP4 is
     individualClientAvailability (ircAddr, getChannels(cMap, ircAddr), filterWindow(sentMTL, Tstart, Tend), filterWindow(rcvdMTL, Tstart, Tend)) .
 
   -------------------------------------------------------------------------------------------------
-  --- Confidentiality (KS Statistic)
+  --- Confidentiality 
   -------------------------------------------------------------------------------------------------
-
-  var baselineCDF : List{Float} .
 
   sort TimedFloat .
   sort TimedFloatList .
@@ -585,67 +583,14 @@ mod SMC_CP4 is
   
   var TFL : TimedFloatList .
   vars winSize binSize : Float .
-  vars S Z H : Float .
 
   var M : Msg .
   var QUERY : Query .
   var RESP : Response .
-  vars K Ksum : Float .
 
   op timedFloat : Float Float -> TimedFloat .
   op nilTimedFloatList : -> TimedFloatList [ctor] .
   op __ : TimedFloatList TimedFloatList -> TimedFloatList [ctor assoc id: nilTimedFloatList] .
-
-  op countEqPrefix : Float List{Float} -> Nat .
-  eq countEqPrefix (F, nil) = 0 .
-  eq countEqPrefix (F, F' FL) = if F == F' then 1 + countEqPrefix(F, FL) else 0 fi .  
-
-  op rmEqPrefix : Float List{Float} -> List{Float} .
-  eq rmEqPrefix (F, nil) = nil .
-  eq rmEqPrefix (F, F' FL) = if F == F' then rmEqPrefix(F, FL) else F' FL fi .
-
-  vars FL1 FL2 : List{Float} .
-  vars C1 C2 : Nat .
-
-  sort PrefixInfo .
-  op prefix : Nat List{Float} -> PrefixInfo [ctor] .
-
-  op incPrefix : PrefixInfo -> PrefixInfo .
-  eq incPrefix (prefix(N, FL)) = prefix(N + 1, FL) .
-
-  op skipEqPrefix : Float List{Float} -> PrefixInfo .
-  eq skipEqPrefix (F, nil) = prefix(0, nil) .
-  eq skipEqPrefix (F, F FL) = incPrefix(skipEqPrefix(F, FL)) .
-  ceq skipEqPrefix (F, F' FL) = prefix(0, F' FL) if F =/= F' .
-
-  vars invN invN' : Float . 
-
-  op KsDistanceX : List{Float} List{Float} Nat Nat Float Float Float -> Float .
-  eq KsDistanceX(nil, nil, I, J, invN, invN', D) = D .
-  eq KsDistanceX(F FL, nil, I, J, invN, invN', D) = max2(D, abs((float(I) * invN) + (- 1.0))) .
-  eq KsDistanceX(nil, F' FL', I, J, invN, invN', D) = max2(D, abs(1.0 + (- (float(J) * invN')))) .
-
-  ceq KsDistanceX(F FL, F' FL', I, J, invN, invN', D) =
-    KsDistanceX(FL1, FL2, I + C1, J + C2, invN, invN', max2(D, abs((float(I + C1) * invN) + (- (float(J + C2) * invN')))))
-    if F == F'
-      /\ prefix(C1, FL1) := skipEqPrefix(F, F FL)
-      /\ prefix(C2, FL2) := skipEqPrefix(F', F' FL') .
-
-  ceq KsDistanceX(F FL, F' FL', I, J, invN, invN', D) =
-    KsDistanceX(FL, F' FL', I + 1, J, invN, invN', max2(D, abs((float(I + 1) * invN) + (- (float(J) * invN')))))
-    if F < F' .
-
-  ceq KsDistanceX(F FL, F' FL', I, J, invN, invN', D) =
-    KsDistanceX(F FL, FL', I, J + 1, invN, invN', max2(D, abs((float(I) * invN) + (- (float(J + 1) * invN')))))
-    if F > F' .
-
-  op KsDistance : List{Float} List{Float} -> Float .
-  eq KsDistance(nil, FL) = -1.0 .
-  eq KsDistance(FL, nil) = -1.0 .
-  eq KsDistance(FL, FL') = KsDistanceX(FL, FL', 0, 0, 1.0 / float(len(FL)), 1.0 / float(len(FL')), 0.0) [owise] .
-
-  op KsStatisticZ : List{Float} List{Float} Float -> Float .
-  eq KsStatisticZ (FL, FL', K) = KsDistance(FL, FL') + (- K) .
 
   sort FlowList .
   subsort Flow < FlowList .
@@ -675,7 +620,6 @@ mod SMC_CP4 is
   vars vp vp' : NetId .
 
   vars TOL : TimesObsList .
-  vars F0Z GtZ : TimesObsList .
   var TsML : TimesObsList .
   var TsPL : TimesObsList .
 
@@ -781,56 +725,6 @@ mod SMC_CP4 is
   op collectObsFeature : NetId Feature TimesObsList Float Float Float -> List{Float} .
   eq collectObsFeature (vp, obsF, TOL, Tstart, winSize, binSize) = removeZero(sort(collectObsFeatureX(vp, obsF, TOL, Tstart, Tstart + winSize, binSize))) .
  
-  var TOLL : TimesObsLL .
-
-  op getBaselineCDFObsFeature : NetId Feature TimesObsList TimesObsLL Float Float Float -> List{Float} .
-  eq getBaselineCDFObsFeature (vp, obsF, F0Z, TOLL, Tstart, Tend, binSize) = getECDFObsFeature(vp, obsF, F0Z, TOLL, Tstart, Tend, binSize) . 
-
-  op getECDFObsFeature : NetId Feature TimesObsList TimesObsLL Float Float Float -> List{Float} . 
-  eq getECDFObsFeature (vp, tcpActiveFlow, TOL, TOLL, Tstart, winSize, binSize) =
-    collectObsFeature(vp, tcpActiveFlow, TOL, Tstart, winSize, binSize) .
-  eq getECDFObsFeature (vp, tcpNewCnx, TOL, TOLL, Tstart, winSize, binSize) = 
-    collectObsFeature(vp, tcpNewCnx, TOL, Tstart, winSize, binSize) . 
-  eq getECDFObsFeature (vp, obsF, TOL, TOLL, Tstart, winSize, binSize) = 
-    collectObsFeatureFlow(vp, obsF, TOLL, Tstart, winSize, binSize) [owise] .
-
-  op collectObsFeatureFlow : NetId Feature TimesObsLL Float Float Float -> List{Float} .
-  eq collectObsFeatureFlow (vp, obsF, nilTOL, Tstart, winSize, binSize) = nil .
-  eq collectObsFeatureFlow (vp, obsF, [ TOL ] :; TOLL, Tstart, winSize, binSize) = smerge(collectObsFeature(vp, obsF, TOL, Tstart, winSize, binSize), collectObsFeatureFlow(vp, obsF, TOLL, Tstart, winSize, binSize)) .
-
-  var binECDFs : FloatLL .
-  var KD : Float .
-  var ECDF : List{Float} .
-
-  op getECDFObsFeature : FloatLL Nat -> List{Float} .
-  eq getECDFObsFeature (nilFloatL, N) = nil .
-  eq getECDFObsFeature ([ FL ] binECDFs, 0) = FL .
-  eq getECDFObsFeature ([ FL ] binECDFs, s(N)) = getECDFObsFeature(binECDFs, N) .
-
-  op getECDFObsFeatureRange : FloatLL Nat Nat -> List{Float} .
-  eq getECDFObsFeatureRange (binECDFs, I, J) = getECDFObsFeatureRangeAux(binECDFs, I, J, 0) .
-
-  op getECDFObsFeatureRangeAux : FloatLL Nat Nat Nat -> List{Float} .
-  eq getECDFObsFeatureRangeAux (nilFloatL, I, J, N) = nil .
-  ceq getECDFObsFeatureRangeAux ([ FL ] binECDFs, I, J, N) = nil if N > J .
-  ceq getECDFObsFeatureRangeAux ([ FL ] binECDFs, I, J, N) = smerge(FL, getECDFObsFeatureRangeAux(binECDFs, I, J, s(N))) if (N >= I) and (N <= J) .
-  eq getECDFObsFeatureRangeAux ([ FL ] binECDFs, I, J, N) = getECDFObsFeatureRangeAux(binECDFs, I, J, s(N)) [owise] .
-
-  op expectedKObsFeature : NetId Feature List{Float} FloatLL Float Float Float Float Float Nat -> Float .
-  ceq expectedKObsFeature (vp, obsF, baselineCDF, binECDFs, T, Tend, winSize, binSize, Ksum, N) =
-    if KD >= 0.0
-    then expectedKObsFeature(vp, obsF, baselineCDF, binECDFs, T + binSize, Tend, winSize, binSize, Ksum + KD, N + 1)
-    else expectedKObsFeature(vp, obsF, baselineCDF, binECDFs, T + binSize, Tend, winSize, binSize, Ksum, N) fi
-    if (T + winSize) <= (Tend + Tesp)
-      /\ ECDF := getECDFObsFeatureRange(binECDFs, floor(rat(T / binSize)), (floor(rat(T / binSize)) + floor(rat(winSize / binSize))) + (- 1)) 
-      /\ KD := KsDistance(baselineCDF, ECDF) .
-  ceq expectedKObsFeature (vp, obsF, baselineCDF, binECDFs, T, Tend, winSize, binSize, Ksum, N) =
-    if N == 0
-    then 0.0
-    else Ksum / float(N)
-    fi
-    if (T + winSize) > (Tend + Tesp) .
-
   op getTsML : Actor -> TimesObsList .
   eq getTsML (< ADDR : Adversary | dns: TsML, attrs >) = TsML .
 
