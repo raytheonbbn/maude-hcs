@@ -574,7 +574,7 @@ mod SMC_CP4 is
     individualClientAvailability (ircAddr, getChannels(cMap, ircAddr), filterWindow(sentMTL, Tstart, Tend), filterWindow(rcvdMTL, Tstart, Tend)) .
 
   -------------------------------------------------------------------------------------------------
-  --- Confidentiality (KS Statistic + CUSUM)
+  --- Confidentiality (KS Statistic)
   -------------------------------------------------------------------------------------------------
 
   var baselineCDF : List{Float} .
@@ -830,37 +830,6 @@ mod SMC_CP4 is
     else Ksum / float(N)
     fi
     if (T + winSize) > (Tend + Tesp) .
-
-  var Zt : List{Float} .
-  var blList : BaseLineList .
-
-  op nZ : -> Float .
-  eq nZ = -1.0e+5 .
-
-  op cusumRange : List{Float} Nat Nat -> Float .
-  ceq cusumRange(FL, I, J) = 0.0 if I > J .
-  ceq cusumRange(FL, I, J) = cusumRangeAux(FL, I, J, 0, 0.0) if I <= J .
-
-  op cusumRangeAux : List{Float} Nat Nat Nat Float -> Float .
-  eq cusumRangeAux(nil, I, J, N, S) = S .
-  ceq cusumRangeAux(Z FL, I, J, N, S) = S if N > J .
-  ceq cusumRangeAux(Z FL, I, J, N, S) = cusumRangeAux(FL, I, J, s(N), S) if N < I .
-  ceq cusumRangeAux(Z FL, I, J, N, S) = cusumRangeAux(FL, I, J, s(N), max2(0.0, S + Z)) if (N >= I) and (N <= J) and (Z > nZ) .
-  eq cusumRangeAux(Z FL, I, J, N, S) = cusumRangeAux(FL, I, J, s(N), S) [owise] .
-
-  op getZt : Actor NetId Feature -> List{Float} .
-  eq getZt (< ADDR : Adversary | gt: (bl(vp, obsF, K, Zt) :; blList), attrs >, vp, obsF) = Zt .
-  eq getZt (< ADDR : Adversary | gt: (bl(vp', obsF', K, Zt) :; blList), attrs >, vp, obsF) = 
-    getZt (< ADDR : Adversary | gt: (blList), attrs >, vp, obsF) [owise] .
-
-  op getCUSUMZt : Actor NetId Feature Float Float Float Float -> Float .
-  eq getCUSUMZt (< ADDR : Adversary | gt: nilBaseLine, attrs >, vp, obsF, Tstart, Tend, winSize, binSize) = nZ .
-  eq getCUSUMZt (< ADDR : Adversary | gt: (bl(vp, obsF, K, Zt) :; blList), attrs >, vp, obsF, Tstart, Tend, winSize, binSize) =
-    if (Tstart + winSize) <= Tend
-    then cusumRange(Zt, floor(rat(Tstart / binSize)), floor(rat((Tend + (- winSize)) / binSize))) 
-    else 0.0 fi .
-  eq getCUSUMZt (< ADDR : Adversary | gt: (bl(vp', obsF', K, Zt) :; blList), attrs >, vp, obsF, Tstart, Tend, winSize, binSize) =
-    getCUSUMZt (< ADDR : Adversary | gt: (blList), attrs >, vp, obsF, Tstart, Tend, winSize, binSize) [owise] .
 
   op getTsML : Actor -> TimesObsList .
   eq getTsML (< ADDR : Adversary | dns: TsML, attrs >) = TsML .
