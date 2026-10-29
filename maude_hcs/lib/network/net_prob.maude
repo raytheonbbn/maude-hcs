@@ -84,9 +84,11 @@ mod NETWORK_CONNECTION is
 **** Network Client Rules -- tcp
 ***********************************************************
 
+  --- Reject unrelated clients during matching, before evaluating the helper.
   crl [net-client-req]:
   rCtr(j)
-  < netAddr : NetClient | netAttrs >
+  < netAddr : NetClient | netAttrs0,
+      localIfaceAddr: LOCAL_ADDR, remoteChannelAddr: REMOTE_ADDR >
   < advAddr : Adversary | advAttrs >
     {T, (to tcp(REMOTE_ADDR) from LOCAL_ADDR : content)}
   =>
@@ -94,11 +96,10 @@ mod NETWORK_CONNECTION is
   < netAddr : NetClient | netAttrsNext >
   < advAddr : Adversary | advAttrs1 >
   smsgs
-  if netAttrs0, localIfaceAddr: LOCAL_ADDR,
-                remoteChannelAddr: REMOTE_ADDR 
-                := netAttrs
-  /\ {netAttrsNext, advAttrs1,smsgs,jNext} :=
-      netClientRcvTcpReq(netAttrs,advAttrs,netAddr,
+  if {netAttrsNext, advAttrs1,smsgs,jNext} :=
+      netClientRcvTcpReq(
+      (netAttrs0, localIfaceAddr: LOCAL_ADDR, remoteChannelAddr: REMOTE_ADDR),
+      advAttrs,netAddr,
       {T, (to REMOTE_ADDR from LOCAL_ADDR : content)},
       j)
           
@@ -268,15 +269,15 @@ eq qrMatch(Q:Query,R:Response) = false [owise] .
 )
 
 -----------------------------------
-  crl [net-client-resp]:
-  < netAddr : NetClient | netAttrs >
+  rl [net-client-resp]:
+  < netAddr : NetClient | netAttrs0,
+      remoteChannelAddr: REMOTE_ADDR, localIfaceAddr: LOCAL_ADDR >
     {T, (to LOCAL_ADDR from REMOTE_ADDR : 
          content :: flowAttrs)}
   =>
-  < netAddr : NetClient | netAttrs >
+  < netAddr : NetClient | netAttrs0,
+      remoteChannelAddr: REMOTE_ADDR, localIfaceAddr: LOCAL_ADDR >
   [0., (to LOCAL_ADDR from REMOTE_ADDR : content), 0]
-  if netAttrs0, remoteChannelAddr: REMOTE_ADDR,
-               localIfaceAddr: LOCAL_ADDR :=  netAttrs  
   [ print "(" T ") Net client " netAddr " handling response from " REMOTE_ADDR ", decapsulating transport." ]
   .
 
@@ -285,14 +286,15 @@ eq qrMatch(Q:Query,R:Response) = false [owise] .
   **** NS will process cnx from any client of the server
   **** stores the floInfo in the connection map
   ***********************************************************
+ --- Reject unrelated servers before evaluating connection helpers.
  crl [net-server-req]:
-  < netAddr : NetServer | netAttrs  >
+  < netAddr : NetServer | attrs0, localIfaceAddr: LOCAL_ADDR >
     {T, (to LOCAL_ADDR from remoteAddr : content :: flowAttrs)}
   =>
   < netAddr : NetServer | netAttrs1 >
   dmsg
-  if attrs0, localIfaceAddr: LOCAL_ADDR := netAttrs        
-  /\ attrs1, currentConnections: cnxMap := netAttrs        
+  if attrs1, currentConnections: cnxMap :=
+       (attrs0, localIfaceAddr: LOCAL_ADDR)
   /\ dmsg := [0., (to LOCAL_ADDR from remoteAddr : content), 0]
   /\ netAttrs1 := attrs1,
    **** currentConnections: (cnxMap :: [remoteAddr :-> flowAttrs])
@@ -302,7 +304,8 @@ eq qrMatch(Q:Query,R:Response) = false [owise] .
   
   crl [net-server-resp]:
   rCtr(j)
-  < netAddr : NetServer | netAttrs >
+  < netAddr : NetServer | attrs0,
+      localIfaceAddr: LOCAL_ADDR, ixpAddr: IXP_ADDR >
   < advAddr : Adversary | advAttrs >
     {T, (to tcp(REMOTE_ADDR) from LOCAL_ADDR : content)}
   =>
@@ -312,8 +315,7 @@ eq qrMatch(Q:Query,R:Response) = false [owise] .
   < advAddr : Adversary | advAttrs0 >
   [delay:Float, transportMsg, 0]
  
-   if attrs0, localIfaceAddr: LOCAL_ADDR, ixpAddr: IXP_ADDR
-      := netAttrs
+   if netAttrs := (attrs0, localIfaceAddr: LOCAL_ADDR, ixpAddr: IXP_ADDR)
     /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : content)
     /\ msg_src_to_ixp := 
           (to IXP_ADDR from LOCAL_ADDR : content)
