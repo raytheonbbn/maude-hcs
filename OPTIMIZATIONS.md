@@ -1,3 +1,6 @@
+# Optimizations 
+Including freezing, memoization, and other are documented in [ticket 114](https://github.com/raytheonbbn/maude-hcs/issues/114)
+
 # Independent random streams
 
 The model uses Philox4x32-10 through `streamRandom(streamId, index)`. It needs a
