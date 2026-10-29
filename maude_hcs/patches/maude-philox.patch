@@ -1,0 +1,75 @@
+--- a/src/BuiltIn/randomOpSymbol.hh
++++ b/src/BuiltIn/randomOpSymbol.hh
+@@ -31,7 +31,7 @@
+ class RandomOpSymbol : public NumberOpSymbol
+ {
+ public:
+-  RandomOpSymbol(int id);
++  RandomOpSymbol(int id, int arity = 1);
+ 
+   static void setGlobalSeed(mt19937::result_type value);
+ 
+--- a/src/BuiltIn/randomOpSymbol.cc
++++ b/src/BuiltIn/randomOpSymbol.cc
+@@ -46,11 +46,12 @@
+ //      built in stuff
+ #include "succSymbol.hh"
+ #include "randomOpSymbol.hh"
++#include <cstdint>
+ 
+ mt19937::result_type RandomOpSymbol::globalSeed = 0;
+ 
+-RandomOpSymbol::RandomOpSymbol(int id)
+-  : NumberOpSymbol(id, 1),
++RandomOpSymbol::RandomOpSymbol(int id, int arity)
++  : NumberOpSymbol(id, arity),
+     currentIndex(0),
+     currentState(globalSeed)
+ {
+@@ -102,6 +103,35 @@
+ RandomOpSymbol::eqRewrite(DagNode* subject, RewritingContext& context)
+ {
+   FreeDagNode* d = safeCast(FreeDagNode*, subject);
++  // Philox4x32-10: (draw index, stream identifier) form a 128-bit counter.
++  // The run seed is the key. No shared cursor, replay, or retained prefix.
++  if (arity() == 2)
++    {
++      DagNode* stream = d->getArgument(0);
++      DagNode* index = d->getArgument(1);
++      stream->reduce(context); index->reduce(context);
++      SuccSymbol* succ = getSuccSymbol();
++      if (!succ || !succ->isNat(stream) || !succ->isNat(index))
++        return tryEquations(subject, context);
++      const mpz_class& sid = succ->getNat(stream);
++      const mpz_class& pos = succ->getNat(index);
++      if (mpz_sizeinbase(sid.get_mpz_t(), 2) > 64 ||
++          mpz_sizeinbase(pos.get_mpz_t(), 2) > 64)
++        return tryEquations(subject, context);
++      uint64_t si = sid.get_ui(), ix = pos.get_ui(), key = globalSeed;
++      uint32_t c0 = ix, c1 = ix >> 32, c2 = si, c3 = si >> 32;
++      uint32_t k0 = key, k1 = key >> 32;
++      for (int round = 0; round < 10; ++round)
++        {
++          uint64_t p0 = uint64_t(0xD2511F53U) * c0;
++          uint64_t p1 = uint64_t(0xCD9E8D57U) * c2;
++          uint32_t n0 = uint32_t(p1 >> 32) ^ c1 ^ k0;
++          uint32_t n2 = uint32_t(p0 >> 32) ^ c3 ^ k1;
++          c0 = n0; c1 = uint32_t(p1); c2 = n2; c3 = uint32_t(p0);
++          k0 += 0x9E3779B9U; k1 += 0xBB67AE85U;
++        }
++      return succ->rewriteToNat(subject, context, mpz_class(c0));
++    }
+   DagNode* a = d->getArgument(0);
+   a->reduce(context);
+ 
+--- a/src/Mixfix/fancySymbols.cc
++++ b/src/Mixfix/fancySymbols.cc
+@@ -166,7 +166,7 @@
+ 	return new DivisionSymbol(name);
+       }
+     case SymbolType::RANDOM_OP_SYMBOL:
+-      return new RandomOpSymbol(name);
++      return new RandomOpSymbol(name, nrArgs);
+     case SymbolType::MATRIX_OP_SYMBOL:
+       return new MatrixOpSymbol(name, nrArgs);
+     case SymbolType::COUNTER_SYMBOL:
