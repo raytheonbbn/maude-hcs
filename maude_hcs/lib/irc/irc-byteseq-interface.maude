@@ -90,7 +90,9 @@ crl [fromIrc2ep]:
   smsgs
   if attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
   /\ msg := (to epAddr from ifAddr : ircToByteseq(ircMsg))
-  /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+  /\ {smsgs,j1} := (if trimAdapterJitter and delayType(msg) == "Constant"
+      then {[overhead(msg) + delayConst(msg),msg,0], s j}
+      else delayMsgsX(j,msg,null) fi)
   /\ mattrs1 := ircLogSent(mattrs,T, epAddr, ircAddr,ircMsg)
 [print "(" T ") " "IrcIface " ifAddr " transforms " ircMsg]  
 .
@@ -108,7 +110,9 @@ crl [fromEp2Irc]:
  if attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
  /\ ircMsg := ircFromByteseq(byteseq)
  /\ msg := (to ircAddr from ifAddr : ircMsg )
- /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+ /\ {smsgs,j1} := (if trimAdapterJitter and delayType(msg) == "Constant"
+      then {[overhead(msg) + delayConst(msg),msg,0], s j}
+      else delayMsgsX(j,msg,null) fi)
  /\ mattrs1 := ircLogRcvd(mattrs,T,ircAddr, epAddr,ircMsg)
 
 [print "(" T ") " "IrcIface " ifAddr "  rcvd " byteseq ]  .
