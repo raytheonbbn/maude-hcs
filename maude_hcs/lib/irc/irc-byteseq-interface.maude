@@ -107,7 +107,9 @@ crl [fromIrc2ep]:
   smsgs
   if attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
   /\ msg := (to epAddr from ifAddr : ircToByteseq(IRC_MSGS))
-  /\ {smsgs,j1} := delayMsgsX(j,msg,null)
+  /\ {smsgs,j1} := (if trimAdapterJitter and delayType(msg) == "Constant"
+      then {[overhead(msg) + delayConst(msg),msg,0], s j}
+      else delayMsgsX(j,msg,null) fi)
   /\ mattrs1 := ircLogSent(mattrs,T, epAddr, ircAddr, IRC_MSGS)
 [print "(" T ") " "IrcIface " ifAddr " transforms " IRC_MSGS]  
 .
@@ -144,7 +146,9 @@ crl [fromEp2Irc]:
    --- Translate multiple (or a single) byteseq(IrcMsg) into multiple messages
    --- with a single IrcMsg.
  /\ MSGS:Config := decodeIrcMsgs(unpackToMsgs(byteseq, ircAddr, ifAddr))
- /\ {smsgs,j1} := delayMsgsX(j, MSGS:Config, null)
+ /\ {smsgs,j1} := (if trimAdapterJitter and delayType(msg) == "Constant"
+      then {[overhead(msg) + delayConst(msg),msg,0], s j}
+      else delayMsgsX(j,msg,null) fi)
  /\ IRC_MSGS := configToIrcMsgList(MSGS:Config)
  /\ mattrs1 := ircLogRcvd(mattrs,T,ircAddr, epAddr, IRC_MSGS)
 
