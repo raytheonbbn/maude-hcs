@@ -389,7 +389,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, not
     L("  --- HCS Node Addresses")
     L("  ---------------------------------------------------")
     
-    L("  ops ircServerAddr s3SrvAddr ircMonitorAddr iodineMonitorAddr : -> Address .")
+    L("  ops ircServerAddr s3SrvAddr ircMonitorAddr : -> Address .")
     L("  ops masSrvAddr masNetSrvAddr : -> Address .")
     L("  ops advAddr : -> Address .")
     L("")
@@ -1426,7 +1426,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L("")
     
     L("  --- Base Infrastructure")
-    L("  ops ircServer s3SrvAct iodineMonitor advActor masNetSrv masSrvAct : -> Actor .")
+    L("  ops ircServer s3SrvAct advActor masNetSrv masSrvAct : -> Actor .")
     L("  eq ircServer      = mkIrcServer(ircServerAddr) .")
     L("  eq s3SrvAct       = ")
     L("    < s3SrvAddr : AwsS3HttpServer |")
@@ -1441,7 +1441,6 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  .")
     L("  eq masSrvAct      = makeMastodonServer(masSrvAddr) .")
     L("  eq masNetSrv       = makeNetServer(masNetSrvAddr, masSrvAddr) .")
-    L("  eq iodineMonitor  = mkWMonitor(iodineMonitorAddr) .")
     adv_use_tcp = "false" if perf else "true"
     L(f"  eq advActor       = mkAdversaryCp3(advAddr, {adv_use_tcp}) .")
     L("")
@@ -1621,7 +1620,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L("    baseLineAct")
         L("")
     L("    --- Core Infrastructure")
-    L("    ircServer s3SrvAct iodineMonitor masSrvAct")
+    L("    ircServer s3SrvAct masSrvAct")
     L("    mkIrcMonitor(ircMonitorAddr)")
     L("    servDns servNetCl")
     L("    advActor")

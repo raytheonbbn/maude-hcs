@@ -336,7 +336,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, not
     L("  --- HCS Node Addresses")
     L("  ---------------------------------------------------")
     
-    L("  ops ircServerAddr s3SrvAddr ircMonitorAddr iodineMonitorAddr : -> Address .")
+    L("  ops ircServerAddr s3SrvAddr ircMonitorAddr : -> Address .")
     L("  ops masSrvAddr masNetSrvAddr : -> Address .")
     L("  ops advAddr : -> Address .")
     L("")
@@ -1264,12 +1264,14 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  eq skyCl{i}Iface     = mkIrcByteSeqIface(skyCl{i}IfaceAddr, skyCl{i}IrcAddr, skyCl{i}CmacAddr) .")
         L(f"  eq skyCl{i}UmacAct   = mkUMactor(skyCl{i}UmacAddr, {sky_client_ma}, skyCl{i}CmacAddr) .")
         L(f"  eq skyCl{i}CmacAct   = mkCMSimpleBi(skyCl{i}CmacAddr, skyCl{i}IfaceAddr, skyCl{i}PuaAddr) .")
-        L(f"  eq skyCl{i}PuaAct    = makeSkyhookPU(skyCl{i}PuaAddr, skyCl{i}CmacAddr, skyCl{i}SdkacAddr, \"s_to_c_bucket_{i}\", \"c_to_s_bucket_{i}\", \"s_to_c_uuid_{i}\", \"c_to_s_uuid_{i}-#\") .")
+        # Object IDs are bucket-scoped decimal generations. The public user's
+        # first PUT is generation 1, matching the account holder's initial queue.
+        L(f"  eq skyCl{i}PuaAct    = makeSkyhookPU(skyCl{i}PuaAddr, skyCl{i}CmacAddr, skyCl{i}SdkacAddr, \"s_to_c_bucket_{i}\", \"c_to_s_bucket_{i}\", \"0\", \"1\") .")
         L(f"  eq skyCl{i}SdkacAct  = makeS3Client(skyCl{i}SdkacAddr, s3SrvAddr) .")
         L(f"  eq skyCl{i}SrvIface  = mkIrcByteSeqIface(skyCl{i}SrvIfaceAddr, ircServerAddr, skyCl{i}CmasAddr) .")
         L(f"  eq skyCl{i}UmasAct   = mkUMactor(skyCl{i}UmasAddr, {sky_server_ma}, skyCl{i}CmasAddr) .")
         L(f"  eq skyCl{i}CmasAct   = mkCMSimpleBi(skyCl{i}CmasAddr, skyCl{i}SrvIfaceAddr, skyCl{i}AhaAddr) .")
-        L(f"  eq skyCl{i}AhaAct    = mkSkyhookAH(skyCl{i}AhaAddr, skyCl{i}CmasAddr, skyCl{i}SdkasAddr, \"c_to_s_bucket_{i}\", \"s_to_c_bucket_{i}\", \"c_to_s_uuid_{i}\", \"s_to_c_uuid_{i}\", \"s_to_c_uuid_{i}\", 100) .")
+        L(f"  eq skyCl{i}AhaAct    = mkSkyhookAH(skyCl{i}AhaAddr, skyCl{i}CmasAddr, skyCl{i}SdkasAddr, \"c_to_s_bucket_{i}\", \"s_to_c_bucket_{i}\", \"0\", \"0\", \"0\", 100) .")
         L(f"  eq skyCl{i}SdkasAct  = makeS3Client(skyCl{i}SdkasAddr, s3SrvAddr) .")
         L(f"  eq skyCl{i}ClNet     = makeNetClient(skyCl{i}ClNetAddr,")
         L(f"                                       s3SrvAddr,")
@@ -1373,7 +1375,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L("")
     
     L("  --- Base Infrastructure")
-    L("  ops ircServer s3SrvAct iodineMonitor advActor masNetSrv masSrvAct : -> Actor .")
+    L("  ops ircServer s3SrvAct advActor masNetSrv masSrvAct : -> Actor .")
     L("  eq ircServer      = mkIrcServer(ircServerAddr) .")
     L("  eq s3SrvAct       = ")
     L("    < s3SrvAddr : AwsS3HttpServer |")
@@ -1388,7 +1390,6 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  .")
     L("  eq masSrvAct      = makeMastodonServer(masSrvAddr) .")
     L("  eq masNetSrv       = makeNetServer(masNetSrvAddr, masSrvAddr) .")
-    L("  eq iodineMonitor  = mkWMonitor(iodineMonitorAddr) .")
     adv_use_tcp = "false" if perf and not force_observer else "true"
     L(f"  eq advActor       = mkAdversaryCp3(advAddr, {adv_use_tcp}) .")
     L("")
@@ -1568,7 +1569,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L("    baseLineAct")
         L("")
     L("    --- Core Infrastructure")
-    L("    ircServer s3SrvAct iodineMonitor masSrvAct")
+    L("    ircServer s3SrvAct masSrvAct")
     L("    mkIrcMonitor(ircMonitorAddr)")
     L("    servDns servNetCl")
     L("    advActor")
