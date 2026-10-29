@@ -112,6 +112,21 @@ eq toInsert(tol0 ;; to1,to0,tol1) =
   fi)
   .
 
+--- Sort the incoming TCP batch with the existing stable insertion helper, then
+--- merge from the tails. Reuse the old prefix once the batch is exhausted.
+op mergeTcpHistory : TimesObsList TimesObsList -> TimesObsList .
+op mergeSortedTOLTail : TimesObsList TimesObsList TimesObsList -> TimesObsList .
+eq mergeTcpHistory(tol0,tol1) =
+  mergeSortedTOLTail(tol0,mergeTOL(nilTO,tol1),nilTO) .
+eq mergeSortedTOLTail(tol0,nilTO,tol) = tol0 ;; tol .
+eq mergeSortedTOLTail(nilTO,tol1,tol) = tol1 ;; tol .
+eq mergeSortedTOLTail(tol0 ;; to0,tol1 ;; to1,tol) =
+  (if getSendTime(to0) <= getSendTime(to1)
+   --- Take the new record first from the right on ties: old ties stay first.
+   then mergeSortedTOLTail(tol0 ;; to0,tol1,to1 ;; tol)
+   else mergeSortedTOLTail(tol0,tol1 ;; to1,to0 ;; tol)
+   fi) .
+
 ******** new stuff 26Aug12
 
   sort TimesObsLL .
