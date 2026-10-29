@@ -87,6 +87,8 @@ fmod SAMPLER-X is
   op genRandomString : Nat   Nat -> StringNat .
   ---                 Seed  Length  CurrentStr
   op $randomString :  Nat   Nat     String -> String .
+  op $stringChars : Nat Nat Nat String -> String .
+  eq $randomString(seed, strLen, sid) = $stringChars(seed, 0, strLen, sid) .
 
   --- Base case: length reached
 ****  eq randomString(seed, strLen) = $randomString(seed, strLen, "") .
@@ -99,15 +101,15 @@ fmod SAMPLER-X is
   --- Recursive step: 
   --- 1. Get a random number from the current seed
   --- 2. Map it to a lowercase char (97-122)
-  --- 3. Use the new random number as the next seed
-  ceq $randomString(seed, s(strLen), currentStr:String) = 
-    $randomString(randm:Nat,
+  --- 3. Advance the character index; the identifier token remains the stream ID
+  ceq $stringChars(seed, n, s(strLen), currentStr:String) =
+    $stringChars(seed, s n,
                   strLen,
                   currentStr:String + char(97 + (randm:Nat rem 26)))
-    if randm:Nat := sampleUniWithIntX(seed, seed + 26)
+    if randm:Nat := streamRandom(8589934592 + seed, n)
     .
 
-  eq $randomString(seed, 0, currentStr:String) = currentStr:String .
+  eq $stringChars(seed, n, 0, currentStr:String) = currentStr:String .
 
  **** probabalistic version
  op chooseWt : Map{String,Float}  Nat -> String .
