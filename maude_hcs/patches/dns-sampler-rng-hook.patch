@@ -1,0 +1,29 @@
+--- a/Maude/common/sampler.maude
++++ b/Maude/common/sampler.maude
+@@ -10,18 +10,22 @@
+   op sampleExp : Float -> [Float] .
+ 
+   --- TODO: do we really want to exclude 1.0? In the maude book, they use 4294967295
++  --- Extension point for downstream samplers; default preserves legacy RNG.
++  op samplerRandom : -> [Nat] .
++  eq samplerRandom = random(counter) [owise] .
++
+   op rand : -> [Float] .
+-  rl [rnd] : rand => float(random(counter) / 4294967296) .
++  rl [rnd] : rand => float(samplerRandom / 4294967296) .
+ 
+   op rrand : -> [Rat] .
+-  rl [rrnd] : rrand => random(counter) / 4294967296 .
++  rl [rrnd] : rrand => samplerRandom / 4294967296 .
+ 
+   vars n s : Nat .
+   var R R1 Min Max RAND : Float .
+ 
+   eq sampleBerWithP(R) = if rand < R then true else false fi .
+-  eq sampleUniWithInt(n) = random(counter) rem n .
+-  eq genRandom(Min, Max) = rand * (Max - Min) + Min .
++  eq sampleUniWithInt(n) = samplerRandom rem n .
++  eq genRandom(Min, Max) = rand * (Max - Min) + Min [owise] .
+   eq sampleExp(R) = (- log(rand)) / R .
+ 
+   op sampleNormal : -> [Float] .
