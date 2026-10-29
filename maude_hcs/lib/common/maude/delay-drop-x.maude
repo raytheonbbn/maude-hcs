@@ -59,12 +59,18 @@ eq dropXParamdX(j,msg) =
       else 0 fi) 
 .
 
+--- Domain 3 uses the existing monotonically allocated explicit cursor, but
+--- its values cannot alias application choices (domain 0) at the same index.
+op linkJitterX : Nat Float Float -> Float .
+eq linkJitterX(j,Min,Max) = if Min == Max then Min else
+  Min + float(streamRandom(3,j) / 4294967296) * (Max - Min) fi .
+
 **** Translation of delayParamd to use explicit random index
 op delayParamdX : Nat Msg -> Float .
 eq delayParamdX(j,msg) =
   overhead(msg) +
   (if delayType(msg) == "Constant"
-    then delayConst(msg) + genRandomX(j,noiseMin(msg), noiseMax(msg))
+    then delayConst(msg) + linkJitterX(j,noiseMin(msg), noiseMax(msg))
     else (if delayType(msg) == "Uniform"
       then sampleUniformX(j,delayConst(msg), delayConstMax(msg))
       else sampleNormalWithMeanSdX(delayMean(msg), delayStd(msg),j) 

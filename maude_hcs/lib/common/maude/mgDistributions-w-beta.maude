@@ -37,8 +37,10 @@
 ---- This file contains the definitions for the representation of the BPMN
 ----  process and the rules describing the BPMN behavioral semantics.
 
+sload random-streams
+
 fmod MGDISTRIBUTIONS-WITH-BETA is
-  pr RANDOM .
+  pr RANDOM-STREAMS .
   pr CONVERSION .
 
   vars F L M SG SH SC ND DD P LB UB : Float .
@@ -65,7 +67,7 @@ fmod MGDISTRIBUTIONS-WITH-BETA is
   --- Mean = 1/L: this is the parameter as argument
   --- exp(L) = (ln(1000) - ln(rand(1000))) / L
   op expDistr : Float Int -> Float .
-  eq expDistr(L, S) = (6.9077553 - log(float(random(S) rem 1000 + 1))) / L .
+  eq expDistr(L, S) = (6.9077553 - log(float(workloadRandom(S) rem 1000 + 1))) / L .
 
   --------------------------------------------------------------------------------------------
   --------------------------------WEIBULL DISTRIBUTION----------------------------------------
@@ -73,7 +75,7 @@ fmod MGDISTRIBUTIONS-WITH-BETA is
   --- M is the scale and SG is the shape
   op weibDistr : Float Float Int -> Float .
   eq weibDistr(M, SG, S)
-    = (-1.0 * M * log(float((random(S) rem 1000 + 1) / 1000))) ^ (1.0 / SG) .
+    = (-1.0 * M * log(float((workloadRandom(S) rem 1000 + 1) / 1000))) ^ (1.0 / SG) .
 
   --------------------------------------------------------------------------------------------
   ------------------------------NORMAL/GAUSS DISTRIBUTION--------------------------------------
@@ -81,8 +83,8 @@ fmod MGDISTRIBUTIONS-WITH-BETA is
   --- norm(M,SG) =  SG*norm(0,1) + M
   op standNormDistr : Int -> Float . --- Standard normal distribution (mean = 0, varianze = 1)
   eq standNormDistr(S)
-    = sqrt(-2.0 * log(float((random(S) rem 1000 + 1) / 1000))) *
-   				 cos(6.283185307 * float((random(S + 1) rem 1000 + 1) / 1000)) .
+    = sqrt(-2.0 * log(float((workloadRandom(S) rem 1000 + 1) / 1000))) *
+                  cos(6.283185307 * float((workloadRandom(S + 1) rem 1000 + 1) / 1000)) .
   op normDistr : Float Float Int -> Float .
   eq normDistr(M, SG, S) = SG * standNormDistr(S) + M .
 
@@ -133,7 +135,7 @@ fmod MGDISTRIBUTIONS-WITH-BETA is
   --- used to model the number of attemps between successive failures or successes.
   --- Mean = 1/L: this is the parameter as argument
   op geomDistr : Float Int -> Float .
-  eq geomDistr(L, S) = log(float((random(S) rem 100000 + 1) / 100000)) / log(1.0 - L) .
+  eq geomDistr(L, S) = log(float((workloadRandom(S) rem 100000 + 1) / 100000)) / log(1.0 - L) .
 
   --------------------------------------------------------------------------------------------
   --------------------------LOG-NORMAL DISTRIBUTION-------------------------------------------
@@ -160,7 +162,7 @@ fmod MGDISTRIBUTIONS-WITH-BETA is
   --- To generate random samples, we use the inverse transformation method:
   --- Generate u=U(0,1) and return p(a)=1/(u^(1/a))
   op paretDistr : Float Float Int -> Float .
-  eq paretDistr(SH, SC, S) = SC / (float(random(S) rem 100000 + 1) / 100000.0) ^ (1.0 / SH) .
+  eq paretDistr(SH, SC, S) = SC / (float(workloadRandom(S) rem 100000 + 1) / 100000.0) ^ (1.0 / SH) .
 
   -----------------------------------------------------------------------------------
   -----------------------------BINOMIAL DISTRIBUTION-------------------------------
@@ -174,7 +176,7 @@ fmod MGDISTRIBUTIONS-WITH-BETA is
   --- no further information is available
   --- U(LB, UB) : LB: lower bound, UB: upper bound
   op unifDistr : Float Float Int -> Float .
-  eq unifDistr(LB, UB, S) = LB + (float(random(S) rem 100000 + 1) / 100000.0) * (UB - LB) .
+  eq unifDistr(LB, UB, S) = LB + (float(workloadRandom(S) rem 100000 + 1) / 100000.0) * (UB - LB) .
   
   
   ---------------------------------------------------------------------------------
