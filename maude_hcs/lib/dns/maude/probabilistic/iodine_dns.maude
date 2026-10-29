@@ -308,22 +308,24 @@ crl [wnameserver-receive-query-weird]:
   eq packetizeProb(appAttrs, ALICE, BOB, noBytes, MIN_PKT_SIZE, MAX_PKT_SIZE)  = appAttrs
     [ print "Nothing to packetize (empty file)" ]
   .
-  ceq packetizeProb((appAttrs, queue: PACKET_LIST, packetCounter: N), ALICE, BOB, FILE, MIN_PKT_SIZE, MAX_PKT_SIZE) = appAttrs1
+  ceq packetizeProb((appAttrs, queue: PACKET_LIST, packetCounter: N, packetStream: STREAMID:Nat), ALICE, BOB, FILE, MIN_PKT_SIZE, MAX_PKT_SIZE) = appAttrs1
     if PktSize := getSize(FILE) 
-    /\ PACKETS' := $packetizeProb(mtpl, ALICE, BOB, FILE, PktSize, MIN_PKT_SIZE, MAX_PKT_SIZE, N)
+    /\ PACKETS' := $packetizeProb(mtpl, ALICE, BOB, FILE, PktSize, MIN_PKT_SIZE, MAX_PKT_SIZE, N, STREAMID:Nat)
     /\ maxCount:Nat := s getMaxPacketCount(PACKETS')
-    /\ appAttrs1 := (appAttrs, queue: (PACKET_LIST ; PACKETS'), packetCounter: maxCount:Nat)
+    /\ appAttrs1 := (appAttrs, queue: (PACKET_LIST ; PACKETS'), packetCounter: maxCount:Nat, packetStream: STREAMID:Nat)
     [ print "Packetizing " FILE " of size " PktSize "B into " PACKETS' ". Appending to " PACKET_LIST ]
   .
 
   ---             CurrentPktList Src   Dest      File FileSize Min Max Counter
-  op $packetizeProb : PacketList Address Address ByteSeq Nat Nat Nat Nat -> PacketList .
-  ceq $packetizeProb(PACKET_LIST, ALICE, BOB, FILE, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, PKT_COUNTER) = PACKETS
-    if PktSize := floor(MIN_PKT_SIZE + (MAX_PKT_SIZE + (- MIN_PKT_SIZE)) * (random(PKT_COUNTER) / 4294967296))
+  op $packetizeProb : PacketList Address Address ByteSeq Nat Nat Nat Nat Nat -> PacketList .
+  ceq $packetizeProb(PACKET_LIST, ALICE, BOB, FILE, FILE_SIZE, MIN_PKT_SIZE, MAX_PKT_SIZE, PKT_COUNTER, STREAMID:Nat) = PACKETS
+    if PktSize := (if FILE_SIZE <= MIN_PKT_SIZE then FILE_SIZE
+      else if MIN_PKT_SIZE == MAX_PKT_SIZE then MIN_PKT_SIZE
+      else floor(MIN_PKT_SIZE + (MAX_PKT_SIZE + (- MIN_PKT_SIZE)) * (streamRandom(4294967296 + STREAMID:Nat, PKT_COUNTER) / 4294967296)) fi fi)
       /\ PACKETS :=
         (if FILE_SIZE > PktSize
          then
-           $packetizeProb(PACKET_LIST ; packet(ALICE, BOB, FILE, PKT_COUNTER, PktSize + packetOverhead, false), ALICE, BOB, FILE, FILE_SIZE + (- PktSize), MIN_PKT_SIZE, MAX_PKT_SIZE, s PKT_COUNTER)
+           $packetizeProb(PACKET_LIST ; packet(ALICE, BOB, FILE, PKT_COUNTER, PktSize + packetOverhead, false), ALICE, BOB, FILE, FILE_SIZE + (- PktSize), MIN_PKT_SIZE, MAX_PKT_SIZE, s PKT_COUNTER, STREAMID:Nat)
          else
            (PACKET_LIST ; packet(ALICE, BOB, FILE, PKT_COUNTER, FILE_SIZE + packetOverhead, true))
          fi)
