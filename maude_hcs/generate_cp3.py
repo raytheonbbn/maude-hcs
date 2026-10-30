@@ -1486,7 +1486,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
             L(f"  eq {bn}NetClAct = makeNetClient({bn}NetClAddr,")
             L(f"                                  ftpSrvAddr,")
             L(f"                                  {bn}TgAddr,")
-            L(f"                                  true,")
+            L(f"                                  false,")
             L(f"                                  {corp_dns},")
             L(f"                                  nullName) .")
             L("")
@@ -1692,10 +1692,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
             
     L(f"  eq allClientsAddr = {' ; '.join(all_clients) if all_clients else 'nil'} .")
     L("endm")
-    L("eof")
-    L("--- set print attribute on .")
-    L("--- rew initConfig .")
-    L("--- q")
+    L("set print attribute on .")
     
     return "\n".join(lines)
 
