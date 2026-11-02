@@ -25,6 +25,8 @@ mod TEST-ENV is
   inc TEST .
   inc TEST-UTILS .
 endm
+
+set print attribute on .
 """
 
 def batch_convert_dir_v1(dir: Path, proto: str) -> None:

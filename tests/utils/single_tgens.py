@@ -100,7 +100,7 @@ class SingleTgenExperiment:
 
     def dir_name(self) -> str:
         if self._dir_name is None:
-            object.__setattr__(self, '_dir_name', f"{self.name}+{uuid.uuid4().hex}")
+            object.__setattr__(self, '_dir_name', f"{self.name}")
         assert isinstance(self._dir_name, str)
         return self._dir_name
 

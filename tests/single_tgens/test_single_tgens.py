@@ -85,6 +85,7 @@ if __name__ == "__main__":
                 "cl[5]"
             ],
             window_sizes=[600],
+            n_samples=256,
         )
         suite.append(exp)
 
