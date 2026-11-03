@@ -131,6 +131,13 @@ eq decodeIrcMsgs(
   = (to DST:Address from SRC:Address : IRC_MSG)
     decodeIrcMsgs(REST:Config)
 .
+--- Spread the messages to schedule delivery a small delta apart, keep the
+--- order.
+op scheduleSpreadIrcMsgs : Config -> Config .
+eq scheduleSpreadIrcMsgs(null) = null .
+eq scheduleSpreadIrcMsgs(msg REST:Config)
+  = [0.0001, msg, 0] scheduleSpreadIrcMsgs(REST:Config)
+.
 
 crl [fromEp2Irc]:
   rCtr(j)
@@ -138,7 +145,7 @@ crl [fromEp2Irc]:
   < ifAddr : IrcByteSeqIface | attrs >
   < monAddr : IrcMonitor | mattrs >
  =>
-  rCtr(j1)
+  rCtr(j)
   smsgs
   < ifAddr : IrcByteSeqIface |  attrs >
   < monAddr : IrcMonitor | mattrs1 >
@@ -146,9 +153,7 @@ crl [fromEp2Irc]:
    --- Translate multiple (or a single) byteseq(IrcMsg) into multiple messages
    --- with a single IrcMsg.
  /\ MSGS:Config := decodeIrcMsgs(unpackToMsgs(byteseq, ircAddr, ifAddr))
- /\ {smsgs,j1} := (if trimAdapterJitter and delayType(msg) == "Constant"
-      then {[overhead(msg) + delayConst(msg),msg,0], s j}
-      else delayMsgsX(j,msg,null) fi)
+ /\ smsgs := scheduleSpreadIrcMsgs(MSGS:Config)
  /\ IRC_MSGS := configToIrcMsgList(MSGS:Config)
  /\ mattrs1 := ircLogRcvd(mattrs,T,ircAddr, epAddr, IRC_MSGS)
 
