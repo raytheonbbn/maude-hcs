@@ -139,6 +139,8 @@ def get_obt_params_and_feats(result: str) -> tuple[dict, set]:
     obt_feats = set(result_dict["results"].keys())
     return (obt_params, obt_feats)
 
+@pytest.mark.suite("regression")
+@pytest.mark.regression_test_type("characterization")
 def test_characterization(test_cfg: TestConfig, run_cfg: RunConfig, file_regression: FileRegressionFixture) -> None:
     """Characterization tests only compare test results to a previously snapshotted "approved" result
     of the same test. If the snapshot is incorrect, results of this test are misleading!"""
@@ -171,6 +173,8 @@ def test_characterization(test_cfg: TestConfig, run_cfg: RunConfig, file_regress
         fullpath=fullpath,
     )
     
+@pytest.mark.suite("regression")
+@pytest.mark.regression_test_type("known_answer")
 def test_known_answer(test_cfg: TestConfig, run_cfg: RunConfig) -> None:
     """We use this test function when we already know the correct
     (or approximately correct) answer to compare test results to"""
