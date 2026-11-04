@@ -20,18 +20,12 @@ logger = logging.getLogger(__name__)
 manager = TestManager()
 
 char_tests = [
-    pytest.param(cfg, marks=[
-        pytest.mark.regression_test_type("characterization"),
-        pytest.mark.runner(cfg.runner),
-    ])
+    pytest.param(cfg, marks=pytest.mark.runner(cfg.runner))
     for cfg in manager.characterization_test_cfgs()
 ]
 
 ka_tests = [
-    pytest.param(cfg, marks=[
-        pytest.mark.regression_test_type("known_answer"),
-        pytest.mark.runner(cfg.runner),
-    ])
+    pytest.param(cfg, marks=pytest.mark.runner(cfg.runner))
     for cfg in manager.known_answer_test_cfgs()
 ]
 

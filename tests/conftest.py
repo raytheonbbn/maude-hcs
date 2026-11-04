@@ -51,6 +51,9 @@ def pytest_addoption(parser) -> None:
         action="store_true",
         help="allow partial comparisons of smc results when they don't measure exactly the same features. In that case, only" \
         "the features measured by both runs will be compared. This can be used e.g. to validate a short run against a long reference run.")
+    
+    # Options for confidentiality test suite
+    parser.addoption("--smoke", help="just make sure the confidentiality tests build and run, don't evaluate distinguishability")
 
 @pytest.fixture
 def run_cfg(request: pytest.FixtureRequest):
@@ -87,6 +90,8 @@ def pytest_configure(config) -> None:
         characterization=config.getoption("--characterization"),
         known_answer=config.getoption("--known-answer"),
         partial_smc_comp=config.getoption("--partial-smc-comp"),
+
+        smoke=config.getoption("--smoke"),
     )
 
     if config.getoption("--copy"):
@@ -97,7 +102,7 @@ def pytest_configure(config) -> None:
     maude.init()
 
 # We do all modification at the top level because every _modifyitems function sees ALL tests for the run anyways
-def pytest_collection_modifyitems(session, config, items) -> None:
+def pytest_collection_modifyitems(session, config, items: list[pytest.Item]) -> None:
     run_cfg: RunConfig = config.stash[run_cfg_key]
     selected = []
     deselected = []
@@ -117,7 +122,11 @@ def pytest_collection_modifyitems(session, config, items) -> None:
             if item_runner != run_cfg.runner:
                 deselected.append(item)
                 continue
-                
+
+        if "confidentiality" in str(item.name) and not (TestSuiteType.CONFIDENTIALITY & run_cfg.suite):
+            deselected.append(item)
+            continue
+
         selected.append(item)
 
     if deselected:

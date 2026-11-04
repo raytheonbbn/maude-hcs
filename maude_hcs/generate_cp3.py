@@ -1893,7 +1893,7 @@ def generate(args: argparse.Namespace):
     all_clients = get_client_lst(hcs_client_ids)
 
     logger.info("Features: %s", selected_feats)
-    logger.warning("Vantage points: %s", maude_vpts)
+    logger.info("Vantage points: %s", maude_vpts)
     logger.info("Clients: %s", all_clients)
 
     # Write queries to chosen quatex file path

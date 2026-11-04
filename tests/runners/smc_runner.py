@@ -124,6 +124,8 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
         format="json",
         plot=False,
         verbose=False,
+
+        smethod="chow-robbins",
     )
 
     logger.info(format_cmd(args, arg))
