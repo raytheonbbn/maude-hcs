@@ -1,0 +1,175 @@
+set show advisories off .
+
+sload ../../deps/dns_formalization/Maude/dns/common/prelim
+sload ../common/maude/cp2-interfaces.maude
+sload ../common/maude/delay-drop-x
+sload ../common/maude/adversary-cp3
+**** sload ../common/maude/dns-util
+
+mod NET-UDP is
+  pr CP2-COMMON .
+  inc MSG .
+  inc DELAY-X .
+  inc ADVERSARY-CP3 .
+****  inc DNS-UTIL .
+  
+  vars addr0 addr1  ixpAddr netAddr advAddr   : Address .
+  vars msg msg_to_tgt msg_to_net msg_to_ixp  : Msg .
+  vars dixp dtgt T : Float .
+  vars j j1 : Nat .
+  vars b b0 : Bool .
+  vars attrs netAttrs netAttrs0 netAttrs1  netAttrs2 
+       advAttrs advAttrs0 advAttrs1  : AttributeSet .
+  vars tmsg : TimesMsg .
+  vars dmsg : ScheduleMsg .
+  vars amsg : ActiveMsg .
+  vars msgs smsgs  : Config .
+  vars tml tml1 : TimesObsList .
+  vars content  : Content .
+****  vars query : Query .
+****  vars response : Response .
+
+
+op udp : Address -> Address [ctor] .
+
+**** ensure tml sorted by tsend
+op addTM2Dns : AttributeSet TimesObsList -> AttributeSet .
+eq addTM2Dns((attrs, dns: tml),tml1) =
+                            attrs, dns: mergeTOL(tml , tml1)
+                             .
+eq addTM2Dns(attrs,tml1) = (attrs, dns: tml1 ).
+
+ops NetUdp : -> ActorType .
+
+****  attributes
+***(
+  op pubDnsNetAddr:_ : Address -> Attribute [ctor] .
+  op localDnsAddr:_ :  Address -> Attribute [ctor] .
+  op pubDnsAddr:_ : Address -> Attribute [ctor] .
+  op pending:_ : Config -> Attribute [ctor] .
+)
+  op ixpAddr:_ : Address -> Attribute [ctor] .
+
+op mkNetUdpAct : Address Address -> Actor .
+eq mkNetUdpAct(netAddr, ixpAddr)  =
+    < netAddr : NetUdp | ixpAddr: ixpAddr >  .
+
+*********************************************************
+**** UDP query Rule
+***(
+NetUdp intercepts (to udp(tgt) from src : content)
+computes delays to ixp and tgt 
+logs timestamped message in adversary dns: attribute
+transmits [d, (to tgt from udp(src) : content,0)]
+
+Note -- current use is for dns coms, but any 
+request-responser over udp communication pattern 
+will work
+)
+
+***********************************************************
+ 
+ *** assuming only a forwarder Dns actor knows the net-dns-client
+ *** and only sends queries
+ 
+  crl [net-udp-intercept]:
+  rCtr(j)
+  < netAddr : NetUdp | netAttrs >
+  < advAddr : Adversary | advAttrs >
+    {T, (to udp(addr0) from addr1 : content)}
+  =>
+  rCtr(j1)
+  < netAddr : NetUdp | netAttrs >
+  < advAddr : Adversary | advAttrs1 >
+  smsgs
+  if amsg := {T,(to udp(addr0) from addr1 : content)}
+  /\ {advAttrs1,smsgs,j1}   
+       := handleUdp(netAttrs,advAttrs,netAddr,amsg,j) 
+[print "(" T ") NetUdp  handling  " amsg]        
+  .
+     
+  op handleUdp : AttributeSet AttributeSet Address
+          ActiveMsg Nat -> AttributeSetMsgsNat .
+  eq handleUdp(netAttrs,advAttrs,netAddr,amsg,j) =
+      {advAttrs,null,j}
+   [owise print "handleNetUdp fails amsg " amsg] .
+      
+  ceq handleUdp(netAttrs,advAttrs,netAddr,amsg,j) =
+    {advAttrs1,dmsg,s s j}  
+  if netAttrs0, ixpAddr: ixpAddr := netAttrs
+  /\ {T,(to udp(addr0) from addr1 : content ) } := amsg
+  /\ msg_to_net := (to addr0 from udp(addr1) : content)
+  /\ msg_to_tgt := (to addr0 from addr1 : content)
+  /\ msg_to_ixp := (to ixpAddr from addr1  : content)
+  /\ dixp := delayParamdX(j,msg_to_ixp)  
+  /\ dtgt := delayParamdX(s j,msg_to_tgt)  
+  /\ tmsg := tm(T,T + dixp, T + dtgt, msg_to_tgt)
+  /\ advAttrs1 :=  addTM2Dns(advAttrs,tmsg)
+  /\ dmsg := [dtgt,msg_to_net,0]
+ .  
+
+endm
+
+
+mod TEST-NET-UDP is
+inc NET-UDP .
+
+ops nuAd cAd sAd ixpAd advAd  : -> Address .
+op nuAct : -> Actor .
+eq nuAct = mkNetUdpAct(nuAd, ixpAd)  .
+
+op advAct : -> Actor .
+eq advAct =   < advAd : Adversary | dns: nilTO > .
+
+ops Q R : -> Content .
+ops mQ mR : -> Msg .
+eq mQ = (to udp(sAd) from cAd : Q) .
+eq mR = (to udp(sAd) from cAd : R) .
+
+endm
+eof
+
+rew rCtr(9) nuAct advAct {1.0, (to udp(sAd) from cAd : Q)} .
+***(
+< nuAd : NetUdp | ixpAddr: ixpAd >
+< advAd : Adversary | dns: tm(1.0, 1.0, 1.0, to sAd from cAd : Q > 
+[0.0, to sAd from udp(cAd) : Q, 0]
+)
+
+rew rCtr(10) nuAct advAct {1.2, (to udp(cAd) from sAd : R)} .
+
+
+Test scenarios
+1. z-only_mastodon-onsie-udp
+Add link data for actual dns clients
+ **** masClient to pubRsv  client and server net
+ aaa(masCl9McacAddr, publicDnsAddr, LinkType-DnsComposed)
+ aaa(publicDnsAddr, masCl9McacAddr, LinkType-DnsComposed)
+ aaa(masCl9McasAddr, publicDnsAddr, LinkType-DnsComposed)
+ aaa(publicDnsAddr, masCl9McasAddr, LinkType-DnsComposed)
+ 
+ aaa(masCl10McacAddr, publicDnsAddr, LinkType-DnsComposed)
+ aaa(publicDnsAddr, masCl10McacAddr, LinkType-DnsComposed)
+ aaa(masCl10McasAddr, publicDnsAddr, LinkType-DnsComposed)
+ aaa(publicDnsAddr, masCl10McasAddr, LinkType-DnsComposed)
+
+**** many aaa's can be removed as they refer 
+**** to non-existant actors
+Omitted actors -- from initState
+***  ops corpMasDns servDns : -> Actor .
+***  ops corpMasNetCl servNetCl : -> Actor .
+***  ops publicResolverNetSrv : -> Actor .
+
+add nuAct
+
+masCl9ClNet = makeNetClient
+     corpMasDnsAddr  >>> udp(publicDnsAddr) 
+masCl9SrvNetCl  = makeNetClient
+     servDnsAddr >>>  udp(publicDnsAddr)
+ditto for masCl10Cl/NetSrvNetCl
+
+2. scenario1 with minimal tgens
+1 client per client net
+1 tgen medium speed of each class
+in MasNet only
+IRC mods
