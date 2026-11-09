@@ -115,6 +115,29 @@ rl [iface-set-link-state]:
 [print "(" T ") IrcIface " ifAddr " linkUp set to " b:Bool]
 .
 
+--- Compatibility for CP4 clients using the legacy idealized byte adapter.
+--- The session-aware adapter provides actual generation and socket semantics.
+rl [legacy-client-control]:
+  < ifAddr : IrcByteSeqIface | attrs >
+  {T, (to ifAddr from ircAddr : ClientControl(ep:Nat, ircMsg))}
+  => < ifAddr : IrcByteSeqIface | attrs > {T, (to ifAddr from ircAddr : ircMsg)} .
+rl [legacy-server-write]:
+  < ifAddr : IrcByteSeqIface | attrs >
+  {T, (to ifAddr from ircAddr : ServerWrite(ep:Nat, ircMsg))}
+  => < ifAddr : IrcByteSeqIface | attrs > {T, (to ifAddr from ircAddr : ircMsg)} .
+rl [legacy-retire-session]:
+  < ifAddr : IrcByteSeqIface | attrs >
+  {T, (to ifAddr from ircAddr : RetireSession(ep:Nat))}
+  => < ifAddr : IrcByteSeqIface | attrs > .
+rl [legacy-client-write]:
+  < ifAddr : IrcByteSeqIface | attrs >
+  {T, (to ifAddr from ircAddr : ClientWrite(ep:Nat, ircMsg))}
+  => < ifAddr : IrcByteSeqIface | attrs >
+     (if getLinkUp(attrs)
+      then [0.0, (to ircAddr from ifAddr : WriteAccepted(ep:Nat, ircMsg)), 0]
+           {T, (to ifAddr from ircAddr : ircMsg)}
+      else [0.0, (to ircAddr from ifAddr : WriteRejected(ep:Nat, ircMsg)), 0] fi) .
+
 crl [fromIrc2ep]:
   rCtr(j)
   {T, (to ifAddr from ircAddr : ircMsg)}

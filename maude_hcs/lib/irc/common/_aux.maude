@@ -97,6 +97,18 @@ mod IRC_NODE is
   op failoverCtr:_ : Nat -> Attribute [ctor] .
   op schedStarted:_ : Bool -> Attribute [ctor] .
 
+  --- FIFO of logical messages awaiting successful local send completion.
+  sort IrcSendQueue .
+  op emptySendQueue : -> IrcSendQueue [ctor] .
+  op queued : IrcMsg -> IrcSendQueue [ctor] .
+  op _++_ : IrcSendQueue IrcSendQueue -> IrcSendQueue [ctor assoc id: emptySendQueue] .
+  op sendQueue:_ : IrcSendQueue -> Attribute [ctor] .
+  op writePending:_ : Bool -> Attribute [ctor] .
+  op sessionRecord : Address Address Nat -> Attribute [ctor] .
+  op removeSessionRecord : AttributeSet Address -> AttributeSet .
+  eq removeSessionRecord((attrs, sessionRecord(IRC_CLIENT_ADDR, RB_ADDR, n:Nat)), IRC_CLIENT_ADDR) = attrs .
+  eq removeSessionRecord(attrs, IRC_CLIENT_ADDR) = attrs [owise] .
+
   ---- Make an IrcClient with no messages to send (no userId)
   -----               ItsAddr  RBAddr
   op mkIrcClient :    Address  Address -> Actor .
@@ -164,7 +176,9 @@ mod IRC_NODE is
         basePongTimeout: basePongTO:Float,
         droppedMsgCtr: 0,
         failoverCtr: 0,
-        schedStarted: false
+        schedStarted: false,
+        sendQueue: emptySendQueue,
+        writePending: false
     >
   .
 
