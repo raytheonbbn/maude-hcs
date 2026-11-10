@@ -42,15 +42,17 @@
 ---
 
 sload ./_webtunnel_aux
+sload ../network/transport.maude
 sload ../common/maude/cp2-interfaces.maude
 sload ../common/maude/delay-drop-x.maude
 
 mod WEBTUNNEL is
+  pr TRANSPORT .
   pr WEBTUNNEL_AUX .
   pr CP2-COMMON .
   inc DELAY-X .
 
-  vars newIrcClientAddr THIS_ADDR PROXY_ADDR IRC_SRV_ADDR IRC_CLIENT_ADDR WT_CLIENT_ADDR OLD_ADDR : Address .
+  vars newIrcClientAddr THIS_ADDR PROXY_ADDR REPLY_ADDR IRC_SRV_ADDR IRC_CLIENT_ADDR WT_CLIENT_ADDR OLD_ADDR : Address .
   vars REGISTERED_ADDR : Address .
   vars FROM_ADDR : Address .
   vars attrs attrsNext : AttributeSet .
@@ -60,11 +62,6 @@ mod WEBTUNNEL is
   vars T : Float .
   vars j j1 : Nat .
   vars smsgs : Config .
-
-  --- The transport to be used for WebTunnel.
-  --- It can be nothing (transport(any:Address) = any:Address) or tcp.
-  op transport : Address -> Address .
-  eq transport(any:Address) = any:Address [owise] .
 
   ---------------------------------------------------
   --- Webtunnel-specific timing constant
@@ -93,8 +90,8 @@ mod WEBTUNNEL is
   rCtr(j1)
   < THIS_ADDR : WtClient | tunnelState: Connecting, attrs >
     smsgs
-  if {smsgs, j1} :=
-      scheduleSendMsgs((to transport(getServerProxyAddr(attrs)) from THIS_ADDR
+    if {smsgs, j1} :=
+      scheduleSendMsgs((to transport(getServerProxyAddr(attrs), 1) from THIS_ADDR
                          : makeHttpRequest(getRequest, url("https://" + getTlsServerName(attrs) + "/" + getUpgradePath(attrs)))),
                         j)
   [ print "(" T ") WtClient " THIS_ADDR " initiating tunnel." ]
@@ -111,7 +108,7 @@ mod WEBTUNNEL is
   rCtr(j1)
   < THIS_ADDR : WtClient | tunnelState: Open, pendingMsgs: emptyQueue, attrs >
     smsgs
-  if {smsgs, j1} := scheduleSendMsgs(flushQueue(THIS_ADDR, transport(PROXY_ADDR), Q), j)
+  if {smsgs, j1} := scheduleSendMsgs(flushQueue(THIS_ADDR, transport(PROXY_ADDR, 1), Q), j)
   [ print "(" T ") WtClient " THIS_ADDR " tunnel now Open." ]
   .
 
@@ -126,7 +123,7 @@ mod WEBTUNNEL is
   < THIS_ADDR : WtClient | tunnelState: Open, ircClientAddr: newIrcClientAddr, attrs >
     smsgs
   if {smsgs, j1} :=
-      scheduleSendMsgs((to transport(getServerProxyAddr(attrs)) from THIS_ADDR
+      scheduleSendMsgs((to transport(getServerProxyAddr(attrs), 1) from THIS_ADDR
                         : makeHttpRequest(getRequest, IRC_MSG)),
                         j)
     /\ newIrcClientAddr := (if OLD_ADDR == nullAddr
@@ -176,7 +173,7 @@ mod WEBTUNNEL is
   --- WtConnect from a WtClient.  Register the tunnel, reply WtConnected.
   --- WtConnected is delayed by WtConnectOverhead on top of the normal link
   --- delay to model TLS handshake + HTTP 101 latency.
-  rl [wt-proxy-connect]:
+  crl [wt-proxy-connect]:
   < THIS_ADDR : WtServerProxy | attrs, ircClientAddr: OLD_ADDR >
     {T, (to THIS_ADDR from WT_CLIENT_ADDR : makeHttpRequest(getRequest, url(PATH)))}
   =>
@@ -185,8 +182,13 @@ mod WEBTUNNEL is
       attrs >
     --- Schedule WtConnected with WtConnectOverhead to model TLS+HTTP 101 latency.
     [WtConnectOverhead,
-     (to transport(WT_CLIENT_ADDR) from THIS_ADDR : makeHttpResponse("101 Switching Protocols")),
+     (to REPLY_ADDR from THIS_ADDR : makeHttpResponse("101 Switching Protocols")),
      0]
+     if ID:ConnxnHandle := getConnxnHandle(WT_CLIENT_ADDR)
+       /\ REPLY_ADDR := (if ID:ConnxnHandle == nilConnxnHandle
+                            then transport(WT_CLIENT_ADDR, 1)
+                            else WT_CLIENT_ADDR
+                        fi)
   [ print "(" T ") WtServerProxy " THIS_ADDR " accepted tunnel from " WT_CLIENT_ADDR "." ]
   .
 
@@ -223,11 +225,15 @@ mod WEBTUNNEL is
   rCtr(j1)
   < THIS_ADDR : WtServerProxy | attrs, ircServerAddr: IRC_SRV_ADDR >
     smsgs
-  if WT_CLIENT_ADDR := getIrcClientAddr(attrs)
-    /\ isKnownWtClient(WT_CLIENT_ADDR, WT_CLIENT_ADDR)
-    /\ {smsgs, j1} :=
-          scheduleSendMsgs((to transport(WT_CLIENT_ADDR) from THIS_ADDR
-                            : makeHttpResponse("OK", IRC_MSG)),
+    if WT_CLIENT_ADDR := getIrcClientAddr(attrs)
+      /\ isKnownWtClient(WT_CLIENT_ADDR, WT_CLIENT_ADDR)
+      /\ ID:ConnxnHandle := getConnxnHandle(WT_CLIENT_ADDR)
+      /\ REPLY_ADDR := (if ID:ConnxnHandle == nilConnxnHandle
+                            then transport(WT_CLIENT_ADDR, 1)
+                            else WT_CLIENT_ADDR
+                        fi)
+      /\ {smsgs, j1} :=
+          scheduleSendMsgs((to REPLY_ADDR from THIS_ADDR : makeHttpResponse("OK", IRC_MSG)),
                             j)
   [ print "(" T ") WtServerProxy " THIS_ADDR " routing " IRC_MSG
           " to tunnel " WT_CLIENT_ADDR "." ]
