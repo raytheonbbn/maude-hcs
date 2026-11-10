@@ -35,8 +35,8 @@ sload ../common/maude/dns-util
 sload gen-tpl .
 
 mod NETWORK_CONNECTION is
-  pr CP2-COMMON .
   pr NETWORK_NODE .
+  pr CP2-COMMON .
   pr TCP_NODE .
   pr TCP_SOCKET .
   inc MSG .
@@ -44,24 +44,29 @@ mod NETWORK_CONNECTION is
   inc DELAY-X .
   inc DNS-UTIL .
   
-  vars channelClientAddr channelServerAddr netAddr netClientAddr netServerAddr remoteAddr LOCAL_ADDR REMOTE_ADDR IXP_ADDR : Address .
-  vars flowAttrs linkAttrs linkToIxpAttrs netAttrs netAttrsNext netAttrsTrans logAttrs logAttrsNext pktAttrs : AttributeSet .
+  vars advAddr rsvAddr : Address .
+  vars channelClientAddr channelServerAddr localAddr netAddr netClientAddr netServerAddr remoteAddr LOCAL_ADDR REMOTE_ADDR IXP_ADDR : Address .
+  vars advAttrs : AttributeSet .
+  vars flowAttrs linkAttrs linkToIxpAttrs netAttrs netAttrsNext netAttrsLast netAttrsTrans logAttrs logAttrsNext pktAttrs : AttributeSet .
+  vars connxnAttrs connxnAttrsTrans connxnAttrsNext : AttributeSet .
   vars pktAttrsAtIxp  : AttributeSet .
   vars CURRENT_CONNECTION : AttributeSet .
+  vars smsgs amsgs amsgs0 conf msgs : Config .
   vars content : Content .
+  vars connxnHandle CONNXN_HANDLE : ConnxnHandle .
   vars T T0 : Float .
   vars TIME_LIST TIME_LIST_TO_IXP : FloatList .
-  vars msg msg0 msg_to_ixp transportMsg
-        msg_src_to_ixp msg_ixp_to_tgt  : Msg .
+  vars ackTimerMsg msg msg0 msg_to_ixp transportMsg msg_src_to_ixp msg_ixp_to_tgt  : Msg .
   vars j j1 jTrans jNext n ctr : Nat .
   vars amsg  amsg0 : ActiveMsg .
+  vars dnsResponse : Response .
   vars dmsg : ScheduleMsg .
   
+***(
   vars k msgSize : Nat .
   vars b b0 : Bool .
   vars isNewConnection : Bool .
   vars fid : Nat .
-  vars advAddr  rsvAddr : Address .
   vars advAttrs advAttrs0 advAttrs1 attrs0 attrs1 attrs
        netAttrs0 netAttrs1 netAttrs2 flowAttrs0
        netAttrsNext0 netAttrsNext1 linkAttrs1 linkAttrs2 
@@ -72,10 +77,8 @@ mod NETWORK_CONNECTION is
   vars clientFlowKey serverFlowKey : TcpFlowKey .
   vars tpl tml : TimesObsList .
   vars tmsg : TimesMsg .
-  vars smsgs amsgs amsgs0 conf msgs : Config .
   vars name : Name .
   vars query : Query .
-  vars response : Response .
   vars size_list : NatList .
   
   vars dtgt dixp : Float .
@@ -84,14 +87,124 @@ mod NETWORK_CONNECTION is
   sort AttrsAttrsMsgsNat .
   op `{_`,_`,_`,_`} : AttributeSet AttributeSet Config Nat 
   -> AttrsAttrsMsgsNat [ctor] .
-
+)
  
-*********************************************************
-**** Network Client Rules -- tcp
-***********************************************************
+  *********************************************************
+  **** Network Actor Rules -- tcp
+  ***********************************************************
+  --- From local channel endpoint to remote channel endpoint, before transport
+  --- is applied.
+  crl [net-tcp-tx-fwd]:
+    rCtr(j)
+    < netAddr : TransportActor | netAttrs >
+    < advAddr : Adversary | advAttrs >
+    --- msg is of the form to tcp(dst) from src : content.
+    {T, msg}
+  =>
+    rCtr(jNext)
+    < netAddr : TransportActor | netAttrsNext >
+    < advAddr : Adversary | advAttrs >
+    smsgs
+    if {netAttrsNext, smsgs, jNext} := handleTcpFwdTx(netAttrs, msg, j, T)
+    [ print "(" T ") Net Actor handled TCP req send, sending " smsgs ]
+  .
 
-  --- Reject unrelated clients during matching, before evaluating the helper.
-  crl [net-client-req]:
+
+  --- Receive req (in flight) and pass up a tcpOn reply address.
+  --- flowAttrs here holds only srcAddr, dstAddr, persist and connxnId.
+  crl [net-tcp-rx-fwd]:
+    < netAddr : TransportActor | netAttrs >
+    {T, (to REMOTE_ADDR from LOCAL_ADDR : content :: flowAttrs)}
+  =>
+    < netAddr : TransportActor | netAttrs >
+    [0., (to REMOTE_ADDR from tcpOn(LOCAL_ADDR, makeConnxnHandle(flowAttrs))  : content), 0]
+    if isFwd(flowAttrs, REMOTE_ADDR)
+    [ print "(" T ") Net Actor handled TCP req receive, passing up." ]
+  .
+
+
+  --- Send resp at destination (from local channel endpoint), before transport
+  --- is applied.
+  crl [net-tcp-tx-rev]:
+    rCtr(j)
+    < netAddr : TransportActor | netAttrs >
+    {T, msg}
+  =>
+    rCtr(jNext)
+    < netAddr : TransportActor | netAttrsLast >
+    smsgs
+    if {netAttrsLast, smsgs, jNext} := handleTcpRevTx(netAttrs, msg, j, T)
+    [ print "(" T ") Net Actor handled TCP resp send, sending " smsgs ]
+  .
+
+  --- flowAttrs carries connection identity; handleAckTimeout takes NetAttrs.
+  crl [net-tcp-ack-timeout]:
+    rCtr(j)
+    < netAddr : TransportActor | netAttrs >
+    {T, (to netAddr from netAddr : TcpAckTimeout(flowAttrs))}
+  =>
+    rCtr(jNext)
+    < netAddr : TransportActor | netAttrsLast >
+    smsgs
+    if connxnHandle := makeConnxnHandle(flowAttrs)
+      /\ {netAttrsLast, smsgs, jNext} := handleAckTimeout(netAttrs, connxnHandle, j, T)
+      --- TODO Cmerlin: If eph, schedule to terminate.
+    [ print "(" T ") Net Actor handled TCP ACK, resetting " flowAttrs " not to be busy." ]
+  .
+
+
+  --- Receive resp (in flight). Keep persistent connections; remove ephemeral ones.
+  --- flowAttrs here is the connection identity attached to the message.
+  crl [net-tcp-rx-rev]:
+    < netAddr : TransportActor | netAttrs >
+    {T, (to LOCAL_ADDR from REMOTE_ADDR : content :: flowAttrs)}
+  =>
+    < netAddr : TransportActor | netAttrsNext >
+  [0., (to LOCAL_ADDR from REMOTE_ADDR : content), 0]
+    if isRev(flowAttrs, LOCAL_ADDR)
+      /\ connxnHandle := makeConnxnHandle(flowAttrs)
+      /\ connxnAttrs := getConnxn(netAttrs, connxnHandle)
+      /\ netAttrsNext := (if isPersist(connxnHandle)
+                            then netAttrs
+                            else terminateConnxn(netAttrs, connxnHandle)
+                          fi)
+    [print "(" T ") TCP actor handling TCP response, sending to " LOCAL_ADDR ]
+  .
+
+  --- handleDnsResponse takes/returns ConnxnAttrs. Store it in NetAttrs.
+  --- Schedule the ACK for the first send on either kind of connection.
+  crl [net-dns-resp]:
+    {T, (to netAddr from rsvAddr : dnsResponse)}
+    rCtr(j)
+    < netAddr : TransportActor | netAttrs >
+    < advAddr : Adversary | advAttrs >
+  =>
+    rCtr(j1)
+    < netAddr : TransportActor | netAttrsNext >
+    < advAddr : Adversary | advAttrs >
+  smsgs ackTimer:Config
+    if response(connxnDnsId(netAddr, connxnHandle),
+                NAME:Name,
+                ANS:List{Record},
+                AUTH:List{Record},
+                ADD:List{Record},
+                RCODE:Nat) := dnsResponse
+    /\ connxnAttrs := getConnxn(netAttrs, connxnHandle)
+    /\ {connxnAttrsNext, smsgs, j1}
+          := handleDnsResponse(connxnAttrs,
+                               (to netAddr from rsvAddr : dnsResponse),
+                               j,
+                               T)
+    /\ ACK_DELAY:Float := max(0.0, getLastAck(getFwdFlow(connxnAttrsNext)) - T)
+    /\ ackTimer:Config := generateAckTimerMsg(smsgs, netAddr, ACK_DELAY:Float)
+    /\ netAttrsNext := setConnxn(netAttrs, connxnAttrsNext)
+    **** TODO Cmerlin: Rewrite adversary attributes.
+    [ print "(" T ") net actor received dns response for connxn " connxnHandle "." ]
+  .
+
+*** Keeping the following only until the adversary and TCP to IXP are back in.
+***(
+ crl [net-client-req]:
   rCtr(j)
   < netAddr : NetClient | netAttrs0,
       localIfaceAddr: LOCAL_ADDR, remoteChannelAddr: REMOTE_ADDR >
@@ -275,7 +388,7 @@ if netAttrs0, w4: (msgs (to rsvAddr from netAddr : query))
 /\ qrMatch(query,response)
 /\ netAttrs1 := netAttrs0, w4: msgs    
 .   
-
+)
 ***(
 op qrMatch : Query Response  -> Bool .
 
@@ -286,7 +399,7 @@ eq qrMatch(query(id:Id,name:Name,r:RType),
 eq qrMatch(Q:Query,R:Response) = false [owise] .
 
 )
-
+***(
 -----------------------------------
   rl [net-client-resp]:
   < netAddr : NetClient | netAttrs0,
@@ -398,6 +511,6 @@ eq qrMatch(Q:Query,R:Response) = false [owise] .
                      fi)
     [ print "(" T ") Net server " netAddr " handling response, sending " transportMsg "." ]
   .
-
+)
 endm
 eof
