@@ -39,8 +39,8 @@ mod MASTODON is
   pr MASTODON_DELAYS .
   pr DELAY-X .
   
-  vars raceboatCl ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR : Address .
-  vars attrs attrsNext : AttributeSet .
+  vars raceboatCl ADDR MAS_CLIENT_ADDR MAS_SERVER_ADDR REPLY_ADDR : Address .
+  vars attrs attrsNext attrsLast : AttributeSet .
   vars msgs : Config .
   vars raceboatReq : Content .
   vars httpRequest : HttpRequest .
@@ -55,12 +55,12 @@ mod MASTODON is
   vars T : Float . ---timestamp
   vars URL : Url .
 
-  op insertTransport : Msg -> Msg .
-  eq insertTransport((to DEST:Address from SRC:Address : content:Content))
-    = (to transport(DEST:Address) from SRC:Address : content:Content)
+  op insertTransport : Msg Nat -> Msg .
+  eq insertTransport((to DEST:Address from SRC:Address : content:Content), ID:Nat)
+    = (to transport(DEST:Address, ID:Nat) from SRC:Address : content:Content)
   .
-  eq insertTransport((to transport(DEST:Address) from SRC:Address : content:Content))
-    = (to transport(DEST:Address) from SRC:Address : content:Content)
+  eq insertTransport((to transport(DEST:Address) from SRC:Address : content:Content), ID:Nat)
+    = (to transport(DEST:Address, ID:Nat) from SRC:Address : content:Content)
   .
 
   --- Conditionally add transport (if destined to the Mastodon server) and 
@@ -73,7 +73,7 @@ mod MASTODON is
                           j)
     = (if getMastodonServerAddr(attrs) == DEST:Address
         --- Destined to go out to the server.
-        then scheduleSendMsgs((to transport(DEST:Address) from SRC:Address : content:Content),
+        then scheduleSendMsgs((to transport(DEST:Address, getConnxnId(attrs)) from SRC:Address : content:Content),
                               j)
         --- Destined for app (done).
         else {[0., (to DEST:Address from SRC:Address : content:Content), 0], j}
@@ -92,11 +92,12 @@ mod MASTODON is
     {T, (to MAS_CLIENT_ADDR from MAS_SERVER_ADDR : httpResponse)}
   =>
   rCtr(jnext)
-  < MAS_CLIENT_ADDR : MasClient | attrsNext >
+  < MAS_CLIENT_ADDR : MasClient | attrsLast >
     msgs
   if {attrsNext, msgOut} := handleReply(httpResponse, attrs)
     /\ opStack:OpStack := getOpStack(attrsNext)
-    /\ {msgs, jnext} := conditionalTransport(attrs, msgOut, j)
+    /\ attrsLast := incrementConnxnId(attrsNext)
+    /\ {msgs, jnext} := conditionalTransport(attrsLast, msgOut, j)
   [print "(" T ") Mastodon Client " MAS_CLIENT_ADDR " handling HTTP Response from Server, sending " msgOut]
   .
 
@@ -106,13 +107,14 @@ mod MASTODON is
   < MAS_CLIENT_ADDR : MasClient | attrs >
     {T, (to MAS_CLIENT_ADDR from raceboatCl : raceboatReq)}
   => 
-  < MAS_CLIENT_ADDR : MasClient | attrsNext >
+  < MAS_CLIENT_ADDR : MasClient | attrsLast >
   rCtr(jnext)
     --- TODO: Figure out what the correct delay should be.
     msgs
   if { attrsNext, msgOut } := dispatchRaceboatCommand(attrs, raceboatReq)
     /\ opStack:OpStack := getOpStack(attrsNext)
-    /\ {msgs, jnext} := scheduleSendMsgs(insertTransport(msgOut), j)
+    /\ attrsLast := incrementConnxnId(attrsNext)
+    /\ {msgs, jnext} := scheduleSendMsgs(insertTransport(msgOut, getConnxnId(attrsLast)), j)
   [ print "(" T ") Mastodon Client " MAS_CLIENT_ADDR " handling command " raceboatReq " from Raceboat, sending " msgOut ]
   **** " | OPS: " opStack:OpStack 
   .  
@@ -131,8 +133,9 @@ mod MASTODON is
   < MAS_SERVER_ADDR : MasServer | attrsNext >
     msgs
   if { attrsNext, msgOut } := handleRequest((to MAS_SERVER_ADDR from MAS_CLIENT_ADDR : REQ:Content), j, attrs)
+    --- Preserve the incoming connection handle for the response.
     --- The scheduleSendMsgs gets s j because handleRequest uses it to roll once.
-    /\ {msgs, jnext} := scheduleSendMsgs(scheduleWMastodonProcDelay(attrs, insertTransport(msgOut)),
+    /\ {msgs, jnext} := scheduleSendMsgs(scheduleWMastodonProcDelay(attrs, msgOut),
                                           s j)
   [print "(" T ") Mastodon Server handling HTTP Request, sending " msgOut]
   .
