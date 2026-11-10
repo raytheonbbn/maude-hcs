@@ -1,0 +1,211 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+--- Run: maude test_skyhook_tcp.maude
+--- One Skyhook pair, two Raceboat content managers and two S3 SDKs.
+--- One 50-byte request travels PU -> S3 -> AH; its reply travels back.
+--- Deterministic action requests replace the random user models here.
+--- The final fetch checks the 404 / empty-fetch path after the reply.
+--- Success leaves requestReceived, roundTripComplete and allActionsComplete.
+--- TCP opens with tcp(...); replies use tcpOn(...). No persistent connections.
+--- Identity mode has no NetActor. An incomplete run lacks completion markers.
+
+sload ../skyhook/skyhook_prob.maude
+sload ../raceboatSkyhook/maude/rb-cm-simple-bi.maude
+sload ./s3_protocol.maude
+sload ../network/net_prob.maude
+
+mod SKYHOOK_ROUNDTRIP_ADDRS is
+  inc TRANSPORT .
+  ops LOCAL-APP0 REMOTE-APP0 LOCAL-RB0 REMOTE-RB0 : -> Address .
+  ops LOCAL-UM0 REMOTE-UM0 PU0 AH0 PU-SDK0 AH-SDK0 S3-SERVER0 : -> Address .
+  ops DRIVER0 NET0 DNS0 ADV0 IXP0 : -> Address .
+endm
+
+mod SKYHOOK_ROUNDTRIP_TRANSPORT is
+  inc SKYHOOK_ROUNDTRIP_ADDRS .
+  --- The request ID does not select a persistent connection.
+  eq transport(S3-SERVER0, N:Nat) = tcppersist(S3-SERVER0, N:Nat) .
+endm
+
+mod SKYHOOK_ROUNDTRIP is
+  inc SKYHOOK .
+  inc CONTENT-MANAGER-SIMPLE-BI .
+  inc S3_PROTOCOL .
+  inc NETWORK_CONNECTION .
+  inc SKYHOOK_ROUNDTRIP_ADDRS .
+
+  ops requestBytes0 responseBytes0 : -> ByteSeq [ctor] .
+  eq getSize(requestBytes0) = 50 .
+  eq getSize(responseBytes0) = 50 .
+  ops requestReceived roundTripComplete allActionsComplete : Float -> Actor [ctor] .
+  op TestDriver : -> ActorType [ctor] .
+  op testStage:_ : String -> Attribute [ctor] .
+
+  --- Start the receiving fetch only after the public user's POST completes.
+  rl [test-request-posted]:
+    < DRIVER0 : TestDriver | testStage: "request-post" >
+    {T:Float, (to LOCAL-UM0 from LOCAL-RB0 : actionR("ok"))}
+  =>
+    < DRIVER0 : TestDriver | testStage: "request-fetch" >
+    [0.001, (to REMOTE-RB0 from REMOTE-UM0 :
+               actionQ("type" |-> js("fetch"))), 0]
+  .
+
+  rl [test-remote-application-receive]:
+    {T:Float, (to REMOTE-APP0 from REMOTE-RB0 : requestBytes0)}
+  =>
+    requestReceived(T:Float)
+    [0.0, (to REMOTE-RB0 from REMOTE-APP0 : responseBytes0), 0]
+    [0.001, (to REMOTE-RB0 from REMOTE-UM0 :
+               actionQ("type" |-> js("post"))), 0]
+    [ print "(" T:Float ") Remote application 0 received request; replying." ]
+  .
+
+  --- FETCH has completed in RB before it emits either this ack or app delivery.
+  --- The 1 ms pause above lets both notifications be consumed before the POST.
+  rl [test-request-fetched]:
+    < DRIVER0 : TestDriver | testStage: "request-fetch" >
+    {T:Float, (to REMOTE-UM0 from REMOTE-RB0 : actionR("ok"))}
+  =>
+    < DRIVER0 : TestDriver | testStage: "reply-post" >
+  .
+
+  rl [test-reply-posted]:
+    < DRIVER0 : TestDriver | testStage: "reply-post" >
+    {T:Float, (to REMOTE-UM0 from REMOTE-RB0 : actionR("ok"))}
+  =>
+    < DRIVER0 : TestDriver | testStage: "reply-fetch" >
+    [0.001, (to LOCAL-RB0 from LOCAL-UM0 :
+               actionQ("type" |-> js("fetch"))), 0]
+  .
+
+  rl [test-local-application-receive]:
+    {T:Float, (to LOCAL-APP0 from LOCAL-RB0 : responseBytes0)}
+  =>
+    roundTripComplete(T:Float)
+    [ print "(" T:Float ") Local application 0 received response: ROUND TRIP COMPLETE." ]
+  .
+
+  rl [test-empty-fetch]:
+    < DRIVER0 : TestDriver | testStage: "reply-fetch" >
+    {T:Float, (to LOCAL-UM0 from LOCAL-RB0 : actionR("ok"))}
+  =>
+    < DRIVER0 : TestDriver | testStage: "empty-fetch" >
+    [0.001, (to LOCAL-RB0 from LOCAL-UM0 :
+               actionQ("type" |-> js("fetch"))), 0]
+  .
+
+  rl [test-actions-done]:
+    < DRIVER0 : TestDriver | testStage: "empty-fetch" >
+    {T:Float, (to LOCAL-UM0 from LOCAL-RB0 : actionR("ok"))}
+  =>
+    < DRIVER0 : TestDriver | testStage: "done" >
+    allActionsComplete(T:Float)
+    [ print "(" T:Float ") Final empty fetch completed: ALL ACTIONS COMPLETE." ]
+  .
+
+  --- Test resolver, as in test_obfs4_tcp.maude. Preserve the complete query ID.
+  rl [test-dns-reply]:
+    {T:Float, (to DNS0 from SRC:Address :
+      query(connxnDnsId(SRC:Address, H:ConnxnHandle), NAME:Name, a))}
+  =>
+    [0.001, (to SRC:Address from DNS0 :
+               response(connxnDnsId(SRC:Address, H:ConnxnHandle), NAME:Name,
+                        < NAME:Name, a, 60.0, getDstAddr(H:ConnxnHandle) >,
+                        nil, nil, 0)), 0]
+    [ print "(" T:Float ") Test resolver replying for " H:ConnxnHandle ]
+  .
+
+  --- Two lossless 10 ms hops from either SDK to the S3 server.
+  eq IXP-DEFAULT-ADDR = IXP0 .
+  op hopAttrs : -> AttributeSet .
+  eq hopAttrs = (oneWayDelay: 0.01, canDrop: false, dropP: 0.0) .
+  eq LinkData = aaa(PU-SDK0, IXP0, hopAttrs)
+               aaa(AH-SDK0, IXP0, hopAttrs)
+               aaa(IXP0, S3-SERVER0, hopAttrs) .
+
+  --- Direct-mode HTTP traffic has the same 20 ms one-way link delay.
+  --- Local application / RB / SDK messages have no added link delay.
+  eq delayType(M:Msg) = "Constant" .
+  eq delayConst(to DST:Address from SRC:Address : C:HttpRequest) = 0.02 .
+  eq delayConst(to DST:Address from SRC:Address : C:HttpResponse) = 0.02 .
+  eq delayConst(M:Msg) = 0.0 [owise] .
+  eq noiseMin(M:Msg) = 0.0 .
+  eq noiseMax(M:Msg) = 0.0 .
+  eq overhead(M:Msg) = 0.0 .
+
+  op initState : -> Config .
+  eq initState =
+    rCtr(0)
+    < DRIVER0 : TestDriver | testStage: "request-post" >
+    mkCMSimpleBi(LOCAL-RB0, LOCAL-APP0, PU0)
+    mkCMSimpleBi(REMOTE-RB0, REMOTE-APP0, AH0)
+    makeSkyhookPU(PU0, LOCAL-RB0, PU-SDK0,
+                  "s-to-c-0", "c-to-s-0", "s-to-c-uuid-0", sha256("c-to-s-uuid-0"))
+    makeSkyhookAH(AH0, REMOTE-RB0, AH-SDK0,
+                  "c-to-s-0", "s-to-c-0", "c-to-s-uuid-0", "s-to-c-uuid-0", "s-to-c-uuid-0")
+    < PU-SDK0 : S3SdkClient | thisAddr: PU-SDK0,
+        realAwsAddr: S3-SERVER0, nextId: 1, pendingReqs: emptyS3ReqMap >
+    < AH-SDK0 : S3SdkClient | thisAddr: AH-SDK0,
+        realAwsAddr: S3-SERVER0, nextId: 1, pendingReqs: emptyS3ReqMap >
+    < S3-SERVER0 : AwsS3HttpServer |
+        thisAddr: S3-SERVER0, s3DataMap: emptyS3DataMap >
+    --- Exercise bucket / public-access / policy setup before the payload.
+    [0.01, (to AH0 from REMOTE-RB0 : SkyhookStartCmd), 0]
+    [1.0, (to LOCAL-RB0 from LOCAL-APP0 : requestBytes0), 0]
+    [1.001, (to LOCAL-RB0 from LOCAL-UM0 :
+               actionQ("type" |-> js("post"))), 0]
+  .
+
+  --- Identity transport: neither a NetActor nor its adversary is instantiated.
+  op initConfig : -> Config .
+  eq initConfig = run({0.0 | nil} initState, 10.0) .
+endm
+
+mod SKYHOOK_ROUNDTRIP_TCP is
+  inc SKYHOOK_ROUNDTRIP .
+  inc SKYHOOK_ROUNDTRIP_TRANSPORT .
+
+  op initTcpConfig : -> Config .
+  eq initTcpConfig = run({0.0 | nil} initState
+      makeTransportActor(NET0, S3-SERVER0, PU-SDK0, DNS0, 's3 . root)
+      mkAdversaryCp3(ADV0), 10.0) .
+endm
+
+set print attribute on .
+rew in SKYHOOK_ROUNDTRIP_TCP : initTcpConfig .
+
+--- Control: same Skyhook/S3 actors, identity transport, no NetActor.
+*** rew in SKYHOOK_ROUNDTRIP : initConfig .
+--- Optional rule trace:
+*** set trace on .
+*** rew in SKYHOOK_ROUNDTRIP_TCP : initTcpConfig .
+*** set trace off .
