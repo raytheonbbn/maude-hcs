@@ -560,7 +560,10 @@ if js(room) := aspec["room"]
                 fi)
   /\ {attrs2, msgs} := (if chList == emptyIrcChannelNameList
                         then addQueueFlush(maybeStartMsgSched(attrs1, IRC_CLIENT_ADDR), IRC_CLIENT_ADDR)
-                        else {attrs1, [newPongTO, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientJoinTimeout(ep)), 0]}
+                        --- CP4 _rejoin_channels uses one shared deadline:
+                        --- number of requested channels * calibrated pong timeout.
+                        else {attrs1, [float(channelListLen(chList)) * newPongTO,
+                              (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientJoinTimeout(ep)), 0]}
                         fi)
   /\ {smsgs, j1} := (if chList == emptyIrcChannelNameList
                      then {[pingTO, (to IRC_CLIENT_ADDR from IRC_CLIENT_ADDR : ClientCheckStale(ep)), 0], j}
