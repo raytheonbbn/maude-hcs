@@ -310,15 +310,17 @@ mod TCP-ANALYTICAL-MODEL is
     if IDLE > rtoMinC and CWND > 10.0 .
   eq restartCwnd(CWND, IDLE) = CWND [owise] .
 
-  op prepareTcpState : AttributeSet Float -> AttributeSet .
-  eq prepareTcpState((attrs,
-                      cwnd: CWND,
-                      wMax: WMX,
-                      tSince: TS,
-                      inSS: INSS,
-                      lastSend: LS,
-                      lastAck: LA),
-                     NOW)
+  --- Initialize missing TCP state; otherwise apply idle restart
+  --- before the next send, or preserve state if no restart is needed.
+  op prepareTcpStateForSend : AttributeSet Float -> AttributeSet .
+  eq prepareTcpStateForSend((attrs,
+                             cwnd: CWND,
+                             wMax: WMX,
+                             tSince: TS,
+                             inSS: INSS,
+                             lastSend: LS,
+                             lastAck: LA),
+                            NOW)
     = (if (LS >= 0.0 and LA >= 0.0 and NOW >= LA and NOW - LS > rtoMinC)
         then (attrs,
               cwnd: restartCwnd(CWND, NOW - LS),
@@ -336,9 +338,9 @@ mod TCP-ANALYTICAL-MODEL is
               lastAck: LA)
       fi)
   .
-****  eq prepareTcpState(ST:AttributeSet, NOW) = ST [owise] .
-  eq prepareTcpState(ST:AttributeSet, NOW)
-    = prepareTcpState(updateTcpState(ST:AttributeSet, initTcpState), NOW)
+****  eq prepareTcpStateForSend(ST:AttributeSet, NOW) = ST [owise] .
+  eq prepareTcpStateForSend(ST:AttributeSet, NOW)
+    = prepareTcpStateForSend(updateTcpState(ST:AttributeSet, initTcpState), NOW)
     [owise]
   .
 
@@ -971,7 +973,7 @@ mod TCP-ANALYTICAL-MODEL is
                                        CC1:ChannelCfg,
                                        CC2:ChannelCfg,
                                        B,
-                                       prepareTcpState(ST:AttributeSet, NOW)),
+                                       prepareTcpStateForSend(ST:AttributeSet, NOW)),
                   NOW,
                   getOneWayDelay(linkAttrs1) + getOneWayDelay(linkAttrs2))
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
@@ -987,7 +989,7 @@ mod TCP-ANALYTICAL-MODEL is
                         CC1:ChannelCfg,
                         CC2:ChannelCfg,
                         B,
-                        prepareTcpState(ST:AttributeSet, NOW))
+                        prepareTcpStateForSend(ST:AttributeSet, NOW))
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
     /\ CC1:ChannelCfg := makeChannel(linkAttrs1)
     /\ CC2:ChannelCfg := makeChannel(linkAttrs2)
