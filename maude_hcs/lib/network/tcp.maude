@@ -1021,8 +1021,8 @@ mod TCP-ANALYTICAL-MODEL is
     (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
     MTU-SIZE-BYTES ::
     (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
-    MTU-SIZE-BYTES :: nilNatList .
-  eq hsSizes(false) = nilNatList .
+    MTU-SIZE-BYTES :: nilNL .
+  eq hsSizes(false) = nilNL .
 
   --- Get the TCP delivery sizes on the wire (in Bytes, including 52B headers)
   ---
@@ -1035,7 +1035,7 @@ mod TCP-ANALYTICAL-MODEL is
     if numOriginalSegments := ceilDiv(msgSize, MSS-SIZE-BYTES)
       /\ lastPayloadBytes := sd(msgSize, (numOriginalSegments - 1) * MSS-SIZE-BYTES)
       /\ lastPktSizeBytes := lastPayloadBytes + IP-HEADER-BYTES + TCP-HEADER-BYTES
-      /\ deliverySizes := $makeDeliverySizes(sd(numOriginalSegments, 1), MTU-SIZE-BYTES, nilNatList) :: lastPktSizeBytes
+      /\ deliverySizes := $makeDeliverySizes(sd(numOriginalSegments, 1), MTU-SIZE-BYTES, nilNL) :: lastPktSizeBytes
   .
 
   ---                   TotalMsgSize  DeliveryTimes
@@ -1078,7 +1078,7 @@ mod TCP_NODE is
   op getSegmentDistribution :  Nat   Msg AttributeSet  AttributeSet  Bool  AttributeSet  Float -> AttributeSet .
   ceq getSegmentDistribution(j, msg, attrs1, attrs2, b, ST:AttributeSet, NOW)
     = (timePacketListAtDst: times:FloatList,
-       ---timePacketListAtIxp: timesAtIxp:FloatList,
+       timePacketListAtIxp: timesAtIxp:FloatList,
        tcpState: updateTcpState(ST:AttributeSet, ST_OUT:AttributeSet),
        nextJ: j)
     if content := getContent(msg)
@@ -1092,6 +1092,8 @@ mod TCP_NODE is
                                   b,
                                   ST:AttributeSet,
                                   NOW)
+      --- TODO Acaro: Compute true timesAtIxp.
+      /\ timesAtIxp:FloatList := nilFL
     [ print "Final-destination time dispersion of segments from " msgSize "B message is " times:FloatList  "." ]
   .
   eq getSegmentDistribution(j, msg, attrs1, attrs2, b, ST:AttributeSet, NOW)
