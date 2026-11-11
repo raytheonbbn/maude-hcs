@@ -310,6 +310,16 @@ mod TCP-ANALYTICAL-MODEL is
     if IDLE > rtoMinC and CWND > 10.0 .
   eq restartCwnd(CWND, IDLE) = CWND [owise] .
 
+  op hasTcpState : AttributeSet -> Bool .
+  eq hasTcpState((attrs,
+                  cwnd: CWND,
+                  wMax: WMX,
+                  tSince: TS,
+                  inSS: INSS,
+                  lastSend: LS,
+                  lastAck: LA)) = true .
+  eq hasTcpState(attrs) = false [owise] .
+
   --- Initialize missing TCP state; otherwise apply idle restart
   --- before the next send, or preserve state if no restart is needed.
   op prepareTcpStateForSend : AttributeSet Float -> AttributeSet .
@@ -1076,9 +1086,9 @@ mod TCP_NODE is
   --- the queue tail. Do not store this result wrapper itself as fwdFlow/revFlow.
   --- updateTcpState preserves the non-TCP fields supplied in ST.
   --- Segment times are relative to NOW; lastSend/lastAck in tcpState are absolute.
-  ---                                   Seed  Msg Link1Attrs    Link2Attrs    isNew tcpState      now
-  op getSegmentDistribution :  Nat   Msg AttributeSet  AttributeSet  Bool  AttributeSet  Float -> AttributeSet .
-  ceq getSegmentDistribution(j, msg, attrs1, attrs2, b, ST:AttributeSet, NOW)
+  ---                                   Seed  Msg Link1Attrs    Link2Attrs    tcpState      now
+  op getSegmentDistribution :  Nat   Msg AttributeSet  AttributeSet  AttributeSet  Float -> AttributeSet .
+  ceq getSegmentDistribution(j, msg, attrs1, attrs2, ST:AttributeSet, NOW)
     = (timePacketListAtDst: times:FloatList,
        timePacketListAtIxp: timesAtIxp:FloatList,
        tcpState: updateTcpState(ST:AttributeSet, ST_OUT:AttributeSet),
@@ -1087,6 +1097,7 @@ mod TCP_NODE is
       /\ attrs1 =/= noneAS 
       /\ attrs2 =/= noneAS 
       /\ msgSize := getSize(content)
+      /\ b := not hasTcpState(ST:AttributeSet)
       /\ tlR(times:FloatList, ST_OUT:AttributeSet)
             := tcpFinalDestResult(msgSize,
                                   attrs1,
