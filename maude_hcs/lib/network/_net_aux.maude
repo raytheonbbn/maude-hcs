@@ -385,11 +385,13 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
     [owise print "Error: Cannot do DNS lookup, no match."]
   .
 
-  --- Prepare the reverse flow's TCP state.
+  --- Initialize missing reverse TCP state without adjusting existing state.
+  --- Apply idle restart only when the reverse flow actually sends.
   ---               ConnxnAttrs  Now   -> ConnxnAttrs
   op initRevState : AttributeSet Float -> AttributeSet .
-  eq initRevState(connxnAttrs, NOW)
+  ceq initRevState(connxnAttrs, NOW)
     = setRevFlow(connxnAttrs, prepareTcpStateForSend(getRevFlow(connxnAttrs), NOW))
+    if not hasTcpState(getRevFlow(connxnAttrs))
   .
   eq initRevState(connxnAttrs, NOW) = connxnAttrs [owise] .
 
