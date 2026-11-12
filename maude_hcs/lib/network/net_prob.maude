@@ -46,7 +46,7 @@ mod NETWORK_CONNECTION is
   
   vars advAddr rsvAddr : Address .
   vars channelClientAddr channelServerAddr localAddr netAddr netClientAddr netServerAddr remoteAddr LOCAL_ADDR REMOTE_ADDR IXP_ADDR : Address .
-  vars advAttrs : AttributeSet .
+  vars advAttrs advAttrsNext advAttrsLast : AttributeSet .
   vars flowAttrs linkAttrs linkToIxpAttrs netAttrs netAttrsNext netAttrsLast netAttrsTrans logAttrs logAttrsNext pktAttrs : AttributeSet .
   vars connxnAttrs connxnAttrsTrans connxnAttrsNext : AttributeSet .
   vars pktAttrsAtIxp  : AttributeSet .
@@ -102,10 +102,11 @@ mod NETWORK_CONNECTION is
     {T, msg}
   =>
     rCtr(jNext)
-    < netAddr : TransportActor | netAttrsNext >
-    < advAddr : Adversary | advAttrs >
+    < netAddr : TransportActor | netAttrsLast >
+    < advAddr : Adversary | advAttrsLast >
     smsgs
-    if {netAttrsNext, smsgs, jNext} := handleTcpFwdTx(netAttrs, msg, j, T)
+    if {netAttrsLast, advAttrsLast, smsgs, jNext}
+      := handleTcpFwdTx(netAttrs, advAttrs, msg, j, T)
     [ print "(" T ") Net Actor handled TCP req send, sending " smsgs ]
   .
 
@@ -128,12 +129,16 @@ mod NETWORK_CONNECTION is
   crl [net-tcp-tx-rev]:
     rCtr(j)
     < netAddr : TransportActor | netAttrs >
+    < advAddr : Adversary | advAttrs >
+    --- msg is to tcpOn() from ADDR_ABOVE : CONTENT
     {T, msg}
   =>
     rCtr(jNext)
     < netAddr : TransportActor | netAttrsLast >
+    < advAddr : Adversary | advAttrsLast >
     smsgs
-    if {netAttrsLast, smsgs, jNext} := handleTcpRevTx(netAttrs, msg, j, T)
+    if {netAttrsLast, advAttrsLast, smsgs, jNext}
+      := handleTcpRevTx(netAttrs, advAttrs, msg, j, T)
     [ print "(" T ") Net Actor handled TCP resp send, sending " smsgs ]
   .
 
@@ -141,13 +146,16 @@ mod NETWORK_CONNECTION is
   crl [net-tcp-ack-timeout]:
     rCtr(j)
     < netAddr : TransportActor | netAttrs >
+    < advAddr : Adversary | advAttrs >
     {T, (to netAddr from netAddr : TcpAckTimeout(flowAttrs))}
   =>
     rCtr(jNext)
     < netAddr : TransportActor | netAttrsLast >
+    < advAddr : Adversary | advAttrsLast >
     smsgs
     if connxnHandle := makeConnxnHandle(flowAttrs)
-      /\ {netAttrsLast, smsgs, jNext} := handleAckTimeout(netAttrs, connxnHandle, j, T)
+      /\ {netAttrsLast, advAttrsLast, smsgs, jNext}
+            := handleAckTimeout(netAttrs, advAttrs, connxnHandle, j, T)
       --- TODO Cmerlin: If eph, schedule to terminate.
     [ print "(" T ") Net Actor handled TCP ACK, resetting " flowAttrs " not to be busy." ]
   .
@@ -180,26 +188,17 @@ mod NETWORK_CONNECTION is
     < advAddr : Adversary | advAttrs >
   =>
     rCtr(j1)
-    < netAddr : TransportActor | netAttrsNext >
-    < advAddr : Adversary | advAttrs >
-  smsgs ackTimer:Config
-    if response(connxnDnsId(netAddr, connxnHandle),
-                NAME:Name,
-                ANS:List{Record},
-                AUTH:List{Record},
-                ADD:List{Record},
-                RCODE:Nat) := dnsResponse
-    /\ connxnAttrs := getConnxn(netAttrs, connxnHandle)
-    /\ {connxnAttrsNext, smsgs, j1}
-          := handleDnsResponse(connxnAttrs,
-                               (to netAddr from rsvAddr : dnsResponse),
-                               j,
-                               T)
-    /\ ACK_DELAY:Float := max(0.0, getLastAck(getFwdFlow(connxnAttrsNext)) - T)
-    /\ ackTimer:Config := generateAckTimerMsg(smsgs, netAddr, ACK_DELAY:Float)
-    /\ netAttrsNext := setConnxn(netAttrs, connxnAttrsNext)
+    < netAddr : TransportActor | netAttrsLast >
+    < advAddr : Adversary | advAttrsLast >
+  smsgs
+    if {netAttrsLast, advAttrsLast, smsgs, j1}
+        := handleDnsResponse(netAttrs,
+                             advAttrs,
+                             (to netAddr from rsvAddr : dnsResponse),
+                             j,
+                             T)
     **** TODO Cmerlin: Rewrite adversary attributes.
-    [ print "(" T ") net actor received dns response for connxn " connxnHandle "." ]
+    [ print "(" T ") net actor received dns response, sending " smsgs "." ]
   .
 
 *** Keeping the following only until the adversary and TCP to IXP are back in.

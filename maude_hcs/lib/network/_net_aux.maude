@@ -31,6 +31,7 @@ set show advisories off .
 
 sload ./tcp.maude
 sload ./tcp_socket.maude
+sload ./gen-tpl.maude
 sload ../common/maude/sampler-x.maude
 sload ../common/maude/sampler-streams.maude
 sload ../common/maude/delay-drop-x.maude
@@ -55,6 +56,7 @@ mod NETWORK_NODE is
   pr SAMPLER-X .
   inc SAMPLER-STREAMS .
   pr DELAY-X .
+  pr GEN-TPL .
   pr CP2_SORTS .
   pr ACTOR-MODEL .
   inc SORTS .
@@ -91,8 +93,10 @@ mod NETWORK_NODE is
   --- where the implementation uses a generic variable named attrs.
 
   vars addr addr0 remoteAddr localAddr ADDR REMOTE_ADDR REMOTE_CHANNEL_ADDR LOCAL_ADDR  RESOLVER_ADDR : Address .
-  vars attrs attrs0 attrsLast attrsTrans attrsNext netAttrs netAttrsTrans netAttrsLast CONNECTION_ATTRS : AttributeSet .
-  vars connxnAttrs connxnAttrsLast connxnAttrsTrans newConnxnAttrs flowAttrs flowAttrsLast flowAttrsTrans newFlowAttrs : AttributeSet .
+  vars advAttrs advAttrsLast : AttributeSet .
+  vars attrs attrs0 attrsLast attrsTrans attrsNext netAttrs netAttrsTrans netAttrsLast : AttributeSet .
+  vars connxnAttrs connxnAttrsLast connxnAttrsTrans newConnxnAttrs CONNECTION_ATTRS : AttributeSet .
+  vars flowAttrs flowAttrsLast flowAttrsNext flowAttrsTrans newFlowAttrs : AttributeSet .
   vars linkAttrs LINK_ATTRS_0 LINK_ATTRS_1 : AttributeSet .
   vars pktAttrs : AttributeSet .
   vars persist PERSIST CONNECTION_REUSE : Bool .
@@ -100,7 +104,7 @@ mod NETWORK_NODE is
   vars CONTENT : Content .
   vars ackTimerMsgs msgs outMsgs scheduledMsgs MSGS : Config .
   vars ACK_DELAY NOW : Float .
-  vars timeList timeListAtIxp TIME_LIST : FloatList .
+  vars timeListAtDst timeListAtIxp TIME_LIST : FloatList .
   vars msg msg_src_to_ixp msg_ixp_to_tgt outMsg request transportMsg MSG REQUEST : Msg .
   vars MSG_QUEUE : MsgQueue .
   vars map tcpConnxns tcpConnxnsNext MAP : Map{ConnxnHandle, AttributeSet} .
@@ -401,33 +405,41 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
   --- Sends on ready persistent connections schedule an ACK timer here.
   --- For new connections (persistent or ephemeral), net-dns-resp schedules it.
   --- The persistent branch also schedules an ACK timer for a data send.
-  ---                 NetAttrs                   -> {netAttrs, msgs, RandInd}
-  op handleTcpFwdTx : AttributeSet Msg Nat Float -> AttributeSetMsgsNat .
-  ceq handleTcpFwdTx(attrs, MSG, j, NOW) = {attrsLast, outMsgs ackTimerMsgs, jLast}
+  ---                 NetAttrs      AdvAttrs                    -> {(netAttrs, advAttributeSet: advAttrs), msgs, RandInd}
+  op handleTcpFwdTx : AttributeSet  AttributeSet  Msg Nat Float -> AttrsAttrsMsgsNat .
+  ceq handleTcpFwdTx(attrs, advAttrs, MSG, j, NOW)
+    = {attrsLast, advAttrsLast, outMsgs ackTimerMsgs, jLast}
     if (to tcppersist(REMOTE_ADDR, CONNXN_ID) from LOCAL_ADDR : CONTENT) := MSG
       --- Make a connxnHandle so we have a connxn.
-      /\ CONNXN_HANDLE := makeConnxnHandle(REMOTE_ADDR, LOCAL_ADDR, true, CONNXN_ID)
+      /\ connxnHandle := makeConnxnHandle(REMOTE_ADDR, LOCAL_ADDR, true, CONNXN_ID)
       --- Get the connxn. If does not already exist, make new.
-      /\ connxnAttrs := getOrMakeConnxn(attrs, CONNXN_HANDLE)
+      /\ connxnAttrs := getOrMakeConnxn(attrs, connxnHandle)
       --- Enqueue the message into the connection.
       /\ connxnAttrsTrans := enqueueMsg(connxnAttrs,
                                         (to REMOTE_ADDR from LOCAL_ADDR : CONTENT),
                                         true)
       /\ isReady:Bool := isConnxnReady(connxnAttrsTrans)
       /\ flowAttrs := getFwdFlow(connxnAttrsTrans)
-      /\ {flowAttrsLast, msgs, jLast} :=
+      /\ {flowAttrsNext, msgs, jLast} :=
           (if isReady:Bool
             --- Send when the forward flow is free.
             then (if isFlowBusy(flowAttrs)
                     then {flowAttrs, null, j}
                     else tcpSend(flowAttrs, j, NOW)
                   fi)
-            else doDnsLookup(attrs, flowAttrs, CONNXN_HANDLE, j)
+            else doDnsLookup(attrs, flowAttrs, connxnHandle, j)
           fi)
+      /\ {flowAttrsLast, advAttrsLast, null, 0}
+          := writeToAdversary(flowAttrsNext,
+                              advAttrs,
+                              msgs,
+                              getConnxnId(connxnHandle),
+                              not isReady:Bool,
+                              NOW)
       --- Add the flow info (DNS does not take flow info atm).
       /\ outMsgs := (if isReady:Bool
                       --- For TCP send.
-                      then insertFlowInfo(CONNXN_HANDLE, msgs)
+                      then insertFlowInfo(connxnHandle, msgs)
                       --- For DNS lookup.
                       else msgs
                     fi)
@@ -435,11 +447,11 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
       /\ ackTimerMsgs := generateAckTimerMsg(outMsgs, getThisAddr(attrs), ACK_DELAY)
       /\ connxnAttrsLast := initRevState(connxnAttrsTrans, NOW)
       /\ attrsLast := setConnxn(attrs, setFwdFlow(connxnAttrsLast, flowAttrsLast))
-    [ print "Handling persist TCP req send, connxn ready? " isReady:Bool " handle " CONNXN_HANDLE ]
+    [ print "Handling persist TCP req send, connxn ready? " isReady:Bool " handle " connxnHandle ]
   .
 
   --- Non persist.
-  ceq handleTcpFwdTx(attrs, MSG, j, NOW) = {attrsLast, outMsgs, jLast}
+  ceq handleTcpFwdTx(attrs, advAttrs, MSG, j, NOW) = {attrsLast, advAttrs, outMsgs, jLast}
     if (to tcp(REMOTE_ADDR) from LOCAL_ADDR : CONTENT) := MSG
       --- No need to check for existing connxn, this is explicitly requested new.
       /\ {attrsTrans, connxnAttrs} := makeNewConnxn(attrs,
@@ -467,7 +479,7 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
   --- Returns a whole message scheduled at msgDelay(segmentTimes); it does not
   --- emit individual segments, look up a connection, or schedule an ACK timer.
   --- The caller attaches connection identity and stores the updated flow.
-  ---           Flow State    RandInd Now   -> {flowAttrs, msgs, RandInd}
+  ---           Flow State    RandInd Now   -> {flowAttrs including segment times and sizes, msgs, RandInd}
   op tcpSend :  AttributeSet  Nat     Float -> AttributeSetMsgsNat .
   eq tcpSend(flowAttrs, j, NOW) = {flowAttrs, null, j}
     [owise print "tcpSend: Nothing to send."]
@@ -481,20 +493,26 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
       /\ msgSize := getSize(CONTENT)
       /\ LINK_ATTRS_0 := getLinkData(msg_src_to_ixp)
       /\ LINK_ATTRS_1 := getLinkData(msg_ixp_to_tgt)
-      /\ (timePacketListAtDst: timeList, timePacketListAtIxp: timeListAtIxp, tcpState: flowAttrsTrans, nextJ: jTrans)
+      /\ (timePacketListAtDst: timeListAtDst, timePacketListAtIxp: timeListAtIxp, tcpState: flowAttrsTrans, nextJ: jTrans)
             := getSegmentDistribution(j,
                                       MSG,
                                       LINK_ATTRS_0,
                                       LINK_ATTRS_1,
                                       flowAttrs,
                                       NOW)
-      /\ delay:Float := msgDelay(timeList)
+      /\ delay:Float := msgDelay(timeListAtDst)
       /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : CONTENT)
       **** Get the packet size list.
-      /\ sizeList := tcpDeliverySizes(msgSize, timeList)
-      --- Set forward flowBusy. Reverse flows have no flowBusy attribute.
-      /\ flowAttrsLast := (setFlowBusy(flowAttrsTrans, true), queuedMsgs: MSG_QUEUE)
+      /\ sizeList := tcpDeliverySizes(msgSize, timeListAtDst)
       **** TODO Cmerlin: Send to IXP.
+      --- Set forward flowBusy. Reverse flows have no flowBusy attribute.
+      /\ flowAttrsLast := (setFlowBusy(flowAttrsTrans, true),
+                           queuedMsgs: MSG_QUEUE,
+                           --- Add the times and sizes, intended to be consummed
+                           --- by the caller.
+                           timesAtDst: timeListAtDst,
+                           timesAtIxp: timeListAtIxp,
+                           sizes: sizeList)
       **** TODO Cmerlin: LOG Packets.
     [ print "tcpSend " msg ]
   .
@@ -522,9 +540,9 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
 
   --- Send a reply on the existing connection carried by tcpOn().
   --- Updates the reverse flow; no ACK timer is scheduled here.
-  ---                 NetAttrs     Msg RandInd  Now   -> {NetAttrs, Msgs, RandInd}
-  op handleTcpRevTx : AttributeSet Msg Nat      Float -> AttributeSetMsgsNat .
-  ceq handleTcpRevTx(attrs, MSG, j, NOW) = {attrsLast, outMsgs, jLast}
+  ---                 NetAttrs     AdvAttrs     Msg RandInd  Now   -> {NetAttrs, AdvAttrs, Msgs, RandInd}
+  op handleTcpRevTx : AttributeSet AttributeSet Msg Nat      Float -> AttrsAttrsMsgsNat .
+  ceq handleTcpRevTx(attrs, advAttrs, MSG, j, NOW) = {attrsLast, advAttrsLast, outMsgs, jLast}
       --- Get the connxn. It needs to exist.
     if (to tcpOn(LOCAL_ADDR, CONNXN_HANDLE) from REMOTE_ADDR : CONTENT) := MSG
       /\ makeConnxnHandle(REMOTE_ADDR, LOCAL_ADDR, PERSIST, CONNXN_ID) := CONNXN_HANDLE
@@ -534,7 +552,15 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
       /\ connxnAttrsTrans := enqueueMsg(connxnAttrs, (to LOCAL_ADDR from REMOTE_ADDR : CONTENT), false)
       --- Get the flow / TCP attributes.
       /\ flowAttrs := getRevFlow(connxnAttrsTrans)
-      /\ {flowAttrsLast, msgs, jLast} := tcpSend(flowAttrs, j, NOW)
+      /\ {flowAttrsNext, msgs, jLast} := tcpSend(flowAttrs, j, NOW)
+      --- TODO Cmerlin: Initialize the rev flow in adv.
+      /\ {flowAttrsLast, advAttrsLast, null, 0}
+          := writeToAdversary(flowAttrsNext,
+                              advAttrs,
+                              msgs,
+                              CONNXN_ID,
+                              false,
+                              NOW)
       /\ outMsgs := insertFlowInfo(CONNXN_HANDLE, msgs)
       /\ attrsLast := setConnxn(attrs, setRevFlow(connxnAttrsTrans, flowAttrsLast))
     [ print "Handling persist TCP resp send." flowAttrs]
@@ -542,9 +568,10 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
 
   --- Clear forward flowBusy. If persistent, send the next queued message
   --- and schedule its ACK timer. The connection stays in the map.
-  ---                   NetAttrs      Handle        Rand  NOW   -> {NetAttrs, Msgs, RandInd}
-  op handleAckTimeout : AttributeSet  ConnxnHandle  Nat   Float -> AttributeSetMsgsNat .
-  ceq handleAckTimeout(attrs, CONNXN_HANDLE, j, NOW) = {attrsLast, outMsgs ackTimerMsgs, jLast}
+  ---                   NetAttrs      AdvAttrs      Handle        Rand  NOW   -> {NetAttrs, AdvAttrs, Msgs, RandInd}
+  op handleAckTimeout : AttributeSet  AttributeSet  ConnxnHandle  Nat   Float -> AttrsAttrsMsgsNat .
+  ceq handleAckTimeout(attrs, advAttrs, CONNXN_HANDLE, j, NOW)
+    = {attrsLast, advAttrsLast, outMsgs ackTimerMsgs, jLast}
     if isPersist(CONNXN_HANDLE)
       --- Get the connxn. It needs to exist.
       /\ connxnAttrs := getConnxn(attrs, CONNXN_HANDLE)
@@ -552,44 +579,118 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
       /\ connxnAttrsTrans := resetFwdFlowBusy(connxnAttrs)
       --- Get the flow / TCP attributes.
       /\ flowAttrs := getFwdFlow(connxnAttrsTrans)
-      /\ {flowAttrsLast, msgs, jLast} := (if isFlowBusy(flowAttrs)
-                                            then {flowAttrs,null, j}
+      /\ {flowAttrsNext, msgs, jLast} := (if isFlowBusy(flowAttrs)
+                                            then {flowAttrs, null, j}
                                             else tcpSend(flowAttrs, j, NOW)
                                           fi)
+      /\ {flowAttrsLast, advAttrsLast, null, 0}
+          := writeToAdversary(flowAttrsNext,
+                              advAttrs,
+                              msgs,
+                              getConnxnId(CONNXN_HANDLE),
+                              false,
+                              NOW)
       /\ outMsgs := insertFlowInfo(CONNXN_HANDLE, msgs)
       /\ ACK_DELAY := max(0.0, getLastAck(flowAttrsLast) - NOW)
       /\ ackTimerMsgs := generateAckTimerMsg(outMsgs, getThisAddr(attrs), ACK_DELAY)
       /\ attrsLast := setConnxn(attrs, setFwdFlow(connxnAttrsTrans, flowAttrsLast))
   .
-  ceq handleAckTimeout(attrs, CONNXN_HANDLE, j, NOW) = {attrsLast, null, j}
+  ceq handleAckTimeout(attrs, advAttrs, CONNXN_HANDLE, j, NOW)
+    = {attrsLast, advAttrs, null, j}
     if not isPersist(CONNXN_HANDLE)
       /\ connxnAttrs := getConnxn(attrs, CONNXN_HANDLE)
       /\ connxnAttrsTrans := resetFwdFlowBusy(connxnAttrs)
       /\ attrsLast := setConnxn(attrs, connxnAttrsTrans, false)
   .
-  eq handleAckTimeout(attrs, CONNXN_HANDLE, j, NOW) = {attrs, null, j} [owise] .
+  eq handleAckTimeout(attrs, advAttrs, CONNXN_HANDLE, j, NOW)
+    = {attrs, advAttrs, null, j}
+    [owise]
+  .
 
+  op writeToAdversary : AttributeSet  AttributeSet  Config  Nat Bool  Float -> AttrsAttrsMsgsNat .
+  eq writeToAdversary(flowAttrs, advAttrs, [T:Float, MSG, DROP:Nat] MSGS, ID:Nat, isNew:Bool, NOW)
+    = writeToAdversary(flowAttrs, advAttrs, MSG, ID:Nat, isNew:Bool, NOW)
+  .
+  op writeToAdversary : AttributeSet  AttributeSet  Msg  Nat Bool  Float -> AttrsAttrsMsgsNat .
+  ceq writeToAdversary((flowAttrs,
+                        timesAtDst: timeListAtDst,
+                        timesAtIxp: timeListAtIxp,
+                        sizes: sizeList),
+                       advAttrs,
+                       MSG,
+                       ID:Nat,
+                       isNew:Bool,
+                       NOW)
+    = {flowAttrsLast, advAttrsLast, null, 0}
+    if advAttrsLast := (if getUseTcpTPL(advAttrs)
+                          then addTPL2tcp(advAttrs,
+                                          genTcpTPL(NOW,
+                                                    MSG,
+                                                    timeListAtDst,
+                                                    timeListAtIxp,
+                                                    sizeList,
+                                                    ID:Nat,
+                                                    isNew:Bool))
+                            else advAttrs
+                        fi)
+      /\ flowAttrsLast := flowAttrs
+  .
+  eq writeToAdversary((flowAttrs,
+                       timesAtDst: timeListAtDst,
+                       timesAtIxp: timeListAtIxp,
+                       sizes: sizeList),
+                      advAttrs,
+                      null,
+                      ID:Nat,
+                      isNew:Bool,
+                      NOW)
+    = {flowAttrs, advAttrs, null, 0}
+  .
+  eq writeToAdversary(flowAttrs, advAttrs, MSGS, ID:Nat, isNew:Bool, NOW)
+    = {flowAttrs, advAttrs, null, 0}
+    [owise]
+  .
   --- net-dns-resp stores the updated connection and schedules the ACK timer.
-  ---                     ConnxnAttrs   DNS RandInd NOW   -> {ConnxnAttrs, Msgs, RandInd}
-  op handleDnsResponse :  AttributeSet  Msg Nat     Float -> AttributeSetMsgsNat .
-  ceq handleDnsResponse((connxnAttrs, connxnReady: ready:Bool),
+  ---                     netAttrs      AdvAttrs      DNS RandInd NOW   -> {netAttrs, advAttrs, Msgs, RandInd}
+  op handleDnsResponse :  AttributeSet  AttributeSet  Msg Nat     Float -> AttrsAttrsMsgsNat .
+  ceq handleDnsResponse(attrs,
+                        advAttrs,
                         (to LOCAL_ADDR from RESOLVER_ADDR : RESPONSE),
                         j,
                         NOW)
-    = {connxnAttrsLast, outMsgs, jLast}
-    if (flowAttrs, flowBusy: true, req: (to RESOLVER_ADDR from LOCAL_ADDR : QUERY))
-        := getFwdFlow(connxnAttrs)
+    = {attrsLast, advAttrsLast, outMsgs ackTimerMsgs, jLast}
+    if response(connxnDnsId(LOCAL_ADDR, connxnHandle),
+                NAME:Name,
+                ANS:List{Record},
+                AUTH:List{Record},
+                ADD:List{Record},
+                RCODE:Nat) := RESPONSE
+      /\ (connxnAttrs, connxnReady: isReady:Bool) := getConnxn(attrs, connxnHandle)
+      /\ (flowAttrs, flowBusy: true, req: (to RESOLVER_ADDR from LOCAL_ADDR : QUERY))
+            := getFwdFlow(connxnAttrs)
       /\ isMatch(QUERY, RESPONSE)
-      /\ {flowAttrsLast, msgs, jLast}
+      /\ {flowAttrsNext, msgs, jLast}
             := tcpSend((flowAttrs, flowBusy: false, req: null), j, NOW)
-      /\ outMsgs := insertFlowInfo(makeConnxnHandle(connxnAttrs), msgs)
+      --- Get the times and sizes and dump
+      /\ {flowAttrsLast, advAttrsLast, null, 0}
+          := writeToAdversary(flowAttrsNext,
+                              advAttrs,
+                              msgs,
+                              getConnxnId(connxnHandle),
+                              true,
+                              NOW)
+      /\ outMsgs := insertFlowInfo(connxnHandle, msgs)
+      --- Initialize the rev state too (a DNS response means we are starting)
       /\ connxnAttrsTrans := initRevState(connxnAttrs, NOW)
-      /\ connxnAttrsLast := setFwdFlow((connxnAttrsTrans, connxnReady: true),
-                                       flowAttrsLast)
-      /\ connxnHandle := makeConnxnHandle(connxnAttrs)
+      /\ ACK_DELAY:Float := max(0.0, getLastAck(flowAttrsLast) - NOW)
+      /\ ackTimerMsgs := generateAckTimerMsg(outMsgs, LOCAL_ADDR, ACK_DELAY:Float)
+      /\ attrsLast := setConnxn(attrs,
+                                setFwdFlow((connxnAttrsTrans, connxnReady: true),
+                                           flowAttrsLast))
     [ print "Handled DNS response, match for connxn " connxnHandle ", tried sending TCP." ]
   .
-  eq handleDnsResponse(connxnAttrs, MSG, j, NOW) = {connxnAttrs, null, j}
+  eq handleDnsResponse(attrs, advAttrs, MSG, j, NOW)
+    = {attrs, advAttrs, null, j}
     [print "No query match for response " MSG]
   .
  

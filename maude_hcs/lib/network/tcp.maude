@@ -238,7 +238,7 @@ mod TCP-ANALYTICAL-MODEL is
   op genSSSegs : Nat Nat Nat Nat Float Float -> FloatList .
   eq genSSSegs(I:Nat, W:Nat, N:Nat, SG:Nat, BT:Float, SR:Float) =
      if I:Nat >= W:Nat or (SG:Nat + I:Nat + 1) > N:Nat
-     then nilFL
+     then nilFloatList
      else (BT:Float + float(I:Nat) * SR:Float)
           :: genSSSegs(s(I:Nat), W:Nat, N:Nat, SG:Nat, BT:Float, SR:Float)
      fi .
@@ -251,7 +251,7 @@ mod TCP-ANALYTICAL-MODEL is
   eq genCASegs(KI:Nat, SE:Nat, N:Nat, SS:Nat, ED:Float,
               W:Nat, T:Float, OW:Float, SR:Float) =
      if KI:Nat > SE:Nat or KI:Nat > N:Nat
-     then nilFL
+     then nilFloatList
      else (T:Float + OW:Float +
            ((float(sd(KI:Nat, s(SS:Nat))) / max(1.0, ED:Float))
             * float(W:Nat) * SR:Float))
@@ -810,8 +810,8 @@ mod TCP-ANALYTICAL-MODEL is
     (2.0 * (OWD1 + OWD2) + OWOFF) ::
     (2.0 * (OWD1 + OWD2) + OWOFF) ::
     (4.0 * (OWD1 + OWD2) + OWOFF) ::
-    (4.0 * (OWD1 + OWD2) + OWOFF) :: nilFL .
-  eq hsTimes(OWD1, OWD2, OWOFF, false) = nilFL .
+    (4.0 * (OWD1 + OWD2) + OWOFF) :: nilFloatList .
+  eq hsTimes(OWD1, OWD2, OWOFF, false) = nilFloatList .
 
   --- Buffer-capacity path: when both links are "none" profile
   --- ISNEW == true: run Handshake and Slow Start
@@ -831,7 +831,7 @@ mod TCP-ANALYTICAL-MODEL is
        ssLoopBuf(4.0 * (OWD1 + OWD2),
                  0, 1, 10,
                  N, OWD1, OWD2, CC_PATH,
-                 nilFL, nilFL),
+                 nilFloatList, nilFloatList),
        N, OWD1, OWD2, CC_PATH) .
 
   --- ISNEW == false, inSS == true: bypass Handshake, continue in Slow Start
@@ -848,7 +848,7 @@ mod TCP-ANALYTICAL-MODEL is
        ssLoopBuf(0.0,
                  0, 1, max(1, f2n(roundF(CWND))),
                  N, OWD1, OWD2, CC_PATH,
-                 nilFL, nilFL),
+                 nilFloatList, nilFloatList),
        N, OWD1, OWD2, CC_PATH)
   if isNoneProfile(CC1) and isNoneProfile(CC2)
   /\ CC_PATH := composeChannels(CC1, CC2) .
@@ -866,7 +866,7 @@ mod TCP-ANALYTICAL-MODEL is
                            tSince: TS,
                            inSS: false))
     = caLoopBuf(100000, 0.0, 0.0, 1, CWND, WMX, TS,
-               N, OWD1, OWD2, CC_PATH, nilFL, nilFL)
+               N, OWD1, OWD2, CC_PATH, nilFloatList, nilFloatList)
   if isNoneProfile(CC1) and isNoneProfile(CC2)
   /\ CC_PATH := composeChannels(CC1, CC2) .
 
@@ -888,7 +888,7 @@ mod TCP-ANALYTICAL-MODEL is
        ssLoop(4.0 * (OWD1 + OWD2),
               0, 1, 10,
               N, OWD1, OWD2, CC_PATH,
-              nilFL, nilFL),
+              nilFloatList, nilFloatList),
        N, OWD1, OWD2, CC_PATH) .
 
   --- ISNEW == false, inSS == true: bypass Handshake, continue in Slow Start
@@ -905,7 +905,7 @@ mod TCP-ANALYTICAL-MODEL is
        ssLoop(0.0,
               0, 1, max(1, f2n(roundF(CWND))),
               N, OWD1, OWD2, CC_PATH,
-              nilFL, nilFL),
+              nilFloatList, nilFloatList),
        N, OWD1, OWD2, CC_PATH)
   if (not (isNoneProfile(CC1) and isNoneProfile(CC2)))
   /\ CC_PATH := composeChannels(CC1, CC2) .
@@ -923,7 +923,7 @@ mod TCP-ANALYTICAL-MODEL is
                            tSince: TS,
                            inSS: false)) =
      caLoop(100000, 0.0, 0.0, 1, CWND, WMX, TS,
-            N, OWD1, OWD2, CC_PATH, nilFL, nilFL)
+            N, OWD1, OWD2, CC_PATH, nilFloatList, nilFloatList)
   if (not (isNoneProfile(CC1) and isNoneProfile(CC2)))
   /\ CC_PATH := composeChannels(CC1, CC2) .
 
@@ -942,7 +942,7 @@ mod TCP-ANALYTICAL-MODEL is
        ssLoop(4.0 * (OWD1 + OWD2),
               0, 1, 10,
               N, OWD1, OWD2, composeChannels(CC1, CC2),
-              nilFL, nilFL),
+              nilFloatList, nilFloatList),
        N, OWD1, OWD2, composeChannels(CC1, CC2)) [owise] .
 
   --- Fallback for ISNEW == false
@@ -958,7 +958,7 @@ mod TCP-ANALYTICAL-MODEL is
                           tSince: TS,
                           inSS: false)) =
      caLoop(100000, 0.0, 0.0, 1, CWND, WMX, TS,
-            N, OWD1, OWD2, composeChannels(CC1, CC2), nilFL, nilFL) [owise] .
+            N, OWD1, OWD2, composeChannels(CC1, CC2), nilFloatList, nilFloatList) [owise] .
 
   --- tcpTimelineResult (computes both Final-Dest and First-Hop timelines + updated TcpState)
   op tcpTimelineResult : Nat AttributeSet AttributeSet Bool AttributeSet Float -> TimelineResult .
@@ -1005,8 +1005,8 @@ mod TCP-ANALYTICAL-MODEL is
     (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
     MTU-SIZE-BYTES ::
     (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
-    MTU-SIZE-BYTES :: nilNL .
-  eq hsSizes(false) = nilNL .
+    MTU-SIZE-BYTES :: nilNatList .
+  eq hsSizes(false) = nilNatList .
 
   --- Get the TCP delivery sizes on the wire (in Bytes, including 52B headers)
   ---
@@ -1019,7 +1019,7 @@ mod TCP-ANALYTICAL-MODEL is
     if numOriginalSegments := ceilDiv(msgSize, MSS-SIZE-BYTES)
       /\ lastPayloadBytes := sd(msgSize, (numOriginalSegments - 1) * MSS-SIZE-BYTES)
       /\ lastPktSizeBytes := lastPayloadBytes + IP-HEADER-BYTES + TCP-HEADER-BYTES
-      /\ deliverySizes := $makeDeliverySizes(sd(numOriginalSegments, 1), MTU-SIZE-BYTES, nilNL) :: lastPktSizeBytes
+      /\ deliverySizes := $makeDeliverySizes(sd(numOriginalSegments, 1), MTU-SIZE-BYTES, nilNatList) :: lastPktSizeBytes
   .
 
   ---                   TotalMsgSize  DeliveryTimes
@@ -1078,7 +1078,7 @@ mod TCP_NODE is
   .
 
   op msgDelay : FloatList -> Float .
-  eq msgDelay(nilFL) = 0. .
+  eq msgDelay(nilFloatList) = 0. .
   eq msgDelay(times:FloatList) = maxFL(times:FloatList) .
 
 endm
