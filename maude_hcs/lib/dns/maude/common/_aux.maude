@@ -108,12 +108,18 @@ mod MYLISTS is
     $makeFragments(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_PACKET), FRAG_LEN, 0, mtfl) .
   
   eq $makeFragments(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, P_LEN, LAST_PACKET), FRAG_LEN,  OUT_FRAGNO, curFragments) =
-    if P_LEN > FRAG_LEN 
+    if P_LEN == 0
     then
-      $makeFragments(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, (P_LEN + (- FRAG_LEN)), LAST_PACKET), FRAG_LEN, s OUT_FRAGNO, curFragments : fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, s OUT_FRAGNO, 0, 0, FRAG_LEN, LAST_PACKET, false)) 
-    else 
-      curFragments : fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, s OUT_FRAGNO, 0, 0, P_LEN, LAST_PACKET, true)
-    fi  
+      curFragments
+    else
+      if P_LEN > FRAG_LEN 
+      then
+        $makeFragments(packet(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, (P_LEN + (- FRAG_LEN)), LAST_PACKET), FRAG_LEN, s OUT_FRAGNO, curFragments : fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, s OUT_FRAGNO, 0, 0, FRAG_LEN, LAST_PACKET, false)) 
+      else 
+        curFragments : fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, s OUT_FRAGNO, 0, 0, P_LEN, LAST_PACKET, true)
+      fi
+    fi
+    [print "P_LEN: "  P_LEN "   FRAG_LEN: " FRAG_LEN]
     .
 
   eq makePacket(fragment(FROM_ADDR, TO_ADDR, FILE, OUT_SEQNO, OUT_FRAGNO, IN_SEQNO, IN_FRAGNO, FRAG_LEN, LAST_PACKET, LAST_FRAG) : curFragments) = 
@@ -699,7 +705,7 @@ mod IODINE_NODE is
     if RESOLVER := getResolver(wattrs)
       /\ wattrsNext := incrQueryCtr(wattrs)
       /\ ID := getQueryCtr(wattrsNext)
-      /\ NAME := nm(fragment(AliceAddr, BobAddr, file(0,0), 0, 0, getInSeqNo(wattrsNext), getInFragNo(wattrsNext), 0, false, false)) . getWDom(wattrsNext)
+      /\ NAME := nm(fragment(AliceAddr, BobAddr, file(8,"pingping"), 0, 0, getInSeqNo(wattrsNext), getInFragNo(wattrsNext), 8, false, false)) . getWDom(wattrsNext)
       /\ QUERY := query(clientId(ADDR, ID), NAME, QTYPE)
   .
 
