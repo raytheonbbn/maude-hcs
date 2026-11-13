@@ -150,12 +150,14 @@ mod NETWORK_NODE is
   --- Message for ACKing a connection, identified by its attributes.
   op TcpAckTimeout : AttributeSet -> Content [ctor] .
 
-  **** Attributes common to client and server.
+  **** Attributes common to all connections.
   op thisAddr:_           : Address -> Attribute [ctor] .
   op remoteChannelAddr:_  : Address -> Attribute [ctor] .
   op remoteEndpointAddr:_ : Address -> Attribute [ctor] .
   op localIfaceAddr:_     : Address -> Attribute [ctor] .
-  op ixpAddr: _           : Address -> Attribute [ctor] .
+  op ixpAddr:_            : Address -> Attribute [ctor] .
+  op defaultDnsRsv:_      : Address -> Attribute [ctor] .
+  op dnsName:_            : Name    -> Attribute [ctor] . 
 
   op persistTcpConnxns:_  : Map{ConnxnHandle, AttributeSet} -> Attribute [ctor frozen(1)] .
   op ephTcpConnxns:_      : Map{ConnxnHandle, AttributeSet} -> Attribute [ctor frozen(1)] .
@@ -176,7 +178,6 @@ op newCnx:_ : Bool -> Attribute [ctor] .
     --- if reuse true then rcv rule sets to false
     --- ow stays true
     
-op dnsName:_ : Name ->  Attribute [ctor] . 
      --- nullName if NetClient is associated to 
      ---  dnsClient/corp resolver
 op dnsRsv:_ : Address  ->  Attribute [ctor] . 
@@ -200,7 +201,7 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
           thisAddr:           ADDR,
           remoteChannelAddr:  REMOTE_ADDR,
           localIfaceAddr:     LOCAL_ADDR,
-          dnsRsv:             RESOLVER_ADDR,
+          defaultDnsRsv:      RESOLVER_ADDR,
           dnsName:            NAME,
           --- For ephemeral connections only:
           connxnCount:        0,
@@ -212,9 +213,14 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
   eq getThisAddr(attrs, thisAddr: ADDR) = ADDR .
   eq getThisAddr(attrs) = nullAddr [owise print "Error: No address."] .
 
-  op getDnsRsv : AttributeSet -> Address .
-  eq getDnsRsv(attrs, dnsRsv: RESOLVER_ADDR) = RESOLVER_ADDR .
-  eq getDnsRsv(attrs) = nullAddr [owise print "Error: no Resolver address."] .
+  --- Override this to specify the DNS resolver for a certain address.
+  --- (for instance, s3client goes to skyhoodCorporateDnsAddr)
+  op getDnsRsv : AttributeSet Address -> Address .
+  eq getDnsRsv(attrs, LOCAL_ADDR) = getDefaultDnsRsv(attrs) [owise] .
+
+  op getDefaultDnsRsv : AttributeSet -> Address .
+  eq getDefaultDnsRsv(attrs, defaultDnsRsv: RESOLVER_ADDR) = RESOLVER_ADDR .
+  eq getDefaultDnsRsv(attrs) = nullAddr [owise print "Error: no default resolver address."] .
 
   op getDnsName : AttributeSet -> Name .
   eq getDnsName(attrs, dnsName: NAME) = NAME .
@@ -380,7 +386,7 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
     if query := query(connxnDnsId(getThisAddr(attrs), CONNXN_HANDLE),
                       getDnsName(attrs),
                       a)
-      /\ msg := (to getDnsRsv(attrs) from getThisAddr(attrs) : query)
+      /\ msg := (to getDnsRsv(attrs, getSrcAddr(CONNXN_HANDLE)) from getThisAddr(attrs) : query)
       /\ scheduledMsgs := [0., msg, 0]
       /\ flowAttrsLast := (flowAttrs, req: msg, flowBusy: true)
     [ print "Sending DNS Lookup first: " query ]
@@ -599,6 +605,7 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
     = {attrsLast, advAttrs, null, j}
     if not isPersist(CONNXN_HANDLE)
       /\ connxnAttrs := getConnxn(attrs, CONNXN_HANDLE)
+      /\ connxnAttrs =/= noneAs
       /\ connxnAttrsTrans := resetFwdFlowBusy(connxnAttrs)
       /\ attrsLast := setConnxn(attrs, connxnAttrsTrans, false)
   .
