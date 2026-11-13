@@ -1,0 +1,222 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+--- Run: maude test_mastodon_tcp.maude
+--- Two Mastodon client pairs share one Mastodon server and one NetActor.
+--- Each pair posts two images, fetches them at the other endpoint, posts a
+--- one-image reply, then fetches that reply. Repeat with a fresh hashtag.
+--- The requester rules stand in for Raceboat's PostStatus/GetMediaHashtag API.
+--- Success leaves four requestReceived and four roundTripComplete markers.
+--- TCP mode must use 40 distinct request connections and 40 reverse responses.
+--- Persistent connection records remain stored, but no HTTP request reuses one.
+
+sload ./mastodon.maude
+sload ../../../network/net_prob.maude
+
+--- Keep decimal conversion separate from the model's overloaded list operators.
+fmod MASTODON_ROUNDTRIP_NAMES is
+  pr CONVERSION .
+  vars P N : Nat .
+  ops requestName replyName : Nat Nat -> String .
+  eq requestName(P, N) = "request" + string(P, 10) + "round" + string(N, 10) .
+  eq replyName(P, N) = "reply" + string(P, 10) + "round" + string(N, 10) .
+endfm
+
+mod MASTODON_ROUNDTRIP_ADDRS is
+  inc TRANSPORT .
+  ops LOCAL-MAS0 REMOTE-MAS0 LOCAL-APP0 REMOTE-APP0 : -> Address .
+  ops LOCAL-MAS1 REMOTE-MAS1 LOCAL-APP1 REMOTE-APP1 : -> Address .
+  ops MAS-SERVER NET0 DNS0 ADV0 IXP0 : -> Address .
+
+  ops localClient remoteClient localApp remoteApp : Nat -> Address .
+  eq localClient(0) = LOCAL-MAS0 .
+  eq localClient(1) = LOCAL-MAS1 .
+  eq remoteClient(0) = REMOTE-MAS0 .
+  eq remoteClient(1) = REMOTE-MAS1 .
+  eq localApp(0) = LOCAL-APP0 .
+  eq localApp(1) = LOCAL-APP1 .
+  eq remoteApp(0) = REMOTE-APP0 .
+  eq remoteApp(1) = REMOTE-APP1 .
+endm
+
+mod MASTODON_ROUNDTRIP_TRANSPORT is
+  inc MASTODON_ROUNDTRIP_ADDRS .
+  --- Mastodon supplies a new ID for each HTTP request, including continuations.
+  eq transport(MAS-SERVER, N:Nat) = tcppersist(MAS-SERVER, N:Nat) .
+  eq transport(LOCAL-MAS0, N:Nat) = tcppersist(LOCAL-MAS0, N:Nat) .
+  eq transport(REMOTE-MAS0, N:Nat) = tcppersist(REMOTE-MAS0, N:Nat) .
+  eq transport(LOCAL-MAS1, N:Nat) = tcppersist(LOCAL-MAS1, N:Nat) .
+  eq transport(REMOTE-MAS1, N:Nat) = tcppersist(REMOTE-MAS1, N:Nat) .
+endm
+
+mod MASTODON_ROUNDTRIP is
+  inc MASTODON .
+  inc MASTODON_ROUNDTRIP_NAMES .
+  inc NETWORK_CONNECTION .
+  inc MASTODON_ROUNDTRIP_ADDRS .
+
+  vars P N : Nat .
+  vars APP CLIENT : Address .
+  vars T : Float .
+  vars TAG : Tag .
+  vars MEDIA : MediaFileList .
+
+  op testBytes : Nat Nat Nat -> ByteSeq [ctor] .
+  eq getSize(testBytes(P, N, I:Nat)) = 50 .
+  ops requestImages replyImages : Nat Nat -> MediaFileList .
+  eq requestImages(P, N) =
+    makeMediaFile(requestName(P, N) + "a.jpg", 1700, testBytes(P, N, 0)) ::
+    makeMediaFile(requestName(P, N) + "b.jpg", 2300, testBytes(P, N, 1)) .
+  eq replyImages(P, N) =
+    makeMediaFile(replyName(P, N) + ".jpg", 1900, testBytes(P, N, 2)) .
+
+  --- Check exact media, allowing either order for the two distinct images.
+  op sameImages : MediaFileList MediaFileList -> Bool .
+  eq sameImages(L:MediaFileList, L:MediaFileList) = true .
+  eq sameImages(A:MediaFile :: B:MediaFile, B:MediaFile :: A:MediaFile) = true .
+  eq sameImages(L:MediaFileList, L1:MediaFileList) = false [owise] .
+
+  op waitingFor : Nat Nat String -> Actor [ctor] .
+  ops requestReceived roundTripComplete : Nat Nat Float -> Actor [ctor] .
+
+  --- Start fetching only after the complete toot has been accepted.
+  crl [request-posted]:
+    waitingFor(P, N, "request-post")
+    {T, (to APP from CLIENT : mkRequestResponse("ACCEPTED"))}
+  =>
+    waitingFor(P, N, "request-fetch")
+    [0.0, (to remoteClient(P) from remoteApp(P) :
+      GetMediaHashtag(makeTag(requestName(P, N)))), 0]
+  if APP == localApp(P) /\ CLIENT == localClient(P)
+  .
+
+  --- Verify the received image payloads before posting the reply.
+  crl [request-received]:
+    waitingFor(P, N, "request-fetch")
+    {T, (to APP from CLIENT : ResponseMediaList(TAG, MEDIA))}
+  =>
+    waitingFor(P, N, "reply-post")
+    requestReceived(P, N, T)
+    [0.0, (to remoteClient(P) from remoteApp(P) :
+      PostStatus("#" + replyName(P, N), replyImages(P, N))), 0]
+  if APP == remoteApp(P) /\ CLIENT == remoteClient(P)
+    /\ TAG == makeTag(requestName(P, N))
+    /\ sameImages(MEDIA, requestImages(P, N))
+  [ print "(" T ") Pair " P " round " N " received both request images." ]
+  .
+
+  crl [reply-posted]:
+    waitingFor(P, N, "reply-post")
+    {T, (to APP from CLIENT : mkRequestResponse("ACCEPTED"))}
+  =>
+    waitingFor(P, N, "reply-fetch")
+    [0.0, (to localClient(P) from localApp(P) :
+      GetMediaHashtag(makeTag(replyName(P, N)))), 0]
+  if APP == remoteApp(P) /\ CLIENT == remoteClient(P)
+  .
+
+  op nextRound : Nat Nat -> Config .
+  eq nextRound(P, 1) =
+    waitingFor(P, 2, "request-post")
+    [0.0, (to localClient(P) from localApp(P) :
+      PostStatus("#" + requestName(P, 2), requestImages(P, 2))), 0] .
+  eq nextRound(P, 2) = null .
+
+  crl [reply-received]:
+    waitingFor(P, N, "reply-fetch")
+    {T, (to APP from CLIENT : ResponseMediaList(TAG, MEDIA))}
+  =>
+    roundTripComplete(P, N, T)
+    nextRound(P, N)
+  if APP == localApp(P) /\ CLIENT == localClient(P)
+    /\ TAG == makeTag(replyName(P, N))
+    /\ sameImages(MEDIA, replyImages(P, N))
+  [ print "(" T ") Pair " P " round " N " received reply: ROUND TRIP COMPLETE." ]
+  .
+
+  --- Preserve the complete connection ID through overlapping DNS lookups.
+  rl [test-dns-reply]:
+    {T, (to DNS0 from SRC:Address :
+      query(connxnDnsId(SRC:Address, H:ConnxnHandle), NAME:Name, a))}
+  =>
+    [0.001, (to SRC:Address from DNS0 :
+      response(connxnDnsId(SRC:Address, H:ConnxnHandle), NAME:Name,
+        < NAME:Name, a, 60.0, getDstAddr(H:ConnxnHandle) >, nil, nil, 0)), 0]
+  [ print "(" T ") Test resolver replying for " H:ConnxnHandle ]
+  .
+
+  eq IXP-DEFAULT-ADDR = IXP0 .
+  op hopAttrs : -> AttributeSet .
+  eq hopAttrs = (oneWayDelay: 0.01, canDrop: false, dropP: 0.0) .
+  eq LinkData = aaa(LOCAL-MAS0, IXP0, hopAttrs)
+               aaa(REMOTE-MAS0, IXP0, hopAttrs)
+               aaa(LOCAL-MAS1, IXP0, hopAttrs)
+               aaa(REMOTE-MAS1, IXP0, hopAttrs)
+               aaa(IXP0, MAS-SERVER, hopAttrs) .
+
+  --- Identity transport uses 20 ms; TCP receives scheduler jitter only here.
+  eq delayType(M:Msg) = "Constant" .
+  eq delayConst(M:Msg) = 0.02 .
+  eq noiseMin(M:Msg) = 0.0 .
+  eq noiseMax(M:Msg) = 0.0 .
+  eq overhead(M:Msg) = 0.0 .
+
+  op endpoints : -> Config .
+  eq endpoints = rCtr(0)
+    makeMastodonClient(LOCAL-MAS0, MAS-SERVER, LOCAL-APP0)
+    makeMastodonClient(REMOTE-MAS0, MAS-SERVER, REMOTE-APP0)
+    makeMastodonClient(LOCAL-MAS1, MAS-SERVER, LOCAL-APP1)
+    makeMastodonClient(REMOTE-MAS1, MAS-SERVER, REMOTE-APP1)
+    makeMastodonServer(MAS-SERVER)
+    waitingFor(0, 1, "request-post")
+    waitingFor(1, 1, "request-post")
+    [1.0, (to LOCAL-MAS0 from LOCAL-APP0 :
+      PostStatus("#" + requestName(0, 1), requestImages(0, 1))), 0]
+    [1.0005, (to LOCAL-MAS1 from LOCAL-APP1 :
+      PostStatus("#" + requestName(1, 1), requestImages(1, 1))), 0]
+  .
+  op network : -> Config .
+  eq network = makeTransportActor(NET0, MAS-SERVER, LOCAL-MAS0, DNS0, 'mastodon . root)
+                mkAdversaryCp3(ADV0) .
+  ops initConfig directConfig : -> Config .
+  eq initConfig = run({0.0 | nil} endpoints network, 60.0) .
+  eq directConfig = run({0.0 | nil} endpoints, 60.0) .
+endm
+
+mod MASTODON_ROUNDTRIP_TCP is
+  inc MASTODON_ROUNDTRIP .
+  inc MASTODON_ROUNDTRIP_TRANSPORT .
+endm
+
+set print attribute on .
+rew in MASTODON_ROUNDTRIP_TCP : initConfig .
+--- Identity transport, with and without the unused NetActor.
+rew in MASTODON_ROUNDTRIP : initConfig .
+rew in MASTODON_ROUNDTRIP : directConfig .

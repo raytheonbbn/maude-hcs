@@ -1,0 +1,232 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+--- Run from this directory: maude unit_test.maude
+--- Diagnostic tests: each numbered section explains what to look for.
+
+sload ./obfs4_prob.maude
+sload ../network/net_prob.maude
+
+--- Keep transport selection separate from the network's larger signature.
+mod OBFS4_TEST_ADDRS is
+  inc TRANSPORT .
+  ops CLIENT SERVER CLIENT-APP SERVER-APP NET DNS ADV IXP : -> Address .
+  op selectedDestination : -> Address .
+  eq selectedDestination = transport(SERVER, 1) .
+endm
+
+mod OBFS4_TEST_TCP_CHOICE is
+  inc OBFS4_TEST_ADDRS .
+  eq transport(CLIENT, N:Nat) = tcppersist(CLIENT, N:Nat) .
+  eq transport(SERVER, N:Nat) = tcppersist(SERVER, N:Nat) .
+endm
+
+--- Check that one-argument and two-argument transport overrides are separate.
+mod OBFS4_TEST_ONE_ARG is
+  inc OBFS4_TEST_ADDRS .
+  eq transport(SERVER) = tcp(SERVER) .
+endm
+
+mod OBFS4_TEST is
+  inc OBFS4 .
+  inc NETWORK_CONNECTION .
+  inc OBFS4_TEST_ADDRS .
+
+  --- Four distinguishable 50-byte payloads, two in each direction.
+  op testBytes : Nat -> ByteSeq [ctor] .
+  eq getSize(testBytes(N:Nat)) = 50 .
+  op received : Address Nat Float -> Actor [ctor] .
+  rl {T:Float, (to CLIENT-APP from CLIENT : testBytes(N:Nat))}
+    => received(CLIENT-APP, N:Nat, T:Float) .
+  rl {T:Float, (to SERVER-APP from SERVER : testBytes(N:Nat))}
+    => received(SERVER-APP, N:Nat, T:Float) .
+
+  --- Resolve the endpoint identified by the connection handle.
+  rl [test-dns-reply]:
+    {T:Float, (to DNS from SRC:Address :
+      query(connxnDnsId(SRC:Address, H:ConnxnHandle), NAME:Name, a))}
+  =>
+    [0.001, (to SRC:Address from DNS :
+      response(connxnDnsId(SRC:Address, H:ConnxnHandle), NAME:Name,
+               < NAME:Name, a, 60.0, getDstAddr(H:ConnxnHandle) >,
+               nil, nil, 0)), 0]
+  .
+
+  --- TCP needs the two hops between the endpoints.
+  eq IXP-DEFAULT-ADDR = IXP .
+  op hopAttrs : -> AttributeSet .
+  eq hopAttrs = (oneWayDelay: 0.01, canDrop: false, dropP: 0.0) .
+  eq LinkData = aaa(CLIENT, IXP, hopAttrs) aaa(IXP, SERVER, hopAttrs) .
+
+  --- Make an incorrectly applied link delay easy to see: exactly 125 ms.
+  eq delayType(M:Msg) = "Constant" .
+  eq delayConst(M:Msg) = 0.125 .
+  eq noiseMin(M:Msg) = 0.0 .
+  eq noiseMax(M:Msg) = 0.0 .
+  eq overhead(M:Msg) = 0.0 .
+
+  op traffic : -> Config .
+  eq traffic = rCtr(0)
+    makeObfs4Node(CLIENT, CLIENT-APP, SERVER)
+    makeObfs4Node(SERVER, SERVER-APP, CLIENT)
+    [1.0, (to CLIENT from CLIENT-APP : testBytes(1)), 0]
+    [2.0, (to SERVER from SERVER-APP : testBytes(2)), 0]
+    [3.0, (to CLIENT from CLIENT-APP : testBytes(3)), 0]
+    [4.0, (to SERVER from SERVER-APP : testBytes(4)), 0]
+  .
+  op netActor : -> Actor .
+  eq netActor = makeTransportActor(NET, SERVER, CLIENT, DNS, 'test . root) .
+  op network : -> Config .
+  eq network = netActor mkAdversaryCp3(ADV) .
+  op handle : -> ConnxnHandle .
+  eq handle = makeConnxnHandle(SERVER, CLIENT, true, 1) .
+  ops forwardMsg reverseMsg : -> Msg .
+  eq forwardMsg = (to SERVER from CLIENT : obfs4Frame(testBytes(1), 0)) .
+  eq reverseMsg = (to CLIENT from SERVER : obfs4Frame(testBytes(2), 0)) .
+
+  --- Explicit test states isolate later failures from initialization. A busy, empty flow
+  --- exercises queueing/ACK handling without entering the TCP calculation.
+  op busyConnxn : -> AttributeSet .
+  eq busyConnxn = (dstAddr: SERVER, srcAddr: CLIENT, persist: true,
+                   connxnId: 1, connxnReady: true,
+                   fwdFlow: (flowBusy: true, req: null, queuedMsgs: emptyMsgQueue),
+                   revFlow: (makeNewRevFlow, initTcpState)) .
+  op busyNet : -> AttributeSet .
+  eq busyNet = setConnxn(getAttrs(netActor), busyConnxn) .
+
+  op dnsReply : -> Msg .
+  eq dnsReply = (to NET from DNS :
+                  response(connxnDnsId(NET, handle), 'test . root, nil, nil, nil, 0)) .
+  op dnsConnxn : -> AttributeSet .
+  eq dnsConnxn = (dstAddr: SERVER, srcAddr: CLIENT, persist: true,
+                  connxnId: 1, connxnReady: false,
+                  fwdFlow: (flowBusy: true,
+                            req: (to DNS from NET :
+                                   query(connxnDnsId(NET, handle), 'test . root, a)),
+                            queuedMsgs: forwardMsg),
+                  revFlow: makeNewRevFlow) .
+
+  --- Observe whether a handler actually produced its result tuple.
+  op completed : AttrsAttrsMsgsNat -> Bool .
+  eq completed({AS:AttributeSet, ADV-AS:AttributeSet, C:Config, N:Nat}) = true .
+  eq completed(R:AttrsAttrsMsgsNat) = false [owise] .
+endm
+
+mod OBFS4_TEST_TCP is
+  inc OBFS4_TEST .
+  inc OBFS4_TEST_TCP_CHOICE .
+endm
+
+set print attribute on .
+
+red in OBFS4_TEST : "1. Direct delivery: expect four received(...) records." .
+rew in OBFS4_TEST : run({0.0 | nil} traffic, 10.0) .
+
+red in OBFS4_TEST : "2. Identity transport with TransportActor present: same four deliveries." .
+rew in OBFS4_TEST : run({0.0 | nil} traffic network, 10.0) .
+
+red in OBFS4_TEST_TCP : "3. Persistent TCP: expect the same four received(...) records." .
+red in OBFS4_TEST_TCP : selectedDestination .
+rew in OBFS4_TEST_TCP : run({0.0 | nil} traffic network, 10.0) .
+
+red in OBFS4_TEST : "4. Missing connection: expect noneAS, then a new connection." .
+red in OBFS4_TEST : getConnxn(getAttrs(netActor), handle) .
+red in OBFS4_TEST : getOrMakeConnxn(getAttrs(netActor), handle) .
+
+red in OBFS4_TEST : "5. Initial states must be AttributeSet; reverse flow must reduce." .
+red in OBFS4_TEST : makeNewFwdFlow :: AttributeSet .
+red in OBFS4_TEST : makeNewConnxn(handle) :: AttributeSet .
+red in OBFS4_TEST : makeNewRevFlow .
+
+red in OBFS4_TEST : "6. Null and scheduled messages are not Msg; busy sends must still complete." .
+red in OBFS4_TEST : null :: Msg .
+red in OBFS4_TEST : [0.1, forwardMsg, 0] :: Msg .
+red in OBFS4_TEST : completed(handleTcpFwdTx(busyNet, getAttrs(mkAdversaryCp3(ADV)),
+                       (to tcppersist(SERVER, 1) from CLIENT : obfs4Frame(testBytes(3), 0)),
+                       0, 0.0)) .
+
+red in OBFS4_TEST : "7. TCP reception: expect exactly one replyAddr, containing tcpOn." .
+--- No network actor is needed to isolate the Obfs4 receive rule.
+rew [1] in OBFS4_TEST :
+  makeObfs4Node(SERVER, SERVER-APP, CLIENT)
+  {0.0, (to SERVER from tcpOn(CLIENT, handle) : obfs4Frame(testBytes(1), 0))} .
+
+red in OBFS4_TEST : "8. Existing-connection send: tcpOn must be handled, not remain unreduced." .
+red in OBFS4_TEST : handleTcpRevTx(busyNet, getAttrs(mkAdversaryCp3(ADV)),
+                     (to tcpOn(CLIENT, handle) from SERVER : obfs4Frame(testBytes(2), 0)),
+                     0, 1.0) .
+--- Reverse enqueueing should leave fwdFlow unchanged and append to revFlow.
+red in OBFS4_TEST : getFwdFlow(enqueueMsg(busyConnxn, reverseMsg, false)) .
+red in OBFS4_TEST : getRevFlow(enqueueMsg(busyConnxn, reverseMsg, false)) .
+
+red in OBFS4_TEST : "9. Transport detection: all three checks should be true." .
+red in OBFS4_TEST : hasTransport(tcppersist(SERVER, 1)) .
+red in OBFS4_TEST : hasTransport(to tcppersist(SERVER, 1) from CLIENT : testBytes(1)) .
+red in OBFS4_TEST : hasTransport(to tcpOn(SERVER, handle) from CLIENT : testBytes(1)) .
+--- Both TCP destinations should receive only jitter (< 0.0001 s), not 0.125 s.
+red in OBFS4_TEST : scheduleSendMsgs(
+                     (to tcppersist(SERVER, 1) from CLIENT : testBytes(1)), 0) .
+red in OBFS4_TEST : scheduleSendMsgs(
+                     (to tcpOn(SERVER, handle) from CLIENT : testBytes(1)), 0) .
+
+red in OBFS4_TEST : "10. Matching DNS response should release the pending connection." .
+--- A fresh flow should produce a query tagged with the connection handle.
+red in OBFS4_TEST : doDnsLookup(getAttrs(netActor), makeNewFwdFlow, handle, 0) .
+--- The helper should mark the connection ready and send the queued payload.
+red in OBFS4_TEST : handleDnsResponse(
+  setConnxn(getAttrs(netActor), dnsConnxn),
+  getAttrs(mkAdversaryCp3(ADV)), dnsReply, 0, 0.1) .
+--- The actor rule should consume the DNS response and schedule an ACK timer.
+rew [1] in OBFS4_TEST :
+  rCtr(0) mkAdversaryCp3(ADV)
+  < NET : TransportActor | setConnxn(getAttrs(netActor), dnsConnxn) >
+  {0.1, dnsReply} .
+
+red in OBFS4_TEST : "11. ACK with an empty queue should clear forward flowBusy." .
+rew [1] in OBFS4_TEST :
+  rCtr(0) mkAdversaryCp3(ADV) < NET : TransportActor | busyNet >
+  {1.0, (to NET from NET : TcpAckTimeout(connxnHandleAsAttrs(handle)))} .
+
+red in OBFS4_TEST : "12. Stamping TCP state must retain the flow attributes." .
+red in OBFS4_TEST : tlState(stampTcpState(
+  tlR(0.1 :: nilFloatList, 0.09 :: nilFloatList, (initTcpState, flowBusy: false, queuedMsgs: emptyMsgQueue)), 1.0, 0.02)) .
+--- Expected true: flowBusy must survive stamping.
+red in OBFS4_TEST : isFlowBusy(setFlowBusy(tlState(stampTcpState(
+          tlR(0.1 :: nilFloatList, 0.09 :: nilFloatList, (initTcpState, flowBusy: false, queuedMsgs: emptyMsgQueue)),
+  1.0, 0.02)), true)) .
+
+red in OBFS4_TEST_ONE_ARG : "13. A one-argument override does not enable Obfs4's two-argument call." .
+red in OBFS4_TEST_ONE_ARG : transport(SERVER) .
+red in OBFS4_TEST_ONE_ARG : selectedDestination .
+
+red in OBFS4_TEST : "14. TCP initialization: updating and preparing the initial state should finish." .
+red in OBFS4_TEST : initTcpState .
+red in OBFS4_TEST : updateTcpState(initTcpState, initTcpState) == initTcpState .
+red in OBFS4_TEST : prepareTcpStateForSend(initTcpState, 0.0) .

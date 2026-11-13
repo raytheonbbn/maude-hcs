@@ -27,13 +27,245 @@
 ---
 --- MAUDE_HCS: end
 
+sload ../common/maude/common_sorts.maude
+sload ../../deps/dns_formalization/Maude/common/actor.maude
+
+mod CONNXN is
+  --- The connection module. A connection may be a flow (no bidirectionality).
+  pr ACTOR-MODEL .
+  pr COMMON_SORTS .
+
+  sorts ConnxnHandle Connxn .
+
+  vars attrs : AttributeSet .
+  vars msgs MSGS CONFIG : Config .
+  vars connxnHandle CONNXN_HANDLE : ConnxnHandle .
+  vars msg MSG : Msg .
+  vars MSG_QUEUE : MsgQueue .
+
+  op nilConnxnHandle : -> ConnxnHandle .
+
+  --- ConnxnAttrs: identity, DNS readiness and the two flows.
+  op dstAddr:_      : Address -> Attribute [ctor] .
+  op srcAddr:_      : Address -> Attribute [ctor] .
+  op persist:_      : Bool    -> Attribute [ctor] .
+  op connxnId:_     : Nat     -> Attribute [ctor] .
+  op connxnReady:_  : Bool    -> Attribute [ctor] .
+  --- Each flow is a separate AttributeSet inside ConnxnAttrs.
+  op fwdFlow:_      : AttributeSet -> Attribute [ctor] .
+  op revFlow:_      : AttributeSet -> Attribute [ctor] .
+  --- FlowAttrs: saved DNS query, message queue and TCP state added on use.
+  --- flowBusy is forward-only: waiting for DNS or the modeled TCP ACK.
+  op flowBusy:_     : Bool      -> Attribute [ctor] .
+  op req:_          : Config    -> Attribute [ctor] . --- init null
+  op queuedMsgs:_   : MsgQueue  -> Attribute [ctor] . --- init emptyMsgQueue
+  --- Ops solely for logging, no need to store.
+  op timesAtDst:_   : FloatList -> Attribute [ctor] .
+  op timesAtIxp:_   : FloatList -> Attribute [ctor] .
+  op sizes:_        : NatList   -> Attribute [ctor] .
+
+  ops makeNewFwdFlow makeNewRevFlow : -> AttributeSet .
+  eq makeNewFwdFlow  = (flowBusy: false, req: null, queuedMsgs: emptyMsgQueue) .
+  eq makeNewRevFlow  = (req: null, queuedMsgs: emptyMsgQueue) .
+
+  --- Make a connection handle, used to identify the connection.
+  --- A persistent connection uses the originator's ID; ephemeral uses connxnCount.
+  --- SRC/DST keep the original initiator/peer addresses in both directions.
+  ---                   DST     SRC     Persist?  ID  -> ConnectionHandle.
+  op makeConnxnHandle : Address Address Bool      Nat -> ConnxnHandle [ctor] .
+  op makeConnxnHandle : AttributeSet                  -> ConnxnHandle [ctor] .
+  eq makeConnxnHandle(attrs,
+                      srcAddr: LOCAL:Address,
+                      dstAddr: REMOTE:Address,
+                      persist: PERSIST:Bool,
+                      connxnId: CONNXN_ID:Nat)
+    = makeConnxnHandle(REMOTE:Address, LOCAL:Address, PERSIST:Bool, CONNXN_ID:Nat)
+  .
+  eq makeConnxnHandle(attrs)
+    = makeConnxnHandle(nullAddr, nullAddr, false, 0)
+  [owise print "Error: No connection info."]
+  .
+
+  --- Create a new connection from a Message, with an ID.
+  --- Return the connection attributes.
+  --- A connection is a connectionCount (for eph connxs), Id (for persist), DST
+  --- and SRC addrs.
+  --- Create connection attributes with empty flows and connxnReady false.
+  ---                 DST     SRC     Persist?  ID  -> ConnxnAttrs
+  op makeNewConnxn :  Address Address Bool      Nat -> AttributeSet .
+  eq makeNewConnxn(REMOTE:Address, LOCAL:Address, PERSIST:Bool, CONNXN_ID:Nat)
+    = (dstAddr: REMOTE:Address,
+       srcAddr: LOCAL:Address,
+       persist: PERSIST:Bool,
+       connxnId: CONNXN_ID:Nat,
+       connxnReady: false,
+       fwdFlow: makeNewFwdFlow,
+       revFlow: makeNewRevFlow)
+  .
+  ---                 Handle       -> ConnxnAttrs
+  op makeNewConnxn :  ConnxnHandle -> AttributeSet .
+  eq makeNewConnxn(makeConnxnHandle(REMOTE:Address,
+                                    LOCAL:Address,
+                                    PERSIST:Bool,
+                                    CONNXN_ID:Nat))
+    = makeNewConnxn(REMOTE:Address,
+                    LOCAL:Address,
+                    PERSIST:Bool,
+                    CONNXN_ID:Nat)
+  .
+
+  ops getSrcAddr getDstAddr : ConnxnHandle -> Address .
+  eq getSrcAddr(makeConnxnHandle(REMOTE:Address,
+                                 LOCAL:Address,
+                                 PERSIST:Bool,
+                                 CONNXN_ID:Nat))
+    = LOCAL:Address
+  .
+  eq getSrcAddr(connxnHandle) = nullAddr [owise] .
+
+  eq getDstAddr(makeConnxnHandle(REMOTE:Address,
+                                 LOCAL:Address,
+                                 PERSIST:Bool,
+                                 CONNXN_ID:Nat))
+    = REMOTE:Address
+  .
+  eq getDstAddr(connxnHandle) = nullAddr [owise] .
+
+  --- Check if the DNS lookup completed.
+  ---                 ConnxnAttrs  -> Bool
+  op isConnxnReady :  AttributeSet -> Bool .
+  eq isConnxnReady(attrs, connxnReady: READY:Bool) = READY:Bool .
+  eq isConnxnReady(attrs) = false [owise print "Error: No connxnReady."] .
+
+  ---             FlowAttrs    -> Bool
+  op isFlowBusy : AttributeSet -> Bool .
+  eq isFlowBusy(attrs, flowBusy: BUSY:Bool) = BUSY:Bool .
+  eq isFlowBusy(attrs) = false [owise] .
+
+  --- Update flowBusy if present. Reverse flows have no flowBusy attribute.
+  ---               FlowAttrs    Busy? -> FlowAttrs
+  op setFlowBusy :  AttributeSet Bool  -> AttributeSet .
+  eq setFlowBusy((attrs, flowBusy: BUSY:Bool), newBusy:Bool)
+    = attrs, flowBusy: newBusy
+  .
+  eq setFlowBusy(attrs, newBusy:Bool) = attrs [owise] .
+
+  --- Only called by getTcpTransportAddress(), which is currently unused.
+  op getConnxnId : ConnxnHandle -> Nat .
+  eq getConnxnId(makeConnxnHandle(REMOTE:Address,
+                                  LOCAL:Address,
+                                  PERSIST:Bool,
+                                  CONNXN_ID:Nat))
+    = CONNXN_ID:Nat
+  .
+  eq getConnxnId(CONNXN_HANDLE:ConnxnHandle) = 0 [owise] .
+
+  ---             ConnxnAttrs  -> FlowAttrs
+  op getFwdFlow : AttributeSet -> AttributeSet .
+  eq getFwdFlow(attrs, fwdFlow: FLOW_ATTRS:AttributeSet) = FLOW_ATTRS:AttributeSet .
+  eq getFwdFlow(attrs) = noneAS [owise] .
+  ---             ConnxnAttrs  -> FlowAttrs
+  op getRevFlow : AttributeSet -> AttributeSet .
+  eq getRevFlow(attrs, revFlow: FLOW_ATTRS:AttributeSet) = FLOW_ATTRS:AttributeSet .
+  eq getRevFlow(attrs) = noneAS [owise] .
+  --- Replace the forward flow.
+  ---              ConnxnAttrs  FlowAttrs   -> ConnxnAttrs
+  op setFwdFlow : AttributeSet AttributeSet -> AttributeSet .
+  eq setFwdFlow((attrs, fwdFlow: FLOW_ATTRS:AttributeSet),
+                NEW_FLOW_ATTRS:AttributeSet)
+    = (attrs, fwdFlow: NEW_FLOW_ATTRS:AttributeSet)
+  .
+  eq setFwdFlow(attrs, FLOW_ATTRS:AttributeSet) = attrs [owise] .
+
+  --- Replace the reverse flow.
+  ---             ConnxnAttrs  FlowAttrs    -> ConnxnAttrs
+  op setRevFlow : AttributeSet AttributeSet -> AttributeSet .
+  eq setRevFlow((attrs, revFlow: FLOW_ATTRS:AttributeSet),
+                NEW_FLOW_ATTRS:AttributeSet)
+    = (attrs, revFlow: NEW_FLOW_ATTRS:AttributeSet)
+  .
+  eq setRevFlow(attrs, FLOW_ATTRS:AttributeSet) = attrs [owise] .
+
+
+  ---             ConnxnAttrs (or identity attributes) -> Bool
+  op isPersist :  AttributeSet -> Bool .
+  eq isPersist(attrs, persist: PERSIST:Bool) = PERSIST:Bool .
+  eq isPersist(attrs) = false [owise] .
+  op isPersist : ConnxnHandle -> Bool .
+  eq isPersist(makeConnxnHandle(REMOTE:Address,
+                                LOCAL:Address,
+                                PERSIST:Bool,
+                                CONNXN_ID:Nat))
+    = PERSIST:Bool
+  .
+  eq isPersist(HANDLE:ConnxnHandle) = false [owise] .
+--- Append a message to this flow's FIFO.
+  ---             FlowAttrs    Msg -> FlowAttrs
+  op enqueueMsg : AttributeSet Msg -> AttributeSet .
+  eq enqueueMsg((attrs, queuedMsgs: MSG_QUEUE), MSG)
+    = (attrs, queuedMsgs: (MSG_QUEUE :: MSG))
+  .
+  eq enqueueMsg(attrs, MSG) = attrs [owise] .
+
+  --- Compare the message destination with the connection's DST or SRC.
+  --- Also accepts the identity attributes attached to a message.
+  ---               ConnxnAttrs   Dest    -> Bool
+  ops isFwd isRev : AttributeSet  Address -> Bool .
+  eq isFwd((attrs, dstAddr: REMOTE:Address), DST:Address)
+    = (REMOTE:Address == DST:Address)
+  .
+  eq isFwd(attrs, DST:Address) = false [owise] .
+  eq isRev((attrs, srcAddr: LOCAL:Address), DST:Address)
+    = (LOCAL:Address == DST:Address)
+  .
+  eq isRev(attrs, DST:Address) = false [owise] .
+
+  op connxnHandleAsAttrs : ConnxnHandle -> AttributeSet .
+  eq connxnHandleAsAttrs(makeConnxnHandle(REMOTE:Address,
+                                          LOCAL:Address,
+                                          PERSIST:Bool,
+                                          CONNXN_ID:Nat))
+    = (dstAddr:   REMOTE:Address,
+       srcAddr:   LOCAL:Address,
+       persist:   PERSIST:Bool,
+       connxnId:  CONNXN_ID:Nat)
+  .
+
+endm
 
 mod TCP_SOCKET is
-  pr ACTOR-MODEL .
+  pr CONNXN .
   --- This indicates that the sending node wants a TCP connection.
   sorts TcpAddress .
   subsorts TcpAddress < Address .
 
-  op tcp : Address -> TcpAddress .
+  op tcp        : Address     -> TcpAddress .
+  op tcppersist : Address Nat -> TcpAddress .
+
+  --- Reply address supplied to the receiving channel in the from field.
+  --- A reply to tcpOn() goes through TransportActor locally, which sends it
+  --- to the bare peer address using the existing connection.
+  op tcpOn : Address  ConnxnHandle -> Address .
+  --- Get the bare peer address; removes tcpOn and its
+  op replyAddress : Address -> Address .
+  eq replyAddress(tcpOn(SRC:Address, ID:ConnxnHandle)) = SRC:Address .
+  eq replyAddress(SRC:Address) = SRC:Address [owise] .
+ 
+  op getConnxnHandle : Address -> ConnxnHandle .
+  eq getConnxnHandle(tcpOn(REMOTE:Address, ID:ConnxnHandle)) = ID:ConnxnHandle .
+  eq getConnxnHandle(REMOTE:Address) = nilConnxnHandle [owise] .
+
+
+  op getTcpTransportAddress : ConnxnHandle Address -> Address .
+  ceq getTcpTransportAddress(ID:ConnxnHandle, LOCAL:Address)
+    = tcppersist(LOCAL:Address, getConnxnId(ID:ConnxnHandle))
+    if isPersist(ID:ConnxnHandle)
+  .
+  eq getTcpTransportAddress(ID:ConnxnHandle, LOCAL:Address)
+    = LOCAL:Address [owise]
+  .
+
 endm
+
+
 

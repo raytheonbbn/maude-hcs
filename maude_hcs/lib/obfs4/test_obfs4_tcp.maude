@@ -1,0 +1,174 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+--- Run: maude test_obfs4_tcp.maude
+--- Two endpoint pairs (0 and 1) share NET0. Each local application sends twice.
+--- Both pairs use persistent connection ID 1, distinguished by their endpoints.
+--- Success leaves two requestReceived(N, T) and roundTripComplete(N, T) markers
+--- for each pair N. Every reply is generated only after its request arrives.
+--- Current network bugs may leave an active message or unreduced run(...).
+--- If a TCP equation loops, interrupt Maude; a simulated time limit does not
+--- limit the time spent reducing equations.
+
+sload ./obfs4_prob.maude
+sload ../network/net_prob.maude
+
+mod OBFS4_ROUNDTRIP_ADDRS is
+  inc TRANSPORT .
+  ops LOCAL-OBFS0 REMOTE-OBFS0 LOCAL-APP0 REMOTE-APP0 : -> Address .
+  ops LOCAL-OBFS1 REMOTE-OBFS1 LOCAL-APP1 REMOTE-APP1 : -> Address .
+  ops NET0 DNS0 ADV0 IXP0 : -> Address .
+endm
+
+mod OBFS4_ROUNDTRIP_TRANSPORT is
+  inc OBFS4_ROUNDTRIP_ADDRS .
+  eq transport(REMOTE-OBFS0, N:Nat) = tcppersist(REMOTE-OBFS0, N:Nat) .
+  eq transport(LOCAL-OBFS0, N:Nat) = tcppersist(LOCAL-OBFS0, N:Nat) .
+  eq transport(REMOTE-OBFS1, N:Nat) = tcppersist(REMOTE-OBFS1, N:Nat) .
+  eq transport(LOCAL-OBFS1, N:Nat) = tcppersist(LOCAL-OBFS1, N:Nat) .
+endm
+
+mod OBFS4_ROUNDTRIP is
+  inc OBFS4 .
+  inc NETWORK_CONNECTION .
+  inc OBFS4_ROUNDTRIP_ADDRS .
+
+  ops requestBytes0 responseBytes0 requestBytes1 responseBytes1 : -> ByteSeq [ctor] .
+  eq getSize(requestBytes0) = 50 .
+  eq getSize(responseBytes0) = 50 .
+  eq getSize(requestBytes1) = 50 .
+  eq getSize(responseBytes1) = 50 .
+  ops requestReceived roundTripComplete : Nat Float -> Actor [ctor] .
+
+  --- Pair 0: reply only after the request reaches its remote application.
+  rl [remote-application-reply0]:
+    {T:Float, (to REMOTE-APP0 from REMOTE-OBFS0 : requestBytes0)}
+  =>
+    requestReceived(0, T:Float)
+    [0.0, (to REMOTE-OBFS0 from REMOTE-APP0 : responseBytes0), 0]
+    [ print "(" T:Float ") Remote application 0 received request; replying." ]
+  .
+
+  rl [local-application-receive0]:
+    {T:Float, (to LOCAL-APP0 from LOCAL-OBFS0 : responseBytes0)}
+  =>
+    roundTripComplete(0, T:Float)
+    [ print "(" T:Float ") Local application 0 received response: ROUND TRIP COMPLETE." ]
+  .
+
+  --- Pair 1: reply only after the request reaches its remote application.
+  rl [remote-application-reply1]:
+    {T:Float, (to REMOTE-APP1 from REMOTE-OBFS1 : requestBytes1)}
+  =>
+    requestReceived(1, T:Float)
+    [0.0, (to REMOTE-OBFS1 from REMOTE-APP1 : responseBytes1), 0]
+    [ print "(" T:Float ") Remote application 1 received request; replying." ]
+  .
+
+  rl [local-application-receive1]:
+    {T:Float, (to LOCAL-APP1 from LOCAL-OBFS1 : responseBytes1)}
+  =>
+    roundTripComplete(1, T:Float)
+    [ print "(" T:Float ") Local application 1 received response: ROUND TRIP COMPLETE." ]
+  .
+
+  --- Schedule any bare DNS query emitted by the code under test.
+  rl [test-dns-schedule]:
+    S:Scheduler
+    (to DNS0 from SRC:Address : query(ID:Id, NAME:Name, a))
+  =>
+    S:Scheduler
+    [0.0, (to DNS0 from SRC:Address : query(ID:Id, NAME:Name, a)), 0]
+  .
+
+  --- Test resolver: answer for the endpoint identified by the connection handle.
+  --- Preserve the complete ID so NET0 can distinguish concurrent lookups.
+  rl [test-dns-reply]:
+    {T:Float, (to DNS0 from SRC:Address :
+      query(connxnDnsId(SRC:Address, H:ConnxnHandle), NAME:Name, a))}
+  =>
+    [0.001, (to SRC:Address from DNS0 :
+               response(connxnDnsId(SRC:Address, H:ConnxnHandle), NAME:Name,
+                        < NAME:Name, a, 60.0, getDstAddr(H:ConnxnHandle) >,
+                        nil, nil, 0)), 0]
+    [ print "(" T:Float ") Test resolver replying for " H:ConnxnHandle ]
+  .
+
+  --- Each pair has two lossless, bidirectional hops, 10 ms each.
+  eq IXP-DEFAULT-ADDR = IXP0 .
+  op hopAttrs : -> AttributeSet .
+  eq hopAttrs = (oneWayDelay: 0.01, canDrop: false, dropP: 0.0) .
+  eq LinkData = aaa(LOCAL-OBFS0, IXP0, hopAttrs)
+               aaa(IXP0, REMOTE-OBFS0, hopAttrs)
+               aaa(LOCAL-OBFS1, IXP0, hopAttrs)
+               aaa(IXP0, REMOTE-OBFS1, hopAttrs) .
+
+  --- Direct-mode control uses 20 ms. TCP destinations should get only
+  --- scheduler jitter here, then their timing from the TCP calculation.
+  eq delayType(M:Msg) = "Constant" .
+  eq delayConst(M:Msg) = 0.02 .
+  eq noiseMin(M:Msg) = 0.0 .
+  eq noiseMax(M:Msg) = 0.0 .
+  eq overhead(M:Msg) = 0.0 .
+
+  op initState : -> Config .
+  eq initState =
+    rCtr(0)
+    makeObfs4Node(LOCAL-OBFS0, LOCAL-APP0, REMOTE-OBFS0)
+    makeObfs4Node(REMOTE-OBFS0, REMOTE-APP0, LOCAL-OBFS0)
+    makeObfs4Node(LOCAL-OBFS1, LOCAL-APP1, REMOTE-OBFS1)
+    makeObfs4Node(REMOTE-OBFS1, REMOTE-APP1, LOCAL-OBFS1)
+    makeTransportActor(NET0, REMOTE-OBFS0, LOCAL-OBFS0, DNS0, 'remote . root)
+    mkAdversaryCp3(ADV0)
+    --- Stagger the pairs by 0.5 ms so their initial DNS lookups overlap.
+    [1.0,    (to LOCAL-OBFS0 from LOCAL-APP0 : requestBytes0), 0]
+    [1.0005, (to LOCAL-OBFS1 from LOCAL-APP1 : requestBytes1), 0]
+    [2.0,    (to LOCAL-OBFS0 from LOCAL-APP0 : requestBytes0), 0]
+    [2.0005, (to LOCAL-OBFS1 from LOCAL-APP1 : requestBytes1), 0]
+  .
+
+  op initConfig : -> Config .
+  eq initConfig = run({0.0 | nil} initState, 10.0) .
+endm
+
+mod OBFS4_ROUNDTRIP_TCP is
+  inc OBFS4_ROUNDTRIP .
+  inc OBFS4_ROUNDTRIP_TRANSPORT .
+endm
+
+set print attribute on .
+rew in OBFS4_ROUNDTRIP_TCP : initConfig .
+
+--- Optional control, same initial config with identity transport:
+*** rew in OBFS4_ROUNDTRIP : initConfig .
+--- Optional rule trace for the TCP scenario:
+*** set trace on .
+*** rew in OBFS4_ROUNDTRIP_TCP : initConfig .
+*** set trace off .

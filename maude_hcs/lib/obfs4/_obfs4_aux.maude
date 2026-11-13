@@ -44,8 +44,10 @@ mod OBFS4_AUX is
   --- The address of the upstream node (most likely the translation interface 
   --- to the IRC client or server.)
   op localNode:_ : Address -> Attribute [ctor] .
-  --- The address of the channel's remove endpoint.
+  --- The address of the channel's remote endpoint.
   op remoteNode:_ : Address -> Attribute [ctor] .
+  --- The reply address of the channel's remote endpoint (transport support).
+  op replyAddr:_  : Address -> Attribute [ctor] .
   --- The randomizer counter (unused in probabilistic model).
   op padCtr:_ : Nat -> Attribute [ctor] .
 
@@ -57,9 +59,14 @@ mod OBFS4_AUX is
     < THIS : Obfs4Node |
         localNode: LOCAL,
         remoteNode: REMOTE,
+        replyAddr: REMOTE,
         padCtr: 0
     >
   .
+
+  op getReplyAddr : AttributeSet -> Address .
+  eq getReplyAddr(obfs:AttributeSet, replyAddr: REMOTE) = REMOTE .
+  eq getReplyAddr(obfs:AttributeSet) = nullAddr [owise] .
 
   --- Encapsulate ByteSeq into an Obfs4Frame with random padding length.
   ---           payload paddingLen

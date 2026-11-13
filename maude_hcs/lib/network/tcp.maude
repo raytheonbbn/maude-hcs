@@ -30,6 +30,7 @@
 sload ../../deps/dns_formalization/Maude/common/actor.maude
 sload ../../deps/dns_formalization/Maude/common/parameters.maude
 sload ../common/maude/_aux.maude
+sload ../common/maude/common_sorts.maude
 sload ../irc/irc-byteseq-interface.maude
 sload tcp_socket.maude
 
@@ -47,90 +48,12 @@ sload tcp_socket.maude
 ---   3-way handshake, Slow Start, Congestion Avoidance,
 ---   Fast Retransmit / Fast Recovery via SACK, RTO on total loss.
 ---
---- Channel: 4-state Gilbert-Elliott Markov chain
----   State 0: Good           -- packet delivered
----   State 1: Gap in burst   -- packet delivered
----   State 2: Burst loss     -- packet DROPPED
----   State 3: Isolated loss  -- packet DROPPED
+--- Channel: IID packet loss model
+---   dropP: packet drop probability p in [0, 1]
+---   End-to-end 2-hop composite loss: p_e2e = 1 - (1 - p1) * (1 - p2)
 ---
 --- Loss is unidirectional: only client->server path is modelled.
 --- ================================================================
-
-
---- ================================================================
---- Module: TCP-LINALG
----   Fixed-size 4-element vectors and 4x4 matrices with the
----   linear algebra operations needed by the GE channel model.
---- ================================================================
-fmod TCP-LINALG is
-  pr FLOAT .
-
-  --- -------- Vec4: 4-element float vector --------
-  sort Vec4 .
-  op v4 : Float Float Float Float -> Vec4 [ctor] .
-
-  --- -------- Mat4: 4x4 matrix as 4 row vectors --------
-  sort Mat4 .
-  op m4 : Vec4 Vec4 Vec4 Vec4 -> Mat4 [ctor] .
-
-  --- Variables
-  vars A B C D A2 B2 C2 D2 S : Float .
-  vars V V2 R0 R1 R2 R3 : Vec4 .
-
-  --- Element-wise addition
-  op vAdd : Vec4 Vec4 -> Vec4 .
-  eq vAdd(v4(A, B, C, D), v4(A2, B2, C2, D2)) =
-     v4(A + A2, B + B2, C + C2, D + D2) .
-
-  --- Element-wise multiplication
-  op vElMul : Vec4 Vec4 -> Vec4 .
-  eq vElMul(v4(A, B, C, D), v4(A2, B2, C2, D2)) =
-     v4(A * A2, B * B2, C * C2, D * D2) .
-
-  --- Scalar multiplication
-  op vScale : Float Vec4 -> Vec4 .
-  eq vScale(S, v4(A, B, C, D)) = v4(S * A, S * B, S * C, S * D) .
-
-  --- Dot product
-  op vDot : Vec4 Vec4 -> Float .
-  eq vDot(v4(A, B, C, D), v4(A2, B2, C2, D2)) =
-     A * A2 + B * B2 + C * C2 + D * D2 .
-
-  --- Sum of elements
-  op vSum : Vec4 -> Float .
-  eq vSum(v4(A, B, C, D)) = A + B + C + D .
-
-  --- Normalize: v / sum(v)
-  op vNorm : Vec4 -> Vec4 .
-  eq vNorm(V) =
-     if vSum(V) > 0.0
-     then vScale(1.0 / vSum(V), V)
-     else v4(2.5e-1, 2.5e-1, 2.5e-1, 2.5e-1)
-     fi .
-
-  --- Row-vector times matrix  (pi @ P in numpy)
-  ---   result[j] = sum_i v[i] * M[i][j]
-  ---   = v[0]*row0 + v[1]*row1 + v[2]*row2 + v[3]*row3
-  op rvMul : Vec4 Mat4 -> Vec4 .
-  eq rvMul(v4(A, B, C, D), m4(R0, R1, R2, R3)) =
-     vAdd(vScale(A, R0),
-       vAdd(vScale(B, R1),
-         vAdd(vScale(C, R2), vScale(D, R3)))) .
-
-  --- Diagonal-matrix times matrix: diag(d) @ M
-  ---   Scales each row i of M by d[i]
-  op diagMul : Vec4 Mat4 -> Mat4 .
-  eq diagMul(v4(A, B, C, D), m4(R0, R1, R2, R3)) =
-     m4(vScale(A, R0), vScale(B, R1),
-        vScale(C, R2), vScale(D, R3)) .
-
-  --- Clip to [0, 1]
-  op clip01 : Float -> Float .
-  eq clip01(A) =
-     if A < 0.0 then 0.0
-     else (if A > 1.0 then 1.0 else A fi)
-     fi .
-endfm
 
 
 --- ================================================================
@@ -138,39 +61,14 @@ endfm
 ---   Channel model, flight analysis, timeline builder, public API.
 --- ================================================================
 mod TCP-ANALYTICAL-MODEL is
-  pr TCP-LINALG .
-  pr NAT .
-  pr INT .
-  pr CONVERSION .
-  pr PARAMETERS-BASE-COMMON .
+  pr COMMON_SORTS .
 
-  --- ============================================================
-  ---  FloatList
-  --- ============================================================
-  sort FloatList .
-  sort NatList .
-  subsort Nat < NatList .
-  op nilNatList : -> NatList [ctor] .
-  op _::_ : NatList NatList -> NatList [ctor assoc id: nilNatList] .
-  op nilFL : -> FloatList [ctor] .
-  subsort Float < FloatList .
-  op _::_ : FloatList FloatList -> FloatList [ctor assoc id: nilFL] .
-
-  vars F G : Float .
-  vars L L1 L2 : FloatList .
-
-  op lenFL : FloatList -> Nat .
-  eq lenFL(nilFL) = 0 .
-  eq lenFL(F :: L) = s(lenFL(L)) .
-
-  op maxFL : FloatList -> Float .
-  eq maxFL(nilFL) = 0.0 .
-  eq maxFL(F :: L) = max(F, maxFL(L)) .
-
-  op _++_ : FloatList FloatList -> FloatList .
-  eq nilFL ++ L = L .
-  eq (F :: L1) ++ L2 = F :: (L1 ++ L2) .
-
+  --- Clip to [0, 1]
+  op clip01 : Float -> Float .
+  eq clip01(A:Float) =
+     if A:Float < 0.0 then 0.0
+     else (if A:Float > 1.0 then 1.0 else A:Float fi)
+     fi .
 
   --- ============================================================
   ---  Utility functions
@@ -202,6 +100,17 @@ mod TCP-ANALYTICAL-MODEL is
      then exp(log(X:Float) / 3.0)
      else 0.0
      fi .
+
+  --- Power function for Float base and Nat exponent (binary exponentiation)
+  op powF : Float Nat -> Float .
+  eq powF(X:Float, 0) = 1.0 .
+  eq powF(X:Float, 1) = X:Float .
+  ceq powF(X:Float, N:Nat) =
+     if N:Nat rem 2 == 0
+     then powF(X:Float * X:Float, N:Nat quo 2)
+     else X:Float * powF(X:Float * X:Float, N:Nat quo 2)
+     fi
+  if N:Nat > 1 .
 
 
   --- ============================================================
@@ -238,168 +147,85 @@ mod TCP-ANALYTICAL-MODEL is
 
 
   --- ============================================================
-  ---  Channel Configuration
+  ---  Channel Configuration (IID Loss Model)
   --- ============================================================
 
   sort ChannelCfg .
-  ---          P      Ms     Ml     lossVec  piStat
-  op chCfg : Mat4   Mat4   Mat4   Vec4     Vec4   -> ChannelCfg [ctor] .
+  ---          p_loss
+  op chCfg : Float -> ChannelCfg [ctor] .
 
-  vars PM MS ML : Mat4 .
-  vars LV PIST : Vec4 .
-  var  CC : ChannelCfg .
+  var  CC CC_PATH : ChannelCfg .
 
-  op chP  : ChannelCfg -> Mat4 .
-  op chMs : ChannelCfg -> Mat4 .
-  op chMl : ChannelCfg -> Mat4 .
-  op chLV : ChannelCfg -> Vec4 .
-  op chPi : ChannelCfg -> Vec4 .
+  op chLossP : ChannelCfg -> Float .
+  eq chLossP(chCfg(P:Float)) = P:Float .
 
-  eq chP(chCfg(PM, MS, ML, LV, PIST))  = PM .
-  eq chMs(chCfg(PM, MS, ML, LV, PIST)) = MS .
-  eq chMl(chCfg(PM, MS, ML, LV, PIST)) = ML .
-  eq chLV(chCfg(PM, MS, ML, LV, PIST)) = LV .
-  eq chPi(chCfg(PM, MS, ML, LV, PIST)) = PIST .
+  --- Compose two independent cascaded hops into an end-to-end path
+  --- p_e2e = 1 - (1 - p1) * (1 - p2)
+  op composeChannels : ChannelCfg ChannelCfg -> ChannelCfg .
+  eq composeChannels(chCfg(P1:Float), chCfg(P2:Float)) =
+     chCfg(clip01(1.0 - (1.0 - P1:Float) * (1.0 - P2:Float))) .
 
-
-  --- Check if the channel represents the no-loss "none" profile.
-  --- The "none" profile has p31 = 1.0, meaning burst loss immediately
-  --- recovers to good state.  Detected by checking P[2][0] ~= 1.0.
+  --- Check if channel is lossless ("none" profile)
   op isNoneProfile : ChannelCfg -> Bool .
-  ceq isNoneProfile(CC) = P31X:Float >= (1.0 - 1.0e-10)
-  if m4(R0X:Vec4, R1X:Vec4,
-        v4(P31X:Float, B1X:Float, C1X:Float, D1X:Float),
-        R3X:Vec4) := chP(CC) .
-  eq isNoneProfile(CC) = false [owise] .
+  eq isNoneProfile(chCfg(P:Float)) = P:Float <= 1.0e-10 .
 
 
   vars linkAttrs linkAttrs1 linkAttrs2 : AttributeSet .
 
+  --- Make channel from AttributeSet
+  --- Supports dropP: directly, or defaults to 0.0 (respects canDrop: false)
   op makeChannel : AttributeSet -> ChannelCfg .
-  eq makeChannel(linkAttrs,
-                 p13: P13:Float,
-                 p31: P31:Float,
-                 p32: P32:Float,
-                 p23: P23:Float,
-                 p14: P14:Float)
-    = makeChannel(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float)
-  .
+  eq makeChannel((linkAttrs, canDrop: false)) = chCfg(0.0) .
+  eq makeChannel((linkAttrs, dropP: P:Float)) = chCfg(clip01(P:Float)) .
+  eq makeChannel(linkAttrs) = chCfg(0.0) [owise] .
 
-  --- Build channel config from 5 probabilities
-  ---   p13: Good -> Burst     p31: Burst -> Good
-  ---   p32: Burst -> Gap      p23: Gap -> Burst
-  ---   p14: Good -> Isolated
-  op makeChannel : Float Float Float Float Float -> ChannelCfg [memo] .
-  ceq makeChannel(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float) =
-     chCfg(P0:Mat4, MS0:Mat4, ML0:Mat4, LV0:Vec4, PI0:Vec4)
-  if P0:Mat4 := m4(
-       v4(1.0 - P13:Float - P14:Float,  0.0,
-          P13:Float,                     P14:Float),
-       v4(P31:Float,                     1.0 - P23:Float - P31:Float,
-          P23:Float,                     0.0),
-       v4(P31:Float,                     P32:Float,
-          1.0 - P31:Float - P32:Float,  0.0),
-       v4(1.0,                           0.0,
-          0.0,                           0.0))
-  /\ LV0:Vec4 := v4(0.0, 0.0, 1.0, 1.0)
-  /\ MS0:Mat4 := diagMul(v4(1.0, 1.0, 0.0, 0.0), P0:Mat4)
-  /\ ML0:Mat4 := diagMul(LV0:Vec4, P0:Mat4)
-  /\ PI0:Vec4 := stationaryDist(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float)
-  .
+  op makeChannel : Float -> ChannelCfg .
+  eq makeChannel(P:Float) = chCfg(clip01(P:Float)) .
 
-  --- Closed-form stationary distribution for the 4-state GE channel.
-  --- For the corrected transition matrix (Gap row includes p31):
-  ---   pi_1 = p13 * p32 / (p31 * (p23 + p31 + p32)) * pi_0
-  ---   pi_2 = p13 * (p23 + p31) / (p31 * (p23 + p31 + p32)) * pi_0
-  ---   pi_3 = p14 * pi_0
-  ---   pi_0 = 1 / (1 + R1 + R2 + p14)
-
-  op stationaryDist : Float Float Float Float Float -> Vec4 .
-
-  --- Special case: no-loss channel (p13 and p14 both zero)
-  ceq stationaryDist(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float) =
-     v4(1.0, 0.0, 0.0, 0.0)
-  if P13:Float + P14:Float < 1.0e-15 .
-
-  --- General case
-  ceq stationaryDist(P13:Float, P31:Float, P32:Float, P23:Float, P14:Float) =
-     v4(Pi0:Float, Pi1:Float, Pi2:Float, Pi3:Float)
-  if DN:Float  := P31:Float * (P23:Float + P31:Float + P32:Float)
-  /\ R1:Float  := (P13:Float * P32:Float) / DN:Float
-  /\ R2:Float  := (P13:Float * (P23:Float + P31:Float)) / DN:Float
-  /\ Pi0:Float := 1.0 / (1.0 + R1:Float + R2:Float + P14:Float)
-  /\ Pi1:Float := R1:Float * Pi0:Float
-  /\ Pi2:Float := R2:Float * Pi0:Float
-  /\ Pi3:Float := P14:Float * Pi0:Float
-  [owise] .
+  op getOneWayDelay : AttributeSet -> Float .
+  eq getOneWayDelay((linkAttrs, oneWayDelay: OW:Float)) = OW:Float .
+  eq getOneWayDelay((linkAttrs, delayConst: D:Float)) = D:Float .
+  eq getOneWayDelay(linkAttrs) = 0.0 [owise] .
 
 
   --- ============================================================
-  ---  Flight Statistics
+  ---  Flight Statistics (IID Loss Model)
   --- ============================================================
 
   --- Result of analysing one flight of W packets
   sort FlightResult .
-  ---       p0     pa     el     pi_after
-  op fr : Float  Float  Float  Vec4     -> FlightResult [ctor] .
+  ---       p0     pa     el
+  op fr : Float  Float  Float -> FlightResult [ctor] .
 
-  var FR FR1 FR2 FRB FRB2 : FlightResult .
+  var FR FR2 FRB FRB2 : FlightResult .
 
   op frP0 : FlightResult -> Float .
   op frPa : FlightResult -> Float .
   op frEl : FlightResult -> Float .
-  op frPi : FlightResult -> Vec4 .
-  eq frP0(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FP0:Float .
-  eq frPa(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FPA:Float .
-  eq frEl(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FEL:Float .
-  eq frPi(fr(FP0:Float, FPA:Float, FEL:Float, FV:Vec4)) = FV:Vec4 .
+  eq frP0(fr(FP0:Float, FPA:Float, FEL:Float)) = FP0:Float .
+  eq frPa(fr(FP0:Float, FPA:Float, FEL:Float)) = FPA:Float .
+  eq frEl(fr(FP0:Float, FPA:Float, FEL:Float)) = FEL:Float .
 
-  vars P01 P02 PF1 PF2 P0S PAS ELS ELT CWND_SS CWND_SSB PL LP P0 EL : Float .
-  vars VOK VDRP VU VU1 PI PINX : Vec4 .
+  vars IDLE CWND_SS PL LP P0 : Float .
 
-  --- flightPass(remaining, v_ok, v_drop, v_u, el, CC)
-  --- Iterates W times for one direction pass:
-  ---   el     += v_u . lossVec
-  ---   v_ok    = v_ok @ Ms   (all-success path)
-  ---   v_drop  = v_drop @ Ml (all-loss path)
-  ---   v_u     = v_u @ P     (unconditional path)
-  op flightPass : Nat Vec4 Vec4 Vec4 Float ChannelCfg -> FlightResult .
-
-  eq flightPass(0, VOK, VDRP, VU, EL, CC) =
-     fr(clip01(vSum(VOK)), clip01(vSum(VDRP)), EL,
-        if vSum(VU) > 0.0
-        then vScale(1.0 / vSum(VU), VU)
-        else chPi(CC)
-        fi) .
-
-  eq flightPass(s(N:Nat), VOK, VDRP, VU, EL, CC) =
-     flightPass(N:Nat,
-        rvMul(VOK, chMs(CC)),
-        rvMul(VDRP, chMl(CC)),
-        rvMul(VU, chP(CC)),
-        EL + vDot(VU, chLV(CC)),
-        CC) .
-
-  --- flightStats(W, pi, channelCfg)
-  --- Computes bidirectional loss statistics for a flight of W packets starting
-  --- from channel state distribution pi across two cascaded identical hops.
-  op flightStats : Nat Vec4 ChannelCfg -> FlightResult .
-  ceq flightStats(W:Nat, V:Vec4, CC) =
-     fr(P0S * P0S,
-        PAS + (1.0 - PAS) * PAS,
-        ELS + ELS,
-        PINX)
-  if FR1 := flightPass(W:Nat, V:Vec4, V:Vec4, V:Vec4, 0.0, CC)
-  /\ P01 := frP0(FR1)
-  /\ PF1 := frPa(FR1)
-  /\ ELS := frEl(FR1)
-  /\ VU1 := frPi(FR1)
-  /\ FR2 := flightPass(W:Nat, VU1, VU1, VU1, 0.0, CC)
-  /\ P02 := frP0(FR2)
-  /\ PF2 := frPa(FR2)
-  /\ PINX := frPi(FR2)
-  /\ P0S := clip01(P01 * P02)
-  /\ PAS := clip01(PF1 + (1.0 - PF1) * PF2) .
+  --- flightStats(W, channelCfg)
+  --- Computes closed-form IID loss statistics for a flight of W packets:
+  ---   P0 = (1 - p)^W       (probability of zero losses)
+  ---   Pa = p^W             (probability of all packets lost)
+  ---   El = W * p           (expected number of losses)
+  op flightStats : Nat ChannelCfg -> FlightResult .
+  eq flightStats(0, CC) = fr(1.0, 0.0, 0.0) .
+  ceq flightStats(W:Nat, chCfg(P:Float)) =
+     fr(1.0, 0.0, 0.0)
+  if P:Float <= 1.0e-15 .
+  ceq flightStats(W:Nat, chCfg(P:Float)) =
+     fr(0.0, 1.0, float(W:Nat))
+  if P:Float >= (1.0 - 1.0e-15) .
+  ceq flightStats(W:Nat, chCfg(P:Float)) =
+     fr(clip01(powF(1.0 - P:Float, W:Nat)),
+        clip01(powF(P:Float, W:Nat)),
+        float(W:Nat) * P:Float)
+  if P:Float > 1.0e-15 /\ P:Float < (1.0 - 1.0e-15) .
 
 
   --- ============================================================
@@ -412,7 +238,7 @@ mod TCP-ANALYTICAL-MODEL is
   op genSSSegs : Nat Nat Nat Nat Float Float -> FloatList .
   eq genSSSegs(I:Nat, W:Nat, N:Nat, SG:Nat, BT:Float, SR:Float) =
      if I:Nat >= W:Nat or (SG:Nat + I:Nat + 1) > N:Nat
-     then nilFL
+     then nilFloatList
      else (BT:Float + float(I:Nat) * SR:Float)
           :: genSSSegs(s(I:Nat), W:Nat, N:Nat, SG:Nat, BT:Float, SR:Float)
      fi .
@@ -425,7 +251,7 @@ mod TCP-ANALYTICAL-MODEL is
   eq genCASegs(KI:Nat, SE:Nat, N:Nat, SS:Nat, ED:Float,
               W:Nat, T:Float, OW:Float, SR:Float) =
      if KI:Nat > SE:Nat or KI:Nat > N:Nat
-     then nilFL
+     then nilFloatList
      else (T:Float + OW:Float +
            ((float(sd(KI:Nat, s(SS:Nat))) / max(1.0, ED:Float))
             * float(W:Nat) * SR:Float))
@@ -438,103 +264,249 @@ mod TCP-ANALYTICAL-MODEL is
   ---  Slow Start Phase
   --- ============================================================
 
+  --- ============================================================
+  ---  TCP Congestion State & Timeline Result
+  --- ============================================================
+
+***(
+  sort TcpState .
+  ---                 cwnd   wMax   tSince inSS lastSend lastAck
+  op tcpState :       Float  Float  Float  Bool Float Float -> TcpState [ctor] .
+  op tcpState :       Float  Float  Float  Bool -> TcpState .
+  op tcpState :       Float  Float  Float -> TcpState .
+  eq tcpState(CWND, WMX, TS, INSS) = tcpState(CWND, WMX, TS, INSS, -1.0, -1.0) .
+  eq tcpState(CWND, WMX, TS) = tcpState(CWND, WMX, TS, false, -1.0, -1.0) .
+)
+
+  op cwnd:_     : Float -> Attribute [ctor] .
+  op wMax:_     : Float -> Attribute [ctor] .
+  op tSince:_   : Float -> Attribute [ctor] .
+  op inSS:_     : Bool  -> Attribute [ctor] .
+  op lastSend:_ : Float -> Attribute [ctor] .
+  op lastAck:_  : Float -> Attribute [ctor] .
+
+  op makeTcpState : Float Float Float Bool -> AttributeSet .
+  eq makeTcpState(CWND, WMX, TS, INSS) = makeTcpState(CWND, WMX, TS, INSS, -1., 1.) .
+  op makeTcpState : Float Float Float Bool Float Float -> AttributeSet .
+  eq makeTcpState(CWND, WMX, TS, INSS, LS, LA)
+    = (cwnd:     CWND,
+       wMax:     WMX,
+       tSince:   TS,
+       inSS:     INSS,
+       lastSend: LS,
+       lastAck:  LA)
+  .
+  --- Initial TCP State (start with this).
+  op initTcpState : -> AttributeSet .
+  eq initTcpState = makeTcpState(10.0, 10.0 / cubicB, 0.0, true, -1.0, -1.0) .
+
+  --- Get the lastAck attribute value.  0. if not present.
+  op getLastAck : AttributeSet -> Float .
+  eq getLastAck(attrs, lastAck: LA) = LA .
+  eq getLastAck(attrs) = 0. [owise] .
+
+  op restartCwnd : Float Float -> Float .
+  ceq restartCwnd(CWND, IDLE) = restartCwnd(max(10.0, floor(CWND * 5.0e-1)), IDLE - rtoMinC)
+    if IDLE > rtoMinC and CWND > 10.0 .
+  eq restartCwnd(CWND, IDLE) = CWND [owise] .
+
+  op hasTcpState : AttributeSet -> Bool .
+  eq hasTcpState((attrs,
+                  cwnd: CWND,
+                  wMax: WMX,
+                  tSince: TS,
+                  inSS: INSS,
+                  lastSend: LS,
+                  lastAck: LA)) = true .
+  eq hasTcpState(attrs) = false [owise] .
+
+  --- Initialize missing TCP state; otherwise apply idle restart
+  --- before the next send, or preserve state if no restart is needed.
+  op prepareTcpStateForSend : AttributeSet Float -> AttributeSet .
+  eq prepareTcpStateForSend((attrs,
+                             cwnd: CWND,
+                             wMax: WMX,
+                             tSince: TS,
+                             inSS: INSS,
+                             lastSend: LS,
+                             lastAck: LA),
+                            NOW)
+    = (if (LS >= 0.0 and LA >= 0.0 and NOW >= LA and NOW - LS > rtoMinC)
+        then (attrs,
+              cwnd: restartCwnd(CWND, NOW - LS),
+              wMax: WMX,
+              tSince: 0.0,
+              inSS: true,
+              lastSend: LS,
+              lastAck: LA)
+        else (attrs,
+              cwnd: CWND,
+              wMax: WMX,
+              tSince: TS,
+              inSS: INSS,
+              lastSend: LS,
+              lastAck: LA)
+      fi)
+  .
+****  eq prepareTcpStateForSend(ST:AttributeSet, NOW) = ST [owise] .
+  eq prepareTcpStateForSend(ST:AttributeSet, NOW)
+    = prepareTcpStateForSend(updateTcpState(ST:AttributeSet, initTcpState), NOW)
+    [owise]
+  .
+
+  op stampTcpState : TimelineResult Float Float -> TimelineResult .
+  eq stampTcpState(tlR(FL_DST, FL_IXP, (attrs,
+                                        cwnd: CWND,
+                                        wMax: WMX,
+                                        tSince: TS,
+                                        inSS: INSS,
+                                        lastSend: LS,
+                                        lastAck: LA)), NOW, OW)
+    = tlR(FL_DST, FL_IXP, (attrs, makeTcpState(CWND,
+                                               WMX,
+                                               TS,
+                                               INSS,
+                                               NOW + maxFL(FL_DST) - OW,
+                                               NOW + maxFL(FL_DST) + OW))) .
+
+  op stateStartTime : AttributeSet -> Float .
+  eq stateStartTime(attrs, lastAck: LA) = max(0.0, LA) .
+  eq stateStartTime(attrs) = 0. [owise print "Error: No lastAck." ] .
+
+  op updateTcpState : AttributeSet AttributeSet -> AttributeSet .
+  eq updateTcpState((attrs0,
+                     cwnd: CWND,
+                     wMax: WMX,
+                     tSince: TS,
+                     inSS: INSS,
+                     lastSend: LS,
+                     lastAck: LA),
+                    (attrs1,
+                     cwnd:      NEW_CWND:Float,
+                     wMax:      NEW_WMAX:Float,
+                     tSince:    NEW_TIMESINCE:Float,
+                     inSS:      NEW_INSS:Bool,
+                     lastSend:  NEW_LASTSEND:Float,
+                     lastAck:   NEW_LASTACK:Float))
+    = (attrs0,
+        attrs1,
+        cwnd: NEW_CWND:Float,
+        wMax: NEW_WMAX:Float,
+        tSince: NEW_TIMESINCE:Float,
+        inSS: NEW_INSS:Bool,
+        lastSend: NEW_LASTSEND:Float,
+        lastAck: NEW_LASTACK:Float)
+  .
+  eq updateTcpState(attrs, ST:AttributeSet) = (attrs, ST:AttributeSet) [owise] .
+
+  sort TimelineResult .
+  ---                 timesDst   timesIxp   state
+  op tlR :            FloatList  FloatList  AttributeSet -> TimelineResult [ctor] .
+  op tlDstTimes :     TimelineResult -> FloatList .
+  op tlIxpTimes :     TimelineResult -> FloatList .
+  op tlState :        TimelineResult -> AttributeSet .
+  eq tlDstTimes(tlR(FL_DST:FloatList, FL_IXP:FloatList, S:AttributeSet)) = FL_DST:FloatList .
+  eq tlIxpTimes(tlR(FL_DST:FloatList, FL_IXP:FloatList, S:AttributeSet)) = FL_IXP:FloatList .
+  eq tlState(tlR(FL_DST:FloatList, FL_IXP:FloatList, S:AttributeSet)) = S:AttributeSet .
+
   --- SSResult: state after slow start completes
   sort SSResult .
-  ---         t       seg    flt    pi    times     lastP0   Wss
-  op ssR : Float    Nat    Nat    Vec4  FloatList  Float    Nat
+  ---         t       seg    flt    timesDst   timesIxp   lastP0   Wss    inSS
+  op ssR : Float    Nat    Nat    FloatList  FloatList  Float    Nat    Bool
            -> SSResult [ctor] .
 
-  --- ssLoop(t, seg, flt, pi, Wss, N, O, OWOFF, SRHOP, CC, acc)
+  --- ssLoop(t, seg, flt, Wss, N, OWD1, OWD2, CC, accDst, accIxp)
   --- Implements the slow-start while loop from _build_timeline
-  --- (no-buffer path: LOCAL_MAX_CWND = 50)
+  --- (no-buffer path: LOCAL_MAX_CWND = 1000)
 
-  op ssLoop : Float Nat Nat Vec4 Nat Nat Float Float Float ChannelCfg FloatList
+  op ssLoop : Float Nat Nat Nat Nat Float Float ChannelCfg FloatList FloatList
               -> SSResult .
 
-  vars T OW OWOFF SRHOP RTT0 DT PA PP EDel EDT WM0 TSC0 WR WNO CNX PLOSS OWD1 OWD2 : Float .
+  vars T OW OWOFF RTT0 DT PA PP EDel EDT WM0 TSC0 WR WNO CNX PLOSS OWD1 OWD2 DT_REC P_DROP LS LA : Float .
   vars CC1 CC2 : ChannelCfg .
-  vars isNew ISNEW : Bool .
-  vars CWND CWND0 : Float .
-  vars CW0 CW1 CW2 WMX PLL CWF WMF TSCF TSCF0 EDT0 : Float .
-  vars SG SG2 N W FLT WSS WNXT IT : Nat .
+  var  ISNEW : Bool .
+  var  CWND : Float .
+  vars CW0 CW1 CW2 WMX PLL CWF WMF TSCF TSCF0 EDT0 TS : Float .
+  vars SG N W FLT WSS WNXT IT : Nat .
   var  SGS SGE : Nat .
   var  SEGF : Float .
-  var  ACC : FloatList .
-  vars SX  B : Bool .
+  vars ACC_DST ACC_IXP FL_DST FL_IXP : FloatList .
+  vars SX  B INSS : Bool .
+  var  NOW : Float .
+  vars TLR : TimelineResult .
+  vars attrs attrs0 attrs1 : AttributeSet .
 
   --- Buffer-path variables (ssLoopBuf / caLoopBuf)
-  vars P0CH P0B PLB BDRP RTTB DTB : Float .
+  vars P0CH P0B PLB BDRP RTTB DTB DT_RECB : Float .
   vars P0CH2 PACH2 CADRP EDelB EDT0B EDTB : Float .
   vars CWFB WMFB TSCF0B TSCFB : Float .
   vars PLLB CWB0 CWB1 CWB2 WMXB : Float .
   var  WMR WNXTB : Nat .
   var  SXB : Bool .
-  var  NSEGB NSB NSEGS NS : FloatList .
+  vars NSEGB_DST NSEGB_IXP NSB_DST NSB_IXP NSEGS_DST NSEGS_IXP NS_DST NS_IXP : FloatList .
 
   --- Base case: all segments delivered during SS
-  ceq ssLoop(T, SG, FLT, PI, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
-     ssR(T, SG, FLT, PI, ACC, 1.0, WSS)
+  ceq ssLoop(T, SG, FLT, WSS, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
+     ssR(T, SG, FLT, ACC_DST, ACC_IXP, 1.0, WSS, true)
   if SG >= N .
 
   --- Recursive case: process one SS flight
-  ceq ssLoop(T, SG, FLT, PI, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
+  ceq ssLoop(T, SG, FLT, WSS, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
      if SX
-     then ssR(T + DT, SG + f2n(CWND_SS), s(FLT), PINX, ACC ++ NSEGS,
-              if PL > 1.0e-15 then P0 else frP0(FR2) fi, WSS)
-     else ssLoop(T + DT, SG + f2n(CWND_SS), s(FLT), PINX, WNXT,
-                 N, OW, OWOFF, SRHOP, CC, ACC ++ NSEGS)
+     then ssR(T + DT, SG + f2n(CWND_SS), s(FLT),
+              ACC_DST ++ NSEGS_DST, ACC_IXP ++ NSEGS_IXP,
+              if PL > 1.0e-15 then P0 else frP0(FR2) fi, WSS, false)
+     else ssLoop(T + DT, SG + f2n(CWND_SS), s(FLT), WNXT,
+                 N, OWD1, OWD2, CC,
+                 ACC_DST ++ NSEGS_DST, ACC_IXP ++ NSEGS_IXP)
      fi
   if SG < N
   /\ CWND_SS := min(float(WSS), 1000.0)
-  /\ FR := flightStats(WSS, PI, CC)
+  /\ FR := flightStats(WSS, CC)
   /\ P0 := frP0(FR)
   /\ PL := 1.0 - P0
-  /\ PINX := frPi(FR)
-  /\ RTT0 := 2.0 * OW
-  /\ DT := P0 * RTT0 + PL * (2.0 * RTT0 + RTT0 * rackF)
-  /\ NSEGS := genSSSegs(0, f2n(CWND_SS), N, SG, T + OWOFF, SRHOP)
+  /\ RTT0 := 2.0 * (OWD1 + OWD2)
+  /\ DT_REC := 2.0 * RTT0 + RTT0 * rackF
+  /\ DT := P0 * RTT0 + PL * DT_REC
+  /\ P_DROP := chLossP(CC)
+  /\ NSEGS_DST := genSSSegs(0, f2n(CWND_SS), N, SG, T + OWD1 + OWD2 + P_DROP * DT_REC, serDly)
+  /\ NSEGS_IXP := genSSSegs(0, f2n(CWND_SS), N, SG, T + OWD1 + P_DROP * DT_REC, serDly1)
   /\ WNXT := min(WSS + WSS, 1000)
-  /\ FR2 := flightStats(WNXT, PINX, CC)
-  /\ SX := (frEl(FR2) >= 5.0e-1 or float(WSS) >= 1000.0)
+  /\ FR2 := flightStats(WNXT, CC)
+  /\ SX := (frEl(FR) >= 5.0e-1 or frEl(FR2) >= 5.0e-1 or float(WSS) >= 1000.0)
   .
 
 
   --- ============================================================
   ---  Slow Start Phase — Buffer-Capacity Path
   --- ============================================================
-  ---
-  --- Used when isNoneProfile is true (p31 ~= 1.0).
-  --- Key differences from ssLoop:
-  ---   - MAX_CWND = 1000 (instead of LOCAL_MAX_CWND = 50)
-  ---   - Buffer overflow when seg + Wss > BUFFER_CAPACITY (1000)
-  ---   - dt uses LOCAL_RECOVERY_FACTOR = 0.5
-  ---   - pi is NOT updated between iterations
-  ---   - Exit includes p_l > 0.0 check (buffer overflow)
 
-  op ssLoopBuf : Float Nat Nat Vec4 Nat Nat Float Float Float ChannelCfg FloatList
+  op ssLoopBuf : Float Nat Nat Nat Nat Float Float ChannelCfg FloatList FloatList
                  -> SSResult .
 
   --- Base case: all segments delivered
-  ceq ssLoopBuf(T, SG, FLT, PI, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
-     ssR(T, SG, FLT, PI, ACC, 1.0, WSS)
+  ceq ssLoopBuf(T, SG, FLT, WSS, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
+     ssR(T, SG, FLT, ACC_DST, ACC_IXP, 1.0, WSS, true)
   if SG >= N .
 
   --- Recursive case: one buffer-path SS flight
-  ceq ssLoopBuf(T, SG, FLT, PI, WSS, N, OW, OWOFF, SRHOP, CC, ACC) =
+  ceq ssLoopBuf(T, SG, FLT, WSS, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
      if SXB
-     then ssR(T + DTB, SG + WSS, s(FLT), PI,
-              ACC ++ NSEGB,
+     then ssR(T + DTB, SG + WSS, s(FLT),
+              ACC_DST ++ NSEGB_DST,
+              ACC_IXP ++ NSEGB_IXP,
               if PLB < 1.0e-15
               then frP0(FRB2)
               else P0B fi,
-              WSS)
-     else ssLoopBuf(T + DTB, SG + WSS, s(FLT), PI,
-                    WNXTB, N, OW, OWOFF, SRHOP, CC,
-                    ACC ++ NSEGB)
+              WSS, false)
+     else ssLoopBuf(T + DTB, SG + WSS, s(FLT),
+                    WNXTB, N, OWD1, OWD2, CC,
+                    ACC_DST ++ NSEGB_DST,
+                    ACC_IXP ++ NSEGB_IXP)
      fi
   if SG < N
   --- Flight stats from channel
-  /\ FRB := flightStats(WSS, PI, CC)
+  /\ FRB := flightStats(WSS, CC)
   /\ P0CH := frP0(FRB)
   --- Buffer overflow: if seg + Wss > 1000, compute dropped packets
   /\ BDRP := if float(SG + WSS) > 1000.0
@@ -546,17 +518,18 @@ mod TCP-ANALYTICAL-MODEL is
              else 1.0 - P0CH fi
   /\ P0B := 1.0 - PLB
   --- Time step: dt = p0*RTT + p_l*(2*RTT + RTT*rackF)*0.5
-  /\ RTTB := 2.0 * OW
-  /\ DTB := P0B * RTTB
-             + PLB * ((2.0 * RTTB + RTTB * rackF)
-                       * 5.0e-1)
+  /\ RTTB := 2.0 * (OWD1 + OWD2)
+  /\ DT_RECB := (2.0 * RTTB + RTTB * rackF) * 5.0e-1
+  /\ DTB := P0B * RTTB + PLB * DT_RECB
   --- Segments
-  /\ NSEGB := genSSSegs(0, WSS, N, SG, T + OWOFF, SRHOP)
-  --- Next flight for exit check (uses PI unchanged; cap at 1000)
+  /\ NSEGB_DST := genSSSegs(0, WSS, N, SG, T + OWD1 + OWD2 + PLB * DT_RECB, serDly)
+  /\ NSEGB_IXP := genSSSegs(0, WSS, N, SG, T + OWD1 + PLB * DT_RECB, serDly1)
+  --- Next flight for exit check (cap at 1000)
   /\ WNXTB := if WSS + WSS > 1000 then 1000 else WSS + WSS fi
-  /\ FRB2 := flightStats(WNXTB, PI, CC)
+  /\ FRB2 := flightStats(WNXTB, CC)
   --- Exit: el > 0.5 or buffer overflow happened or at max cwnd
-  /\ SXB := (frEl(FRB2) >= 5.0e-1
+  /\ SXB := (frEl(FRB) >= 5.0e-1
+             or frEl(FRB2) >= 5.0e-1
              or BDRP > 0.0
              or WSS >= 1000)
   .
@@ -568,13 +541,16 @@ mod TCP-ANALYTICAL-MODEL is
 
   --- caPhase: transition from SS result to CA, then run CA loop
   --- (LOCAL_MAX_CWND = 1000)
-  op caPhase : SSResult Nat Float Float Float ChannelCfg -> FloatList .
+  op caPhase : SSResult Nat Float Float ChannelCfg -> TimelineResult .
 
-  ceq caPhase(ssR(T, SG, FLT, PI, ACC, LP, WSS), N, OW, OWOFF, SRHOP, CC) =
-     if SG >= N
-     then ACC
-     else caLoop(100000, T, float(SG), FLT, PI, CW2, WMX,
-                 0.0, N, OW, OWOFF, SRHOP, CC, ACC)
+  ceq caPhase(ssR(T, SG, FLT, ACC_DST, ACC_IXP, LP, WSS, INSS), N, OWD1, OWD2, CC) =
+     if INSS
+     then tlR(ACC_DST, ACC_IXP, makeTcpState(float(min(WSS, 1000)), float(min(WSS, 1000)) / cubicB, 0.0, true))
+     else (if SG >= N
+           then tlR(ACC_DST, ACC_IXP, makeTcpState(CW2, WMX, 0.0, false))
+           else caLoop(100000, T, float(SG), FLT, CW2, WMX,
+                       0.0, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP)
+           fi)
      fi
   if PLL := 1.0 - LP
   /\ CW0 := LP * float(WSS + WSS)
@@ -584,39 +560,40 @@ mod TCP-ANALYTICAL-MODEL is
   /\ WMX := min(CW2 / cubicB, 1000.0)
   .
 
-  --- caLoop(iter, t, segF, flt, pi, cwnd, wMax, tSince,
-  ---        N, O, OWOFF, SRHOP, CC, acc)
+  --- caLoop(iter, t, segF, flt, cwnd, wMax, tSince,
+  ---        N, OWD1, OWD2, CC, accDst, accIxp)
   --- Implements the congestion-avoidance for-loop from _build_timeline.
   --- (LOCAL_MAX_CWND = 1000)
 
-  op caLoop : Nat Float Float Nat Vec4 Float Float Float
-              Nat Float Float Float ChannelCfg FloatList -> FloatList .
+  op caLoop : Nat Float Float Nat Float Float Float
+              Nat Float Float ChannelCfg FloatList FloatList -> TimelineResult .
 
   --- Base: iteration limit
-  eq caLoop(0, T, SEGF, FLT, PI, CWND, WM0, TSC0,
-            N, OW, OWOFF, SRHOP, CC, ACC) = ACC .
+  eq caLoop(0, T, SEGF, FLT, CWND, WM0, TSC0,
+            N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
+     tlR(ACC_DST, ACC_IXP, makeTcpState(CWND, WM0, TSC0, false)) .
 
   --- Base: all segments delivered
-  ceq caLoop(s(IT), T, SEGF, FLT, PI, CWND, WM0, TSC0,
-             N, OW, OWOFF, SRHOP, CC, ACC) = ACC
+  ceq caLoop(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
+             N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
+     tlR(ACC_DST, ACC_IXP, makeTcpState(CWND, WM0, TSC0, false))
   if SEGF >= float(N) .
 
   --- Recursive: one CA step
-  ceq caLoop(s(IT), T, SEGF, FLT, PI, CWND, WM0, TSC0,
-             N, OW, OWOFF, SRHOP, CC, ACC) =
-     caLoop(IT, T + EDT, SEGF + EDel, s(FLT), PINX, CWF,
-            WMF, TSCF, N, OW, OWOFF, SRHOP, CC, ACC ++ NS)
+  ceq caLoop(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
+             N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
+     caLoop(IT, T + EDT, SEGF + EDel, s(FLT), CWF,
+            WMF, TSCF, N, OWD1, OWD2, CC, ACC_DST ++ NS_DST, ACC_IXP ++ NS_IXP)
   if SEGF < float(N)
   --- Window as integer
   /\ W := max(1, f2n(roundF(CWND)))
   --- Flight statistics
-  /\ FR := flightStats(W, PI, CC)
+  /\ FR := flightStats(W, CC)
   /\ P0  := frP0(FR)
   /\ PA  := frPa(FR)
-  /\ PINX := frPi(FR)
   /\ PP  := max(0.0, 1.0 - P0 - PA)
   --- RTT
-  /\ RTT0 := 2.0 * OW
+  /\ RTT0 := 2.0 * (OWD1 + OWD2)
   --- Expected delivery step size (W segments)
   /\ EDel := float(W)
   --- Integer segment boundaries
@@ -628,8 +605,10 @@ mod TCP-ANALYTICAL-MODEL is
                     + PA * rtoMinC
   /\ EDT := max(EDel * serDly, EDT0)
   --- Generate segment times
-  /\ NS := genCASegs(s(SGS), SGE, N, SGS, EDel,
-                               W, T, OWOFF, SRHOP)
+  /\ NS_DST := genCASegs(s(SGS), SGE, N, SGS, EDel,
+                         W, T, OWD1 + OWD2, serDly)
+  /\ NS_IXP := genCASegs(s(SGS), SGE, N, SGS, EDel,
+                         W, T, OWD1, serDly1)
   --- Window dynamics
   /\ PLOSS := PP + PA
   /\ WMF :=
@@ -650,67 +629,66 @@ mod TCP-ANALYTICAL-MODEL is
   .
 
   --- Fallback: return accumulated list if conditions cannot be met
-  eq caLoop(IT, T, SEGF, FLT, PI, CWND, WM0, TSC0,
-            N, OW, OWOFF, SRHOP, CC, ACC) = ACC [owise] .
+  eq caLoop(IT, T, SEGF, FLT, CWND, WM0, TSC0,
+            N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
+     tlR(ACC_DST, ACC_IXP, makeTcpState(CWND, WM0, TSC0, false)) [owise] .
 
 
   --- ============================================================
   ---  Congestion Avoidance Phase — Buffer-Capacity Path
   --- ============================================================
-  ---
-  --- Used when isNoneProfile is true (p31 ~= 1.0).
-  --- Key differences from caPhase/caLoop:
-  ---   - MAX_CWND = 1000 (instead of LOCAL_MAX_CWND = 50)
-  ---   - Buffer overflow when W > 1000 and W > round(w_max)
-  ---     overrides p0 and sets pa = 0.0
 
   --- caPhaseBuf: transition from SS result to buffer CA loop
-  op caPhaseBuf : SSResult Nat Float Float Float ChannelCfg -> FloatList .
+  op caPhaseBuf : SSResult Nat Float Float ChannelCfg -> TimelineResult .
 
-  ceq caPhaseBuf(ssR(T, SG, FLT, PI, ACC, LP, WSS), N, OW, OWOFF, SRHOP, CC) =
-     if SG >= N
-     then ACC
-     else caLoopBuf(100000, T, float(SG), FLT, PI, CWB2, WMXB,
-                    0.0, N, OW, OWOFF, SRHOP, CC, ACC)
+  ceq caPhaseBuf(ssR(T, SG, FLT, ACC_DST, ACC_IXP, LP, WSS, INSS), N, OWD1, OWD2, CC) =
+     if INSS
+     then tlR(ACC_DST, ACC_IXP, makeTcpState(float(min(WSS, 1000)), float(min(WSS, 1000)) / cubicB, 0.0, true))
+     else (if SG >= N
+           then tlR(ACC_DST, ACC_IXP, makeTcpState(CWB2, WMXB, 0.0, false))
+           else caLoopBuf(100000, T, float(SG), FLT, CWB2, WMXB,
+                          0.0, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP)
+           fi)
      fi
   if PLLB := 1.0 - LP
   /\ CWB0 := LP * float(WSS + WSS)
-              + PLLB * max(float(WSS) * cubicB, 2.0)
+               + PLLB * max(float(WSS) * cubicB, 2.0)
   /\ CWB1 := max(2.0, CWB0)
   /\ CWB2 := max(2.0, min(CWB1, 1000.0))
   /\ WMXB := min(CWB2 / cubicB, 1000.0)
   .
 
-  --- caLoopBuf(iter, t, segF, flt, pi, cwnd, wMax, tSince,
-  ---           N, O, OWOFF, SRHOP, CC, acc)
+  --- caLoopBuf(iter, t, segF, flt, cwnd, wMax, tSince,
+  ---           N, OWD1, OWD2, CC, accDst, accIxp)
   --- Buffer-capacity CA loop (MAX_CWND = 1000, BUFFER_CAPACITY = 1000).
 
-  op caLoopBuf : Nat Float Float Nat Vec4 Float Float Float
-                 Nat Float Float Float ChannelCfg FloatList -> FloatList .
+  op caLoopBuf : Nat Float Float Nat Float Float Float
+                 Nat Float Float ChannelCfg FloatList FloatList -> TimelineResult .
 
   --- Base: iteration limit
-  eq caLoopBuf(0, T, SEGF, FLT, PI, CWND, WM0, TSC0,
-               N, OW, OWOFF, SRHOP, CC, ACC) = ACC .
+  eq caLoopBuf(0, T, SEGF, FLT, CWND, WM0, TSC0,
+               N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
+     tlR(ACC_DST, ACC_IXP, makeTcpState(CWND, WM0, TSC0, false)) .
 
   --- Base: all segments delivered
-  ceq caLoopBuf(s(IT), T, SEGF, FLT, PI, CWND, WM0, TSC0,
-                N, OW, OWOFF, SRHOP, CC, ACC) = ACC
+  ceq caLoopBuf(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
+                N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
+     tlR(ACC_DST, ACC_IXP, makeTcpState(CWND, WM0, TSC0, false))
   if SEGF >= float(N) .
 
   --- Recursive: one buffer CA step
-  ceq caLoopBuf(s(IT), T, SEGF, FLT, PI, CWND, WM0, TSC0,
-                N, OW, OWOFF, SRHOP, CC, ACC) =
-     caLoopBuf(IT, T + EDTB, SEGF + EDelB, s(FLT), PINX,
+  ceq caLoopBuf(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
+                N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
+     caLoopBuf(IT, T + EDTB, SEGF + EDelB, s(FLT),
                CWFB, WMFB, TSCFB,
-               N, OW, OWOFF, SRHOP, CC, ACC ++ NSB)
+               N, OWD1, OWD2, CC, ACC_DST ++ NSB_DST, ACC_IXP ++ NSB_IXP)
   if SEGF < float(N)
   --- Window as integer
   /\ W := max(1, f2n(roundF(CWND)))
   --- Flight statistics from channel
-  /\ FR := flightStats(W, PI, CC)
+  /\ FR := flightStats(W, CC)
   /\ P0CH2 := frP0(FR)
   /\ PACH2 := frPa(FR)
-  /\ PINX := frPi(FR)
   --- Buffer overflow in CA: W > 1000 and W > round(w_max)
   /\ WMR := max(1, f2n(roundF(WM0)))
   /\ CADRP := if W > 1000 and W > WMR
@@ -725,7 +703,7 @@ mod TCP-ANALYTICAL-MODEL is
             else PACH2 fi
   /\ PP := max(0.0, 1.0 - P0 - PA)
   --- RTT
-  /\ RTT0 := 2.0 * OW
+  /\ RTT0 := 2.0 * (OWD1 + OWD2)
   --- Expected delivery step size (W segments)
   /\ EDelB := float(W)
   --- Integer segment boundaries
@@ -737,8 +715,10 @@ mod TCP-ANALYTICAL-MODEL is
                + PA * rtoMinC
   /\ EDTB := max(EDelB * serDly, EDT0B)
   --- Generate segment times
-  /\ NSB := genCASegs(s(SGS), SGE, N, SGS, EDelB,
-                       W, T, OWOFF, SRHOP)
+  /\ NSB_DST := genCASegs(s(SGS), SGE, N, SGS, EDelB,
+                          W, T, OWD1 + OWD2, serDly)
+  /\ NSB_IXP := genCASegs(s(SGS), SGE, N, SGS, EDelB,
+                          W, T, OWD1, serDly1)
   --- Window dynamics (same structure, MAX_CWND = 1000)
   /\ PLOSS := PP + PA
   /\ WMFB :=
@@ -759,8 +739,9 @@ mod TCP-ANALYTICAL-MODEL is
   .
 
   --- Fallback
-  eq caLoopBuf(IT, T, SEGF, FLT, PI, CWND, WM0, TSC0,
-               N, OW, OWOFF, SRHOP, CC, ACC) = ACC [owise] .
+  eq caLoopBuf(IT, T, SEGF, FLT, CWND, WM0, TSC0,
+               N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
+     tlR(ACC_DST, ACC_IXP, makeTcpState(CWND, WM0, TSC0, false)) [owise] .
 
 
   --- ============================================================
@@ -783,29 +764,31 @@ mod TCP-ANALYTICAL-MODEL is
   eq getNewCnx((linkAttrs, newCnx: B)) = B .
   eq getNewCnx(linkAttrs) = true [owise] .
 
-  --- buildFinalDestTimeline(N, OWD1, OWD2, CC1, CC2, ISNEW) - Destination Server (Hop 2 Arrival)
+  --- Legacy timeline builders returning FloatList
   op buildFinalDestTimeline : Nat Float Float ChannelCfg ChannelCfg -> FloatList .
   eq buildFinalDestTimeline(N, OWD1, OWD2, CC1, CC2) = buildFinalDestTimeline(N, OWD1, OWD2, CC1, CC2, true) .
 
   op buildFinalDestTimeline : Nat Float Float ChannelCfg ChannelCfg Bool -> FloatList .
   eq buildFinalDestTimeline(N, OWD1, OWD2, CC1, CC2, ISNEW) =
-     buildTimelineHop(N, OWD1, OWD2, OWD1 + OWD2, serDly, CC1, CC2, ISNEW) .
+     tlDstTimes(buildTimelineResult(N, OWD1, OWD2, CC1, CC2, ISNEW, initTcpState)) .
 
-  --- buildFirstHopTimeline(N, OWD1, OWD2, CC1, CC2, ISNEW) - First Hop Router (Hop 1 Arrival)
   op buildFirstHopTimeline : Nat Float Float ChannelCfg ChannelCfg -> FloatList .
   eq buildFirstHopTimeline(N, OWD1, OWD2, CC1, CC2) = buildFirstHopTimeline(N, OWD1, OWD2, CC1, CC2, true) .
 
   op buildFirstHopTimeline : Nat Float Float ChannelCfg ChannelCfg Bool -> FloatList .
   eq buildFirstHopTimeline(N, OWD1, OWD2, CC1, CC2, ISNEW) =
-     buildTimelineHop(N, OWD1, OWD2, OWD1, serDly1, CC1, CC2, ISNEW) .
+     tlIxpTimes(buildTimelineResult(N, OWD1, OWD2, CC1, CC2, ISNEW, initTcpState)) .
 
-  --- buildTimelineHop(N, OWD1, OWD2, OW_offset, SR_hop, CC1, CC2, ISNEW)
+  --- buildTimelineResult(N, OWD1, OWD2, CC1, CC2, ISNEW, ST)
+  ---
+  --- Computes BOTH Final-Destination (Hop 2, offset OWD1 + OWD2, serDly) and
+  --- First-Hop / IXP (Hop 1, offset OWD1, serDly1) timelines in a single pass.
   ---
   --- Connection Setup Modeling:
   ---   - ISNEW == true  (New Connection):
   ---       Counts BOTH the TCP 3-Way Handshake (1 RTT) and the TLS Handshake (1 RTT),
   ---       totaling 2 RTT (4.0 * (OWD1 + OWD2)) setup delay before application data transmission.
-  ---       Prepends 5 handshake packet timestamps to the output timeline:
+  ---       Prepends 5 handshake packet timestamps to the output timelines:
   ---         1. SYN                   at t = 0.0 + OWOFF
   ---         2. ACK (TCP 3-way HS)   at t = 1.0 * RTT + OWOFF
   ---         3. TLS Client Hello      at t = 1.0 * RTT + OWOFF
@@ -814,12 +797,11 @@ mod TCP-ANALYTICAL-MODEL is
   ---       First application data segment(s) start transmitting at t = 2.0 * RTT (4.0 * (OWD1 + OWD2)).
   ---
   ---   - ISNEW == false (Reused Connection):
-  ---       Bypasses all TCP and TLS handshakes. Application data transmission starts
-  ---       immediately at t = 0.0 + OWOFF without prepended handshake packets.
-  op buildTimelineHop : Nat Float Float Float Float ChannelCfg ChannelCfg -> FloatList [memo] .
-  eq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2) = buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, true) .
+  ---       Bypasses all TCP and TLS handshakes.
+  ---       Application data transmission starts immediately at t = 0.0 + OWOFF
+  ---       with the supplied TcpState (cwnd, wMax, tSince, inSS).
 
-  op buildTimelineHop : Nat Float Float Float Float ChannelCfg ChannelCfg Bool -> FloatList [memo] .
+  op buildTimelineResult : Nat Float Float ChannelCfg ChannelCfg Bool AttributeSet -> TimelineResult [memo] .
 
   --- Helper for prepending 5 TCP+TLS handshake timestamps (SYN, ACK, Client Hello, ACK, Change Cipher Spec)
   op hsTimes : Float Float Float Bool -> FloatList .
@@ -828,59 +810,181 @@ mod TCP-ANALYTICAL-MODEL is
     (2.0 * (OWD1 + OWD2) + OWOFF) ::
     (2.0 * (OWD1 + OWD2) + OWOFF) ::
     (4.0 * (OWD1 + OWD2) + OWOFF) ::
-    (4.0 * (OWD1 + OWD2) + OWOFF) :: nilFL .
-  eq hsTimes(OWD1, OWD2, OWOFF, false) = nilFL .
+    (4.0 * (OWD1 + OWD2) + OWOFF) :: nilFloatList .
+  eq hsTimes(OWD1, OWD2, OWOFF, false) = nilFloatList .
 
   --- Buffer-capacity path: when both links are "none" profile
-  ceq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, ISNEW) =
-     hsTimes(OWD1, OWD2, OWOFF, ISNEW) ++
-     caPhaseBuf(
-       ssLoopBuf(if ISNEW then 4.0 * (OWD1 + OWD2) else 0.0 fi,      --- t = 2 * RTT (4 * total OWD) if new cnx else 0.0
-                 0,              --- seg = 0
-                 1,              --- flt = 1
-                 rvMul(rvMul(chPi(CC1), chP(CC1)), chP(CC2)),  --- pi after 2-hop HS
-                 10,             --- W_ss = IW = 10
-                 N, OWD1 + OWD2, OWOFF, SRHOP, CC1,
-                 nilFL),
-       N, OWD1 + OWD2, OWOFF, SRHOP, CC1)
-  if isNoneProfile(CC1) and isNoneProfile(CC2) .
+  --- ISNEW == true: run Handshake and Slow Start
+  ceq buildTimelineResult(N,
+                          OWD1,
+                          OWD2,
+                          CC1,
+                          CC2,
+                          true,
+                          ST:AttributeSet) =
+     tlR(hsTimes(OWD1, OWD2, OWD1 + OWD2, true) ++ tlDstTimes(TLR),
+         hsTimes(OWD1, OWD2, OWD1, true) ++ tlIxpTimes(TLR),
+         tlState(TLR))
+  if isNoneProfile(CC1) and isNoneProfile(CC2)
+  /\ CC_PATH := composeChannels(CC1, CC2)
+  /\ TLR := caPhaseBuf(
+       ssLoopBuf(4.0 * (OWD1 + OWD2),
+                 0, 1, 10,
+                 N, OWD1, OWD2, CC_PATH,
+                 nilFloatList, nilFloatList),
+       N, OWD1, OWD2, CC_PATH) .
+
+  --- ISNEW == false, inSS == true: bypass Handshake, continue in Slow Start
+  ceq buildTimelineResult(N,
+                          OWD1,
+                          OWD2,
+                          CC1,
+                          CC2,
+                          false,
+                          (attrs,
+                           cwnd: CWND,
+                           inSS: true))
+    = caPhaseBuf(
+       ssLoopBuf(0.0,
+                 0, 1, max(1, f2n(roundF(CWND))),
+                 N, OWD1, OWD2, CC_PATH,
+                 nilFloatList, nilFloatList),
+       N, OWD1, OWD2, CC_PATH)
+  if isNoneProfile(CC1) and isNoneProfile(CC2)
+  /\ CC_PATH := composeChannels(CC1, CC2) .
+
+  --- ISNEW == false, inSS == false: bypass Handshake and Slow Start, start directly in CA
+  ceq buildTimelineResult(N,
+                          OWD1,
+                          OWD2,
+                          CC1,
+                          CC2,
+                          false,
+                          (attrs,
+                           cwnd: CWND,
+                           wMax: WMX,
+                           tSince: TS,
+                           inSS: false))
+    = caLoopBuf(100000, 0.0, 0.0, 1, CWND, WMX, TS,
+               N, OWD1, OWD2, CC_PATH, nilFloatList, nilFloatList)
+  if isNoneProfile(CC1) and isNoneProfile(CC2)
+  /\ CC_PATH := composeChannels(CC1, CC2) .
 
   --- No-buffer path: all other profiles
-  eq buildTimelineHop(N, OWD1, OWD2, OWOFF, SRHOP, CC1, CC2, ISNEW) =
-     hsTimes(OWD1, OWD2, OWOFF, ISNEW) ++
+  --- ISNEW == true: run Handshake and Slow Start
+  ceq buildTimelineResult(N,
+                          OWD1,
+                          OWD2,
+                          CC1,
+                          CC2,
+                          true,
+                          ST:AttributeSet) =
+     tlR(hsTimes(OWD1, OWD2, OWD1 + OWD2, true) ++ tlDstTimes(TLR),
+         hsTimes(OWD1, OWD2, OWD1, true) ++ tlIxpTimes(TLR),
+         tlState(TLR))
+  if (not (isNoneProfile(CC1) and isNoneProfile(CC2)))
+  /\ CC_PATH := composeChannels(CC1, CC2)
+  /\ TLR := caPhase(
+       ssLoop(4.0 * (OWD1 + OWD2),
+              0, 1, 10,
+              N, OWD1, OWD2, CC_PATH,
+              nilFloatList, nilFloatList),
+       N, OWD1, OWD2, CC_PATH) .
+
+  --- ISNEW == false, inSS == true: bypass Handshake, continue in Slow Start
+  ceq buildTimelineResult(N,
+                          OWD1,
+                          OWD2,
+                          CC1,
+                          CC2,
+                          false,
+                          (attrs,
+                           cwnd: CWND,
+                           inSS: true)) =
      caPhase(
-       ssLoop(if ISNEW then 4.0 * (OWD1 + OWD2) else 0.0 fi,       --- t = 2 * RTT (4 * total OWD) if new cnx else 0.0
-              0,               --- seg = 0
-              1,               --- flt = 1
-              rvMul(rvMul(chPi(CC1), chP(CC1)), chP(CC2)),  --- pi after 2-hop HS
-              10,              --- W_ss = IW = 10
-              N, OWD1 + OWD2, OWOFF, SRHOP, CC1,
-              nilFL),
-       N, OWD1 + OWD2, OWOFF, SRHOP, CC1) [owise] .
+       ssLoop(0.0,
+              0, 1, max(1, f2n(roundF(CWND))),
+              N, OWD1, OWD2, CC_PATH,
+              nilFloatList, nilFloatList),
+       N, OWD1, OWD2, CC_PATH)
+  if (not (isNoneProfile(CC1) and isNoneProfile(CC2)))
+  /\ CC_PATH := composeChannels(CC1, CC2) .
 
-  --- tcpFinalDestTimes(msgSizeBytes, OWD1, OWD2, CC1, CC2)
-  op tcpFinalDestTimes : Nat AttributeSet AttributeSet  Bool -> FloatList .
-  ceq tcpFinalDestTimes(MSZ:Nat, linkAttrs1, linkAttrs2, B) =
-    buildFinalDestTimeline(NSeg:Nat, getOneWayDelay(linkAttrs1), getOneWayDelay(linkAttrs2), CC1:ChannelCfg, CC2:ChannelCfg, B)
+  --- ISNEW == false, inSS == false: bypass Handshake and Slow Start, start directly in CA
+  ceq buildTimelineResult(N,
+                          OWD1,
+                          OWD2,
+                          CC1,
+                          CC2,
+                          false,
+                          (attrs,
+                           cwnd: CWND,
+                           wMax: WMX,
+                           tSince: TS,
+                           inSS: false)) =
+     caLoop(100000, 0.0, 0.0, 1, CWND, WMX, TS,
+            N, OWD1, OWD2, CC_PATH, nilFloatList, nilFloatList)
+  if (not (isNoneProfile(CC1) and isNoneProfile(CC2)))
+  /\ CC_PATH := composeChannels(CC1, CC2) .
+
+  --- Fallback for ISNEW == true
+  ceq buildTimelineResult(N,
+                          OWD1,
+                          OWD2,
+                          CC1,
+                          CC2,
+                          true,
+                          ST:AttributeSet) =
+     tlR(hsTimes(OWD1, OWD2, OWD1 + OWD2, true) ++ tlDstTimes(TLR),
+         hsTimes(OWD1, OWD2, OWD1, true) ++ tlIxpTimes(TLR),
+         tlState(TLR))
+  if TLR := caPhase(
+       ssLoop(4.0 * (OWD1 + OWD2),
+              0, 1, 10,
+              N, OWD1, OWD2, composeChannels(CC1, CC2),
+              nilFloatList, nilFloatList),
+       N, OWD1, OWD2, composeChannels(CC1, CC2)) [owise] .
+
+  --- Fallback for ISNEW == false
+  eq buildTimelineResult(N,
+                         OWD1,
+                         OWD2,
+                         CC1,
+                         CC2,
+                         false,
+                         (attrs,
+                          cwnd: CWND,
+                          wMax: WMX,
+                          tSince: TS,
+                          inSS: false)) =
+     caLoop(100000, 0.0, 0.0, 1, CWND, WMX, TS,
+            N, OWD1, OWD2, composeChannels(CC1, CC2), nilFloatList, nilFloatList) [owise] .
+
+  --- tcpTimelineResult (computes both Final-Dest and First-Hop timelines + updated TcpState)
+  op tcpTimelineResult : Nat AttributeSet AttributeSet Bool AttributeSet Float -> TimelineResult .
+  ceq tcpTimelineResult(MSZ:Nat, linkAttrs1, linkAttrs2, B, ST:AttributeSet, NOW) =
+    stampTcpState(buildTimelineResult(NSeg:Nat,
+                                      getOneWayDelay(linkAttrs1),
+                                      getOneWayDelay(linkAttrs2),
+                                      CC1:ChannelCfg,
+                                      CC2:ChannelCfg,
+                                      B,
+                                      prepareTcpStateForSend(ST:AttributeSet, NOW)),
+                  NOW,
+                  getOneWayDelay(linkAttrs1) + getOneWayDelay(linkAttrs2))
   if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
     /\ CC1:ChannelCfg := makeChannel(linkAttrs1)
     /\ CC2:ChannelCfg := makeChannel(linkAttrs2)
   .
 
-  op tcpFinalDestTimes : Nat AttributeSet -> FloatList .
-  eq tcpFinalDestTimes(MSZ:Nat, linkAttrs1) = tcpFinalDestTimes(MSZ:Nat, linkAttrs1, linkAttrs1,true) .
+  --- tcpFinalDestTimes & tcpFirstHopTimes
+  op tcpFinalDestTimes : Nat AttributeSet AttributeSet Bool AttributeSet Float -> FloatList .
+  eq tcpFinalDestTimes(MSZ:Nat, linkAttrs1, linkAttrs2, B, ST:AttributeSet, NOW) =
+     tlDstTimes(tcpTimelineResult(MSZ:Nat, linkAttrs1, linkAttrs2, B, ST:AttributeSet, NOW)) .
 
-  --- tcpFirstHopTimes(msgSizeBytes, linkAttrs1, linkAttrs2)
-  op tcpFirstHopTimes : Nat AttributeSet AttributeSet Bool -> FloatList .
-  ceq tcpFirstHopTimes(MSZ:Nat, linkAttrs1, linkAttrs2,B) =
-    buildFirstHopTimeline(NSeg:Nat, getOneWayDelay(linkAttrs1), getOneWayDelay(linkAttrs2), CC1:ChannelCfg, CC2:ChannelCfg, B)
-  if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
-    /\ CC1:ChannelCfg := makeChannel(linkAttrs1)
-    /\ CC2:ChannelCfg := makeChannel(linkAttrs2)
-  .
-
-  op tcpFirstHopTimes : Nat AttributeSet -> FloatList .
-  eq tcpFirstHopTimes(MSZ:Nat, linkAttrs1) = tcpFirstHopTimes(MSZ:Nat, linkAttrs1, linkAttrs1,true) .
+  op tcpFirstHopTimes : Nat AttributeSet AttributeSet Bool AttributeSet Float -> FloatList .
+  eq tcpFirstHopTimes(MSZ:Nat, linkAttrs1, linkAttrs2, B, ST:AttributeSet, NOW) =
+     tlIxpTimes(tcpTimelineResult(MSZ:Nat, linkAttrs1, linkAttrs2, B, ST:AttributeSet, NOW)) .
 
   vars deliveryTimes : FloatList .
   vars msgSize lastPayloadBytes lastPktSizeBytes numOriginalSegments n : Nat .
@@ -905,10 +1009,10 @@ mod TCP-ANALYTICAL-MODEL is
   eq hsSizes(false) = nilNatList .
 
   --- Get the TCP delivery sizes on the wire (in Bytes, including 52B headers)
-  ---                   TotalMsgSize  DeliveryTimes  ISNEW
   ---
   --- For new connections (ISNEW == true), prepends the 5 handshake packet sizes on the wire:
   ---   (52B SYN :: 52B ACK :: 1500B TLS Client Hello :: 52B ACK :: 1500B TLS Change Cipher Spec)
+  ---                   TotalMsgSize  DeliveryTimes  ISNEW
   op tcpDeliverySizes : Nat           FloatList      Bool -> NatList .
   ceq tcpDeliverySizes(msgSize, deliveryTimes, ISNEW) =
     hsSizes(ISNEW) :: deliverySizes
@@ -918,7 +1022,8 @@ mod TCP-ANALYTICAL-MODEL is
       /\ deliverySizes := $makeDeliverySizes(sd(numOriginalSegments, 1), MTU-SIZE-BYTES, nilNatList) :: lastPktSizeBytes
   .
 
-  op tcpDeliverySizes : Nat FloatList -> NatList .
+  ---                   TotalMsgSize  DeliveryTimes
+  op tcpDeliverySizes : Nat           FloatList -> NatList .
   eq tcpDeliverySizes(msgSize, deliveryTimes) =
     tcpDeliverySizes(msgSize, deliveryTimes, lenFL(deliveryTimes) > ceilDiv(msgSize, MSS-SIZE-BYTES)) .
 endm
@@ -929,46 +1034,51 @@ mod TCP_NODE is
   pr IRC-BYTESEQ-INTERFACE .
   pr TCP-ANALYTICAL-MODEL .
 
-  vars src dst SRC DST : Address .
-  vars attrs attrsNext : AttributeSet .
   vars content : Content .
+  vars NOW : Float .
   vars msg : Msg .
   vars j msgSize  : Nat .
   vars b : Bool .
-
-  op timePacketList:_ : FloatList -> Attribute [ctor] .
-  op nextJ:_          : Nat             -> Attribute [ctor] .
-
   vars attrs1 attrs2 : AttributeSet .
 
-  ---                         Seed  Msg Link1Attrs Link2Attrs
-  op getFinalDestSegmentDistribution : Nat   Msg AttributeSet AttributeSet Bool -> AttributeSet .
-  ceq getFinalDestSegmentDistribution(j, msg, attrs1, attrs2,b) =
-    (timePacketList: times:FloatList,
-     nextJ: j)
-    if content := getContent(msg)
-      /\ attrs1 =/= noneAS 
-      /\ attrs2 =/= noneAS 
-      /\ msgSize := getSize(content)
-      /\ times:FloatList := tcpFinalDestTimes(msgSize, attrs1, attrs2,b)
-    [ print "Final-destination time dispersion of segments from " msgSize "B message is " times:FloatList  "." ]
-  .
+  op timePacketListAtDst:_ : FloatList     -> Attribute [ctor] .
+  op timePacketListAtIxp:_ : FloatList     -> Attribute [ctor] .
+  op tcpState:_         : AttributeSet  -> Attribute [ctor] .
+  op nextJ:_            : Nat           -> Attribute [ctor] .
 
-  op getFirstHopSegmentDistribution : Nat Msg AttributeSet AttributeSet 
-                     Bool -> AttributeSet .
-  ceq getFirstHopSegmentDistribution(j, msg, attrs1, attrs2,b) =
-    (timePacketList: times:FloatList,
-     nextJ: j)
+  --- Current NetActor entry point, called by tcpSend for one queued message.
+  --- attrs1/attrs2 are per-hop LinkData parameters. ST contains the selected
+  --- flow's DNS/busy/TCP fields; tcpSend removes queuedMsgs before this call.
+  --- Returns a calculation result record with timePacketListAtDst,
+  --- timePacketListAtIxp, tcpState, and nextJ. Extract tcpState for the
+  --- computed flow fields; tcpSend restores the queue tail. Do not store this
+  --- result wrapper itself as fwdFlow/revFlow.
+  --- updateTcpState preserves the non-TCP fields supplied in ST.
+  --- Segment times are relative to NOW; lastSend/lastAck in tcpState are absolute.
+  ---                                   Seed  Msg Link1Attrs    Link2Attrs    tcpState      now
+  op getSegmentDistribution :  Nat   Msg AttributeSet  AttributeSet  AttributeSet  Float -> AttributeSet .
+  ceq getSegmentDistribution(j, msg, attrs1, attrs2, ST:AttributeSet, NOW)
+    = (timePacketListAtDst: timesAtDst:FloatList,
+       timePacketListAtIxp: timesAtIxp:FloatList,
+       tcpState: updateTcpState(ST:AttributeSet, ST_OUT:AttributeSet),
+       nextJ: j)
     if content := getContent(msg)
       /\ attrs1 =/= noneAS 
       /\ attrs2 =/= noneAS 
       /\ msgSize := getSize(content)
-      /\ times:FloatList := tcpFirstHopTimes(msgSize, attrs1, attrs2, b)
-    [ print "First-hop time dispersion of segments from " msgSize "B message is " times:FloatList  "." ]
+      /\ b := not hasTcpState(ST:AttributeSet)
+      /\ tlR(timesAtDst:FloatList, timesAtIxp:FloatList, ST_OUT:AttributeSet)
+            := tcpTimelineResult(msgSize,
+                                 attrs1,
+                                 attrs2,
+                                 b,
+                                 ST:AttributeSet,
+                                 NOW)
+    [ print "Final-destination time dispersion of segments from " msgSize "B message is " timesAtDst:FloatList  "." ]
   .
 
   op msgDelay : FloatList -> Float .
-  eq msgDelay(nilFL) = 0. .
+  eq msgDelay(nilFloatList) = 0. .
   eq msgDelay(times:FloatList) = maxFL(times:FloatList) .
 
 endm
@@ -978,47 +1088,20 @@ eof
 ---  Verification / Test Commands
 --- ================================================================
 
---- Test 1: Stationary distribution for default channel params
----   p13=0.005, p31=0.20, p32=0.40, p23=0.30, p14=0.002
----   Expected (corrected matrix): pi ~= (0.9737, 0.0108, 0.0135, 0.0019)
-red stationaryDist(5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3) .
+--- Test 1: IID Flight statistics for 10-packet flight with 1% loss
+red flightStats(10, chCfg(0.01)) .
 
---- Test 2: Stationary distribution for "none" profile (no-loss channel)
----   p13=0.0, p31=1.0, p32=0.0, p23=0.0, p14=0.0
----   Expected: pi = (1.0, 0.0, 0.0, 0.0)
-red stationaryDist(0.0, 1.0, 0.0, 0.0, 0.0) .
+--- Test 2: Channel composition for two 1% loss links
+red composeChannels(chCfg(0.01), chCfg(0.01)) .
 
---- Test 3: Flight statistics for a 10-packet flight from stationary
-red flightStats(10,
-      stationaryDist(5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3),
-      makeChannel(5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3)) .
+--- Test 3: isNoneProfile checks
+red isNoneProfile(chCfg(0.0)) .
+red isNoneProfile(chCfg(0.01)) .
 
---- Test 4: isNoneProfile check on "none" channel
-red isNoneProfile(makeChannel(0.0, 1.0, 0.0, 0.0, 0.0)) .
+--- Test 4: Full delivery times for 50 segments (72400 bytes)
+---   None profile (0% loss) + 20ms one-way delay (buffer-capacity path)
+red tcpFinalDestTimes(72400, (dropP: 0.0, oneWayDelay: 2.0e-2), (dropP: 0.0, oneWayDelay: 2.0e-2), true, initTcpState, 0.0) .
 
---- Test 5: isNoneProfile check on "fair" channel (should be false)
-red isNoneProfile(makeChannel(5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3)) .
-
---- Test 6: Full delivery times for 50 segments (72400 bytes)
----   Fair profile + 20ms one-way delay (no-buffer path)
-red tcpDeliveryTimes(72400,
-      5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3,
-      2.0e-2) .
-
---- Test 7: Full delivery times for 50 segments (72400 bytes)
----   None profile + 20ms one-way delay (buffer-capacity path)
-red tcpDeliveryTimes(72400,
-      0.0, 1.0, 0.0, 0.0, 0.0,
-      2.0e-2) .
-
---- Test 8: Small message - 10 segments (14480 bytes)
----   Fair profile
-red tcpDeliveryTimes(14480,
-      5.0e-3, 2.0e-1, 4.0e-1, 3.0e-1, 2.0e-3,
-      2.0e-2) .
-
---- Test 9: Small message - 10 segments (14480 bytes)
----   None profile (buffer-capacity path)
-red tcpDeliveryTimes(14480,
-      0.0, 1.0, 0.0, 0.0, 0.0,
-      2.0e-2) .
+--- Test 5: Full delivery times for 50 segments (72400 bytes)
+---   1% loss profile + 20ms one-way delay
+red tcpFinalDestTimes(72400, (dropP: 0.01, oneWayDelay: 2.0e-2), (dropP: 0.01, oneWayDelay: 2.0e-2), true, initTcpState, 0.0) .

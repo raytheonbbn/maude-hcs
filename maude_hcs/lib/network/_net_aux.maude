@@ -29,31 +29,90 @@
 
 set show advisories off .
 
+sload ./tcp.maude
+sload ./tcp_socket.maude
+sload ./gen-tpl.maude
 sload ../common/maude/sampler-x.maude
-sload ../common/maude/sampler-streams
+sload ../common/maude/sampler-streams.maude
+sload ../common/maude/delay-drop-x.maude
 sload ../common/maude/_aux.maude
+sload ../common/maude/adversary-cp3.maude
 sload ../../deps/dns_formalization/Maude/common/actor.maude
 sload ../../deps/dns_formalization/Maude/dns/common/prelim
+sload ../common/maude/dns-util.maude
 
 view AttributeSet from TRIV to ACTOR-MODEL is
   sort Elt to AttributeSet .
 endv
 
+view ConnxnHandle from TRIV to CONNXN is
+  sort Elt to ConnxnHandle .
+endv
+
 mod NETWORK_NODE is
+  pr COMMON_SORTS .
+  pr TCP_SOCKET .
+  pr CONNXN .
   pr SAMPLER-X .
   inc SAMPLER-STREAMS .
+  pr DELAY-X .
+  pr GEN-TPL .
   pr CP2_SORTS .
   pr ACTOR-MODEL .
   inc SORTS .
+  pr ADVERSARY-CP3-DATA .
+  pr MAP{ConnxnHandle, AttributeSet} .
+  pr DNS-UTIL .
+  pr TCP_NODE .
 
+  --- Current TCP path: makeTransportActor creates TransportActor; net_prob.maude
+  --- supplies its six active rules. Helpers below the legacy section are still compiled,
+  --- but those rules do not call the old NetClient/NetServer implementation.
+  ---
+  --- AttributeSet does not distinguish these state levels by sort:
+  ---   netAttrs:    the whole < NET : TransportActor | netAttrs > record; owns DNS
+  ---                settings, connxnCount, and the two connection maps.
+  ---   connxnAttrs: one map entry; owns srcAddr, dstAddr, persist, connxnId,
+  ---                connxnReady, fwdFlow: flowAttrs and revFlow: flowAttrs.
+  ---   flowAttrs:   one direction's queuedMsgs/req and TCP congestion/timing
+  ---                state. The forward flow also has flowBusy.
+  ---   linkAttrs:   per-hop LinkData parameters passed to the TCP calculation.
+  ---
+  --- Message annotations are a separate AttributeSet containing only
+  --- srcAddr/dstAddr/persist/connxnId. insertFlowInfo attaches this identity;
+  --- it does not copy the connection record or either flow's mutable state.
+  ---
+  --- Read/update/write one flow through all three levels:
+  ---   connxnAttrs := getConnxn(netAttrs, H)
+  ---   flowAttrs   := getFwdFlow(connxnAttrs)
+  ---   ... compute flowAttrsNext ...
+  ---   netAttrsNext := setConnxn(netAttrs,
+  ---                       setFwdFlow(connxnAttrs, flowAttrsNext))
+  --- Helpers return values; updating a flow alone does not update its map entry.
+  --- The argument/result comments below identify the required state level even
+  --- where the implementation uses a generic variable named attrs.
 
-
-  vars addr addr0 remoteAddr localAddr ADDR REMOTE_ADDR REMOTE_CHANNEL_ADDR LOCAL_ADDR  : Address .
-  vars attrs attrs0 attrsNext attrsTrans netAttrs netAttrsTrans netAttrsNext CONNECTION_ATTRS : AttributeSet .
-  vars flowAttrs linkAttrs pktAttrs : AttributeSet .
-  vars CONNECTION_REUSE : Bool .
-  vars msg : Msg .
-  vars count j : Nat .
+  vars addr addr0 remoteAddr localAddr ADDR REMOTE_ADDR REMOTE_CHANNEL_ADDR LOCAL_ADDR  RESOLVER_ADDR : Address .
+  vars advAttrs advAttrsLast : AttributeSet .
+  vars attrs attrs0 attrsLast attrsTrans attrsNext netAttrs netAttrsTrans netAttrsLast : AttributeSet .
+  vars connxnAttrs connxnAttrsLast connxnAttrsTrans newConnxnAttrs CONNECTION_ATTRS : AttributeSet .
+  vars flowAttrs flowAttrsLast flowAttrsNext flowAttrsTrans newFlowAttrs : AttributeSet .
+  vars linkAttrs LINK_ATTRS_0 LINK_ATTRS_1 : AttributeSet .
+  vars pktAttrs : AttributeSet .
+  vars persist PERSIST CONNECTION_REUSE : Bool .
+  vars connxnHandle CONNXN_HANDLE : ConnxnHandle .
+  vars CONTENT : Content .
+  vars ackTimerMsgs msgs outMsgs scheduledMsgs MSGS : Config .
+  vars ACK_DELAY NOW : Float .
+  vars timeListAtDst timeListAtIxp TIME_LIST : FloatList .
+  vars msg msg_src_to_ixp msg_ixp_to_tgt outMsg request transportMsg MSG REQUEST : Msg .
+  vars MSG_QUEUE : MsgQueue .
+  vars map tcpConnxns tcpConnxnsNext MAP : Map{ConnxnHandle, AttributeSet} .
+  vars NAME : Name .
+  vars count flowId j jLast jTrans msgSize COUNT ID CONNXN_ID : Nat .
+  vars sizeList SIZE_LIST : NatList .
+  vars response RESPONSE : Response .
+  vars query QUERY : Query .
   
   vars rsvAddr dnsRsv : Address .
   vars b : Bool .
@@ -66,16 +125,43 @@ mod NETWORK_NODE is
   op `[_:->_`] : Address AttributeSet -> AddrAttrsElt [ctor] .
   op _::_ : AddrAttrsList AddrAttrsList -> AddrAttrsList
             [ctor assoc id: nilAddrAttrs] .
-          
+
+  op connxnDnsId : Address ConnxnHandle -> Id [ctor] .
+
+***(
+  --- TCP state is keyed by the peer address and flow ID.
+  sorts TcpFlowKey TcpStateEntry TcpStateMap .
+  op clientFlow : Address Nat -> TcpFlowKey [ctor] .
+  op serverFlow : Address Nat -> TcpFlowKey [ctor] .
+  subsort TcpStateEntry < TcpStateMap .
+  op noTcpStates : -> TcpStateMap [ctor] .
+  op consTcpState : TcpStateEntry TcpStateMap -> TcpStateMap [ctor] .
+  op tcpStateEntry : TcpFlowKey AttributeSet -> TcpStateEntry [ctor] .
+  vars fid fid0 : Nat .
+  vars tcpFlowKey tcpFlowKey0 : TcpFlowKey .
+  vars tcpStateMap tcpStateMap0 : TcpStateMap .
+)
+
   op NetClient : -> ActorType [ctor] .
   op NetServer : -> ActorType [ctor] .
+  --- Unique Transport Net Actor that handles transport like TCP.
+  op TransportActor : -> ActorType [ctor] .
+ 
+  --- Message for ACKing a connection, identified by its attributes.
+  op TcpAckTimeout : AttributeSet -> Content [ctor] .
 
-  **** Attributes common to client and server.
+  **** Attributes common to all connections.
   op thisAddr:_           : Address -> Attribute [ctor] .
   op remoteChannelAddr:_  : Address -> Attribute [ctor] .
   op remoteEndpointAddr:_ : Address -> Attribute [ctor] .
   op localIfaceAddr:_     : Address -> Attribute [ctor] .
-  op ixpAddr: _           : Address -> Attribute [ctor] .
+  op ixpAddr:_            : Address -> Attribute [ctor] .
+  op defaultDnsRsv:_      : Address -> Attribute [ctor] .
+  op dnsName:_            : Name    -> Attribute [ctor] . 
+
+  op persistTcpConnxns:_  : Map{ConnxnHandle, AttributeSet} -> Attribute [ctor frozen(1)] .
+  op ephTcpConnxns:_      : Map{ConnxnHandle, AttributeSet} -> Attribute [ctor frozen(1)] .
+  op connxnCount:_        : Nat                             -> Attribute [ctor] .
 
   **** Attributes for client only.
   op connectionReuse:_    : Bool    -> Attribute [ctor] .
@@ -83,14 +169,15 @@ mod NETWORK_NODE is
   **** Attribute for server only.
 ****  op currentConnection:_  : AttributeSet  -> Attribute [ctor] .
   op currentConnections:_ : AddrAttrsList -> Attribute [ctor] .
+****  op tcpStates:_          : TcpStateMap -> Attribute [ctor] .
 
+  op flowId:_     : Nat     -> Attribute [ctor] .
 **** netClient attributes specific to generating dnsQ/pkts
 op newCnx:_ : Bool -> Attribute [ctor] . 
     --- init true,  
     --- if reuse true then rcv rule sets to false
     --- ow stays true
     
-op dnsName:_ : Name ->  Attribute [ctor] . 
      --- nullName if NetClient is associated to 
      ---  dnsClient/corp resolver
 op dnsRsv:_ : Address  ->  Attribute [ctor] . 
@@ -101,11 +188,517 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
 ********** net server attr for handling dns case
 **** op dnsCnx:_ : Bool -> Attribute [ctor] .
 
-  **** Flow Info attributes.
-  op flowId:_ : Nat -> Attribute [ctor] .
-
   --- Default IXP router address. There should be only one in CP3.
   op IXP-DEFAULT-ADDR : -> Address .
+
+  --- Builds the netAttrs record. REMOTE_ADDR/LOCAL_ADDR are stored, but the
+  --- active handlers take endpoints from each message/handle, not these fields.
+  --- One TransportActor can therefore handle several endpoint pairs. The rules do not
+  --- enforce ownership by physical node. DNS settings are shared by its handles.
+  ops makeTransportActor : Address Address Address Address Name -> Actor .
+  eq makeTransportActor(ADDR, REMOTE_ADDR, LOCAL_ADDR, RESOLVER_ADDR, NAME)
+    = < ADDR : TransportActor |
+          thisAddr:           ADDR,
+          defaultDnsRsv:      RESOLVER_ADDR,
+          dnsName:            NAME,
+          --- For ephemeral connections only:
+          connxnCount:        0,
+          persistTcpConnxns:  empty,
+          ephTcpConnxns:      empty >
+  .
+
+  op getThisAddr : AttributeSet -> Address .
+  eq getThisAddr(attrs, thisAddr: ADDR) = ADDR .
+  eq getThisAddr(attrs) = nullAddr [owise print "Error: No address."] .
+
+  --- Override this to specify the DNS resolver for a certain address.
+  --- (for instance, s3client goes to skyhoodCorporateDnsAddr)
+  op getDnsRsv : AttributeSet Address -> Address .
+  eq getDnsRsv(attrs, LOCAL_ADDR) = getDefaultDnsRsv(attrs) [owise] .
+
+  op getDefaultDnsRsv : AttributeSet -> Address .
+  eq getDefaultDnsRsv(attrs, defaultDnsRsv: RESOLVER_ADDR) = RESOLVER_ADDR .
+  eq getDefaultDnsRsv(attrs) = nullAddr [owise print "Error: no default resolver address."] .
+
+  op getDnsName : AttributeSet -> Name .
+  eq getDnsName(attrs, dnsName: NAME) = NAME .
+  eq getDnsName(attrs) = nullName [owise print "Error: no DNS Name."] .
+
+  --- The two-argument overload in tcp_socket.maude instead accepts/returns
+  --- the selected flowAttrs.
+  ---             Connxn Attrs  Msg fwd?
+  op enqueueMsg : AttributeSet  Msg Bool -> AttributeSet .
+  eq enqueueMsg((attrs, fwdFlow: flowAttrs), MSG, true)
+    = (attrs, fwdFlow: enqueueMsg(flowAttrs, MSG))
+  .
+  eq enqueueMsg((attrs, revFlow: flowAttrs), MSG, false)
+    = (attrs, revFlow: enqueueMsg(flowAttrs, MSG))
+  .
+  
+  --- Adds connection identity to scheduled data messages: content :: identity.
+  --- The queue/TCP state remains in the map. Current callers skip DNS queries.
+  op insertFlowInfo :  ConnxnHandle Config -> Config .
+  eq insertFlowInfo(HANDLE:ConnxnHandle,
+                    [DELAY:Float, (to REMOTE:Address from LOCAL:Address : CONTENT:Content), DROP:Nat] MSGS)
+    = [DELAY:Float, (to REMOTE:Address from LOCAL:Address : CONTENT:Content :: connxnHandleAsAttrs(HANDLE:ConnxnHandle)), DROP:Nat]
+      insertFlowInfo(HANDLE:ConnxnHandle, MSGS)
+  .
+  eq insertFlowInfo(HANDLE:ConnxnHandle, null) = null .
+  eq insertFlowInfo(HANDLE:ConnxnHandle, MSGS) = MSGS [owise] .
+
+  --- Increment connection ID only if ephemeral.
+  ---                         NetAttrs          Returns NetAttrs
+  op prepareNewConnxnCount :  AttributeSet Bool -> AttributeSet .
+  eq prepareNewConnxnCount((attrs, connxnCount: count), PERSIST)
+    = (if PERSIST
+        then (attrs, connxnCount: count)
+        else (attrs, connxnCount: s count)
+      fi)
+  .
+  eq prepareNewConnxnCount(attrs, PERSIST) = attrs [owise] .
+
+  --- Clean fwdFlow flowBusy.
+  ---                   ConnxnAttrs   Returns ConnxnAttrs.
+  op resetFwdFlowBusy : AttributeSet  -> AttributeSet .
+  eq resetFwdFlowBusy((attrs, fwdFlow: flowAttrs))
+    = attrs, fwdFlow: setFlowBusy(flowAttrs, false)
+  .
+  eq resetFwdFlowBusy(attrs) = attrs [owise] .
+
+  --- getConnxn(netAttrs, H) -> connxnAttrs, or noneAS if absent.
+  --- Selects persistTcpConnxns/ephTcpConnxns using H's persist flag.
+  op getConnxnCount : AttributeSet -> Nat .
+  eq getConnxnCount(attrs, connxnCount: COUNT) = COUNT .
+  eq getConnxnCount(attrs) = 0 [owise print "Error: no connxnCount."] .
+
+  --- Get connxn attributes using a handle.
+  ---             NetAttrs                  -> ConnxnAttrs.
+  op getConnxn :  AttributeSet ConnxnHandle -> AttributeSet .
+  ceq getConnxn((attrs, persistTcpConnxns: MAP), CONNXN_HANDLE)
+    = connxnAttrs
+    if isPersist(CONNXN_HANDLE)
+      /\ connxnAttrs := MAP[CONNXN_HANDLE]
+  .
+  ceq getConnxn((attrs, ephTcpConnxns: MAP), CONNXN_HANDLE)
+    = connxnAttrs
+    if not isPersist(CONNXN_HANDLE)
+      /\ connxnAttrs := MAP[CONNXN_HANDLE]
+  .
+  eq getConnxn(attrs, CONNXN_HANDLE) = noneAS [owise] .
+ 
+  --- Insert / replace one complete connection record, keyed by its identity
+  --- fields.
+  ---             NetAttrs      ConnxnAttrs  -> NetAttrs.
+  op setConnxn :  AttributeSet  AttributeSet -> AttributeSet .
+  eq setConnxn(attrs, connxnAttrs)
+    = setConnxn(attrs, connxnAttrs, isPersist(connxnAttrs))
+  .
+  op setConnxn : AttributeSet AttributeSet Bool -> AttributeSet .
+  eq setConnxn((attrs, persistTcpConnxns: map), connxnAttrs, true)
+    = attrs,
+      persistTcpConnxns: insert(makeConnxnHandle(connxnAttrs), connxnAttrs, map)
+  .
+  eq setConnxn((attrs, ephTcpConnxns: map), connxnAttrs, false)
+    = attrs,
+      ephTcpConnxns: insert(makeConnxnHandle(connxnAttrs), connxnAttrs, map)
+  .
+  eq setConnxn(attrs, connxnAttrs, PERSIST) = attrs [owise print "Error: No map."] .
+
+  --- Remove one handle from a connection map.
+  op removeConnxn : Map{ConnxnHandle, AttributeSet} ConnxnHandle -> Map{ConnxnHandle, AttributeSet} .
+  eq removeConnxn((CONNXN_HANDLE |-> connxnAttrs, MAP), CONNXN_HANDLE) = MAP .
+  eq removeConnxn(MAP, CONNXN_HANDLE) = MAP [owise] .
+
+  --- Remove the connection. Called on receipt of an ephemeral response.
+  ---                   NetAttrs     Handle       -> NetAttrs
+  op terminateConnxn :  AttributeSet ConnxnHandle -> AttributeSet .
+  ceq terminateConnxn((attrs, persistTcpConnxns: map), CONNXN_HANDLE)
+    = (attrs, persistTcpConnxns: removeConnxn(map, CONNXN_HANDLE))
+    if isPersist(CONNXN_HANDLE)
+  . 
+  ceq terminateConnxn((attrs, ephTcpConnxns: map), CONNXN_HANDLE)
+    = (attrs, ephTcpConnxns: removeConnxn(map, CONNXN_HANDLE))
+    if not isPersist(CONNXN_HANDLE)
+  .
+  eq terminateConnxn(attrs, CONNXN_HANDLE) = attrs [owise] .
+
+  --- Match a DNS response to the saved query by ID and name.
+  op isMatch : Query Response -> Bool .
+  eq isMatch(query(id:Id, name:Name, r:RType),
+             response(id:Id,
+                      name:Name,
+                      l1:List{Record},
+                      l2:List{Record},
+                      l3:List{Record},
+                      j))
+    = true
+  .
+  eq isMatch(QUERY, RESPONSE) = false [owise] .
+
+  --- Copy the message's connection identity into an ACK timer.
+  --- Delay is relative: max(0., getLastAck(flowAttrs) - NOW).
+  ---                       Msgs    ACKDst  Delay -> Msgs
+  op generateAckTimerMsg :  Config  Address Float -> Config .
+  eq generateAckTimerMsg([T:Float, (to REMOTE_ADDR from LOCAL_ADDR : CONTENT :: flowAttrs), DROP:Nat] MSGS,
+                         NET:Address,
+                         DELAY:Float)
+    = [DELAY:Float, (to NET:Address from NET:Address : TcpAckTimeout(flowAttrs)), 0]
+  .
+  eq generateAckTimerMsg(MSGS, NET:Address, DELAY:Float) = null [owise] .
+
+  --- Make a new connection--does not check one exists already.
+  --- Update the ephemeral counter if needed.
+  --- Caller inserts it with setConnxn(). Does not check if it exists.
+  ---                 NetAttrs     DST     SRC     Persist? ID  -> {NetAttrs, ConnxnAttrs}
+  op makeNewConnxn :  AttributeSet Address Address Bool     Nat -> AttributeSetPair .
+  ceq makeNewConnxn(attrs, REMOTE_ADDR, LOCAL_ADDR, PERSIST, CONNXN_ID)
+    = {attrsLast, connxnAttrsLast}
+    if attrsLast := prepareNewConnxnCount(attrs, PERSIST)
+      /\ count := getConnxnCount(attrsLast)
+      /\ connxnHandle := makeConnxnHandle(REMOTE_ADDR,
+                                          LOCAL_ADDR,
+                                          PERSIST,
+                                          (if PERSIST then CONNXN_ID else count fi))
+      /\ connxnAttrsLast := makeNewConnxn(connxnHandle)
+  .
+
+  --- Get an existing connection or make one. Caller inserts it with setConnxn().
+  ---                   NetAttrs      Handle       -> ConnxnAttrs
+  op getOrMakeConnxn :  AttributeSet  ConnxnHandle -> AttributeSet .
+  ceq getOrMakeConnxn(attrs, CONNXN_HANDLE) = connxnAttrsLast
+    if connxnAttrs := getConnxn(attrs, CONNXN_HANDLE)
+      /\ connxnAttrsLast := (if connxnAttrs == noneAS
+                              then makeNewConnxn(CONNXN_HANDLE)
+                              else connxnAttrs
+                            fi)
+  .
+
+  --- Save the DNS query in the forward flow and set flowBusy.
+  ---               NetAttrs      FlowAttrs                 Rand-> {flowAttrs, msgs, 0}
+  op doDnsLookup :  AttributeSet  AttributeSet ConnxnHandle Nat -> AttributeSetMsgsNat .
+  ceq doDnsLookup(attrs,
+                  (flowAttrs, req: ANY:Config, flowBusy: false),
+                  CONNXN_HANDLE,
+                  j)
+    = {flowAttrsLast, scheduledMsgs, j}
+    if query := query(connxnDnsId(getThisAddr(attrs), CONNXN_HANDLE),
+                      getDnsName(attrs),
+                      a)
+      /\ msg := (to getDnsRsv(attrs, getSrcAddr(CONNXN_HANDLE)) from getThisAddr(attrs) : query)
+      /\ scheduledMsgs := [0., msg, 0]
+      /\ flowAttrsLast := (flowAttrs, req: msg, flowBusy: true)
+    [ print "Sending DNS Lookup first: " query ]
+  .
+  eq doDnsLookup(attrs, flowAttrs, CONNXN_HANDLE, j) = {flowAttrs, null, j}
+    [owise print "Error: Cannot do DNS lookup, no match."]
+  .
+
+  --- Initialize missing reverse TCP state without adjusting existing state.
+  --- Apply idle restart only when the reverse flow actually sends.
+  ---               ConnxnAttrs  Now   -> ConnxnAttrs
+  op initRevState : AttributeSet Float -> AttributeSet .
+  ceq initRevState(connxnAttrs, NOW)
+    = setRevFlow(connxnAttrs, prepareTcpStateForSend(getRevFlow(connxnAttrs), NOW))
+    if not hasTcpState(getRevFlow(connxnAttrs))
+  .
+  eq initRevState(connxnAttrs, NOW) = connxnAttrs [owise] .
+
+  --- tcppersist(dst,id) uses the handle for this src/dst/id; tcp(dst) allocates
+  --- a new ephemeral handle. Queues data, starts DNS if not ready, or sends
+  --- when the forward flow is free. Writes the updated connection into the map.
+  --- Sends on ready persistent connections schedule an ACK timer here.
+  --- For new connections (persistent or ephemeral), net-dns-resp schedules it.
+  --- The persistent branch also schedules an ACK timer for a data send.
+  ---                 NetAttrs      AdvAttrs                    -> {(netAttrs, advAttributeSet: advAttrs), msgs, RandInd}
+  op handleTcpFwdTx : AttributeSet  AttributeSet  Msg Nat Float -> AttrsAttrsMsgsNat .
+  ceq handleTcpFwdTx(attrs, advAttrs, MSG, j, NOW)
+    = {attrsLast, advAttrsLast, outMsgs ackTimerMsgs, jLast}
+    if (to tcppersist(REMOTE_ADDR, CONNXN_ID) from LOCAL_ADDR : CONTENT) := MSG
+      --- Make a connxnHandle so we have a connxn.
+      /\ connxnHandle := makeConnxnHandle(REMOTE_ADDR, LOCAL_ADDR, true, CONNXN_ID)
+      --- Get the connxn. If does not already exist, make new.
+      /\ connxnAttrs := getOrMakeConnxn(attrs, connxnHandle)
+      --- Enqueue the message into the connection.
+      /\ connxnAttrsTrans := enqueueMsg(connxnAttrs,
+                                        (to REMOTE_ADDR from LOCAL_ADDR : CONTENT),
+                                        true)
+      /\ isReady:Bool := isConnxnReady(connxnAttrsTrans)
+      /\ flowAttrs := getFwdFlow(connxnAttrsTrans)
+      /\ {flowAttrsNext, msgs, jLast} :=
+          (if isReady:Bool
+            --- Send when the forward flow is free.
+            then (if isFlowBusy(flowAttrs)
+                    then {flowAttrs, null, j}
+                    else tcpSend(flowAttrs, j, NOW)
+                  fi)
+            else doDnsLookup(attrs, flowAttrs, connxnHandle, j)
+          fi)
+      /\ {flowAttrsLast, advAttrsLast, null, 0}
+          := writeToAdversary(flowAttrsNext,
+                              advAttrs,
+                              msgs,
+                              getConnxnId(connxnHandle),
+                              not isReady:Bool,
+                              NOW)
+      --- Add the flow info (DNS does not take flow info atm).
+      /\ outMsgs := (if isReady:Bool
+                      --- For TCP send.
+                      then insertFlowInfo(connxnHandle, msgs)
+                      --- For DNS lookup.
+                      else msgs
+                    fi)
+      /\ ACK_DELAY := max(0.0, getLastAck(flowAttrsLast) - NOW)
+      /\ ackTimerMsgs := generateAckTimerMsg(outMsgs, getThisAddr(attrs), ACK_DELAY)
+      /\ connxnAttrsLast := initRevState(connxnAttrsTrans, NOW)
+      /\ attrsLast := setConnxn(attrs, setFwdFlow(connxnAttrsLast, flowAttrsLast))
+    [ print "Handling persist TCP req send, connxn ready? " isReady:Bool " handle " connxnHandle ]
+  .
+
+  --- Non persist.
+  ceq handleTcpFwdTx(attrs, advAttrs, MSG, j, NOW) = {attrsLast, advAttrs, outMsgs, jLast}
+    if (to tcp(REMOTE_ADDR) from LOCAL_ADDR : CONTENT) := MSG
+      --- No need to check for existing connxn, this is explicitly requested new.
+      /\ {attrsTrans, connxnAttrs} := makeNewConnxn(attrs,
+                                                    REMOTE_ADDR,
+                                                    LOCAL_ADDR,
+                                                    false,
+                                                    0)
+      /\ connxnHandle := makeConnxnHandle(connxnAttrs)
+      /\ connxnAttrsTrans := enqueueMsg(connxnAttrs,
+                                        (to REMOTE_ADDR from LOCAL_ADDR : CONTENT),
+                                        true)
+      /\ flowAttrs := getFwdFlow(connxnAttrsTrans)
+      /\ {flowAttrsLast, outMsgs, jLast}
+            := doDnsLookup(attrsTrans, flowAttrs, connxnHandle, j)
+      /\ attrsLast := setConnxn(attrsTrans,
+                                setFwdFlow(connxnAttrsTrans, flowAttrsLast),
+                                false)
+    [ print "Handling eph TCP req send, making new connection." ]
+  .
+
+  --- Sends head of queuedMsgs, preserving the remaining FIFO. Caller selects
+  --- the flow and handles connection readiness and forward busy gating.
+  --- Reads LinkData for sender -> IXP-DEFAULT-ADDR -> receiver; passes this
+  --- flow's state to getSegmentDistribution.
+  --- Returns a whole message scheduled at msgDelay(segmentTimes); it does not
+  --- emit individual segments, look up a connection, or schedule an ACK timer.
+  --- The caller attaches connection identity and stores the updated flow.
+  ---           Flow State    RandInd Now   -> {flowAttrs including segment times and sizes, msgs, RandInd}
+  op tcpSend :  AttributeSet  Nat     Float -> AttributeSetMsgsNat .
+  eq tcpSend(flowAttrs, j, NOW) = {flowAttrs, null, j}
+    [owise print "tcpSend: Nothing to send."]
+  .
+
+  ceq tcpSend((flowAttrs, queuedMsgs: (MSG :: MSG_QUEUE)), j, NOW)
+    = {flowAttrsLast, [delay:Float, msg, 0], jTrans}
+    if (to REMOTE_ADDR from LOCAL_ADDR : CONTENT) := MSG
+      /\ msg_src_to_ixp := (to IXP-DEFAULT-ADDR from LOCAL_ADDR : CONTENT)
+      /\ msg_ixp_to_tgt := (to REMOTE_ADDR from IXP-DEFAULT-ADDR : CONTENT)
+      /\ msgSize := getSize(CONTENT)
+      /\ LINK_ATTRS_0 := getLinkData(msg_src_to_ixp)
+      /\ LINK_ATTRS_1 := getLinkData(msg_ixp_to_tgt)
+      /\ (timePacketListAtDst: timeListAtDst, timePacketListAtIxp: timeListAtIxp, tcpState: flowAttrsTrans, nextJ: jTrans)
+            := getSegmentDistribution(j,
+                                      MSG,
+                                      LINK_ATTRS_0,
+                                      LINK_ATTRS_1,
+                                      flowAttrs,
+                                      NOW)
+      /\ delay:Float := msgDelay(timeListAtDst)
+      /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : CONTENT)
+      **** Get the packet size list.
+      /\ sizeList := tcpDeliverySizes(msgSize, timeListAtDst)
+      **** TODO Cmerlin: Send to IXP.
+      --- Set forward flowBusy. Reverse flows have no flowBusy attribute.
+      /\ flowAttrsLast := (setFlowBusy(flowAttrsTrans, true),
+                           queuedMsgs: MSG_QUEUE,
+                           --- Add the times and sizes, intended to be consummed
+                           --- by the caller.
+                           timesAtDst: timeListAtDst,
+                           timesAtIxp: timeListAtIxp,
+                           sizes: sizeList)
+      **** TODO Cmerlin: LOG Packets.
+    [ print "tcpSend " msg ]
+  .
+
+***(
+  --- Persist only.
+  op handleTcpRevTx : AttributeSet Msg Nat Float -> AttributeSetMsgsNat .
+  ceq handleTcpRevTx(attrs, MSG, j, NOW)
+    = handleTcpRevTx(attrs, (to LOCAL_ADDR from REMOTE_ADDR : CONTENT), CONNXN_HANDLE, j, NOW)
+    if (to tcppersist(LOCAL_ADDR, CONNXN_ID) from REMOTE_ADDR : CONTENT) := MSG
+      --- Make a handle so we can recall the connxn.
+      /\ CONNXN_HANDLE := makeConnxnHandle(REMOTE_ADDR, LOCAL_ADDR, true, CONNXN_ID)
+    [ print "HandleTcpRevTx extract connxn handle " CONNXN_HANDLE ]
+  .
+
+  --- Non persist.
+  ceq handleTcpRevTx(attrs, MSG, j, NOW)
+    = handleTcpRevTx(attrs, (to LOCAL_ADDR from REMOTE_ADDR : CONTENT), CONNXN_HANDLE, j, NOW)
+    if (to tcp(LOCAL_ADDR) from REMOTE_ADDR : CONTENT) := MSG
+      --- Make a handle so we can recall the connxn.
+      --- TODO Cmerlin: This should not be 0.
+      /\ CONNXN_HANDLE := makeConnxnHandle(REMOTE_ADDR, LOCAL_ADDR, false, 0)
+  .
+)
+
+  --- Send a reply on the existing connection carried by tcpOn().
+  --- Updates the reverse flow; no ACK timer is scheduled here.
+  ---                 NetAttrs     AdvAttrs     Msg RandInd  Now   -> {NetAttrs, AdvAttrs, Msgs, RandInd}
+  op handleTcpRevTx : AttributeSet AttributeSet Msg Nat      Float -> AttrsAttrsMsgsNat .
+  ceq handleTcpRevTx(attrs, advAttrs, MSG, j, NOW) = {attrsLast, advAttrsLast, outMsgs, jLast}
+      --- Get the connxn. It needs to exist.
+    if (to tcpOn(LOCAL_ADDR, CONNXN_HANDLE) from REMOTE_ADDR : CONTENT) := MSG
+      /\ makeConnxnHandle(REMOTE_ADDR, LOCAL_ADDR, PERSIST, CONNXN_ID) := CONNXN_HANDLE
+      /\ connxnAttrs := getConnxn(attrs, CONNXN_HANDLE)
+      /\ isConnxnReady(connxnAttrs)
+      --- Enqueue the message into the connection.
+      /\ connxnAttrsTrans := enqueueMsg(connxnAttrs, (to LOCAL_ADDR from REMOTE_ADDR : CONTENT), false)
+      --- Get the flow / TCP attributes.
+      /\ flowAttrs := getRevFlow(connxnAttrsTrans)
+      /\ {flowAttrsNext, msgs, jLast} := tcpSend(flowAttrs, j, NOW)
+      --- TODO Cmerlin: Initialize the rev flow in adv.
+      /\ {flowAttrsLast, advAttrsLast, null, 0}
+          := writeToAdversary(flowAttrsNext,
+                              advAttrs,
+                              msgs,
+                              CONNXN_ID,
+                              false,
+                              NOW)
+      /\ outMsgs := insertFlowInfo(CONNXN_HANDLE, msgs)
+      /\ attrsLast := setConnxn(attrs, setRevFlow(connxnAttrsTrans, flowAttrsLast))
+    [ print "Handling persist TCP resp send." flowAttrs]
+  .
+
+  --- Clear forward flowBusy. If persistent, send the next queued message
+  --- and schedule its ACK timer. The connection stays in the map.
+  ---                   NetAttrs      AdvAttrs      Handle        Rand  NOW   -> {NetAttrs, AdvAttrs, Msgs, RandInd}
+  op handleAckTimeout : AttributeSet  AttributeSet  ConnxnHandle  Nat   Float -> AttrsAttrsMsgsNat .
+  ceq handleAckTimeout(attrs, advAttrs, CONNXN_HANDLE, j, NOW)
+    = {attrsLast, advAttrsLast, outMsgs ackTimerMsgs, jLast}
+    if isPersist(CONNXN_HANDLE)
+      --- Get the connxn. It needs to exist.
+      /\ connxnAttrs := getConnxn(attrs, CONNXN_HANDLE)
+      --- Clear forward flowBusy.
+      /\ connxnAttrsTrans := resetFwdFlowBusy(connxnAttrs)
+      --- Get the flow / TCP attributes.
+      /\ flowAttrs := getFwdFlow(connxnAttrsTrans)
+      /\ {flowAttrsNext, msgs, jLast} := (if isFlowBusy(flowAttrs)
+                                            then {flowAttrs, null, j}
+                                            else tcpSend(flowAttrs, j, NOW)
+                                          fi)
+      /\ {flowAttrsLast, advAttrsLast, null, 0}
+          := writeToAdversary(flowAttrsNext,
+                              advAttrs,
+                              msgs,
+                              getConnxnId(CONNXN_HANDLE),
+                              false,
+                              NOW)
+      /\ outMsgs := insertFlowInfo(CONNXN_HANDLE, msgs)
+      /\ ACK_DELAY := max(0.0, getLastAck(flowAttrsLast) - NOW)
+      /\ ackTimerMsgs := generateAckTimerMsg(outMsgs, getThisAddr(attrs), ACK_DELAY)
+      /\ attrsLast := setConnxn(attrs, setFwdFlow(connxnAttrsTrans, flowAttrsLast))
+  .
+  ceq handleAckTimeout(attrs, advAttrs, CONNXN_HANDLE, j, NOW)
+    = {attrsLast, advAttrs, null, j}
+    if not isPersist(CONNXN_HANDLE)
+      /\ connxnAttrs := getConnxn(attrs, CONNXN_HANDLE)
+      /\ connxnAttrs =/= noneAS
+      /\ connxnAttrsTrans := resetFwdFlowBusy(connxnAttrs)
+      /\ attrsLast := setConnxn(attrs, connxnAttrsTrans, false)
+  .
+  eq handleAckTimeout(attrs, advAttrs, CONNXN_HANDLE, j, NOW)
+    = {attrs, advAttrs, null, j}
+    [owise]
+  .
+
+  op writeToAdversary : AttributeSet  AttributeSet  Config  Nat Bool  Float -> AttrsAttrsMsgsNat .
+  eq writeToAdversary(flowAttrs, advAttrs, [T:Float, MSG, DROP:Nat] MSGS, ID:Nat, isNew:Bool, NOW)
+    = writeToAdversary(flowAttrs, advAttrs, MSG, ID:Nat, isNew:Bool, NOW)
+  .
+  op writeToAdversary : AttributeSet  AttributeSet  Msg  Nat Bool  Float -> AttrsAttrsMsgsNat .
+  ceq writeToAdversary((flowAttrs,
+                        timesAtDst: timeListAtDst,
+                        timesAtIxp: timeListAtIxp,
+                        sizes: sizeList),
+                       advAttrs,
+                       MSG,
+                       ID:Nat,
+                       isNew:Bool,
+                       NOW)
+    = {flowAttrsLast, advAttrsLast, null, 0}
+    if advAttrsLast := (if getUseTcpTPL(advAttrs)
+                          then addTPL2tcp(advAttrs,
+                                          genTcpTPL(NOW,
+                                                    MSG,
+                                                    timeListAtDst,
+                                                    timeListAtIxp,
+                                                    sizeList,
+                                                    ID:Nat,
+                                                    isNew:Bool))
+                            else advAttrs
+                        fi)
+      /\ flowAttrsLast := flowAttrs
+  .
+  eq writeToAdversary((flowAttrs,
+                       timesAtDst: timeListAtDst,
+                       timesAtIxp: timeListAtIxp,
+                       sizes: sizeList),
+                      advAttrs,
+                      null,
+                      ID:Nat,
+                      isNew:Bool,
+                      NOW)
+    = {flowAttrs, advAttrs, null, 0}
+  .
+  eq writeToAdversary(flowAttrs, advAttrs, MSGS, ID:Nat, isNew:Bool, NOW)
+    = {flowAttrs, advAttrs, null, 0}
+    [owise]
+  .
+  --- net-dns-resp stores the updated connection and schedules the ACK timer.
+  ---                     netAttrs      AdvAttrs      DNS RandInd NOW   -> {netAttrs, advAttrs, Msgs, RandInd}
+  op handleDnsResponse :  AttributeSet  AttributeSet  Msg Nat     Float -> AttrsAttrsMsgsNat .
+  ceq handleDnsResponse(attrs,
+                        advAttrs,
+                        (to LOCAL_ADDR from RESOLVER_ADDR : RESPONSE),
+                        j,
+                        NOW)
+    = {attrsLast, advAttrsLast, outMsgs ackTimerMsgs, jLast}
+    if response(connxnDnsId(LOCAL_ADDR, connxnHandle),
+                NAME:Name,
+                ANS:List{Record},
+                AUTH:List{Record},
+                ADD:List{Record},
+                RCODE:Nat) := RESPONSE
+      /\ (connxnAttrs, connxnReady: isReady:Bool) := getConnxn(attrs, connxnHandle)
+      /\ (flowAttrs, flowBusy: true, req: (to RESOLVER_ADDR from LOCAL_ADDR : QUERY))
+            := getFwdFlow(connxnAttrs)
+      /\ isMatch(QUERY, RESPONSE)
+      /\ {flowAttrsNext, msgs, jLast}
+            := tcpSend((flowAttrs, flowBusy: false, req: null), j, NOW)
+      --- Get the times and sizes and dump
+      /\ {flowAttrsLast, advAttrsLast, null, 0}
+          := writeToAdversary(flowAttrsNext,
+                              advAttrs,
+                              msgs,
+                              getConnxnId(connxnHandle),
+                              true,
+                              NOW)
+      /\ outMsgs := insertFlowInfo(connxnHandle, msgs)
+      --- Initialize the rev state too (a DNS response means we are starting)
+      /\ connxnAttrsTrans := initRevState(connxnAttrs, NOW)
+      /\ ACK_DELAY:Float := max(0.0, getLastAck(flowAttrsLast) - NOW)
+      /\ ackTimerMsgs := generateAckTimerMsg(outMsgs, LOCAL_ADDR, ACK_DELAY:Float)
+      /\ attrsLast := setConnxn(attrs,
+                                setFwdFlow((connxnAttrsTrans, connxnReady: true),
+                                           flowAttrsLast))
+    [ print "Handled DNS response, match for connxn " connxnHandle ", tried sending TCP." ]
+  .
+  eq handleDnsResponse(attrs, advAttrs, MSG, j, NOW)
+    = {attrs, advAttrs, null, j}
+    [print "No query match for response " MSG]
+  .
+ 
 
 ***** removed redundatn remoteEndpointAddr 
 ***** netC for tcp transport
@@ -120,6 +713,7 @@ op pending:_ : Config ->  Attribute [ctor] . --- init null
           remoteChannelAddr:  REMOTE_ADDR, --- the server?
 ****      remoteEndpointAddr: REMOTE_ADDR,   --- not used?
           localIfaceAddr:     LOCAL_ADDR,   --- the client
+****          tcpStates:          noTcpStates,
           ixpAddr:            IXP-DEFAULT-ADDR,
           connectionReuse:    CONNECTION_REUSE,
           connectionCount:    0,
@@ -141,6 +735,7 @@ eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
           remoteChannelAddr:  REMOTE_ADDR,
      **** remoteEndpointAddr: REMOTE_ADDR,
           localIfaceAddr:     LOCAL_ADDR,
+****          tcpStates:          noTcpStates,
           ixpAddr:            IXP-DEFAULT-ADDR,
           connectionReuse:    CONNECTION_REUSE,
           connectionCount:    0,
@@ -164,6 +759,7 @@ eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
           localIfaceAddr:     LOCAL_ADDR,
           ixpAddr:            IXP-DEFAULT-ADDR,
           currentConnections:  nilAddrAttrs
+****          tcpStates:           noTcpStates
       >
   .
   
@@ -178,7 +774,9 @@ eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
           localIfaceAddr:     LOCAL_ADDR,
           ixpAddr:            IXP-DEFAULT-ADDR,
           currentConnections:  nilAddrAttrs
-      >   .
+****          tcpStates:           noTcpStates
+      >
+  .
 
   op getLocalIfaceAddr : AttributeSet -> Address .
   eq getLocalIfaceAddr(attrs, localIfaceAddr: ADDR) = ADDR .
@@ -201,7 +799,11 @@ eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
 ***( 
  op getCurrentConnection : AttributeSet -> AttributeSet .
   eq getCurrentConnection(attrs, currentConnection: CONNECTION_ATTRS) 
-    = CONNECTION_ATTRS
+ 
+    localIfaceAddr:     LOCAL_ADDR,
+    dnsRsv:             RESOLVER_ADDR,
+    dnsName:            NAME
+    persistTcpFlows:    = CONNECTION_ATTRS
   .
   eq getCurrentConnection(attrs) = noneAS [owise] .
 )
@@ -224,6 +826,36 @@ eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
             aal0 :: aal :: [addr :-> attrs0] .
  eq addCnx(aal, addr,attrs) =  aal :: [addr :-> attrs] [owise]  .
 
+***(
+ op findTcpState : TcpStateMap TcpFlowKey -> AttributeSet .
+ eq findTcpState(consTcpState(tcpStateEntry(tcpFlowKey, attrs), tcpStateMap), tcpFlowKey) = attrs .
+ eq findTcpState(consTcpState(tcpStateEntry(tcpFlowKey0, attrs), tcpStateMap), tcpFlowKey) =
+      findTcpState(tcpStateMap, tcpFlowKey) [owise] .
+ eq findTcpState(noTcpStates, tcpFlowKey) = noneAS .
+
+ op removeTcpState : TcpStateMap TcpFlowKey -> TcpStateMap .
+ eq removeTcpState(consTcpState(tcpStateEntry(tcpFlowKey, attrs), tcpStateMap), tcpFlowKey) = tcpStateMap .
+ eq removeTcpState(consTcpState(tcpStateEntry(tcpFlowKey0, attrs), tcpStateMap), tcpFlowKey) =
+      consTcpState(tcpStateEntry(tcpFlowKey0, attrs), removeTcpState(tcpStateMap, tcpFlowKey)) [owise] .
+ eq removeTcpState(noTcpStates, tcpFlowKey) = noTcpStates .
+
+ op putTcpState : TcpStateMap TcpFlowKey AttributeSet -> TcpStateMap .
+ eq putTcpState(tcpStateMap, tcpFlowKey, attrs) =
+      consTcpState(tcpStateEntry(tcpFlowKey, attrs), removeTcpState(tcpStateMap, tcpFlowKey)) .
+
+ op getTcpStates : AttributeSet -> TcpStateMap .
+ eq getTcpStates((attrs, tcpStates: tcpStateMap)) = tcpStateMap .
+ eq getTcpStates(attrs) = noTcpStates [owise] .
+
+ op updateTcpStates : AttributeSet TcpStateMap -> AttributeSet .
+ eq updateTcpStates((attrs, tcpStates: tcpStateMap), tcpStateMap0) =
+      (attrs, tcpStates: tcpStateMap0) .
+ eq updateTcpStates(attrs, tcpStateMap) = (attrs, tcpStates: tcpStateMap) [owise] .
+)
+
+  *** TODO Cmerlin: Get rid of this.
+ op getFlowId : AttributeSet -> Nat .
+ eq getFlowId(attrs, flowId: fid:Nat) = fid:Nat .
 
  op getCurrentConnection : AttributeSet Address 
     -> AttributeSet .
@@ -245,11 +877,12 @@ eq makeNetClient(ADDR, REMOTE_ADDR, LOCAL_ADDR, CONNECTION_REUSE)
   op getFlowInfo : AttributeSet Msg -> AttributeSetPair .
   ceq getFlowInfo((attrs, connectionCount: count, newCnx: b),
                    msg:Msg) =
-    {attrsNext , (remoteChannelAddr: 
+    {attrsLast , (remoteChannelAddr:
                       getRemoteChannelAddr(attrs),
                   flowId: count,
+                  connectionReuse: getConnectionReuse(attrs),
                   newCnx: b)}
-    if attrsNext :=
+    if attrsLast :=
         (if getConnectionReuse(attrs)
             then (attrs, connectionCount: count, 
                          newCnx: false)
