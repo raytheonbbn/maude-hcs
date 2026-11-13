@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-# Generate scenario1.maude and scenario1_addresses.maude for CP3 Scenario 1.
+# Generate scenario HCSs and TGENs with one TransportActor and lossless links.
+# Scenario delays and user profiles are preserved.
 # Parses network topology, TGEN traffic profiles, loss profiles, and parameters dynamically from the scenario YAML configuration.
 # Guarantees:
 # - scenario1.maude contains ONLY readable address names (zero structured addresses 'a(...)').
@@ -15,6 +16,7 @@ import argparse
 from pathlib import Path
 import math
 import json
+import shutil
 from maude_hcs.lib import GLOBALS
 
 from .generate_quatex import Config, write_all_queries_to_file
@@ -338,7 +340,7 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, not
     
     L("  ops ircServerAddr s3SrvAddr ircMonitorAddr : -> Address .")
     L("  ops masSrvAddr masNetSrvAddr : -> Address .")
-    L("  ops advAddr : -> Address .")
+    L("  ops advAddr transportAddr : -> Address .")
     L("")
 
     hcs_client_ids = {
@@ -434,8 +436,181 @@ def gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, not
     
     return "\n".join(lines), hcs_client_ids
 
-# Generate scenario1.maude (ZERO structured addresses!)
-def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=False, force_observer=False, notgens=False, features=None):
+def resolver_for_network(network):
+    """Use the source network's resolver; networks without one use public DNS."""
+    return get_corp_dns_addr_name(network) if network in NET_TO_DNS_NAME else "publicDnsAddr"
+
+
+def tcp_endpoint_policy(hcs_nodes, tgen_instances):
+    """Map each actual TCP endpoint to its source network's resolver."""
+    endpoints = {}
+    prefixes = {"webtunnel": "wt", "skyhook": "sky", "obfs4": "obfs", "mastodon": "mas"}
+    suffixes = {"webtunnel": ("ClientAddr", "ProxyAddr"),
+                "skyhook": ("SdkacAddr", "SdkasAddr"),
+                "obfs4": ("ClientAddr", "ServerAddr"),
+                "mastodon": ("McacAddr", "McasAddr")}
+    client_id = 1
+    for channel, network, quantity, profiles in hcs_nodes:
+        for _ in range(quantity):
+            if channel in suffixes:
+                base = f"{prefixes[channel]}Cl{client_id}"
+                client, server = suffixes[channel]
+                endpoints[base + client] = resolver_for_network(network)
+                endpoints[base + server] = resolver_for_network("server_net")
+            client_id += 1
+    endpoints.update(tgen_tcp_endpoints(tgen_instances, resolver_for_network))
+    # Shared servers may also initiate connections (e.g. Gorilla broadcasts).
+    server_networks = {"s3SrvAddr": "minio_net", "masSrvAddr": "mastodon_net",
+                       "ftpSrvAddr": "server_net", "gorillaSrvAddr": "server_net",
+                       "ircServerAddr": "server_net"}
+    for address, network in server_networks.items():
+        endpoints[address] = resolver_for_network(network)
+    return list(endpoints.items())
+
+
+def emit_transport_module(L, mod_name, hcs_nodes, tgen_instances, transport_mode):
+    """Keep transport policy separate from protocol message equations."""
+    L(f"mod {mod_name}-TRANSPORT is")
+    L("  pr TRANSPORT .")
+    L(f"  inc {mod_name}-ADDRESSES .")
+    L("  var requestId : Nat .")
+    if transport_mode == "tcp":
+        L("  --- WT/Obfs4 use a stable ID; Mastodon/S3 supply the request ID.")
+        for address, resolver in tcp_endpoint_policy(hcs_nodes, tgen_instances):
+            L(f"  eq transport({address}, requestId) = tcppersist({address}, requestId) .")
+        L("  --- FTP and chat TGENs use one persistent connection per endpoint pair.")
+        one_arg = set()
+        servers = {"ftpTgen": "ftpSrvAddr", "gorTgen": "gorillaSrvAddr", "ircTgen": "ircServerAddr"}
+        for inst in tgen_instances:
+            if inst.tgen_type in servers:
+                one_arg.add(servers[inst.tgen_type])
+            if inst.tgen_type == "gorTgen":
+                one_arg.add(inst.base_name + "TgAddr")
+        for address in sorted(one_arg):
+            L(f"  eq transport({address}) = tcppersist({address}, 0) .")
+    L("endm")
+    L("")
+
+
+def emit_dns_policy_module(L, mod_name, hcs_nodes, tgen_instances):
+    """The current Network Actor selects DNS by the connection's source address."""
+    L(f"mod {mod_name}-TRANSPORT-DNS is")
+    L("  inc NETWORK_NODE .")
+    L(f"  inc {mod_name}-ADDRESSES .")
+    L("  var netAttrs : AttributeSet .")
+    for address, resolver in tcp_endpoint_policy(hcs_nodes, tgen_instances):
+        L(f"  eq getDnsRsv(netAttrs, {address}) = {resolver} .")
+    L("endm")
+    L("")
+
+
+SUPPORTED = {"ftpTgen", "gorTgen", "minTgen", "dnsTgen", "masTgen", "ircTgen"}
+
+
+def _validate(instances):
+    names = [inst.base_name for inst in instances]
+    if len(set(names)) != len(names):
+        raise ValueError("Duplicate TGEN base names")
+    for inst in instances:
+        if inst.tgen_type not in SUPPORTED:
+            raise ValueError(f"Unsupported configured TGEN: {inst.tgen_type}")
+
+
+def emit_tgen_definitions(L, instances, resolver_for_network):
+    """resolver_for_network(network) returns a Maude resolver Address string."""
+    _validate(instances)
+    types = {inst.tgen_type for inst in instances}
+    L("  --- TGEN servers and application actors; transport is shared.")
+    if "ftpTgen" in types:
+        L("  op ftpSrvAct : -> Actor .")
+        L("  eq ftpSrvAct = mkFtpServerA(ftpSrvAddr) .")
+    if "gorTgen" in types:
+        addresses = " addr ".join(inst.base_name + "TgAddr" for inst in instances
+                                  if inst.tgen_type == "gorTgen")
+        L("  op gorillaSrvAct : -> Actor .")
+        L(f"  eq gorillaSrvAct = mkGorillaChatServer(gorillaSrvAddr, ({addresses})) .")
+    # IRC, S3 and Mastodon servers already belong to the common infrastructure.
+    for inst in instances:
+        bn, profile = inst.base_name, inst.profile.replace("_", "-")
+        kind = inst.tgen_type
+        extra = {"minTgen": f" {bn}S3ClAct", "masTgen": f" {bn}McAct"}.get(kind, "")
+        L(f"  --- {kind}: {bn}, profile={inst.profile}, network={inst.network}")
+        L(f"  ops {bn}Act {bn}UmAct{extra} : -> Actor .")
+        if kind == "ftpTgen":
+            key = f"ftp-tgen-{profile}"
+            L(f'  eq {bn}Act = mkFtpTgenA({bn}TgAddr, ftpSrvAddr, 5.0, 2, "{key}") .')
+            L(f'  eq {bn}UmAct = mkTgenUMV2Actor({bn}UmAddr, "{key}", {bn}TgAddr) .')
+        elif kind == "gorTgen":
+            key = f"gorilla-tgen-{profile}"
+            L(f"  eq {bn}Act = mkGorillaChatTgenA({bn}TgAddr, gorillaSrvAddr) .")
+            L(f'  eq {bn}UmAct = mkTgenUMV2Actor({bn}UmAddr, "{key}", {bn}TgAddr) .')
+        elif kind == "minTgen":
+            key = f"minio-tgen-{profile}"
+            L(f'  eq {bn}Act = mkMinioTgenA({bn}TgAddr, {bn}S3ClAddr, "tgen", "{key}") .')
+            L(f"  eq {bn}S3ClAct = makeS3Client({bn}S3ClAddr, s3SrvAddr) .")
+            L(f'  eq {bn}UmAct = mkTgenUMV2Actor({bn}UmAddr, "{key}", {bn}TgAddr) .')
+        elif kind == "dnsTgen":
+            model = f"dns-tgen-{profile}-ma"
+            resolver = resolver_for_network(inst.network)
+            L(f"  eq {bn}Act = mkDnsTgenA({bn}TgAddr, {resolver}, 1000, 5.0, 2) .")
+            L(f"  eq {bn}UmAct = mkUMactor({bn}UmAddr, {model}, {bn}TgAddr) .")
+        elif kind == "masTgen":
+            model = f"mastodon-tgen-{profile}-ma"
+            L(f"  eq {bn}Act = mkMasTGenActor({bn}TgAddr, {bn}McAddr, ed-images, {model}) .")
+            L(f"  eq {bn}McAct = makeMastodonClient({bn}McAddr, masSrvAddr, {bn}TgAddr) .")
+            L(f"  eq {bn}UmAct = mkUMactor({bn}UmAddr, {model}, {bn}TgAddr) .")
+        elif kind == "ircTgen":
+            key = f"irc-tgen-{profile}"
+            L(f'  eq {bn}Act = mkIrcTgenClient({bn}TgAddr, transport(ircServerAddr), "{bn}") .')
+            L(f'  eq {bn}UmAct = mkIrcUMV2Actor({bn}UmAddr, "{key}", {bn}TgAddr, transport(ircServerAddr), {bn}TgAddr) .')
+        L("")
+
+
+def emit_tgen_initial_actors(L, instances):
+    _validate(instances)
+    types = {inst.tgen_type for inst in instances}
+    if "ftpTgen" in types:
+        L("    ftpSrvAct")
+    if "gorTgen" in types:
+        L("    gorillaSrvAct")
+    for inst in instances:
+        bn = inst.base_name
+        extra = {"minTgen": f" {bn}S3ClAct", "masTgen": f" {bn}McAct"}.get(inst.tgen_type, "")
+        L(f"    {bn}UmAct {bn}Act{extra}")
+
+
+def emit_tgen_start_timers(L, instances, timer_j, start_noise=0.009):
+    """Return next unused RNG offset; assign it to timer_j before rCtr output."""
+    _validate(instances)
+    for inst in instances:
+        bn = inst.base_name
+        message = 'actionR("ok")' if inst.tgen_type in {"masTgen", "dnsTgen"} else "burstDelayTO"
+        L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), "
+          f"(to {bn}UmAddr from {bn}UmAddr : {message}), 0]")
+        timer_j += 1
+    return timer_j
+
+
+def tgen_tcp_endpoints(instances, resolver_for_network):
+    """Return TGEN client address/resolver pairs for the endpoint DNS policy.
+
+    MinIO and Mastodon use the HCS clients' two-argument transport API.
+    FTP/Gorilla use one-argument transport: configure persistent ID 0 if enabled.
+    IRC stores transport(ircServerAddr) as its upstream address because its
+    sends do not call transport themselves. DNS TGEN is ordinary DNS.
+    Do not register actor proxy/UM addresses as transport endpoints.
+    """
+    _validate(instances)
+    endpoints = {}
+    suffixes = {"ftpTgen": "TgAddr", "gorTgen": "TgAddr", "minTgen": "S3ClAddr", "masTgen": "McAddr", "ircTgen": "TgAddr"}
+    for inst in instances:
+        if inst.tgen_type in suffixes:
+            endpoints[inst.base_name + suffixes[inst.tgen_type]] = resolver_for_network(inst.network)
+    return list(endpoints.items())
+
+
+# Generate the scenario module with readable endpoint addresses.
+def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_channel, duration, hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map, hcs_delay, tgen_delay, vpts_list, perf=False, force_observer=False, notgens=False, features=None, transport_mode="tcp"):
     features = FEATURES if features is None else features
     lines = []
     L = lines.append
@@ -579,8 +754,12 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L(f"sload {GLOBALS.LIB_DIR}/smc-baseline/baseline-actor")
     L("")
 
-    mod_name = scenario_name.upper().replace("_", "-")    
+    mod_name = scenario_name.upper().replace("_", "-")
+    emit_transport_module(L, mod_name, hcs_nodes, tgen_instances, transport_mode)
+    emit_dns_policy_module(L, mod_name, hcs_nodes, tgen_instances)
     L(f"mod {mod_name} is")
+    L(f"  inc {mod_name}-TRANSPORT .")
+    L(f"  inc {mod_name}-TRANSPORT-DNS .")
     L("  pr SCHEDULER .")
     L("  pr USER-ACTION-ACTOR .")
     if "skyhook" in hcs_channel_models:
@@ -814,11 +993,19 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("    < 'i . 'com . root, ns, 360000.0, 'ns . 'i . 'com . root >")
     L("    < 'ns . 'i . 'com . root, a, 360000.0, authDnsAddr >")
     L("    < 'tmp0 . 'i . 'com . root, a, 0.0, 1 . 0 . 1 . 2 >")
-    for idx,clid in enumerate(hcs_client_ids["iodine"]):
+    L("    < wildcard . 'i . 'com . root, a, 0.0, 1 . 1 . 1 . 2 >")
+    L("  .")
+    L("")
+    L("  --- Shared transport lookup and Iodine delegations belong to pwnd.com.")
+    L("  op zonePwndCom : -> List{Record} .")
+    L("  eq zonePwndCom =")
+    L("    < 'pwnd . 'com . root, soa, 360000.0, soaData(360000.0) >")
+    L("    < 'pwnd . 'com . root, ns, 360000.0, 'ns . 'pwnd . 'com . root >")
+    L("    < 'ns . 'pwnd . 'com . root, a, 360000.0, authDnsAddr >")
+    L("    < 'mastodon . 'pwnd . 'com . root, a, 0.0, masSrvAddr >")
+    for idx, clid in enumerate(hcs_client_ids["iodine"]):
         L(f"    < 't{idx+1} . 'pwnd . 'com . root, ns, 360000.0, 'ns . 't{idx+1} . 'pwnd . 'com . root >")
         L(f"    < 'ns . 't{idx+1} . 'pwnd . 'com . root, a, 360000.0, iodCl{clid}SrvNetClAddr >")
-    L("    < 'mastodon . 'pwnd . 'com . root, a, 0.0, masSrvAddr >")
-    L("    < wildcard . 'i . 'com . root, a, 0.0, 1 . 1 . 1 . 2 >")
     L("  .")
     L("")
     
@@ -877,26 +1064,16 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  ---------------------------------------------------")
 
     def linkdata(F, _op_name, _lp, _onewaydelay, v1=False):
+        """Emit lossless current TCP/DNS link attributes with the scenario delay."""
         F(f"  op {_op_name} : -> AttributeSet .")
         F(f"  eq {_op_name} =")
         if v1:
-            F(f"  (delayStd:  0.0),")
-            F(f"  (delayType: \"Constant\"),")
-            F(f"  (delayMean: 0.01),")
-            F(f"  (delayConst: {_onewaydelay}),")
-            F(f"  (noiseMin: 0.),")
-            F(f"  (noiseMax: 0.00001),")
-            F(f"  (dropP: 0.),")
-            F(f"  (canDrop: false),")
-        F(f"  (4stateLoss:")
-        F(f"     (p13: {_lp['p13']},")
-        F(f"      p31: {_lp['p31']},")
-        F(f"      p32: {_lp['p32']},")
-        F(f"      p23: {_lp['p23']},")
-        F(f"      p14: {_lp['p14']},")
-        F(f"      oneWayDelay: {_onewaydelay})")
-        F(f"  )")
-        F(f"  .")
+            F('    (delayStd: 0.0, delayType: "Constant",')
+            F(f"     delayMean: {_onewaydelay}, delayConst: {_onewaydelay},")
+            F("     noiseMin: 0.0, noiseMax: 0.00001,")
+            F(f"     oneWayDelay: {_onewaydelay}, dropP: 0.0, canDrop: false) .")
+        else:
+            F(f"    (oneWayDelay: {_onewaydelay}, dropP: 0.0, canDrop: false) .")
         F("")
 
     DEF_LP = {"p13": 0.0, "p31": 1.0, "p32": 0.0, "p23": 0.0, "p14": 0.0}
@@ -921,61 +1098,6 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         if net_name != "dns_net":
             L(f"  --- DNS composed link from/to {net_name} to dns_net")
             linkdata(L, op_name_dns_comp, DEF_LP, (latency_ms + dns_net_latency_ms) / 1000.0,  v1=True)
-    
-    L("  ---------------------------------------------------")
-    L("  --- Transport Equations (Readable Addresses Only)")
-    L("  ---------------------------------------------------")
-    ##    TCP includes all non DNS (non iddine) traffic
-    tcp_addrs = []
-    for i in hcs_client_ids["webtunnel"]:
-        tcp_addrs.append(f"wtCl{i}ClientAddr")
-        tcp_addrs.append(f"wtCl{i}ProxyAddr")
-    for i in hcs_client_ids["obfs4"]:
-        tcp_addrs.append(f"obfsCl{i}ClientAddr")
-        tcp_addrs.append(f"obfsCl{i}ServerAddr")
-    for i in hcs_client_ids["skyhook"]:
-        tcp_addrs.append(f"skyCl{i}SdkacAddr")
-        tcp_addrs.append(f"skyCl{i}SdkasAddr")
-    for i in hcs_client_ids["mastodon"]:
-            tcp_addrs.append(f"masCl{i}McacAddr")
-            tcp_addrs.append(f"masCl{i}McasAddr")
-    tcp_addrs.append("s3SrvAddr")    
-    tcp_addrs.append("masSrvAddr")
-    
-    for inst in tgen_instances:
-        bn = inst.base_name
-        if inst.tgen_type in ["masTgen", "ftpTgen", "minTgen", "gorTgen", "ircTgen"]:
-            tcp_addrs.append(f"{bn}TgAddr")
-            if inst.tgen_type == "masTgen":
-                tcp_addrs.append(f"{bn}McAddr")
-            elif inst.tgen_type == "minTgen":
-                tcp_addrs.append(f"{bn}S3ClAddr")
-    tcp_addrs.append("ftpSrvAddr")
-    tcp_addrs.append("gorillaSrvAddr")
-    tcp_addrs.append("ircServerAddr")
-    
-    for name in tcp_addrs:
-        L(f"  eq transport({name}) = tcp({name}) .")
-    L("")
-    
-    L("  --- UDP transport for DNS resolvers")
-    udp_addrs = [
-        "publicDnsAddr",
-        "corpMasDnsAddr",
-        "corpRtDnsAddr",
-        "corpObfsDnsAddr",
-        "corpSkyDnsAddr",
-        "corpIodDnsAddr",
-        "servDnsAddr",
-    ]
-    for name in udp_addrs:
-        L(f"  eq transport({name}) = {name} .")
-    L("")    
-    
-    for i in hcs_client_ids["iodine"]:
-        L(f"  eq transport(iodCl{i}ServerAddr) = iodCl{i}ServerAddr .")
-        L(f"  eq transport(iodCl{i}NetServerAddr) = iodCl{i}NetServerAddr .")
-    L("")
     
     L("  ---------------------------------------------------")
     L("  --- Link Data (Readable Addresses Only)")
@@ -1104,6 +1226,9 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
             add_bidir_ixp(f"iodCl{i}SrvNetClAddr", dns_net_link_dns, "dns_net")
             add_bidir_link(f"iodCl{i}SrvNetClAddr", f"iodCl{i}SrvNetSrvAddr", server_net_link_dns_comp, "server_net")
             add_bidir_link(f"iodCl{i}ServerAddr", "publicDnsAddr", server_net_link_dns_comp, "server_net")
+            # netDnsSrvResponse schedules from the nameserver to the DNS-side
+            # relay, rather than from the server-side relay address.
+            link_entries.append(f"    aaa(iodCl{i}ServerAddr, iodCl{i}SrvNetClAddr, {server_net_link_dns_comp})")
             
         add_bidir_ixp(f"corpIodNetClAddr", iod_link_dns, "client_net_iodine")
         add_bidir_link(f"corpIodNetClAddr", f"publicResolverNetSrvAddr", iod_link_dns_comp, "client_net_iodine")
@@ -1225,7 +1350,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  --- Webtunnel Client {i} (IRC profile: {profile})")
         L(f"  ops wtCl{i}Irc wtCl{i}Um wtCl{i}Iface wtCl{i}SrvIface : -> Actor .")
         L(f"  ops wtCl{i}Client wtCl{i}Proxy : -> Actor .")
-        L(f"  ops wtCl{i}NetClient wtCl{i}NetServer : -> Actor .")
+
         L(f"  eq wtCl{i}Irc       = mkIrcClient-v2(wtCl{i}IrcAddr, wtCl{i}IfaceAddr, \"WtClient{i}\") .")
         L(f"  eq wtCl{i}Um        = mkIrcUMV2Actor(wtCl{i}UmAddr, \"{irc_key}\", wtCl{i}IrcAddr, ircServerAddr, wtCl{i}SrvIfaceAddr) .")
         L(f"  eq wtCl{i}Iface     = mkIrcByteSeqIface(wtCl{i}IfaceAddr, wtCl{i}IrcAddr, wtCl{i}ClientAddr) .")
@@ -1241,13 +1366,6 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"        tunnelState:     Closed,")
         L(f"        pendingMsgs:     emptyQueue > .")
         L(f"  eq wtCl{i}Proxy      = makeWtServerProxy(wtCl{i}ProxyAddr, wtCl{i}SrvIfaceAddr) .")
-        L(f"  eq wtCl{i}NetClient  = makeNetClient(wtCl{i}NetClientAddr,")
-        L(f"                                       wtCl{i}ProxyAddr,")
-        L(f"                                       wtCl{i}ClientAddr,")
-        L(f"                                       true,")
-        L(f"                                       corpRtDnsAddr,")
-        L(f"                                       'mastodon . 'pwnd . 'com . root) .")
-        L(f"  eq wtCl{i}NetServer  = makeNetServer(wtCl{i}NetServerAddr, wtCl{i}ProxyAddr) .")
         L("")        
     
     for idx, i in enumerate(hcs_client_ids["skyhook"]):
@@ -1257,7 +1375,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  ops skyCl{i}Irc skyCl{i}Um skyCl{i}Iface skyCl{i}SrvIface : -> Actor .")
         L(f"  ops skyCl{i}UmacAct skyCl{i}CmacAct skyCl{i}PuaAct skyCl{i}SdkacAct : -> Actor .")
         L(f"  ops skyCl{i}UmasAct skyCl{i}CmasAct skyCl{i}AhaAct skyCl{i}SdkasAct : -> Actor .")
-        L(f"  ops skyCl{i}ClNet skyCl{i}SrvNetCl skyCl{i}NetSrv : -> Actor .")
+
         
         L(f"  eq skyCl{i}Irc       = mkIrcClient-v2(skyCl{i}IrcAddr, skyCl{i}IfaceAddr, \"SkyClient{i}\") .")
         L(f"  eq skyCl{i}Um        = mkIrcUMV2Actor(skyCl{i}UmAddr, \"{irc_key}\", skyCl{i}IrcAddr, ircServerAddr, skyCl{i}SrvIfaceAddr) .")
@@ -1273,19 +1391,6 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  eq skyCl{i}CmasAct   = mkCMSimpleBi(skyCl{i}CmasAddr, skyCl{i}SrvIfaceAddr, skyCl{i}AhaAddr) .")
         L(f"  eq skyCl{i}AhaAct    = mkSkyhookAH(skyCl{i}AhaAddr, skyCl{i}CmasAddr, skyCl{i}SdkasAddr, \"c_to_s_bucket_{i}\", \"s_to_c_bucket_{i}\", \"0\", \"0\", \"0\", 100) .")
         L(f"  eq skyCl{i}SdkasAct  = makeS3Client(skyCl{i}SdkasAddr, s3SrvAddr) .")
-        L(f"  eq skyCl{i}ClNet     = makeNetClient(skyCl{i}ClNetAddr,")
-        L(f"                                       s3SrvAddr,")
-        L(f"                                       skyCl{i}SdkacAddr,")
-        L(f"                                       false,")
-        L(f"                                       corpSkyDnsAddr,")
-        L(f"                                       'mastodon . 'pwnd . 'com . root) .")
-        L(f"  eq skyCl{i}NetSrv    = makeNetServer(skyCl{i}NetSrvAddr, s3SrvAddr) .")
-        L(f"  eq skyCl{i}SrvNetCl  = makeNetClient(skyCl{i}SrvNetClAddr,")
-        L(f"                                       s3SrvAddr,")
-        L(f"                                       skyCl{i}SdkasAddr,")
-        L(f"                                       true,")
-        L(f"                                       servDnsAddr,")
-        L(f"                                       'mastodon . 'pwnd . 'com . root) .")
         L("")        
     
     for idx, i in enumerate(hcs_client_ids["obfs4"]):
@@ -1294,7 +1399,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  --- OBFS4 Client {i} (IRC profile: {profile})")
         L(f"  ops obfsCl{i}Irc obfsCl{i}Um obfsCl{i}Iface obfsCl{i}SrvIface : -> Actor .")
         L(f"  ops obfsCl{i}Cl obfsCl{i}Srv : -> Actor .")
-        L(f"  ops obfsCl{i}NetCl obfsCl{i}NetSrv : -> Actor .")
+
         
         L(f"  eq obfsCl{i}Irc      = mkIrcClient-v2(obfsCl{i}IrcAddr, obfsCl{i}IfaceAddr, \"ObfsClient{i}\") .")
         L(f"  eq obfsCl{i}Um       = mkIrcUMV2Actor(obfsCl{i}UmAddr, \"{irc_key}\", obfsCl{i}IrcAddr, ircServerAddr, obfsCl{i}SrvIfaceAddr) .")
@@ -1302,13 +1407,6 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  eq obfsCl{i}Cl       = makeObfs4Node(obfsCl{i}ClientAddr, obfsCl{i}IfaceAddr, obfsCl{i}ServerAddr) .")
         L(f"  eq obfsCl{i}SrvIface = mkIrcByteSeqIface(obfsCl{i}SrvIfaceAddr, ircServerAddr, obfsCl{i}ServerAddr) .")
         L(f"  eq obfsCl{i}Srv      = makeObfs4Node(obfsCl{i}ServerAddr, obfsCl{i}SrvIfaceAddr, obfsCl{i}ClientAddr) .")
-        L(f"  eq obfsCl{i}NetCl    = makeNetClient(obfsCl{i}NetClientAddr,")
-        L(f"                                       obfsCl{i}ServerAddr,")
-        L(f"                                       obfsCl{i}ClientAddr,")
-        L(f"                                       true,")
-        L(f"                                       corpObfsDnsAddr,")
-        L(f"                                       'mastodon . 'pwnd . 'com . root) .")
-        L(f"  eq obfsCl{i}NetSrv   = makeNetServer(obfsCl{i}NetServerAddr, obfsCl{i}ServerAddr) .")
         L("")
             
     for idx, i in enumerate(hcs_client_ids["iodine"]):
@@ -1346,7 +1444,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  ops masCl{i}Irc masCl{i}Um masCl{i}Iface masCl{i}SrvIface : -> Actor .")
         L(f"  ops masCl{i}UmacAct masCl{i}CmacAct masCl{i}McacAct masCl{i}EdacAct : -> Actor .")
         L(f"  ops masCl{i}UmasAct masCl{i}CmasAct masCl{i}McasAct masCl{i}EdasAct : -> Actor .")
-        L(f"  ops masCl{i}ClNet masCl{i}SrvNetCl : -> Actor .")
+
         
         L(f"  eq masCl{i}Irc       = mkIrcClient-v2(masCl{i}IrcAddr, masCl{i}IfaceAddr, \"MasClient{i}\") .")
         L(f"  eq masCl{i}Um        = mkIrcUMV2Actor(masCl{i}UmAddr, \"{irc_key}\", masCl{i}IrcAddr, ircServerAddr, masCl{i}SrvIfaceAddr) .")
@@ -1360,36 +1458,29 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  eq masCl{i}CmasAct   = mkCMSndRcvActor(masCl{i}CmasAddr, masCl{i}EdasAddr, masCl{i}McasAddr, masCl{i}SrvIfaceAddr, \"server{i}\", \"client{i}\") .")
         L(f"  eq masCl{i}McasAct   = makeMastodonClient(masCl{i}McasAddr, masSrvAddr, masCl{i}CmasAddr) .")
         L(f"  eq masCl{i}EdasAct   = makeDestiniActor(masCl{i}EdasAddr, ed-images) .")
-        L(f"  eq masCl{i}ClNet     = makeNetClient(masCl{i}ClNetAddr,")
-        L(f"                                       masSrvAddr,")
-        L(f"                                       masCl{i}McacAddr,")
-        L(f"                                       false,")
-        L(f"                                       corpMasDnsAddr,")
-        L(f"                                       'mastodon . 'pwnd . 'com . root) .")
-        L(f"  eq masCl{i}SrvNetCl  = makeNetClient(masCl{i}SrvNetClAddr,")
-        L(f"                                       masSrvAddr,")
-        L(f"                                       masCl{i}McasAddr,")
-        L(f"                                       false,")
-        L(f"                                       servDnsAddr,")
-        L(f"                                       'mastodon . 'pwnd . 'com . root) .")
         L("")
     
     L("  --- Base Infrastructure")
-    L("  ops ircServer s3SrvAct advActor masNetSrv masSrvAct : -> Actor .")
+    L("  ops ircServer s3SrvAct advActor masSrvAct transportActor : -> Actor .")
     L("  eq ircServer      = mkIrcServer(ircServerAddr) .")
     L("  eq s3SrvAct       = ")
     L("    < s3SrvAddr : AwsS3HttpServer |")
     L("        thisAddr: s3SrvAddr,")
-    L("        s3DataMap: (")
-    L("          (\"/tgen/list-1\" -> restToByteSeq(\"obj1.zip;obj2.zip;data/\")) ;")
-    L("          (\"/tgen/stat-1\" -> restToByteSeq(\"obj1.zip:1024:2025-01-01\")) ;")
-    L("          (\"/tgen/cd-1\" -> restToByteSeq(\"subdir1/;subdir2/\")) ;")
-    L("          (\"/tgen/retr-1\" -> restToByteSeq(\"mock_file_content_bytes\"))")
-    L("        )")
+    if any(inst.tgen_type == "minTgen" for inst in tgen_instances):
+        L("        s3DataMap: (")
+        L("          (\"/tgen/list-1\" -> restToByteSeq(\"obj1.zip;obj2.zip;data/\")) ;")
+        L("          (\"/tgen/stat-1\" -> restToByteSeq(\"obj1.zip:1024:2025-01-01\")) ;")
+        L("          (\"/tgen/cd-1\" -> restToByteSeq(\"subdir1/;subdir2/\")) ;")
+        L("          (\"/tgen/retr-1\" -> restToByteSeq(\"mock_file_content_bytes\"))")
+        L("        )")
+    else:
+        L("        s3DataMap: emptyS3DataMap")
     L("    >")
     L("  .")
     L("  eq masSrvAct      = makeMastodonServer(masSrvAddr) .")
-    L("  eq masNetSrv       = makeNetServer(masNetSrvAddr, masSrvAddr) .")
+    L("  --- The global actor takes endpoints from each message/connection handle.")
+    L("  eq transportActor = makeTransportActor(transportAddr,")
+    L("      nullAddr, nullAddr, servDnsAddr, 'mastodon . 'pwnd . 'com . root) .")
     adv_use_tcp = "false" if perf and not force_observer else "true"
     L(f"  eq advActor       = mkAdversaryCp3(advAddr, {adv_use_tcp}) .")
     L("")
@@ -1409,7 +1500,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  eq publicResolver = mkResolver(publicDnsAddr, resolverCache, sb) .")
     L("  eq rootDns       = mkNameServer(rootDnsAddr, (zone), nullAddr) .")
     L("  eq tldDns        = mkNameServer(tldDnsAddr, (zoneCom), nullAddr) .")
-    L("  eq authDns       = mkNameServer(authDnsAddr, (zoneInternetCom), nullAddr) .")
+    L("  eq authDns       = mkNameServer(authDnsAddr, (zoneInternetCom zonePwndCom), nullAddr) .")
     L("")
     L("  eq corpMasNetCl = mkFwdDnsNetC(corpMasNetClAddr,")
     L("                                 publicResolverNetSrvAddr,")
@@ -1454,111 +1545,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("")
     
     L("  ---------------------------------------------------")
-    L("  --- TGEN Actor Definitions")
-    L("  ---------------------------------------------------")
-    L("  --- Shared TGEN Servers")
-    L("  ops ftpSrvAct ftpNetSrvAct : -> Actor .")
-    L("  eq ftpSrvAct     = mkFtpServerA(ftpSrvAddr) .")
-    L("  eq ftpNetSrvAct  = makeNetServer(ftpNetSrvAddr, ftpSrvAddr) .")
-    L("")
-    
-    gorilla_tg_addrs = [inst.base_name + "TgAddr" for inst in tgen_instances if inst.tgen_type == "gorTgen"]
-    L("  ops gorillaSrvAct gorillaNetSrvAct : -> Actor .")
-    gorilla_addr_list = " addr ".join(gorilla_tg_addrs) if gorilla_tg_addrs else "noAddr"
-    L(f"  eq gorillaSrvAct   = mkGorillaChatServer(gorillaSrvAddr, ({gorilla_addr_list})) .")
-    L("  eq gorillaNetSrvAct = makeNetServer(gorillaNetSrvAddr, gorillaSrvAddr) .")
-    L("")
-    L("  ops ircTgenSrvNet : -> Actor .")
-    L("  eq ircTgenSrvNet = makeNetServer(ircTgenSrvNetAddr, ircServerAddr) .")
-    L("")
-    
-    for inst in tgen_instances:
-        bn = inst.base_name
-        net = inst.network
-        corp_dns = get_corp_dns_addr_name(net) if net in NET_TO_DNS_NAME else "nullAddr"
-        
-        if inst.tgen_type == "ftpTgen":
-            ftp_key = f"ftp-tgen-{inst.profile.replace('_', '-')}"
-            L(f"  --- FTP TGEN: {bn} (profile={inst.profile}, network={net})")
-            L(f"  ops {bn}Act {bn}UmAct {bn}NetClAct : -> Actor .")
-            L(f"  eq {bn}Act    = mkFtpTgenA({bn}TgAddr, ftpSrvAddr, 5.0, 2, \"{ftp_key}\") .")
-            L(f"  eq {bn}UmAct  = mkTgenUMV2Actor({bn}UmAddr, \"{ftp_key}\", {bn}TgAddr) .")
-            L(f"  eq {bn}NetClAct = makeNetClient({bn}NetClAddr,")
-            L(f"                                  ftpSrvAddr,")
-            L(f"                                  {bn}TgAddr,")
-            L(f"                                  true,")
-            L(f"                                  {corp_dns},")
-            L(f"                                  nullName) .")
-            L("")
-            
-        elif inst.tgen_type == "gorTgen":
-            gor_key = f"gorilla-tgen-{inst.profile.replace('_', '-')}"
-            L(f"  --- Gorilla TGEN: {bn} (profile={inst.profile}, network={net})")
-            L(f"  ops {bn}Act {bn}UmAct {bn}NetClAct : -> Actor .")
-            L(f"  eq {bn}Act    = mkGorillaChatTgenA({bn}TgAddr, gorillaSrvAddr) .")
-            L(f"  eq {bn}UmAct  = mkTgenUMV2Actor({bn}UmAddr, \"{gor_key}\", {bn}TgAddr) .")
-            L(f"  eq {bn}NetClAct = makeNetClient({bn}NetClAddr,")
-            L(f"                                  gorillaSrvAddr,")
-            L(f"                                  {bn}TgAddr,")
-            L(f"                                  true,")
-            L(f"                                  {corp_dns},")
-            L(f"                                  nullName) .")
-            L("")
-            
-        elif inst.tgen_type == "minTgen":
-            min_key = f"minio-tgen-{inst.profile.replace('_', '-')}"
-            L(f"  --- MinIO TGEN: {bn} (profile={inst.profile}, network={net})")
-            L(f"  ops {bn}Act {bn}UmAct {bn}S3ClAct {bn}NetClAct : -> Actor .")
-            L(f"  eq {bn}Act      = mkMinioTgenA({bn}TgAddr, {bn}S3ClAddr, \"tgen\", \"minio\") .")
-            L(f"  eq {bn}S3ClAct  = makeS3Client({bn}S3ClAddr, s3SrvAddr) .")
-            L(f"  eq {bn}UmAct    = mkTgenUMV2Actor({bn}UmAddr, \"{min_key}\", {bn}TgAddr) .")
-            L(f"  eq {bn}NetClAct = makeNetClient({bn}NetClAddr,")
-            L(f"                                  s3SrvAddr,")
-            L(f"                                  {bn}S3ClAddr,")
-            L(f"                                  false,")
-            L(f"                                  {corp_dns},")
-            L(f"                                  nullName) .")
-            L("")
-            
-        elif inst.tgen_type == "dnsTgen":
-            dns_model = f"dns-tgen-{inst.profile.replace('_', '-')}-ma"
-            dns_rsv = get_corp_dns_addr_name(net) if net in NET_TO_DNS_NAME else "publicDnsAddr"
-            L(f"  --- DNS TGEN: {bn} (profile={inst.profile}, network={net})")
-            L(f"  ops {bn}Act {bn}UmAct : -> Actor .")
-            L(f"  eq {bn}Act    = mkDnsTgenA({bn}TgAddr, {dns_rsv}, 1000, 5.0, 2) .")
-            L(f"  eq {bn}UmAct  = mkUMactor({bn}UmAddr, {dns_model}, {bn}TgAddr) .")
-            L("")
-            
-        elif inst.tgen_type == "masTgen":
-            mas_model = f"mastodon-tgen-{inst.profile.replace('_', '-')}-ma"
-            L(f"  --- Mastodon TGEN: {bn} (profile={inst.profile}, network={net})")
-            L(f"  ops {bn}Act {bn}UmAct {bn}McAct {bn}NetClAct : -> Actor .")
-            L(f"  eq {bn}Act     = mkMasTGenActor({bn}TgAddr, {bn}McAddr, ed-images, {mas_model}) .")
-            L(f"  eq {bn}McAct   = makeMastodonClient({bn}McAddr, masSrvAddr, {bn}TgAddr) .")
-            L(f"  eq {bn}UmAct   = mkUMactor({bn}UmAddr, {mas_model}, {bn}TgAddr) .")
-            L(f"  eq {bn}NetClAct = makeNetClient({bn}NetClAddr,")
-            L(f"                                  masSrvAddr,")
-            L(f"                                  {bn}McAddr,")
-            L(f"                                  true,")
-            L(f"                                  {corp_dns},")
-            L(f"                                  nullName) .")
-            L("")
-            
-        elif inst.tgen_type == "ircTgen":
-            irc_key = f"irc-tgen-{inst.profile.replace('_', '-')}"
-            L(f"  --- IRC TGEN: {bn} (profile={inst.profile}, network={net})")
-            L(f"  ops {bn}Act {bn}UmAct {bn}NetClAct : -> Actor .")
-            L(f"  eq {bn}Act    = mkIrcTgenClient({bn}TgAddr, ircServerAddr, \"{bn}\") .")
-            L(f"  eq {bn}UmAct  = mkIrcUMV2Actor({bn}UmAddr, \"{irc_key}\", {bn}TgAddr, ircServerAddr, {bn}TgAddr) .")
-            L(f"  eq {bn}NetClAct = makeNetClient({bn}NetClAddr,")
-            L(f"                                  ircServerAddr,")
-            L(f"                                  {bn}TgAddr,")
-            L(f"                                  true,")
-            L(f"                                  nullAddr,")
-            L(f"                                  nullName) .")
-            L("")
+    emit_tgen_definitions(L, tgen_instances, resolver_for_network)
 
-    L("  ---------------------------------------------------")
     L("  --- Initial State Configuration")
     L("  ---------------------------------------------------")
     L("  op initState : Nat -> Config .")
@@ -1573,24 +1561,26 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("    mkIrcMonitor(ircMonitorAddr)")
     L("    servDns servNetCl")
     L("    advActor")
+    if transport_mode == "tcp":
+        L("    transportActor")
     L("")
     for i in hcs_client_ids["webtunnel"]:
         L(f"    --- Webtunnel Client {i}")
         L(f"    wtCl{i}Irc wtCl{i}Um wtCl{i}Iface wtCl{i}SrvIface wtCl{i}Client wtCl{i}Proxy")
-        L(f"    wtCl{i}NetClient wtCl{i}NetServer")
+
     L("    corpRtDns corpRtNetCl")
     L("")
     for i in hcs_client_ids["skyhook"]:
         L(f"    --- Skyhook Client {i}")
         L(f"    skyCl{i}Irc skyCl{i}Um skyCl{i}Iface skyCl{i}UmacAct skyCl{i}CmacAct skyCl{i}PuaAct skyCl{i}SdkacAct")
         L(f"    skyCl{i}SrvIface skyCl{i}UmasAct skyCl{i}CmasAct skyCl{i}AhaAct skyCl{i}SdkasAct")
-        L(f"    skyCl{i}ClNet skyCl{i}NetSrv skyCl{i}SrvNetCl")    
+
     L("    corpSkyDns corpSkyNetCl")
     L("")
     for i in hcs_client_ids["obfs4"]:
         L(f"    --- OBFS4 Client {i}")
         L(f"    obfsCl{i}Irc obfsCl{i}Um obfsCl{i}Iface obfsCl{i}SrvIface obfsCl{i}Cl obfsCl{i}Srv")
-        L(f"    obfsCl{i}NetCl obfsCl{i}NetSrv")    
+
     L("    corpObfsDns corpObfsNetCl")
     L("")
     for i in hcs_client_ids["iodine"]:
@@ -1605,35 +1595,15 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"    masCl{i}Irc masCl{i}Um masCl{i}Iface masCl{i}SrvIface")
         L(f"    masCl{i}UmacAct masCl{i}CmacAct masCl{i}McacAct masCl{i}EdacAct")
         L(f"    masCl{i}UmasAct masCl{i}CmasAct masCl{i}McasAct masCl{i}EdasAct")
-        L(f"    masCl{i}ClNet masNetSrv masCl{i}SrvNetCl")
+
     L("    corpMasDns corpMasNetCl")
     L("")
     L("    --- DNS Infrastructure")
     L("    publicResolver publicResolverNetSrv")
     L("    rootDns tldDns authDns")
     L("")
-    L("    --- TGEN Shared Servers")
-    L("    ftpSrvAct ftpNetSrvAct")
-    L("    gorillaSrvAct gorillaNetSrvAct")
-    L("    ircTgenSrvNet")
     L("")
-    L("    --- TGEN Instances")
-    
-    for inst in tgen_instances:
-        bn = inst.base_name
-        if inst.tgen_type == "ftpTgen":
-            L(f"    {bn}UmAct {bn}Act {bn}NetClAct")
-        elif inst.tgen_type == "gorTgen":
-            L(f"    {bn}UmAct {bn}Act {bn}NetClAct")
-        elif inst.tgen_type == "minTgen":
-            L(f"    {bn}UmAct {bn}Act {bn}S3ClAct {bn}NetClAct")
-        elif inst.tgen_type == "dnsTgen":
-            L(f"    {bn}UmAct {bn}Act")
-        elif inst.tgen_type == "masTgen":
-            L(f"    {bn}UmAct {bn}Act {bn}McAct {bn}NetClAct")
-        elif inst.tgen_type == "ircTgen":
-            L(f"    {bn}UmAct {bn}Act {bn}NetClAct")
-
+    emit_tgen_initial_actors(L, tgen_instances)
     L("")
     L("    --- Startup Timers")
     L("")
@@ -1661,16 +1631,11 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     
     if not notgens:
         L("    --- TGEN User Model Burst Delay Timers (staggered)")
-        for inst in tgen_instances:
-            bn = inst.base_name
-            if inst.tgen_type in ["masTgen", "dnsTgen"]:
-                L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to {bn}UmAddr from {bn}UmAddr : actionR(\"ok\")), 0]")
-            else:
-                L(f"    [tgenDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to {bn}UmAddr from {bn}UmAddr : burstDelayTO), 0]")
-            timer_j += 1
+        timer_j = emit_tgen_start_timers(L, tgen_instances, timer_j, start_noise)
         L("")    
-    L(f"[ksWindowDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to baseLineAddr from baseLineAddr : initKs),0]")
-    timer_j += 1
+    if not perf:
+        L(f"[ksWindowDelay + genRandomX(j + {timer_j}, 0.0, {start_noise}), (to baseLineAddr from baseLineAddr : initKs),0]")
+        timer_j += 1
     L(f"    rCtr(j + {timer_j})")
     L("  .")
     L("")    
@@ -1802,6 +1767,33 @@ def gen_baselineOrRun_file(scenario_name, isBaseline=True, perf=False, baseline_
     
     return "\n".join(lines)
 
+def prepare_user_models(yaml_file, out_dir, tgen_instances):
+    """Copy scenario profiles and convert their JSON alongside the experiment."""
+    from . import convert_markov_json_to_maude_v1 as v1
+    from . import convert_markov_json_to_maude_v2 as v2
+
+    scenario_dir = Path(yaml_file).parent
+    folders = [("skyhook_action_models", "skyhook", v1),
+               ("mastodon_action_models", "mastodon", v1),
+               ("irc_user_models", "irc", v2)]
+    tgen_protocols = {"masTgen": ("mastodon", "mastodon-tgen", v1),
+                      "dnsTgen": ("dns", "dns-tgen", v1),
+                      "ftpTgen": ("ftp", "ftp", v2),
+                      "minTgen": ("minio", "minio", v2),
+                      "gorTgen": ("gorilla", "gorilla", v2),
+                      "ircTgen": ("irc", "irc", v2)}
+    for kind in sorted({inst.tgen_type for inst in tgen_instances}):
+        folder, protocol, converter = tgen_protocols[kind]
+        folders.append(("tgen_user_models/" + folder, protocol, converter))
+    for folder, protocol, converter in folders:
+        source, target = scenario_dir / folder, Path(out_dir) / folder
+        if not source.is_dir():
+            continue
+        if source.resolve() != target.resolve():
+            shutil.copytree(source, target, dirs_exist_ok=True)
+        converter.process_directories(argparse.Namespace(protocol=protocol), str(target), str(target))
+
+
 def generate(args: argparse.Namespace):
 
     yaml_file = os.path.abspath(args.yaml_file)
@@ -1816,7 +1808,7 @@ def generate(args: argparse.Namespace):
         assert tgen_delay <= hcs_delay
 
     if args.parallelizeBaseline:
-        assert args.baseline_time is not None
+        assert args.baselineTime is not None
 
     if args.feats is not None:
         selected_feats = filter_feats(args.feats)
@@ -1857,10 +1849,14 @@ def generate(args: argparse.Namespace):
     else:
         logger.info("loaded duration from yaml was %ss, overridden with provided run_time %ss", yaml_duration, run_time)
 
-    if args.notgens:
-        tgen_delay = 2*run_time
-
-    tgen_instances = generate_all_tgen_instances(tgen_defs, net_id_map, net_short)
+    tgen_instances = [] if args.notgens else generate_all_tgen_instances(tgen_defs, net_id_map, net_short)
+    selected_types = getattr(args, "tgen_types", None)
+    if selected_types:
+        kinds = {"mastodon": "masTgen", "ftp": "ftpTgen", "dns": "dnsTgen",
+                 "minio": "minTgen", "gorilla": "gorTgen", "irc": "ircTgen"}
+        selected = {kinds[kind] for kind in selected_types}
+        tgen_instances = [inst for inst in tgen_instances if inst.tgen_type in selected]
+    _validate(tgen_instances)
     
     logger.info("Parsed %s networks", len(networks))
     logger.info("Parsed %s loss profiles", len(loss_profiles))
@@ -1870,6 +1866,7 @@ def generate(args: argparse.Namespace):
         logger.info("  %s: %s", ttype, count)
     
     os.makedirs(out_dir, exist_ok=True)
+    prepare_user_models(yaml_file, out_dir, tgen_instances)
 
     # Generate addresses file
     addr_content, hcs_client_ids = gen_addresses_file(hcs_nodes, tgen_instances, net_id_map, scenario_name, args.notgens)
@@ -1884,11 +1881,28 @@ def generate(args: argparse.Namespace):
         hcs_channel_models, hcs_client_ids, hcs_nodes, scenario_name, net_id_map,
         hcs_delay, tgen_delay, maude_vpts, features=selected_feats,
         perf=args.perf, force_observer=args.force_observer, notgens=args.notgens,
+        transport_mode=getattr(args, "transport", "tcp"),
     )
     main_path = os.path.join(out_dir, f"{scenario_name}.maude")
     with open(main_path, "w") as f:
         f.write(main_content)
     logger.info("Wrote %s %s lines", main_path, len(main_content.splitlines()))
+
+    manifest = {
+        "scenario": scenario_name,
+        "yaml_file": yaml_file,
+        "transport": getattr(args, "transport", "tcp"),
+        "transport_actors": 1 if getattr(args, "transport", "tcp") == "tcp" else 0,
+        "lossless_links": True,
+        "hcs_clients": hcs_client_ids,
+        "tgens": [vars(inst) for inst in tgen_instances],
+        "dns_resolvers": dict(tcp_endpoint_policy(hcs_nodes, tgen_instances)),
+        "dns_name": "mastodon.pwnd.com",
+        "notes": ["Monitor-only TGEN entries are omitted.",
+                  "The shared DNS name models lookup completion; TCP retains the message destination.",
+                  "TGEN protocol compatibility is not guaranteed by generation."],
+    }
+    Path(out_dir, f"{scenario_name}-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     all_clients = get_client_lst(hcs_client_ids)
 
@@ -1953,3 +1967,29 @@ def generate(args: argparse.Namespace):
     with open(run_path, "w") as f:
         f.write(run_content)    
     logger.info("Wrote %s (%s) lines", run_path, len(run_content.splitlines()))
+
+
+def main():
+    """CLI: python -m maude_hcs.generate_cp3 --yaml-file PATH --out-dir DIR."""
+    parser = argparse.ArgumentParser(description="Generate scenario HCSs and TGENs with one TransportActor and lossless links at configured delays.")
+    parser.add_argument("--yaml-file", required=True)
+    parser.add_argument("--out-dir", dest="outDir", required=True)
+    parser.add_argument("--scenario-name", dest="scenarioName")
+    parser.add_argument("--run-time", dest="runTime", type=float)
+    parser.add_argument("--baseline-time", dest="baselineTime", type=float)
+    parser.add_argument("--hcs-delay", dest="hcsDelay", type=float, default=10.0)
+    parser.add_argument("--tgen-delay", dest="tgenDelay", type=float, default=1.0)
+    parser.add_argument("--parallelize-baseline", dest="parallelizeBaseline", action="store_true")
+    parser.add_argument("--feats", nargs="*")
+    parser.add_argument("--vpts", nargs="*")
+    parser.add_argument("--quatex", action="store_true")
+    parser.add_argument("--confidentiality", action="store_true")
+    parser.add_argument("--transport", choices=("tcp", "direct"), default="tcp")
+    parser.add_argument("--notgens", action="store_true", help="Omit TGEN actors for an HCS-only comparison.")
+    parser.add_argument("--tgen-types", nargs="+", choices=("mastodon", "ftp", "dns", "minio", "gorilla", "irc"), help="Include only these TGEN types (all types by default).")
+    parser.set_defaults(perf=True, force_observer=True)
+    generate(parser.parse_args())
+
+
+if __name__ == "__main__":
+    main()
