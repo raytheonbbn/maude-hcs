@@ -658,8 +658,22 @@ mod SMC_CP4 is
 
   op compObsFeatureX : NetId Feature TimesObsList Float Float -> Float .
   eq compObsFeatureX (vp, obsF, nilTO, Tstart, Tend) = 0.0 . 
+  eq compObsFeatureX (vp, dnsPingQueryRate, TOL, Tstart, Tend) =
+    float(countDNSPingQuery(vp, TOL, Tstart, Tend)) / (Tend + (- Tstart)) .
   eq compObsFeatureX (vp, dnsQueryRate, TOL, Tstart, Tend) = 
     float(countDNSQuery(vp, TOL, Tstart, Tend)) / (Tend + (- Tstart)) .
+  ceq compObsFeatureX (vp, dnsPingQueryRatio, TOL, Tstart, Tend) =
+    if N == 0
+    then 0.0
+    else float(countDNSPingQuery(vp, TOL, Tstart, Tend)) / float(N)
+    fi
+  if N := countDNSQuery(vp, TOL, Tstart, Tend) .
+  ceq compObsFeatureX (vp, dnsNonPingQuerySize, TOL, Tstart, Tend) = 
+    if N == 0
+    then 0.0
+    else float(sizeDNSNonPingQuery(vp, TOL, Tstart, Tend)) / float(N)
+    fi
+  if N := countDNSNonPingQuery(vp, TOL, Tstart, Tend) .
   ceq compObsFeatureX (vp, dnsQuerySize, TOL, Tstart, Tend) = 
     if N == 0
     then 0.0
@@ -751,6 +765,14 @@ mod SMC_CP4 is
 )
 
   var Acc : Nat .
+  var FRAGN : Name .
+  var ID : Id .
+  var NAME : Name .
+  var RTYPE : RType .
+  vars B1 B2 : Bool .
+  vars ALICE BOB : Address .
+  vars N1 N2 N3 N4 N5 : Nat .
+  var bytes : ByteSeq .
 
   -------------------------------------------------------------------------------------------------
   --- 01 dns_query_rate                   Number of DNS query messages per second (queries/s)
@@ -771,7 +793,7 @@ mod SMC_CP4 is
   eq countDNSQueryAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
 
   eq countDNSQueryAux (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) = 
-    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) 
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO)
     then countDNSQueryAux(vp, TsML, Tstart, Tend, Acc + 1)
     else countDNSQueryAux(vp, TsML, Tstart, Tend, Acc) fi .
 
@@ -779,22 +801,57 @@ mod SMC_CP4 is
     = countDNSQueryAux(vp, TsML, Tstart, Tend, Acc) [owise] .
 
   -------------------------------------------------------------------------------------------------
+  --- 01.5 DNS ping query rates, to make alignment easier by separating packet sizes for different groups
+  -------------------------------------------------------------------------------------------------
+
+  op isPing : Query -> Bool .
+  eq isPing (query(ID, nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)), RTYPE)) = (bytes == file(0, 0)) and (N5 == 0) .
+  ceq isPing (query(ID, FRAGN . NAME, RTYPE)) = isPing(query(ID, FRAGN, RTYPE)) 
+    if nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) := FRAGN .
+  eq isPing (CO) = false [owise] .
+
+  op countDNSPingQuery : NetId TimesObsList Float Float -> Nat .
+  eq countDNSPingQuery (vp, TOL, Tstart, Tend) = countDNSPingQueryAux (vp, TOL, Tstart, Tend, 0) .
+
+  op countDNSPingQueryAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq countDNSPingQueryAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq countDNSPingQueryAux (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) = 
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) and isPing(CO)
+    then countDNSPingQueryAux(vp, TsML, Tstart, Tend, Acc + 1)
+    else countDNSPingQueryAux(vp, TsML, Tstart, Tend, Acc) fi .
+
+  eq countDNSPingQueryAux (vp, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend, Acc)
+    = countDNSPingQueryAux(vp, TsML, Tstart, Tend, Acc) [owise] .
+
+  op countDNSNonPingQuery : NetId TimesObsList Float Float -> Nat .
+  eq countDNSNonPingQuery (vp, TOL, Tstart, Tend) = countDNSQuery (vp, TOL, Tstart, Tend) + ( - countDNSPingQuery (vp, TOL, Tstart, Tend)) .
+
+  op sizeDNSNonPingQuery : NetId TimesObsList Float Float -> Nat .
+  eq sizeDNSNonPingQuery (vp, TOL, Tstart, Tend) = sizeDNSNonPingQueryAux(vp, TOL, Tstart, Tend, 0) .
+
+  op sizeDNSNonPingQueryAux : NetId TimesObsList Float Float Nat -> Nat .
+  eq sizeDNSNonPingQueryAux (vp, nilTO, Tstart, Tend, Acc) = Acc .
+
+  eq sizeDNSNonPingQueryAux (vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TsML, Tstart, Tend, Acc) =
+    if visible(vp, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), Tstart, Tend, outgoing) and isDNSQuery(CO) and (not isPing(CO))
+    then sizeDNSNonPingQueryAux(vp, TsML, Tstart, Tend, Acc + sizeQuery(CO))
+    else sizeDNSNonPingQueryAux(vp, TsML, Tstart, Tend, Acc) fi .
+
+  eq sizeDNSNonPingQueryAux (vp, tm(T, Tx, Tr, M) ;; TsML, Tstart, Tend, Acc)
+    = sizeDNSNonPingQueryAux(vp, TsML, Tstart, Tend, Acc) [owise] .
+
+  -------------------------------------------------------------------------------------------------
   --- 02 dns_query_size_mean              Mean DNS query message size (bytes)
   -------------------------------------------------------------------------------------------------
 
-  var ID : Id .
-  var NAME : Name .
-  var RTYPE : RType .
-  vars B1 B2 : Bool .
-  vars ALICE BOB : Address .
-  vars N1 N2 N3 N4 N5 : Nat .
-  var bytes : ByteSeq .
 
   op DNSQueryOverhead : -> Nat .
-  eq DNSQueryOverhead = 29 .
+  eq DNSQueryOverhead = 89 .
 
   op sizeQName : Name -> Nat .
-  eq sizeQName (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) + DNSQueryOverhead .
+  --- eq sizeQName (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) + DNSQueryOverhead .
+  eq sizeQName (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 .
   eq sizeQName (NAME) = nameLength(NAME) + DNSQueryOverhead [owise] .
 
   op sizeQuery : Query -> Nat .
@@ -825,7 +882,7 @@ mod SMC_CP4 is
   eq isDNSResp (CO) = false [owise] .
 
   op DNSRespOverhead : -> Nat .
-  eq DNSRespOverhead = 34 .
+  eq DNSRespOverhead = 102 .
 
   op sizeRName : Name -> Nat .
   eq sizeRName (nm(fragment(ALICE, BOB, bytes, N1, N2, N3, N4, N5, B1, B2)) . NAME) = N5 + nameLength(NAME) + DNSRespOverhead .

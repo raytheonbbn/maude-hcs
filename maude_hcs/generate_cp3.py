@@ -694,7 +694,7 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
     L("  eq maxMinimiseCount           = 0 .")
     L("  eq packetSize                 = 1000 .")
     L("  eq maxPacketSize              = 1000 .")
-    L("  eq maxUpFragmentLen = 71 .")
+    L("  eq maxUpFragmentLen = 87 .")
     L("  eq maxDownFragmentLen = 200 .")
     logger.warning("TODO: extract and set Iodine packet size and framgment size correctly")
     
