@@ -1,159 +1,296 @@
-import subprocess
+import argparse
+import importlib.util
+import json
+import math
 import os
-import sys
+from pathlib import Path
 import shutil
-import re
-import matplotlib
-from matplotlib.path import Path
-# Workaround for Python 3.14 super() deepcopy recursion in matplotlib
-Path.__deepcopy__ = lambda self, memo: Path(self.vertices.copy(), self.codes.copy() if self.codes is not None else None)
-import matplotlib.pyplot as plt
+import subprocess
+import sys
 
-# Add the tcp-model directory to path to import tcp_analytical_model
 script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
 import tcp_analytical_model
 
+
+_MAUDE_SOURCE_PATH = None
+_MAUDE_RESULT_MARKER = 'MAUDE_RESULT_JSON:'
+
+
+def _finite_float(value, label):
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f'{label} is not a number: {value!r}') from exc
+    if not math.isfinite(number):
+        raise ValueError(f'{label} must be finite, got {value!r}')
+    return number
+
+
+def _evaluate_maude_transfer(request):
+    """Evaluate and decode one transfer; shared by both Python execution paths."""
+    import maude
+
+    global _MAUDE_SOURCE_PATH
+    source = str(Path(request['tcp_maude_path']).resolve())
+    if _MAUDE_SOURCE_PATH != source:
+        maude.init()  # Returns False when another caller already initialized it.
+        if not maude.load(source):
+            raise RuntimeError(f'Maude could not load {source}')
+        _MAUDE_SOURCE_PATH = source
+    module = maude.getModule('TCP-ANALYTICAL-MODEL')
+    if module is None:
+        raise RuntimeError('Maude module TCP-ANALYTICAL-MODEL is unavailable')
+
+    def literal(value, label):
+        return repr(_finite_float(value, label))
+
+    state = request['state']
+    state_term = 'initTcpState'
+    if state is not None:
+        state_term = 'makeTcpState({}, {}, {}, {}, {}, {})'.format(
+            literal(state['cwnd'], 'cwnd'), literal(state['w_max'], 'w_max'),
+            literal(state['t_since'], 't_since'),
+            'true' if state['in_slow_start'] else 'false',
+            literal(-1.0 if state['last_send_time'] is None else state['last_send_time'], 'last_send_time'),
+            literal(-1.0 if state['last_ack_time'] is None else state['last_ack_time'], 'last_ack_time'))
+    link = '(dropP: {}, oneWayDelay: {})'.format(
+        literal(request['drop_p'], 'drop_p'),
+        literal(request['one_way_delay'], 'one_way_delay'))
+    expression = 'tcpTimelineResult({}, {}, {}, {}, {}, {})'.format(
+        request['num_bytes'], link, link,
+        'true' if request['is_new'] else 'false', state_term,
+        literal(request['start_time'], 'start_time'))
+    term = module.parseTerm(expression)
+    if term is None:
+        raise RuntimeError(f'Maude could not parse transfer: {expression}')
+    term.reduce()
+    arguments = list(term.arguments())
+    if str(term.symbol()) != 'tlR' or len(arguments) != 3:
+        raise RuntimeError(f'Transfer did not reduce to tlR(destination, ixp, state): {term}')
+
+    def flatten(node, operator, identity):
+        symbol = str(node.symbol()).replace('`', '')
+        if symbol == identity:
+            return []
+        if symbol == operator:
+            return [leaf for child in node.arguments()
+                    for leaf in flatten(child, operator, identity)]
+        return [node]
+
+    def times(node, label):
+        return [_finite_float(str(value), label)
+                for value in flatten(node, '_::_', 'nilFloatList')]
+
+    fields = {}
+    for attribute in flatten(arguments[2], '_,_', 'noneAS'):
+        name = str(attribute.symbol())
+        values = list(attribute.arguments())
+        if name in fields or len(values) != 1:
+            raise RuntimeError(f'Malformed TCP state attribute: {attribute}')
+        if name == 'inSS:_':
+            if str(values[0]) not in ('true', 'false'):
+                raise RuntimeError(f'Unreduced slow-start state: {values[0]}')
+            fields[name] = str(values[0]) == 'true'
+        else:
+            fields[name] = _finite_float(str(values[0]), name)
+    expected = {'cwnd:_', 'wMax:_', 'tSince:_', 'inSS:_', 'lastSend:_', 'lastAck:_'}
+    if set(fields) != expected:
+        raise RuntimeError(f'Expected six TCP state fields; received {sorted(fields)}')
+    return {
+        'destination_times': times(arguments[0], 'destination arrival time'),
+        'ixp_times': times(arguments[1], 'IXP arrival time'),
+        'state': {
+            'cwnd': fields['cwnd:_'], 'w_max': fields['wMax:_'],
+            't_since': fields['tSince:_'], 'in_slow_start': fields['inSS:_'],
+            'last_send_time': None if fields['lastSend:_'] < 0.0 else fields['lastSend:_'],
+            'last_ack_time': None if fields['lastAck:_'] < 0.0 else fields['lastAck:_'],
+        },
+    }
+
+
+def _run_maude_subprocess(request):
+    binding_available = importlib.util.find_spec('maude') is not None
+    # Reload this script without running main(), so both paths share decoding.
+    worker = (
+        'import json, runpy, sys; '
+        'scope = runpy.run_path(sys.argv[1], run_name="_maude_worker"); '
+        'value = scope["_evaluate_maude_transfer"](json.loads(sys.argv[2])); '
+        f'print({_MAUDE_RESULT_MARKER!r} + json.dumps(value, allow_nan=False))')
+    if binding_available:
+        command = [sys.executable]
+    else:
+        conda = shutil.which('conda')
+        if conda is None:
+            raise RuntimeError('Maude is unavailable: no Python binding or conda executable')
+        command = [conda, 'run', '-n', 'maude-hcs', 'python3']
+    command += ['-c', worker, os.path.abspath(__file__),
+                json.dumps(request, allow_nan=False)]
+    completed = subprocess.run(command, text=True, capture_output=True, timeout=120)
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise RuntimeError(f'Maude subprocess failed ({completed.returncode}): {detail}')
+    payloads = [line[len(_MAUDE_RESULT_MARKER):] for line in completed.stdout.splitlines()
+                if line.startswith(_MAUDE_RESULT_MARKER)]
+    if len(payloads) != 1:
+        raise RuntimeError('Maude subprocess did not return exactly one JSON result')
+    try:
+        return json.loads(payloads[0])
+    except json.JSONDecodeError as exc:
+        raise RuntimeError('Maude subprocess returned invalid result JSON') from exc
+
+
+def get_maude_transfer(profile, num_bytes, is_new=True, state=None, *, start_time,
+                       backend='auto'):
+    """Return data-segment destination times and the updated Python TcpState."""
+    expected_count = _segment_count(num_bytes)
+    if backend not in ('auto', 'binding', 'subprocess'):
+        raise ValueError(f'Unknown Maude backend: {backend}')
+    request = {
+        'tcp_maude_path': str(Path(script_dir).parent / 'maude_hcs/lib/network/tcp.maude'),
+        'num_bytes': int(num_bytes),
+        'drop_p': _finite_float(tcp_analytical_model.resolve_profile(profile), 'drop probability'),
+        'one_way_delay': 0.01, 'is_new': bool(is_new),
+        'start_time': _finite_float(start_time, 'start_time'), 'state': None,
+    }
+    if state is not None:
+        request['state'] = {name: getattr(state, name) for name in (
+            'cwnd', 'w_max', 't_since', 'in_slow_start', 'last_send_time', 'last_ack_time')}
+    binding_available = importlib.util.find_spec('maude') is not None
+    if backend == 'binding' and not binding_available:
+        raise RuntimeError('The selected Python interpreter cannot import maude')
+    if backend == 'binding' or (backend == 'auto' and binding_available):
+        result = _evaluate_maude_transfer(request)
+    else:
+        result = _run_maude_subprocess(request)
+    expected_full_count = expected_count + (5 if is_new else 0)
+    for key in ('destination_times', 'ixp_times'):
+        if len(result[key]) != expected_full_count:
+            raise RuntimeError(f'{key}: expected {expected_full_count} entries, got {len(result[key])}')
+    times = result['destination_times'][5:] if is_new else result['destination_times']
+    return times, tcp_analytical_model.TcpState(**result['state'])
+
+
+# Arrival times are seconds; allow 1 ns absolute error plus small relative roundoff.
+ABS_TOL = 1.0e-9
+REL_TOL = 1.0e-9
+STATE_FIELDS = (
+    'cwnd', 'w_max', 't_since', 'in_slow_start',
+    'last_send_time', 'last_ack_time',
+)
+MSS_BYTES = 1448
+
+
+def _segment_count(num_bytes):
+    if isinstance(num_bytes, bool) or not isinstance(num_bytes, int) or num_bytes <= 0:
+        raise ValueError('num_bytes must be a positive integer')
+    return (num_bytes + MSS_BYTES - 1) // MSS_BYTES
+
+
 def get_python_transfer(profile, num_bytes, is_new=True, state=None, *, start_time):
+    num_segments = _segment_count(num_bytes)
     tcp_analytical_model.set_active_profile(profile)
-    num_segments = num_bytes // 1448
-    _, t_dest, final_state = tcp_analytical_model.simulate_transfer(num_segments, is_new=is_new, state=state, start_time=start_time)
+    _, t_dest, final_state = tcp_analytical_model.simulate_transfer(
+        num_segments, is_new=is_new, state=state, start_time=start_time)
     return list(t_dest), final_state
 
-def get_maude_transfer(profile, num_bytes, is_new=True, state=None, *, start_time):
-    if profile in tcp_analytical_model.PROFILES:
-        drop_p = tcp_analytical_model.PROFILES[profile]
-    elif isinstance(profile, (int, float)):
-        drop_p = float(profile)
-    else:
-        raise ValueError(f"Unknown profile {profile}")
-        
-    O = 0.01
-    project_root = os.path.dirname(script_dir)
-    tcp_maude_path = os.path.join(project_root, 'maude_hcs', 'lib', 'network', 'tcp.maude')
-    
-    is_new_str = 'true' if is_new else 'false'
-    if state is None:
-        state_str = 'initTcpState'
-    else:
-        in_ss_str = 'true' if getattr(state, 'in_slow_start', False) else 'false'
-        last_send = -1.0 if state.last_send_time is None else state.last_send_time
-        last_ack = -1.0 if state.last_ack_time is None else state.last_ack_time
-        state_str = f'tcpState({state.cwnd}, {state.w_max}, {state.t_since}, {in_ss_str}, {last_send}, {last_ack})'
-        
-    py_runner = f"""import maude, re
-maude.init()
-maude.load('{tcp_maude_path}')
-m = maude.getCurrentModule()
-term = m.parseTerm('tcpFinalDestResult({num_bytes}, (dropP: {drop_p}, oneWayDelay: {O}), (dropP: {drop_p}, oneWayDelay: {O}), {is_new_str}, {state_str}, {start_time})')
-term.reduce()
-print('RESULT_TAG:', str(term))
-"""
-    try:
-        import maude
-        m = maude.getCurrentModule()
-        if m is None:
-            maude.init()
-            maude.load(tcp_maude_path)
-            m = maude.getCurrentModule()
-        term = m.parseTerm(f'tcpFinalDestResult({num_bytes}, (dropP: {drop_p}, oneWayDelay: {O}), (dropP: {drop_p}, oneWayDelay: {O}), {is_new_str}, {state_str}, {start_time})')
-        term.reduce()
-        res_str = str(term)
-    except Exception:
-        result = subprocess.run(['conda', 'run', '-n', 'maude-hcs', 'python3', '-c', py_runner],
-                                text=True, capture_output=True)
-        out = result.stdout
-        idx = out.rfind('RESULT_TAG:')
-        res_str = out[idx + len('RESULT_TAG:'):].strip()
 
-    state_match = re.search(r'tcpState\(([^,]+),\s*([^,]+),\s*([^,]+),\s*(true|false),\s*([^,]+),\s*([^)]+)\)', res_str)
-    if not state_match:
-        raise ValueError(f"Could not parse state from: {res_str}")
-    cwnd = float(state_match.group(1))
-    w_max = float(state_match.group(2))
-    t_since = float(state_match.group(3))
-    in_ss = state_match.group(4).strip() == 'true'
-    last_send = float(state_match.group(5))
-    last_ack = float(state_match.group(6))
-    final_state = tcp_analytical_model.TcpState(
-        cwnd, w_max, t_since, in_slow_start=in_ss,
-        last_send_time=last_send if last_send >= 0.0 else None,
-        last_ack_time=last_ack if last_ack >= 0.0 else None)
+def _compare_transfer(py_times, py_state, md_times, md_state, *, expected_segments, label):
+    if len(py_times) != expected_segments or len(md_times) != expected_segments:
+        raise ValueError(
+            f'{label}: expected {expected_segments} data arrivals; '
+            f'Python returned {len(py_times)}, Maude returned {len(md_times)}')
 
-    times_part = res_str[res_str.find('tlR(') + 4: state_match.start()].rstrip(', ')
-    tokens = times_part.replace('\n', ' ').replace('::', ' ').replace('nilFL', ' ').split()
-    all_times = [float(t.strip()) for t in tokens if t.strip()]
-    times = all_times[5:] if is_new else all_times
-    return times, final_state
+    max_time_diff = 0.0
+    for index, (py_time, md_time) in enumerate(zip(py_times, md_times), start=1):
+        if not math.isfinite(py_time) or not math.isfinite(md_time):
+            raise ValueError(f'{label}: nonfinite arrival time at segment {index}')
+        max_time_diff = max(max_time_diff, abs(py_time - md_time))
+        if not math.isclose(py_time, md_time, rel_tol=REL_TOL, abs_tol=ABS_TOL):
+            raise ValueError(
+                f'{label}: segment {index} arrival differs: '
+                f'Python={py_time!r}, Maude={md_time!r}')
 
-def main():
-    # Transfer 1: New connection (40 segments = 57920 bytes)
-    # Transfer 2: Reused connection (80 segments = 115840 bytes)
-    bytes_t1 = 57920
-    bytes_t2 = 115840
-    
+    for field in STATE_FIELDS:
+        py_value = getattr(py_state, field)
+        md_value = getattr(md_state, field)
+        if field == 'in_slow_start':
+            equal = type(py_value) is bool and type(md_value) is bool and py_value == md_value
+        elif py_value is None or md_value is None:
+            equal = (field in ('last_send_time', 'last_ack_time')
+                     and py_value is None and md_value is None)
+        else:
+            if not math.isfinite(py_value) or not math.isfinite(md_value):
+                raise ValueError(f'{label}: nonfinite state field {field}')
+            equal = math.isclose(py_value, md_value, rel_tol=REL_TOL, abs_tol=ABS_TOL)
+        if not equal:
+            raise ValueError(
+                f'{label}: state field {field} differs: '
+                f'Python={py_value!r}, Maude={md_value!r}')
+
+    return max_time_diff
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description='Compare Python and Maude destination arrival times and TCP state.')
+    parser.add_argument('--maude-backend', choices=('auto', 'binding', 'subprocess'),
+                        default='auto', help='Maude execution path (default: auto)')
+    parser.add_argument('--output', default=os.path.join(script_dir, 'maude_vs_python_comparison.png'),
+                        help='Output plot path')
+    args = parser.parse_args(argv)
     profiles = [('none', 'None Profile (Buffer Capacity Path)'),
                 ('fair', 'Fair Profile (No-Buffer Path)')]
-    
-    plt.figure(figsize=(14, 10))
-    subplot_idx = 1
-    
-    for prof_name, prof_desc in profiles:
-        print(f"\n{'='*20} Testing {prof_desc} {'='*20}")
-        # --- Transfer 1 (New Connection) ---
-        print(f"Running Python Transfer 1 (New Connection, 40 segments)...")
-        py_t1, py_s1 = get_python_transfer(prof_name, bytes_t1, is_new=True, start_time=0.0)
-        print(f"Running Maude Transfer 1 (New Connection, 40 segments)...")
-        md_t1, md_s1 = get_maude_transfer(prof_name, bytes_t1, is_new=True, start_time=0.0)
-        
-        diff_t1 = max(abs(p - m) for p, m in zip(py_t1, md_t1))
-        diff_s1_cwnd = abs(py_s1.cwnd - md_s1.cwnd)
-        diff_s1_wmax = abs(py_s1.w_max - md_s1.w_max)
-        diff_s1_ts = abs(py_s1.t_since - md_s1.t_since)
-        print(f"Transfer 1 -> Max time diff: {diff_t1:.6e} s | cwnd diff: {diff_s1_cwnd:.6e} | w_max diff: {diff_s1_wmax:.6e}")
-        print(f"  Python Final State: {py_s1}")
-        print(f"  Maude  Final State: {md_s1}")
-        
-        # --- Transfer 2 (Reused Connection) ---
-        print(f"Running Python Transfer 2 (Reused Connection, 80 segments)...")
-        py_t2, py_s2 = get_python_transfer(prof_name, bytes_t2, is_new=False, state=py_s1, start_time=py_s1.last_ack_time)
-        print(f"Running Maude Transfer 2 (Reused Connection, 80 segments)...")
-        md_t2, md_s2 = get_maude_transfer(prof_name, bytes_t2, is_new=False, state=md_s1, start_time=md_s1.last_ack_time)
-        
-        diff_t2 = max(abs(p - m) for p, m in zip(py_t2, md_t2))
-        diff_s2_cwnd = abs(py_s2.cwnd - md_s2.cwnd)
-        diff_s2_wmax = abs(py_s2.w_max - md_s2.w_max)
-        diff_s2_ts = abs(py_s2.t_since - md_s2.t_since)
-        print(f"Transfer 2 -> Max time diff: {diff_t2:.6e} s | cwnd diff: {diff_s2_cwnd:.6e} | w_max diff: {diff_s2_wmax:.6e}")
-        print(f"  Python Final State: {py_s2}")
-        print(f"  Maude  Final State: {md_s2}")
-        
-        # Plot Transfer 1
-        plt.subplot(2, 2, subplot_idx)
-        plt.plot(range(1, len(py_t1) + 1), py_t1, label='Python Analytical', linewidth=4, color='blue', alpha=0.5)
-        plt.plot(range(1, len(md_t1) + 1), md_t1, label='Maude Model', linewidth=2, color='red', linestyle='--')
-        plt.title(f"{prof_name.capitalize()} - Transfer 1 (New Connection)")
-        plt.xlabel('Segment Index (k)')
-        plt.ylabel('Expected Arrival Time (s)')
-        plt.legend()
-        plt.grid(True)
-        subplot_idx += 1
-        
-        # Plot Transfer 2
-        plt.subplot(2, 2, subplot_idx)
-        plt.plot(range(1, len(py_t2) + 1), py_t2, label='Python Analytical', linewidth=4, color='green', alpha=0.5)
-        plt.plot(range(1, len(md_t2) + 1), md_t2, label='Maude Model', linewidth=2, color='purple', linestyle='--')
-        plt.title(f"{prof_name.capitalize()} - Transfer 2 (Reused Connection)")
-        plt.xlabel('Follow-up Segment Index')
-        plt.ylabel('Expected Arrival Time (s)')
-        plt.legend()
-        plt.grid(True)
-        subplot_idx += 1
+    from matplotlib.path import Path as MplPath
+    # Workaround for Python 3.14 super() deepcopy recursion in matplotlib.
+    MplPath.__deepcopy__ = lambda self, memo: MplPath(
+        self.vertices.copy(), self.codes.copy() if self.codes is not None else None)
+    import matplotlib.pyplot as plt
 
-    plt.tight_layout()
-    out_path = os.path.join(script_dir, 'maude_vs_python_comparison.png')
-    plt.savefig(out_path, dpi=300)
-    print(f"\nPlot successfully saved to {out_path}")
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    try:
+        for row, (profile, description) in enumerate(profiles):
+            print(f'\nTesting {description}')
+            py_state = md_state = None
+            for col, (is_new, num_bytes) in enumerate(((True, 57920), (False, 115840))):
+                count = _segment_count(num_bytes)
+                transfer = 'New connection' if is_new else 'Reused connection'
+                label = f'{profile}, transfer {col + 1} ({transfer}, {count} segments)'
+                py_start = 0.0 if is_new else py_state.last_ack_time
+                md_start = 0.0 if is_new else md_state.last_ack_time
+                if py_start is None or md_start is None:
+                    raise ValueError(f'{label}: previous transfer did not return an ACK time')
+                py_times, py_state = get_python_transfer(
+                    profile, num_bytes, is_new=is_new, state=py_state, start_time=py_start)
+                md_times, md_state = get_maude_transfer(
+                    profile, num_bytes, is_new=is_new, state=md_state, start_time=md_start,
+                    backend=args.maude_backend)
+                max_diff = _compare_transfer(
+                    py_times, py_state, md_times, md_state,
+                    expected_segments=count, label=label)
+                print(f'PASS {label}: max arrival difference {max_diff:.6e} s; '
+                      'all six TCP state fields agree')
+                print(f'  Python final state: {py_state}')
+                print(f'  Maude  final state: {md_state}')
+
+                ax = axes[row, col]
+                ax.plot(range(1, count + 1), py_times, label='Python Analytical',
+                        linewidth=4, color='blue' if is_new else 'green', alpha=0.5)
+                ax.plot(range(1, count + 1), md_times, label='Maude Model',
+                        linewidth=2, color='red' if is_new else 'purple', linestyle='--')
+                ax.set_title(f'{profile.capitalize()} - Transfer {col + 1} ({transfer})')
+                ax.set_xlabel('Segment index (k)')
+                ax.set_ylabel('Expected arrival time (s)')
+                ax.legend()
+                ax.grid(True)
+
+        fig.tight_layout()
+        fig.savefig(args.output, dpi=300)
+        print(f'\nAll four transfer comparisons passed. Plot saved to {args.output}')
+    finally:
+        plt.close(fig)
+
 
 if __name__ == '__main__':
     main()
