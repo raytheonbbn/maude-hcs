@@ -1,0 +1,178 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+--- Run: maude test_webtunnel_tcp.maude
+--- Two endpoint pairs (0 and 1) share NET0. Each local application sends twice.
+--- Both pairs use persistent connection ID 1, distinguished by their endpoints.
+--- Success leaves requestReceived(pair, message, time) and roundTripComplete
+--- markers for messages 1 and 2 in each pair. Replies follow request receipt.
+--- Message 1 queues during HTTP Upgrade; message 2 reuses the open tunnel.
+--- If a TCP equation loops, interrupt Maude; a simulated time limit does not
+--- limit the time spent reducing equations.
+
+sload ./webtunnel_prob.maude
+sload ../network/net_prob.maude
+
+mod WEBTUNNEL_ROUNDTRIP_ADDRS is
+  inc TRANSPORT .
+  ops LOCAL-WT0 REMOTE-WT0 LOCAL-APP0 REMOTE-APP0 : -> Address .
+  ops LOCAL-WT1 REMOTE-WT1 LOCAL-APP1 REMOTE-APP1 : -> Address .
+  ops NET0 DNS0 ADV0 IXP0 : -> Address .
+endm
+
+mod WEBTUNNEL_ROUNDTRIP_TRANSPORT is
+  inc WEBTUNNEL_ROUNDTRIP_ADDRS .
+  eq transport(REMOTE-WT0, N:Nat) = tcppersist(REMOTE-WT0, N:Nat) .
+  eq transport(LOCAL-WT0, N:Nat) = tcppersist(LOCAL-WT0, N:Nat) .
+  eq transport(REMOTE-WT1, N:Nat) = tcppersist(REMOTE-WT1, N:Nat) .
+  eq transport(LOCAL-WT1, N:Nat) = tcppersist(LOCAL-WT1, N:Nat) .
+endm
+
+mod WEBTUNNEL_ROUNDTRIP is
+  inc WEBTUNNEL .
+  inc NETWORK_CONNECTION .
+  inc WEBTUNNEL_ROUNDTRIP_ADDRS .
+
+  ops requestBytes0 responseBytes0 requestBytes1 responseBytes1 : Nat -> ByteSeq [ctor] .
+  eq getSize(requestBytes0(N:Nat)) = 50 .
+  eq getSize(responseBytes0(N:Nat)) = 50 .
+  eq getSize(requestBytes1(N:Nat)) = 50 .
+  eq getSize(responseBytes1(N:Nat)) = 50 .
+  ops requestReceived roundTripComplete : Nat Nat Float -> Actor [ctor] .
+
+  --- Pair 0: reply only after the request reaches its remote application.
+  rl [remote-application-reply0]:
+    {T:Float, (to REMOTE-APP0 from REMOTE-WT0 : requestBytes0(N:Nat))}
+  =>
+    requestReceived(0, N:Nat, T:Float)
+    [0.0, (to REMOTE-WT0 from REMOTE-APP0 : responseBytes0(N:Nat)), 0]
+    [ print "(" T:Float ") Remote application 0 received request " N:Nat "; replying." ]
+  .
+
+  rl [local-application-receive0]:
+    {T:Float, (to LOCAL-APP0 from LOCAL-WT0 : responseBytes0(N:Nat))}
+  =>
+    roundTripComplete(0, N:Nat, T:Float)
+    [ print "(" T:Float ") Local application 0 received response " N:Nat ": ROUND TRIP COMPLETE." ]
+  .
+
+  --- Pair 1: reply only after the request reaches its remote application.
+  rl [remote-application-reply1]:
+    {T:Float, (to REMOTE-APP1 from REMOTE-WT1 : requestBytes1(N:Nat))}
+  =>
+    requestReceived(1, N:Nat, T:Float)
+    [0.0, (to REMOTE-WT1 from REMOTE-APP1 : responseBytes1(N:Nat)), 0]
+    [ print "(" T:Float ") Remote application 1 received request " N:Nat "; replying." ]
+  .
+
+  rl [local-application-receive1]:
+    {T:Float, (to LOCAL-APP1 from LOCAL-WT1 : responseBytes1(N:Nat))}
+  =>
+    roundTripComplete(1, N:Nat, T:Float)
+    [ print "(" T:Float ") Local application 1 received response " N:Nat ": ROUND TRIP COMPLETE." ]
+  .
+
+  --- Schedule any bare DNS query emitted by the code under test.
+  rl [test-dns-schedule]:
+    S:Scheduler
+    (to DNS0 from SRC:Address : query(ID:Id, NAME:Name, a))
+  =>
+    S:Scheduler
+    [0.0, (to DNS0 from SRC:Address : query(ID:Id, NAME:Name, a)), 0]
+  .
+
+  --- Test resolver: answer for the endpoint identified by the connection handle.
+  --- Preserve the complete ID so NET0 can distinguish concurrent lookups.
+  rl [test-dns-reply]:
+    {T:Float, (to DNS0 from SRC:Address :
+      query(connxnDnsId(SRC:Address, H:ConnxnHandle), NAME:Name, a))}
+  =>
+    [0.001, (to SRC:Address from DNS0 :
+               response(connxnDnsId(SRC:Address, H:ConnxnHandle), NAME:Name,
+                        < NAME:Name, a, 60.0, getDstAddr(H:ConnxnHandle) >,
+                        nil, nil, 0)), 0]
+    [ print "(" T:Float ") Test resolver replying for " H:ConnxnHandle ]
+  .
+
+  --- Each pair has two lossless, bidirectional hops, 10 ms each.
+  eq IXP-DEFAULT-ADDR = IXP0 .
+  op hopAttrs : -> AttributeSet .
+  eq hopAttrs = (oneWayDelay: 0.01, canDrop: false, dropP: 0.0) .
+  eq LinkData = aaa(LOCAL-WT0, IXP0, hopAttrs)
+               aaa(IXP0, REMOTE-WT0, hopAttrs)
+               aaa(LOCAL-WT1, IXP0, hopAttrs)
+               aaa(IXP0, REMOTE-WT1, hopAttrs) .
+
+  --- Direct-mode control uses 20 ms. TCP destinations should get only
+  --- scheduler jitter here, then their timing from the TCP calculation.
+  eq delayType(M:Msg) = "Constant" .
+  eq delayConst(M:Msg) = 0.02 .
+  eq noiseMin(M:Msg) = 0.0 .
+  eq noiseMax(M:Msg) = 0.0 .
+  eq overhead(M:Msg) = 0.0 .
+
+  op initState : -> Config .
+  eq initState =
+    rCtr(0)
+    makeWtClient(LOCAL-WT0, REMOTE-WT0, REMOTE-APP0, "remote0.test", "tunnel")
+    makeWtServerProxy(REMOTE-WT0, REMOTE-APP0)
+    makeWtClient(LOCAL-WT1, REMOTE-WT1, REMOTE-APP1, "remote1.test", "tunnel")
+    makeWtServerProxy(REMOTE-WT1, REMOTE-APP1)
+    makeTransportActor(NET0, REMOTE-WT0, LOCAL-WT0, DNS0, 'remote . root)
+    mkAdversaryCp3(ADV0)
+    --- Stagger the pairs by 0.5 ms so their initial DNS lookups overlap.
+    [0.1,    (to LOCAL-WT0 from LOCAL-APP0 : WtStartCmd), 0]
+    [0.1005, (to LOCAL-WT1 from LOCAL-APP1 : WtStartCmd), 0]
+    --- First payload arrives while its tunnel is still Connecting.
+    [0.101,  (to LOCAL-WT0 from LOCAL-APP0 : requestBytes0(1)), 0]
+    [0.1015, (to LOCAL-WT1 from LOCAL-APP1 : requestBytes1(1)), 0]
+    --- Second payload uses the same persistent connection after opening.
+    [2.0,    (to LOCAL-WT0 from LOCAL-APP0 : requestBytes0(2)), 0]
+    [2.0005, (to LOCAL-WT1 from LOCAL-APP1 : requestBytes1(2)), 0]
+  .
+
+  op initConfig : -> Config .
+  eq initConfig = run({0.0 | nil} initState, 10.0) .
+endm
+
+mod WEBTUNNEL_ROUNDTRIP_TCP is
+  inc WEBTUNNEL_ROUNDTRIP .
+  inc WEBTUNNEL_ROUNDTRIP_TRANSPORT .
+endm
+
+set print attribute on .
+rew in WEBTUNNEL_ROUNDTRIP_TCP : initConfig .
+
+--- Optional control, same initial config with identity transport:
+*** rew in WEBTUNNEL_ROUNDTRIP : initConfig .
+--- Optional rule trace for the TCP scenario:
+*** set trace on .
+*** rew in WEBTUNNEL_ROUNDTRIP_TCP : initConfig .
+*** set trace off .

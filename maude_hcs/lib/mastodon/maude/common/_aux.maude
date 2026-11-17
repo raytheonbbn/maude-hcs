@@ -225,6 +225,8 @@ mod MASTODON_NODE is
   op gettingMediaUrl:_ : Url -> Attribute [ctor] .
   --- The URL download cache.
   op mediaCache:_ : UrlMediaCache -> Attribute [ctor] .
+  --- The connection ID.
+  op connxnId:_   : Nat -> Attribute [ctor] .
 
   --- Make a MasClient:   its_addr srver_addr requester_addr
   op makeMastodonClient : Address  Address    Address -> Actor .
@@ -243,7 +245,8 @@ mod MASTODON_NODE is
         gettingTag: nilTag,
         gettingPosts: emptyMasIdList,
         gettingMediaUrl: nilUrl,
-        mediaCache: emptyUrlMediaCache
+        mediaCache: emptyUrlMediaCache,
+        connxnId: 0
     >
     .
 
@@ -321,6 +324,13 @@ mod MASTODON_NODE is
 
   op getMediaCache : AttributeSet -> UrlMediaCache .
   eq getMediaCache(masClAttrs, mediaCache: CACHE) = CACHE .
+
+  op getConnxnId : AttributeSet -> Nat .
+  eq getConnxnId(masClAttrs, connxnId: ID:Nat) = ID:Nat .
+  eq getConnxnId(masClAttrs) = 1 [owise] .
+  op incrementConnxnId : AttributeSet -> AttributeSet .
+  eq incrementConnxnId(masClAttrs, connxnId: ID:Nat) = masClAttrs, connxnId: s ID:Nat .
+  eq incrementConnxnId(masClAttrs) = masClAttrs [owise print "Error: No connxnId."] .
 
   op peekOp : AttributeSet -> Op .
   eq peekOp(masClAttrs, opStack: (CURRENT_OP : OP_STACK)) = CURRENT_OP .

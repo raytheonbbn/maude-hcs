@@ -1,0 +1,74 @@
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+sload ../../../deps/dns_formalization/Maude/common/parameters.maude
+
+mod COMMON_SORTS is
+  pr NAT .
+  pr INT .
+  pr FLOAT .
+  pr CONVERSION .
+  pr PARAMETERS-BASE-COMMON .
+  --- ============================================================
+  ---  FloatList
+  --- ============================================================
+  sorts NatList FloatList .
+  subsort Nat < NatList .
+  op nilNatList : -> NatList [ctor] .
+  op _::_ : NatList NatList -> NatList [ctor assoc id: nilNatList] .
+  op nilFloatList : -> FloatList [ctor] .
+  subsort Float < FloatList .
+  op _::_ : FloatList FloatList -> FloatList [ctor assoc id: nilFloatList] .
+
+  vars F G : Float .
+  vars L L1 L2 : FloatList .
+
+  op lenFL : FloatList -> Nat .
+  eq lenFL(nilFloatList) = 0 .
+  eq lenFL(F :: L) = s(lenFL(L)) .
+
+  op maxFL : FloatList -> Float .
+  eq maxFL(nilFloatList) = 0.0 .
+  eq maxFL(F :: L) = max(F, maxFL(L)) .
+
+  op _++_ : FloatList FloatList -> FloatList .
+  eq nilFloatList ++ L = L .
+  eq (F :: L1) ++ L2 = F :: (L1 ++ L2) .
+
+  sorts MsgQueue .
+  subsort Msg < MsgQueue .
+  op emptyMsgQueue : -> MsgQueue [ctor] .
+  op _::_ : MsgQueue MsgQueue -> MsgQueue  [ctor assoc id: emptyMsgQueue] .
+
+  op queuedMsgs:_ : MsgQueue -> Attribute [ctor] .
+
+  sort AttrsAttrsMsgsNat .
+  op `{_`,_`,_`,_`} : AttributeSet AttributeSet Config Nat -> AttrsAttrsMsgsNat [ctor] .
+endm
+

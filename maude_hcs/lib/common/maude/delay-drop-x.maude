@@ -29,14 +29,12 @@
 --- MAUDE_HCS: end
 
 sload sampler-x.maude
+sload ../../network/transport.maude
 sload ../../../deps/dns_formalization/Maude/common/parameters.maude
-sload ../../network/tcp_socket.maude
-sload ../../network/udp.maude
 
 mod DELAY-X is
  inc SAMPLER-X .
- pr TCP_SOCKET .
- pr UDP_SOCKET .
+ pr TRANSPORT .
  inc PARAMETERS-BASE-COMMON  .
  inc RANDOM .
  
@@ -118,27 +116,6 @@ eq $jitterMsgs([T:Float, msg, N:Nat] msgs0, config, j)
 eq $jitterMsgs(msg msgs0, config, j)
   = $jitterMsgs(msgs0, config [genRandomX(j, 0., 0.0001), msg, 0], s j)
 .
-
---- The transport.
---- It can be nothing (transport(any:Address) = any:Address) or tcp.
-op transport : Address -> Address .
-eq transport(any:Address) = any:Address [owise] .
-
---- Check if an address has a transport.
-op hasTransport : Address -> Bool .
-eq hasTransport(tcp(any:Address)) = true .
-eq hasTransport(udp(any:Address)) = true .
-eq hasTransport(any:Address) = false [owise] .
-
---- Check if a message is to a transport socket (tcp or udp).
-op hasTransport : Msg -> Bool .
-eq hasTransport(to tcp(DST:Address) from SRC:Address : content:Content)
-  = true
-.
-eq hasTransport(to udp(DST:Address) from SRC:Address : content:Content)
-  = true
-.
-eq hasTransport(ANY:Config) = false [owise] .
 
 --- Schedule sending messages. This checks if there is a transport requested.
 --- If so, only add jitter (net clients will do the link delay).
