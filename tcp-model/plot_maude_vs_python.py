@@ -190,7 +190,7 @@ def _segment_count(num_bytes):
 def get_python_transfer(profile, num_bytes, is_new=True, state=None, *, start_time):
     num_segments = _segment_count(num_bytes)
     tcp_analytical_model.set_active_profile(profile)
-    _, t_dest, final_state = tcp_analytical_model.simulate_transfer(
+    _, t_dest, _, _, final_state = tcp_analytical_model.simulate_transfer(
         num_segments, is_new=is_new, state=state, start_time=start_time)
     return list(t_dest), final_state
 
