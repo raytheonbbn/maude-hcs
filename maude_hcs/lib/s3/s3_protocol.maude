@@ -61,6 +61,13 @@ mod S3_PROTOCOL is
   vars headers : S3HeaderList .
   vars data : ByteSeq .
   
+  --- Select transport by destination, source SDK, and HTTP request ID.
+  ---               DST     SRC     ID
+  op s3Transport :  Address Address Nat -> Address .
+  eq s3Transport(DST:Address, SRC:Address, REQUEST_ID:Nat)
+    = transport(DST:Address, REQUEST_ID:Nat)
+    [owise]
+  .
   -------------------------------------------------------------
   --- SDK CLIENT RULES (Translate internal abstract -> S3 HTTP)
   -------------------------------------------------------------
@@ -82,7 +89,7 @@ mod S3_PROTOCOL is
        header("Host", BUCKET + ".s3.amazonaws.com") ;; 
        header("Expect", "100-continue") ;;
        header("Content-Length", string(getSize(DATA), 10))
-    /\ msg := (to transport(AWS_ADDR, ID) from CLIENT
+    /\ msg := (to s3Transport(AWS_ADDR, CLIENT, ID) from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET + "/" + UUID,
                   "HTTP/1.1",
@@ -106,7 +113,7 @@ mod S3_PROTOCOL is
   if headers :=
         header("x-amz-request-id", string(ID, 10)) ;; 
         header("Host", BUCKET + ".s3.amazonaws.com")
-    /\ msg := (to transport(AWS_ADDR, ID) from CLIENT
+    /\ msg := (to s3Transport(AWS_ADDR, CLIENT, ID) from CLIENT
         : HttpS3Req("GET",
                     "/" + BUCKET + "/" + UUID,
                     "HTTP/1.1",
@@ -128,7 +135,7 @@ mod S3_PROTOCOL is
  if headers :=
      header("x-amz-request-id", string(ID, 10)) ;;
      header("Host", BUCKET + ".s3.amazonaws.com")
-   /\ msg := (to transport(AWS_ADDR, ID) from CLIENT
+   /\ msg := (to s3Transport(AWS_ADDR, CLIENT, ID) from CLIENT
       : HttpS3Req("DELETE",
                   "/" + BUCKET + "/" + UUID,
                   "HTTP/1.1", 
@@ -155,7 +162,7 @@ mod S3_PROTOCOL is
        header("Host", "s3.amazonaws.com") ;; 
        header("Expect", "100-continue") ;; 
        header("Content-Length", "100")
- /\ msg := (to transport(AWS_ADDR, ID) from CLIENT
+ /\ msg := (to s3Transport(AWS_ADDR, CLIENT, ID) from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET,
                   "HTTP/1.1",
@@ -178,7 +185,7 @@ crl [sdk-put-policy]:
         header("Host", BUCKET + ".s3.amazonaws.com") ;;
         header("Expect", "100-continue") ;;
         header("Content-Length", string(length(POLICY), 10))
-  /\ msg := (to transport(AWS_ADDR, ID) from CLIENT
+  /\ msg := (to s3Transport(AWS_ADDR, CLIENT, ID) from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET + "?policy",
                   "HTTP/1.1", 
@@ -201,7 +208,7 @@ crl [sdk-put-policy]:
       header("Host", BUCKET + ".s3.amazonaws.com") ;; 
       header("Expect", "100-continue") ;; 
       header("Content-Length", "100")
-    /\ msg := (to transport(AWS_ADDR, ID) from CLIENT
+    /\ msg := (to s3Transport(AWS_ADDR, CLIENT, ID) from CLIENT
       : HttpS3Req("PUT",
                   "/" + BUCKET + "?publicAccessBlock",
                   "HTTP/1.1", 
@@ -228,7 +235,7 @@ crl [sdk-put-policy]:
     smsgs
   if REQ_ID == string(ID, 10)
     /\ msg := 
-       (to transport(AWS_ADDR, ID) from CLIENT : HttpS3ReqBody("/" + BUCKET + "/" + UUID, ID, DATA))
+       (to s3Transport(AWS_ADDR, CLIENT, ID) from CLIENT : HttpS3ReqBody("/" + BUCKET + "/" + UUID, ID, DATA))
     /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") " "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Body Chunk for Request-ID: " ID ] 
   .
@@ -248,7 +255,7 @@ crl [sdk-put-policy]:
     /\ data := restToByteSeq("<CreateBucketConfiguration><LocationConstraint>" + 
                               S3_REGION +
                               "</LocationConstraint></CreateBucketConfiguration>")
-    /\ msg := (to transport(AWS_ADDR, ID) from CLIENT
+    /\ msg := (to s3Transport(AWS_ADDR, CLIENT, ID) from CLIENT
                : HttpS3ReqBody("/" + BUCKET, ID, data))  
     /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") "  "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Body XML for Request-ID: " ID ]
@@ -266,7 +273,7 @@ crl [sdk-put-policy]:
   < CLIENT : S3SdkClient | pendingReqs: (MAP ; (ID ~> S3PutBucketPolicyReq(BUCKET, POLICY) [ ADDR ])), attrs >
     smsgs
   if REQ_ID == string(ID, 10)
-    /\ msg := (to transport(AWS_ADDR, ID) from CLIENT
+    /\ msg := (to s3Transport(AWS_ADDR, CLIENT, ID) from CLIENT
       : HttpS3ReqBody("/" + BUCKET + "?policy", ID,
                       restToByteSeq(POLICY)))
     /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
@@ -288,7 +295,7 @@ crl [sdk-put-policy]:
   if REQ_ID == string(ID, 10)
     /\ data := 
         restToByteSeq("<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>")
-    /\ msg := (to transport(AWS_ADDR, ID) from CLIENT
+    /\ msg := (to s3Transport(AWS_ADDR, CLIENT, ID) from CLIENT
         : HttpS3ReqBody("/" + BUCKET + "?publicAccessBlock",ID,data))
     /\ {smsgs, j1} := scheduleSendMsgs(msg, j)
   [ print "(" T ") " "<-- AWS -> SDK: [HttpS3Res] 100 Continue\n--> SDK -> AWS: [HttpS3ReqBody] Transmitting Access Block XML for Request-ID: " ID ]

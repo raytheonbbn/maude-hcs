@@ -1391,6 +1391,9 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"  eq skyCl{i}CmasAct   = mkCMSimpleBi(skyCl{i}CmasAddr, skyCl{i}SrvIfaceAddr, skyCl{i}AhaAddr) .")
         L(f"  eq skyCl{i}AhaAct    = mkSkyhookAH(skyCl{i}AhaAddr, skyCl{i}CmasAddr, skyCl{i}SdkasAddr, \"c_to_s_bucket_{i}\", \"s_to_c_bucket_{i}\", \"0\", \"0\", \"0\", 100) .")
         L(f"  eq skyCl{i}SdkasAct  = makeS3Client(skyCl{i}SdkasAddr, s3SrvAddr) .")
+        if transport_mode == "tcp":
+            L("  --- Account holders reuse one connection across S3 requests.")
+            L(f"  eq s3Transport(s3SrvAddr, skyCl{i}SdkasAddr, requestId:Nat) = tcppersist(s3SrvAddr, 0) .")
         L("")        
     
     for idx, i in enumerate(hcs_client_ids["obfs4"]):
