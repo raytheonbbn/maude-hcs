@@ -81,38 +81,10 @@ eq getSize(pack(byteseq)) = getSize(byteseq) .
 
   eq getHashString(ircMsgToByteseq(ircMsg)) = getHashString(ircMsg) .
 
-
-op IrcByteSeqIface : -> ActorType .
-op ircAddress:_  : Address -> Attribute [ctor] .
-op epAddress:_  : Address -> Attribute [ctor] .  --- tunnel
-
-op mkIrcByteSeqIface : Address Address Address  
-                   -> Actor .
-eq mkIrcByteSeqIface(ifAddr,ircAddr,epAddr)
-   =
-   < ifAddr : IrcByteSeqIface | 
-      ircAddress: ircAddr,  --- wants ircMsg
-      epAddress: epAddr    --- wants bytseq
-      >  .
-
-crl [fromIrc2ep]:
-  rCtr(j)
-  {T, (to ifAddr from ircAddr : IRC_MSGS)}
-  < ifAddr : IrcByteSeqIface | attrs >
-  < monAddr : IrcMonitor | mattrs >
- =>
-  rCtr(s j)
-  < ifAddr : IrcByteSeqIface | attrs >
-  < monAddr : IrcMonitor | mattrs1 >
-  smsgs
-  if attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
-  /\ msg := (to epAddr from ifAddr : ircToByteseq(IRC_MSGS))
-  /\ {smsgs,j1} := (if trimAdapterJitter and delayType(msg) == "Constant"
-      then {[overhead(msg) + delayConst(msg),msg,0], s j}
-      else delayMsgsX(j,msg,null) fi)
-  /\ mattrs1 := ircLogSent(mattrs,T, epAddr, ircAddr, IRC_MSGS)
-[print "(" T ") " "IrcIface " ifAddr " transforms " IRC_MSGS]  
-.
+--- Indicate that this address handles ByteSeqs.
+op byteSeq  : Address -> Address [ctor] .
+--- Indicate that this address handles IrcMsg.
+op ircMsg   : Address -> Address [ctor] .
 
 --- Translate a config of messages (with IrcMsg as content) and turn into a list
 --- of Irc Messages.
@@ -139,25 +111,31 @@ eq scheduleSpreadIrcMsgs(msg REST:Config)
   = [0.0001, msg, 0] scheduleSpreadIrcMsgs(REST:Config)
 .
 
+rl [fromIrc2ep]:
+  {T, (to byteSeq(epAddr) from ircAddr : IRC_MSGS)}
+  < monAddr : IrcMonitor | mattrs >
+ =>
+  < monAddr : IrcMonitor | ircLogSent(mattrs, T, epAddr, ircAddr, IRC_MSGS) >
+  [0., (to epAddr from ircMsg(ircAddr) : ircToByteseq(IRC_MSGS)), 0]
+  [ print "(" T ") IRC Iface transforms " IRC_MSGS " to byteseqs." ]
+.
+
 crl [fromEp2Irc]:
   rCtr(j)
-  {T, (to ifAddr from epAddr : byteseq)}
-  < ifAddr : IrcByteSeqIface | attrs >
+  {T, (to ircMsg(ircAddr) from epAddr : byteseq)}
   < monAddr : IrcMonitor | mattrs >
  =>
   rCtr(j)
   smsgs
-  < ifAddr : IrcByteSeqIface |  attrs >
   < monAddr : IrcMonitor | mattrs1 >
- if attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
-   --- Translate multiple (or a single) byteseq(IrcMsg) into multiple messages
-   --- with a single IrcMsg.
- /\ MSGS:Config := decodeIrcMsgs(unpackToMsgs(byteseq, ircAddr, ifAddr))
- /\ smsgs := scheduleSpreadIrcMsgs(MSGS:Config)
- /\ IRC_MSGS := configToIrcMsgList(MSGS:Config)
- /\ mattrs1 := ircLogRcvd(mattrs,T,ircAddr, epAddr, IRC_MSGS)
-
-[print "(" T ") " "IrcIface " ifAddr "  rcvd " byteseq ]  .
+    --- Translate multiple (or a single) byteseq(IrcMsg) into multiple messages
+    --- with a single IrcMsg.
+  if MSGS:Config := decodeIrcMsgs(unpackToMsgs(byteseq, ircAddr, byteSeq(epAddr)))
+    /\ smsgs := scheduleSpreadIrcMsgs(MSGS:Config)
+    /\ IRC_MSGS := configToIrcMsgList(MSGS:Config)
+    /\ mattrs1 := ircLogRcvd(mattrs, T, ircAddr, epAddr, IRC_MSGS)
+  [ print "(" T ") IRC Iface transforms " byteseq " to IrcMsg." ]
+.
 
 endm
 
@@ -165,9 +143,6 @@ mod TEST-IRC-BYTESEQ-INTERFACE is
   inc IRC-BYTESEQ-INTERFACE .
   
 ops ifAd ircAd epAd  monAd : -> Address .
-op ircByteSeqIfAct : -> Actor .
-eq ircByteSeqIfAct =
-       mkIrcByteSeqIface(ifAd,ircAd,epAd) .
 
 op ircMonAct : -> Actor .
 eq ircMonAct = mkIrcMonitor(monAd,ircAd,epAd,"#xxx") .
