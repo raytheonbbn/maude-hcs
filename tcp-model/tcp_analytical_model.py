@@ -278,48 +278,55 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             else:
                 total_el += el_fwd
 
-            current_flight_size = min(int(W_ss), LOCAL_MAX_CWND)
+            # Recovery depends on packets actually sent, even when the final
+            # flight does not fill the congestion window. Keep the existing
+            # window-based congestion/slow-start evolution separate.
+            window_flight_size = min(int(W_ss), LOCAL_MAX_CWND)
+            actual_flight_size = min(window_flight_size, max_k - seg)
             dt_rack = (2.0 * RTT + RTT * RACK_FRAC) * (0.5 if is_none else 1.0)
-            pto = _tlp_pto(current_flight_size)
+            pto = _tlp_pto(actual_flight_size)
             p_drop = p_l if is_none else _path.drop_prob
             dt_tlp_single = pto + (1.0 - p_drop) * RTT + p_drop * RTO_MIN
             dt_tlp_multi = pto + (1.0 - p_drop) * (2.0 * RTT) + p_drop * RTO_MIN
 
             # Per-segment recovery:
-            # If segment i is dropped, there are rem = current_flight_size - 1 - i subsequent
+            # If segment i is dropped, there are rem = actual_flight_size - 1 - i subsequent
             # segments in the flight. If at least one subsequent segment arrives (1 - p_drop^rem),
             # RACK detects the loss after RTT + RTT * RACK_FRAC; if all subsequent segments are
-            # also lost (p_drop^rem, including i == current_flight_size - 1 where rem == 0),
+            # also lost (p_drop^rem, including i == actual_flight_size - 1 where rem == 0),
             # recovery waits for the Tail Loss Probe (PTO), falling back to RTO_MIN if the
             # TLP probe itself is also dropped.
             dt_tlp_seg = dt_tlp_single * (0.5 if is_none else 1.0)
 
-            for i in range(current_flight_size):
+            for i in range(actual_flight_size):
                 k = seg + i + 1
                 if k <= max_k:
-                    rem = current_flight_size - 1 - i
+                    rem = actual_flight_size - 1 - i
                     p_tail_from_i = (p_drop ** rem) if not is_none else 0.0
                     dt_seg_recovery = (1.0 - p_tail_from_i) * dt_rack + p_tail_from_i * dt_tlp_seg
                     # Arrival at IXP (Link 1) vs Final Destination (Link 1 + Link 2)
                     times_ixp[k]  = t + OWD1 + i * SER1 + p_drop * dt_seg_recovery
                     times_dest[k] = t + OWD  + i * SER  + p_drop * dt_seg_recovery
                     flts[k]       = flt
-            seg += current_flight_size
+            seg += window_flight_size
 
             if is_none:
                 dt = p0 * RTT + p_l * dt_rack
             else:
                 # Flight-level RACK-TLP decomposition:
-                #   1. p0 = (1 - p)^W: zero loss -> RTT
-                #   2. p_rack = (1 - p) - (1 - p)^W: interior loss(es), last segment arrives -> RACK
-                #   3. p_tlp_single = (1 - p)^(W - 1) * p: only last segment lost -> TLP probe
+                # Use the actual packet count F for recovery probabilities;
+                # p0 above remains the congestion-window statistic.
+                #   1. flight_p0 = (1 - p)^F: zero loss -> RTT
+                #   2. p_rack = (1 - p) - (1 - p)^F: interior loss(es), last segment arrives -> RACK
+                #   3. p_tlp_single = (1 - p)^(F - 1) * p: only last segment lost -> TLP probe
                 #      repairs directly in PTO + RTT (prob 1 - p), or PTO + RTO_MIN if probe dropped
                 #   4. p_tlp_multi = p - p_tlp_single: last segment + earlier segment(s) lost ->
                 #      TLP probe SACK triggers RACK recovery in PTO + 2*RTT (prob 1 - p), or PTO + RTO_MIN
-                p_rack = max(0.0, (1.0 - p_drop) - p0)
-                p_tlp_single = ((1.0 - p_drop) ** max(0, current_flight_size - 1)) * p_drop
+                flight_p0 = (1.0 - p_drop) ** actual_flight_size
+                p_rack = max(0.0, (1.0 - p_drop) - flight_p0)
+                p_tlp_single = ((1.0 - p_drop) ** max(0, actual_flight_size - 1)) * p_drop
                 p_tlp_multi = max(0.0, p_drop - p_tlp_single)
-                dt = (p0 * RTT
+                dt = (flight_p0 * RTT
                       + p_rack * dt_rack
                       + p_tlp_single * dt_tlp_single
                       + p_tlp_multi * dt_tlp_multi)
@@ -329,7 +336,7 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             W_next_ss = min(W_ss * 2, LOCAL_MAX_CWND)
             p0_next, _, el_fwd_next, _ = _path.flight_stats_path(W_next_ss)
 
-            if el_fwd >= 0.5 or el_fwd_next >= 0.5 or (seg + W_ss > BUFFER_CAPACITY) or current_flight_size >= LOCAL_MAX_CWND:
+            if el_fwd >= 0.5 or el_fwd_next >= 0.5 or (seg + W_ss > BUFFER_CAPACITY) or window_flight_size >= LOCAL_MAX_CWND:
                 last_p0 = p0_next if p_l == 0.0 else p0
                 exited_due_to_loss = True
                 break
@@ -370,6 +377,7 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
 
             seg_start = int(np.floor(seg))
             seg_end   = int(np.floor(seg + E_del))
+            actual_flight_size = min(W, max_k - seg_start)
 
             dt_rack = 2.0 * RTT + RTT * RACK_FRAC
             if is_none:
@@ -378,13 +386,16 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
                 p_rto = pa
             else:
                 p_drop = _path.drop_prob
-                pto = _tlp_pto(W)
-                p_rack = max(0.0, (1.0 - p_drop) - p0)
-                p_tlp_single = ((1.0 - p_drop) ** max(0, W - 1)) * p_drop
+                # Timing uses the actual flight; window statistics p0/pa
+                # remain unchanged for the congestion update below.
+                pto = _tlp_pto(actual_flight_size)
+                flight_p0 = (1.0 - p_drop) ** actual_flight_size
+                p_rack = max(0.0, (1.0 - p_drop) - flight_p0)
+                p_tlp_single = ((1.0 - p_drop) ** max(0, actual_flight_size - 1)) * p_drop
                 p_tlp_multi = max(0.0, p_drop - p_tlp_single)
                 dt_tlp_single = pto + (1.0 - p_drop) * RTT + p_drop * RTO_MIN
                 dt_tlp_multi = pto + (1.0 - p_drop) * (2.0 * RTT) + p_drop * RTO_MIN
-                E_dt_nominal = (p0 * RTT
+                E_dt_nominal = (flight_p0 * RTT
                                 + p_rack * dt_rack
                                 + p_tlp_single * dt_tlp_single
                                 + p_tlp_multi * dt_tlp_multi)
@@ -393,7 +404,8 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
                 p_rto = pa * p_drop
                 p_fast_or_tlp = max(0.0, (1.0 - p0) - p_rto)
 
-            E_dt = max(E_del * SER, E_dt_nominal)
+            serialized_segments = E_del if is_none else float(actual_flight_size)
+            E_dt = max(serialized_segments * SER, E_dt_nominal)
 
             for k_idx in range(seg_start + 1, seg_end + 1):
                 if k_idx <= max_k:
