@@ -103,7 +103,7 @@ mod NETWORK_NODE is
   vars CONTENT : Content .
   vars ackTimerMsgs msgs outMsgs scheduledMsgs MSGS : Config .
   vars ACK_DELAY NOW : Float .
-  vars timeListAtDst timeListAtIxp TIME_LIST : FloatList .
+  vars timeListAtDst timeListAtIxp ackTimeListAtIxp ackTimeListAtSender TIME_LIST : FloatList .
   vars msg msg_src_to_ixp msg_ixp_to_tgt outMsg request transportMsg MSG REQUEST : Msg .
   vars MSG_QUEUE : MsgQueue .
   vars map tcpConnxns tcpConnxnsNext MAP : Map{ConnxnHandle, AttributeSet} .
@@ -442,7 +442,12 @@ mod NETWORK_NODE is
       /\ msgSize := getSize(CONTENT)
       /\ LINK_ATTRS_0 := getLinkData(msg_src_to_ixp)
       /\ LINK_ATTRS_1 := getLinkData(msg_ixp_to_tgt)
-      /\ (timePacketListAtDst: timeListAtDst, timePacketListAtIxp: timeListAtIxp, tcpState: flowAttrsTrans, nextJ: jTrans)
+      /\ (timePacketListAtDst: timeListAtDst,
+          timePacketListAtIxp: timeListAtIxp,
+          timeAckListAtIxp: ackTimeListAtIxp,
+          timeAckListAtSender: ackTimeListAtSender,
+          tcpState: flowAttrsTrans,
+          nextJ: jTrans)
             := getSegmentDistribution(j,
                                       MSG,
                                       LINK_ATTRS_0,
@@ -460,6 +465,8 @@ mod NETWORK_NODE is
                            --- by the caller.
                            timesAtDst: timeListAtDst,
                            timesAtIxp: timeListAtIxp,
+                           ackTimesAtIxp: ackTimeListAtIxp,
+                           ackTimesAtSender: ackTimeListAtSender,
                            sizes: sizeList)
     [ print "tcpSend " msg ]
   .
@@ -548,6 +555,8 @@ mod NETWORK_NODE is
   ceq writeToAdversary((flowAttrs,
                         timesAtDst: timeListAtDst,
                         timesAtIxp: timeListAtIxp,
+                        ackTimesAtIxp: ackTimeListAtIxp,
+                        ackTimesAtSender: ackTimeListAtSender,
                         sizes: sizeList),
                        advAttrs,
                        MSG,
@@ -571,6 +580,8 @@ mod NETWORK_NODE is
   eq writeToAdversary((flowAttrs,
                        timesAtDst: timeListAtDst,
                        timesAtIxp: timeListAtIxp,
+                       ackTimesAtIxp: ackTimeListAtIxp,
+                       ackTimesAtSender: ackTimeListAtSender,
                        sizes: sizeList),
                       advAttrs,
                       null,
