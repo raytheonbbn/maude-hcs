@@ -1,0 +1,267 @@
+--- Four normalized FlowMap cases: 1 flow / 2 packets, 1 flow / 10 packets,
+--- 2 flows / 4 packets, and 2 flows / 20 packets, counting both directions.
+--- Keep the current feature module beside this file as flow-features-cp4.maude.
+--- Assertions compare all 22 features and the four aggregate statistics.
+--- Fixtures use fixed irregular sizes and times; no random generation at runtime.
+--- Each direction's TPktList is ordered by Ts, the first field of tp(...).
+--- The [forward, backward] pair is two separate lists, not one global ordering.
+sload flow-features-cp4.maude
+
+mod FLOW-FEATURES-CP4-TEST is
+  inc FLOW-FEATURES-CP4 .
+
+  ops featureClient featureServer : -> Address [ctor] .
+  var TestAddress : Address .
+  eq isVisAdr(ixpN, TestAddress) = true .
+
+  --- Test scenario: every connection between these endpoints belongs to hcs_sky.
+  var TestConnection : Nat .
+  var TestLabel : String .
+  var TestFlow : FlowId .
+  eq isChannelFlow("hcs_sky",
+       fid(featureServer, featureClient, TestConnection)) = true .
+  eq isChannelFlow(TestLabel, TestFlow) = false [owise] .
+
+  vars TX TY : Float .
+  vars TF TG : FlowValues .
+  vars TS TT : FlowSamples .
+  var TId : FlowId .
+  var TR : ChannelWindowResult .
+  op near : Float Float -> Bool .
+  eq near(TX, TY) = (TX <= TY + 1.0e-6) and (TX >= _-_(TY, 1.0e-6)) .
+  vars BidirectionalDurationMsActual Src2DstMeanPsActual Src2DstStddevPsActual : Float .
+  vars Src2DstMinPsActual Src2DstMaxPsActual Dst2SrcMeanPsActual : Float .
+  vars Dst2SrcStddevPsActual Dst2SrcMinPsActual Dst2SrcMaxPsActual : Float .
+  vars Src2DstMeanPiatMsActual Src2DstStddevPiatMsActual Src2DstMaxPiatMsActual : Float .
+  vars Dst2SrcMeanPiatMsActual Dst2SrcStddevPiatMsActual Dst2SrcMaxPiatMsActual : Float .
+  vars BidirectionalMeanPiatMsActual BidirectionalStddevPiatMsActual BidirectionalMaxPiatMsActual : Float .
+  vars BidirectionalDurationMsExpected Src2DstMeanPsExpected Src2DstStddevPsExpected : Float .
+  vars Src2DstMinPsExpected Src2DstMaxPsExpected Dst2SrcMeanPsExpected : Float .
+  vars Dst2SrcStddevPsExpected Dst2SrcMinPsExpected Dst2SrcMaxPsExpected : Float .
+  vars Src2DstMeanPiatMsExpected Src2DstStddevPiatMsExpected Src2DstMaxPiatMsExpected : Float .
+  vars Dst2SrcMeanPiatMsExpected Dst2SrcStddevPiatMsExpected Dst2SrcMaxPiatMsExpected : Float .
+  vars BidirectionalMeanPiatMsExpected BidirectionalStddevPiatMsExpected BidirectionalMaxPiatMsExpected : Float .
+  vars Src2DstPacketsActual Dst2SrcPacketsActual Src2DstBytesActual : Nat .
+  vars Dst2SrcBytesActual Src2DstPacketsExpected Dst2SrcPacketsExpected : Nat .
+  vars Src2DstBytesExpected Dst2SrcBytesExpected : Nat .
+  op sameFeatures : FlowValues FlowValues -> Bool .
+  eq sameFeatures(flowFeatures(
+      BidirectionalDurationMsActual, Src2DstPacketsActual, Dst2SrcPacketsActual,
+      Src2DstBytesActual, Dst2SrcBytesActual, Src2DstMeanPsActual,
+      Src2DstStddevPsActual, Src2DstMinPsActual, Src2DstMaxPsActual,
+      Dst2SrcMeanPsActual, Dst2SrcStddevPsActual, Dst2SrcMinPsActual,
+      Dst2SrcMaxPsActual, Src2DstMeanPiatMsActual, Src2DstStddevPiatMsActual,
+      Src2DstMaxPiatMsActual, Dst2SrcMeanPiatMsActual, Dst2SrcStddevPiatMsActual,
+      Dst2SrcMaxPiatMsActual, BidirectionalMeanPiatMsActual, BidirectionalStddevPiatMsActual,
+      BidirectionalMaxPiatMsActual),
+    flowFeatures(
+      BidirectionalDurationMsExpected, Src2DstPacketsExpected, Dst2SrcPacketsExpected,
+      Src2DstBytesExpected, Dst2SrcBytesExpected, Src2DstMeanPsExpected,
+      Src2DstStddevPsExpected, Src2DstMinPsExpected, Src2DstMaxPsExpected,
+      Dst2SrcMeanPsExpected, Dst2SrcStddevPsExpected, Dst2SrcMinPsExpected,
+      Dst2SrcMaxPsExpected, Src2DstMeanPiatMsExpected, Src2DstStddevPiatMsExpected,
+      Src2DstMaxPiatMsExpected, Dst2SrcMeanPiatMsExpected, Dst2SrcStddevPiatMsExpected,
+      Dst2SrcMaxPiatMsExpected, BidirectionalMeanPiatMsExpected, BidirectionalStddevPiatMsExpected,
+      BidirectionalMaxPiatMsExpected)) =
+    (Src2DstPacketsActual == Src2DstPacketsExpected)
+    and (Dst2SrcPacketsActual == Dst2SrcPacketsExpected)
+    and (Src2DstBytesActual == Src2DstBytesExpected)
+    and (Dst2SrcBytesActual == Dst2SrcBytesExpected)
+    and near(BidirectionalDurationMsActual, BidirectionalDurationMsExpected)
+    and near(Src2DstMeanPsActual, Src2DstMeanPsExpected)
+    and near(Src2DstStddevPsActual, Src2DstStddevPsExpected)
+    and near(Src2DstMinPsActual, Src2DstMinPsExpected)
+    and near(Src2DstMaxPsActual, Src2DstMaxPsExpected)
+    and near(Dst2SrcMeanPsActual, Dst2SrcMeanPsExpected)
+    and near(Dst2SrcStddevPsActual, Dst2SrcStddevPsExpected)
+    and near(Dst2SrcMinPsActual, Dst2SrcMinPsExpected)
+    and near(Dst2SrcMaxPsActual, Dst2SrcMaxPsExpected)
+    and near(Src2DstMeanPiatMsActual, Src2DstMeanPiatMsExpected)
+    and near(Src2DstStddevPiatMsActual, Src2DstStddevPiatMsExpected)
+    and near(Src2DstMaxPiatMsActual, Src2DstMaxPiatMsExpected)
+    and near(Dst2SrcMeanPiatMsActual, Dst2SrcMeanPiatMsExpected)
+    and near(Dst2SrcStddevPiatMsActual, Dst2SrcStddevPiatMsExpected)
+    and near(Dst2SrcMaxPiatMsActual, Dst2SrcMaxPiatMsExpected)
+    and near(BidirectionalMeanPiatMsActual, BidirectionalMeanPiatMsExpected)
+    and near(BidirectionalStddevPiatMsActual, BidirectionalStddevPiatMsExpected)
+    and near(BidirectionalMaxPiatMsActual, BidirectionalMaxPiatMsExpected) .
+  eq sameFeatures(TF, TG) = false [owise] .
+  op sameSamples : FlowSamples FlowSamples -> Bool .
+  eq sameSamples(noFlowSamples, noFlowSamples) = true .
+  eq sameSamples(flowSample(TId, TF) TS, flowSample(TId, TG) TT) =
+    sameFeatures(TF, TG) and sameSamples(TS, TT) .
+  eq sameSamples(TS, TT) = false [owise] .
+  --- Test-only matchers for positional output; compare counts exactly and
+  --- Float values within tolerance. Aggregate order is count, rate, packets, bytes.
+  vars TAggr UAggr : ChannelAggregateStats .
+  vars ActualFlowCount ExpectedFlowCount ActualPacketCount ExpectedPacketCount
+    ActualByteCount ExpectedByteCount : Nat .
+  vars ActualNewConnectionRate ExpectedNewConnectionRate : Float .
+  op sameAggregates : ChannelAggregateStats ChannelAggregateStats -> Bool .
+  eq sameAggregates(aggregateStats(ActualFlowCount, ActualNewConnectionRate, ActualPacketCount, ActualByteCount), aggregateStats(ExpectedFlowCount, ExpectedNewConnectionRate, ExpectedPacketCount, ExpectedByteCount)) =
+    (ActualFlowCount == ExpectedFlowCount) and near(ActualNewConnectionRate, ExpectedNewConnectionRate) and (ActualPacketCount == ExpectedPacketCount) and (ActualByteCount == ExpectedByteCount) .
+  op sameResult : ChannelWindowResult ChannelAggregateStats FlowSamples -> Bool .
+  eq sameResult(channelResult(TAggr, flowSamples(TS)), UAggr, TT) =
+    sameAggregates(TAggr, UAggr) and sameSamples(TS, TT) .
+  eq sameResult(TR, UAggr, TT) = false [owise] .
+
+  --- Fixed irregular traffic, so repeated reductions remain reproducible.
+  --- Times are seconds. Sizes are bytes. Both directional lists are Ts-ordered.
+  --- Six forward and four backward packets, including short bursts and long gaps.
+  --- Tx reorders the third/fourth forward and second/third backward packets.
+  op singleFlow10Packets : -> FlowMap .
+  eq singleFlow10Packets = fid(featureServer, featureClient, 10) ~>
+    [tp(0.37, 0.44, 0.52, true, 87) :;
+     tp(0.42, 0.49, 0.61, false, 1420) :;
+     tp(1.83, 2.14, 2.33, false, 61) :;
+     tp(1.91, 2.02, 2.24, false, 933) :;
+     tp(5.46, 5.50, 5.68, false, 517) :;
+     tp(8.72, 9.01, 9.19, false, 128),
+     tp(0.83, 0.91, 1.01, false, 73) :;
+     tp(2.47, 2.68, 2.81, false, 1197) :;
+     tp(2.51, 2.61, 2.94, false, 284) :;
+     tp(9.36, 9.58, 9.93, false, 806)] .
+
+  --- One forward packet and one reply with different sizes and variable delay.
+  op singleFlow2Packets : -> FlowMap .
+  eq singleFlow2Packets = fid(featureServer, featureClient, 20) ~>
+    [tp(0.43, 0.57, 0.69, true, 137),
+     tp(2.18, 2.43, 2.67, false, 911)] .
+
+  --- Two distinct two-packet exchanges: different sizes, times and durations.
+  op twoFlows4Packets : -> FlowMap .
+  eq twoFlows4Packets = singleFlow2Packets
+    (fid(featureServer, featureClient, 21) ~>
+      [tp(3.27, 3.46, 3.81, true, 1203),
+       tp(6.94, 7.31, 7.52, false, 79)]) .
+
+  --- Add a different ten-packet flow: four forward and six backward packets.
+  --- The two connections have distinct feature rows and overlapping lifetimes.
+  op twoFlows20Packets : -> FlowMap .
+  eq twoFlows20Packets = singleFlow10Packets
+    (fid(featureServer, featureClient, 11) ~>
+      [tp(0.61, 0.79, 0.93, true, 213) :;
+       tp(2.08, 2.17, 2.36, false, 1473) :;
+       tp(6.43, 6.79, 6.94, false, 96) :;
+       tp(9.17, 9.25, 9.61, false, 721),
+       tp(0.95, 1.08, 1.24, false, 67) :;
+       tp(1.02, 1.31, 1.44, false, 984) :;
+       tp(3.29, 3.36, 3.53, false, 382) :;
+       tp(3.34, 3.48, 3.64, false, 1311) :;
+       tp(7.81, 8.04, 8.27, false, 155) :;
+       tp(9.72, 9.89, 10.06, false, 628)]) .
+
+  --- Independent expected IXP rows use sorted Tx values and population stddev.
+  --- Packet counts and byte totals are exact; Float comparisons use near().
+  op expectedSingleFlow10 : -> FlowValues .
+  eq expectedSingleFlow10 = flowFeatures(
+    9140.0, 6, 4, 3146, 2360,
+    524.3333333333334, 505.35455100574904, 61.0, 1420.0,
+    590.0, 440.4628247650419, 73.0, 1197.0,
+    1714.0, 1501.900129835536, 3510.0,
+    2890.0, 2912.536122808894, 6900.0,
+    1015.5555555555555, 1200.2972882777474, 3510.0) .
+
+  op expectedSecondFlow10 : -> FlowValues .
+  eq expectedSecondFlow10 = flowFeatures(
+    9100.0, 4, 6, 2503, 3527,
+    625.75, 542.6561411243772, 96.0, 1473.0,
+    587.8333333333334, 443.942720279192, 67.0, 1311.0,
+    2820.0, 1346.9966592386188, 4620.0,
+    1762.0, 1610.1353980333456, 4560.0,
+    1011.1111111111111, 912.7667883290579, 3310.0) .
+
+  op expectedSingleFlow2 : -> FlowValues .
+  eq expectedSingleFlow2 = flowFeatures(
+    1860.0, 1, 1, 137, 911,
+    137.0, 0.0, 137.0, 137.0,
+    911.0, 0.0, 911.0, 911.0,
+    0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0,
+    1860.0, 0.0, 1860.0) .
+
+  op expectedSecondFlow2 : -> FlowValues .
+  eq expectedSecondFlow2 = flowFeatures(
+    3850.0, 1, 1, 1203, 79,
+    1203.0, 0.0, 1203.0, 1203.0,
+    79.0, 0.0, 79.0, 79.0,
+    0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0,
+    3850.0, 0.0, 3850.0) .
+
+  op testSingleFlow2Packets : -> Bool .
+  eq testSingleFlow2Packets = sameResult(
+    getHCSFlowInfo(ixpN, "hcs_sky", singleFlow2Packets, 0.0, 11.0),
+    aggregateStats(1, 0.09090909090909091, 2, 1048),
+    flowSample(fid(featureServer, featureClient, 20), expectedSingleFlow2)) .
+
+  op testSingleFlow10Packets : -> Bool .
+  eq testSingleFlow10Packets = sameResult(
+    getHCSFlowInfo(ixpN, "hcs_sky", singleFlow10Packets, 0.0, 11.0),
+    aggregateStats(1, 0.09090909090909091, 10, 5506),
+    flowSample(fid(featureServer, featureClient, 10), expectedSingleFlow10)) .
+
+  op testTwoFlows4Packets : -> Bool .
+  eq testTwoFlows4Packets = sameResult(
+    getHCSFlowInfo(ixpN, "hcs_sky", twoFlows4Packets, 0.0, 11.0),
+    aggregateStats(2, 0.18181818181818182, 4, 2330),
+    flowSample(fid(featureServer, featureClient, 20), expectedSingleFlow2)
+    flowSample(fid(featureServer, featureClient, 21), expectedSecondFlow2)) .
+
+  op testTwoFlows20Packets : -> Bool .
+  eq testTwoFlows20Packets = sameResult(
+    getHCSFlowInfo(ixpN, "hcs_sky", twoFlows20Packets, 0.0, 11.0),
+    aggregateStats(2, 0.18181818181818182, 20, 11536),
+    flowSample(fid(featureServer, featureClient, 10), expectedSingleFlow10)
+    flowSample(fid(featureServer, featureClient, 11), expectedSecondFlow10)) .
+
+  --- Check the input contract without assuming Tx or Tr ordering.
+  vars FirstPacket SecondPacket : TPkt .
+  vars PacketTail ForwardList BackwardList : TPktList .
+  var FlowTail : FlowMap .
+
+  op packetsTsOrdered : TPktList -> Bool .
+  eq packetsTsOrdered(nilTPkt) = true .
+  eq packetsTsOrdered(FirstPacket) = true .
+  eq packetsTsOrdered(FirstPacket :; SecondPacket :; PacketTail) =
+    (getSendTime(FirstPacket) <= getSendTime(SecondPacket))
+    and packetsTsOrdered(SecondPacket :; PacketTail) .
+
+  op flowsTsOrdered : FlowMap -> Bool .
+  eq flowsTsOrdered(mtFlowMap) = true .
+  eq flowsTsOrdered((TestFlow ~> [ForwardList, BackwardList]) FlowTail) =
+    packetsTsOrdered(ForwardList) and packetsTsOrdered(BackwardList)
+    and flowsTsOrdered(FlowTail) .
+
+  op testTsOrder : -> Bool .
+  eq testTsOrder = flowsTsOrdered(singleFlow2Packets)
+    and flowsTsOrdered(singleFlow10Packets)
+    and flowsTsOrdered(twoFlows4Packets)
+    and flowsTsOrdered(twoFlows20Packets) .
+
+  op testFourFlowCases : -> Bool .
+  eq testFourFlowCases = testSingleFlow2Packets and testSingleFlow10Packets
+    and testTwoFlows4Packets and testTwoFlows20Packets and testTsOrder .
+
+  --- Retain the existing combined-check name for convenience.
+  op testAll22 : -> Bool .
+  eq testAll22 = testFourFlowCases .
+endm
+
+--- Inspect the aggregate statistics and sample rows for each requested case.
+red in FLOW-FEATURES-CP4-TEST :
+  getHCSFlowInfo(ixpN, "hcs_sky", singleFlow2Packets, 0.0, 11.0) .
+red in FLOW-FEATURES-CP4-TEST :
+  getHCSFlowInfo(ixpN, "hcs_sky", singleFlow10Packets, 0.0, 11.0) .
+red in FLOW-FEATURES-CP4-TEST :
+  getHCSFlowInfo(ixpN, "hcs_sky", twoFlows4Packets, 0.0, 11.0) .
+red in FLOW-FEATURES-CP4-TEST :
+  getHCSFlowInfo(ixpN, "hcs_sky", twoFlows20Packets, 0.0, 11.0) .
+
+--- Each assertion should return Bool: true.
+red in FLOW-FEATURES-CP4-TEST : testSingleFlow2Packets .
+red in FLOW-FEATURES-CP4-TEST : testSingleFlow10Packets .
+red in FLOW-FEATURES-CP4-TEST : testTwoFlows4Packets .
+red in FLOW-FEATURES-CP4-TEST : testTwoFlows20Packets .
+red in FLOW-FEATURES-CP4-TEST : testFourFlowCases .
+red in FLOW-FEATURES-CP4-TEST : testTsOrder .

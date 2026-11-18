@@ -1,0 +1,496 @@
+--- Compute channel traffic counts and 22 features per observed flow window.
+--- Direction is fixed by fid(server,client,id) and [forward,backward].
+--- No protocol parsing, classification, raw-log conversion, or flow discovery.
+--- Channel membership is provided by the scenario's isChannelFlow(label,fid).
+--- Input keys must be unique; each connection has one forward new? = true marker.
+--- Window is [Tstart, Tend); selected observation times are sorted for PIAT.
+--- Time input is seconds; duration and PIAT output are milliseconds.
+--- Standard deviation is population standard deviation; empty statistics are zero.
+---
+--- vp must have sort Vpt from FLOW-MAP. Define isVisAdr(vp,address) in the
+--- scenario. Standard names: cl[i], srvN, masN, minN, dnsN, ixpN.
+--- ixpN selects IXP observation at Tx automatically; other vantage points use
+--- Ts for a visible source, Tr for a visible destination, and exclude hidden flows.
+--- new? is used only to count initiations, never to change normalized direction.
+--- New connection rate counts visible initiation markers by Ts in the window,
+--- divided by Tend - Tstart in seconds. It is computed separately from samples.
+---
+--- getHCSFlowInfo(vp, "hcs_sky", myFlowMap, Tstart, Tend) returns:
+---   channelResult(aggregateStats(...), flowSamples(...)).
+--- Place the supplied primitive definition beside this file as flowMap.maude.
+--- Input example (one bidirectional flow, connection counter 7):
+---   fid(serverAddr, clientAddr, 7) ~>
+--- Lists: [tp(1.0, 1.1, 1.2, true, 100) :; tp(3.0, 3.1, 3.2, false, 150),
+---      tp(2.0, 2.1, 2.2, false, 200)]
+--- In each tp(Ts,Tx,Tr,new?,size), timestamps are seconds and size is bytes.
+--- The first list is client -> server (src2dst).
+--- The second list is server -> client (dst2src).
+--- The FlowMap collector fixes these directions before this module is called.
+--- This module never swaps lists, merges duplicate keys, or expires connections.
+--- Pass unfiltered per-flow lists: filterFlowPackets selects packet observations,
+--- while newConnectionIndicator independently checks the initiation marker by Ts.
+---
+--- Define channel membership OUTSIDE this module, in a scenario module, e.g.:
+---   eq isChannelFlow("hcs_sky", fid(serverAddr, clientAddr, N)) = true .
+---   eq isChannelFlow(Label, FlowKey) = false [owise] .
+--- Declare N : Nat, Label : String, and FlowKey : FlowId in that module.
+--- The scenario owns label names, endpoint matching, and any id restrictions.
+--- The feature equations only use the returned Boolean; output rows omit labels.
+--- Define isVisAdr for every vantage point/address combination being inspected.
+--- Example: a client-network vp normally sees the client address; ixpN needs
+--- explicit visibility rules too. Choosing ixpN alone does not make flows visible.
+--- Dependencies are loaded below; the structured-addresses path is project-relative.
+---
+sload flowMap.maude
+--- Load network identifiers before importing STRUCTURED-ADDRESSES below.
+sload ../common/maude/structured-addresses.maude
+
+mod FLOW-FEATURES-CP4 is
+  inc FLOW-MAP .
+  inc STRUCTURED-ADDRESSES .
+  inc FLOAT .
+  inc LIST{Float} .
+  inc STRING .
+
+  --- Reuse the project's network identifiers; never redeclare their constructors.
+  --- cl[i], srvN, masN, minN, dnsN and ixpN already have sort NetId.
+  --- Address visibility remains scenario-specific through isVisAdr.
+  subsort NetId < Vpt .
+
+  --- Internal working data:
+  ---   List{Float}: standard lists used for sizes and observation times.
+  ---     nil is empty; (Value Values) prepends a Float to a list.
+  ---   timeListPair(left,right): two sorting partitions, not flow directions.
+  ---   statsState(count,sum,mean,M2,min,max): Welford's running statistics.
+  ---     M2 is the sum of squared deviations from the current mean.
+  ---   flowSeries(bytes,sizes,times): selected packets for one flow direction.
+  ---     bytes is an exact Nat sum; sizes and times are equally long Float lists.
+  ---     Packet sizes are bytes; observation times are seconds.
+  sorts TimeListPair NumericStats FlowSeries .
+
+  op timeListPair : List{Float} List{Float} -> TimeListPair [ctor] .
+
+  op statsState : Nat Float Float Float Float Float -> NumericStats [ctor] .
+
+  op flowSeries : Nat List{Float} List{Float} -> FlowSeries [ctor] .
+
+  --- Positional numeric output: no metric-name strings or repeated channel label.
+  --- Each flowSample retains its fid so rows can be associated with input flows.
+  --- Samples form an unordered collection; the 22 positions WITHIN a row are fixed.
+  --- flowFeatures order (time statistics are milliseconds, sizes are bytes):
+  --- Position 1: bidirectional duration.
+  --- Positions 2..5: src2dst packets, dst2src packets, src2dst bytes, dst2src bytes.
+  --- Positions 6..9: src2dst packet-size mean, population stddev, min, max.
+  --- Positions 10..13: dst2src packet-size mean, population stddev, min, max.
+  --- Positions 14..16: src2dst PIAT mean, population stddev, max.
+  --- Positions 17..19: dst2src PIAT mean, population stddev, max.
+  --- Positions 20..22: bidirectional PIAT mean, population stddev, max.
+  sorts FlowValues FlowSample FlowSamples .
+
+  op flowFeatures : Float Nat Nat Nat Nat
+    Float Float Float Float Float Float Float Float
+    Float Float Float Float Float Float Float Float Float -> FlowValues [ctor] .
+
+  op flowSample : FlowId FlowValues -> FlowSample [ctor] .
+  subsort FlowSample < FlowSamples .
+
+  op noFlowSamples : -> FlowSamples [ctor] .
+
+  op __ : FlowSamples FlowSamples -> FlowSamples
+    [ctor assoc comm id: noFlowSamples] .
+
+  --- aggregateStats order: flow count, new connections per second,
+  --- packet count, byte count. Counts/totals are Nat; the rate is Float.
+  --- Tend <= Tstart returns invalidChannelWindow(Tstart, Tend).
+  --- No selected packets means zero flow/packet/byte counts and no samples.
+  --- The new connection rate is independent: initiation uses Ts, packets use vp time.
+  sorts ChannelAggregateStats FlowSamplesField ChannelWindowResult .
+
+  op aggregateStats : Nat Float Nat Nat -> ChannelAggregateStats [ctor] .
+
+  op flowSamples : FlowSamples -> FlowSamplesField [ctor] .
+
+  op channelResult : ChannelAggregateStats FlowSamplesField -> ChannelWindowResult [ctor] .
+
+  op invalidChannelWindow : Float Float -> ChannelWindowResult [ctor] .
+
+  --- Scenario hook. Supply a total Boolean definition in the importing module.
+  --- No mapping, alias normalization, or default label policy is defined here.
+  --- A false result excludes the entry; a true result selects it exactly once.
+  --- This predicate must not modify the normalized fid or its direction lists.
+  op isChannelFlow : String FlowId -> Bool .
+
+  vars Value NextValue ValueSum ValueMean : Float .
+  vars SquaredDeviationSum MinimumValue MaximumValue : Float .
+  vars ValueCount ForwardBytes BackwardBytes PacketSize : Nat .
+  vars Values OtherValues RemainingValues : List{Float} .
+  vars ForwardTimes BackwardTimes : List{Float} .
+  vars SortedForwardTimes SortedBackwardTimes : List{Float} .
+  vars RunningStats ForwardSizeStats BackwardSizeStats : NumericStats .
+  vars ForwardPiatStats BackwardPiatStats BidirectionalPiatStats : NumericStats .
+  var FlowKey : FlowId .
+  var ChannelLabel : String .
+  var SampleValues : FlowValues .
+  var Sample : FlowSample .
+  vars BidirectionalDurationMs Src2DstMeanPs Src2DstStddevPs : Float .
+  vars Src2DstMinPs Src2DstMaxPs Dst2SrcMeanPs : Float .
+  vars Dst2SrcStddevPs Dst2SrcMinPs Dst2SrcMaxPs : Float .
+  vars Src2DstMeanPiatMs Src2DstStddevPiatMs Src2DstMaxPiatMs : Float .
+  vars Dst2SrcMeanPiatMs Dst2SrcStddevPiatMs Dst2SrcMaxPiatMs : Float .
+  vars BidirectionalMeanPiatMs BidirectionalStddevPiatMs BidirectionalMaxPiatMs : Float .
+  vars Src2DstPackets Src2DstBytes : Nat .
+  vars FlowCount2 PacketCount2 ByteCount2 : Nat .
+  var Samples : FlowSamples .
+  vars Tstart Tend : Float .
+  var vp : Vpt .
+  vars ServerAddress ClientAddress : Address .
+  vars ConnectionId PacketBytes FlowCount PacketCount ByteCount : Nat .
+  vars Dst2SrcPackets Dst2SrcBytes : Nat .
+  --- Flows is the complete input; RestFlows is the unprocessed recursion tail.
+  vars Flows RestFlows : FlowMap .
+  vars ForwardPackets BackwardPackets RemainingPackets : TPktList .
+  var Packet : TPkt .
+  vars Ts Tx Tr : Float .
+  var IsNewConnection : Bool .
+  var NewConnectionCount : Nat .
+  var WindowDurationSeconds : Float .
+  var TotalBytes : Nat .
+  var ObservationTime : Float .
+  vars PacketSizes ObservationTimes : List{Float} .
+
+  op flowNonemptySample : FlowSample -> FlowSamples .
+
+  --- addPacket updates one direction: add exact bytes and prepend size/time.
+  --- PacketSize is bytes; ObservationTime is seconds at the selected vp.
+  --- The caller processes the remaining packets first, so prepending preserves
+  --- input order. Individual sizes become Float for descriptive statistics.
+  op addPacket : Nat Float FlowSeries -> FlowSeries .
+  eq addPacket(PacketSize, ObservationTime,
+       flowSeries(TotalBytes, PacketSizes, ObservationTimes)) =
+    flowSeries(TotalBytes + PacketSize,
+      (float(PacketSize) PacketSizes),
+      (ObservationTime ObservationTimes)) .
+
+  --- Sorting helpers operate on observation times in seconds.
+  --- prependTimePair adds one current timestamp to each recursive split result.
+  op prependTimePair : Float Float TimeListPair -> TimeListPair .
+  eq prependTimePair(Value, NextValue, timeListPair(Values, OtherValues)) =
+    timeListPair((Value Values), (NextValue OtherValues)) .
+
+  --- splitTimes alternates elements into two roughly equal sorting partitions.
+  op splitTimes : List{Float} -> TimeListPair .
+  eq splitTimes(nil) = timeListPair(nil, nil) .
+  eq splitTimes(Value) =
+    timeListPair(Value, nil) .
+  eq splitTimes((Value NextValue Values)) =
+    prependTimePair(Value, NextValue, splitTimes(Values)) .
+
+  --- mergeTimes combines two sorted lists in order, retaining tied timestamps.
+  --- Used both by sortTimes and to combine forward/backward observation times.
+  op mergeTimes : List{Float} List{Float} -> List{Float} .
+  eq mergeTimes(nil, OtherValues) = OtherValues .
+  eq mergeTimes((Value Values), nil) = (Value Values) .
+  eq mergeTimes((Value Values), (NextValue OtherValues)) =
+    if Value <= NextValue
+    then (Value mergeTimes(Values, (NextValue OtherValues)))
+    else (NextValue mergeTimes((Value Values), OtherValues)) fi .
+
+  --- sortTimes uses merge sort, O(n log n), to handle Tx/Tr reordering.
+  op sortTimes : List{Float} -> List{Float} .
+  eq sortTimes(nil) = nil .
+  eq sortTimes(Value) = Value .
+  ceq sortTimes((Value NextValue RemainingValues)) =
+    mergeTimes(sortTimes(Values), sortTimes(OtherValues))
+    if timeListPair(Values, OtherValues) := splitTimes((Value NextValue RemainingValues)) .
+
+  --- computePIAT takes sorted times in seconds and returns adjacent gaps in ms.
+  --- Equal timestamps produce zero gaps; n timestamps produce max(0, n-1) gaps.
+  --- Empty and singleton lists produce nil; computeStats(nil) supplies zero stats.
+  op computePIAT : List{Float} -> List{Float} .
+  eq computePIAT(nil) = nil .
+  eq computePIAT(Value) = nil .
+  eq computePIAT((Value NextValue Values)) =
+    ((1000.0 * _-_(NextValue, Value)).Float computePIAT((NextValue Values))) .
+
+  --- Scalar Float helpers used by the statistics updates and variance guard.
+  op statsMin : Float Float -> Float .
+  eq statsMin(Value, NextValue) = if Value <= NextValue then Value else NextValue fi .
+
+  op statsMax : Float Float -> Float .
+  eq statsMax(Value, NextValue) = if Value >= NextValue then Value else NextValue fi .
+
+  --- addValueStats updates the statistics state for ONE size or PIAT value.
+  --- The zero-count case initializes mean/min/max from that value.
+  --- The positive-count case uses Welford updates for numerical stability.
+  --- In that pattern s(ValueCount) is the old count; s(s(ValueCount)) is the new count.
+  op addValueStats : Float NumericStats -> NumericStats .
+  eq addValueStats(Value, statsState(0, ValueSum, ValueMean, SquaredDeviationSum, MinimumValue,
+      MaximumValue)) =
+    statsState(1, Value, Value, 0.0, Value, Value) .
+  eq addValueStats(Value, statsState(s(ValueCount), ValueSum, ValueMean, SquaredDeviationSum,
+      MinimumValue, MaximumValue)) =
+    statsState(s(s(ValueCount)), ValueSum + Value,
+      ValueMean + (_-_(Value, ValueMean) / float(s(s(ValueCount)))),
+      SquaredDeviationSum + (_-_(Value, ValueMean) *
+        _-_(Value, ValueMean + (_-_(Value, ValueMean) / float(s(s(ValueCount)))))),
+      statsMin(MinimumValue, Value), statsMax(MaximumValue, Value)) .
+
+  --- accumulateStats folds a list into an existing state via addValueStats.
+  op accumulateStats : List{Float} NumericStats -> NumericStats .
+  eq accumulateStats(nil, RunningStats) = RunningStats .
+  eq accumulateStats((Value Values), RunningStats) =
+    accumulateStats(Values, addValueStats(Value, RunningStats)) .
+
+  --- computeStats starts accumulation from an empty state; empty stats are zero.
+  op computeStats : List{Float} -> NumericStats .
+  eq computeStats(Values) = accumulateStats(Values, statsState(0, 0.0, 0.0, 0.0, 0.0, 0.0)) .
+
+  --- Accessors read count, mean, minimum and maximum from NumericStats.
+  op statsCount : NumericStats -> Nat .
+  eq statsCount(statsState(ValueCount, ValueSum, ValueMean, SquaredDeviationSum, MinimumValue,
+      MaximumValue)) = ValueCount .
+
+  ops statsMean statsStddev statsMinimum statsMaximum : NumericStats -> Float .
+  eq statsMean(statsState(ValueCount, ValueSum, ValueMean, SquaredDeviationSum, MinimumValue,
+      MaximumValue)) = ValueMean .
+  eq statsMinimum(statsState(ValueCount, ValueSum, ValueMean, SquaredDeviationSum,
+      MinimumValue, MaximumValue)) = MinimumValue .
+  eq statsMaximum(statsState(ValueCount, ValueSum, ValueMean, SquaredDeviationSum,
+      MinimumValue, MaximumValue)) = MaximumValue .
+  --- Population standard deviation divides M2 by n, not n-1. The max with
+  --- zero protects sqrt from a tiny negative value caused by Float rounding.
+  eq statsStddev(statsState(0, ValueSum, ValueMean, SquaredDeviationSum, MinimumValue,
+      MaximumValue)) = 0.0 .
+  eq statsStddev(statsState(s(ValueCount), ValueSum, ValueMean, SquaredDeviationSum,
+      MinimumValue, MaximumValue)) =
+    sqrt(statsMax(0.0, SquaredDeviationSum / float(s(ValueCount)))) .
+
+  --- lastTime returns the last element of a nonempty timestamp list.
+  --- On sorted input it is the latest observation; flowDurationMs handles nil.
+  op lastTime : List{Float} -> Float .
+  eq lastTime(Value) = Value .
+  eq lastTime((Value NextValue Values)) =
+    lastTime((NextValue Values)) .
+  --- flowDurationMs takes sorted times in seconds and computes elapsed ms.
+  --- It measures first-to-last selected observation within this window.
+  --- Empty and singleton lists have zero duration.
+  op flowDurationMs : List{Float} -> Float .
+  eq flowDurationMs(nil) = 0.0 .
+  eq flowDurationMs((Value Values)) =
+    1000.0 * _-_(lastTime((Value Values)), Value) .
+
+  --- computeSample builds ONE flowSample(FlowKey, flowFeatures(...)) from
+  --- already selected forward/backward series, in the documented 22-field order:
+  ---   1 bidirectional duration;
+  ---   4 directional packet/byte counts;
+  ---   8 directional packet-size mean/stddev/min/max values;
+  ---   6 directional PIAT mean/stddev/max values;
+  ---   3 bidirectional PIAT mean/stddev/max values.
+  --- Sort each direction's observation times because Tx/Tr may reorder packets
+  --- even when input lists are Ts-ordered. Merge the sorted directions before
+  --- computing bidirectional gaps; do not average the two directional means.
+  --- Sorting times does not alter packet-size statistics or flow orientation.
+  op computeSample : FlowId FlowSeries FlowSeries -> FlowSample .
+  ceq computeSample(
+        FlowKey,
+        flowSeries(ForwardBytes, Values, ForwardTimes),
+        flowSeries(BackwardBytes, OtherValues, BackwardTimes)) =
+    flowSample(
+      FlowKey,
+      flowFeatures(
+        flowDurationMs(mergeTimes(SortedForwardTimes, SortedBackwardTimes)),
+        statsCount(ForwardSizeStats), statsCount(BackwardSizeStats),
+        ForwardBytes, BackwardBytes,
+        statsMean(ForwardSizeStats), statsStddev(ForwardSizeStats),
+        statsMinimum(ForwardSizeStats), statsMaximum(ForwardSizeStats),
+        statsMean(BackwardSizeStats), statsStddev(BackwardSizeStats),
+        statsMinimum(BackwardSizeStats), statsMaximum(BackwardSizeStats),
+        statsMean(ForwardPiatStats), statsStddev(ForwardPiatStats),
+        statsMaximum(ForwardPiatStats),
+        statsMean(BackwardPiatStats), statsStddev(BackwardPiatStats),
+        statsMaximum(BackwardPiatStats),
+        statsMean(BidirectionalPiatStats), statsStddev(BidirectionalPiatStats),
+        statsMaximum(BidirectionalPiatStats)))
+    if ForwardSizeStats := computeStats(Values)
+    /\ BackwardSizeStats := computeStats(OtherValues)
+    /\ SortedForwardTimes := sortTimes(ForwardTimes)
+    /\ SortedBackwardTimes := sortTimes(BackwardTimes)
+    /\ ForwardPiatStats := computeStats(computePIAT(SortedForwardTimes))
+    /\ BackwardPiatStats := computeStats(computePIAT(SortedBackwardTimes))
+    /\ BidirectionalPiatStats := computeStats(
+         computePIAT(mergeTimes(SortedForwardTimes, SortedBackwardTimes))) .
+
+  --- Define isVisAdr(vp,addr) in the scenario. ixpN selects Tx; custom IXP-like
+  --- Vpts may define flowIsIXP(vp) = true. Mark visible endpoints with isVisAdr.
+  --- Other Vpts default to ordinary endpoint observation.
+  --- A visible source uses Ts; otherwise a visible destination uses Tr.
+  --- An IXP Vpt with a visible endpoint uses Tx. Hidden flows are excluded.
+  op flowIsIXP : Vpt -> Bool .
+  eq flowIsIXP(ixpN) = true .
+  eq flowIsIXP(vp) = false [owise] .
+  --- Address arguments are (destination, source) for THIS direction.
+  --- The backward-list call swaps them, even though variable names stay the same.
+  --- If both endpoints are visible at an ordinary vp, source/Ts has priority.
+  --- infty below is an exclusion marker for hidden traffic; it is not an input
+  --- TPkt timestamp (the supplied primitive TPkt requires finite Float times).
+  op flowObservationTime : Vpt Address Address TPkt -> FloatInf .
+  eq flowObservationTime(vp, ServerAddress, ClientAddress,
+       tp(Ts, Tx, Tr, IsNewConnection, PacketBytes)) =
+    if isVisAdr(vp, ClientAddress) or isVisAdr(vp, ServerAddress)
+    then
+      if flowIsIXP(vp)
+      then Tx
+      else
+        if isVisAdr(vp, ClientAddress)
+        then Ts
+        else Tr
+        fi
+      fi
+    else infty
+    fi .
+
+  --- filterFlowPackets selects one direction by visibility and [Tstart, Tend).
+  --- It returns flowSeries(total bytes, packet sizes, selected observation times).
+  --- Value has sort Float, so a hidden observation yielding infty fails the match.
+  --- The owise equation skips hidden/out-of-window packets. It keeps scanning:
+  --- later Tx/Tr values need not follow the order of earlier observation times.
+  op filterFlowPackets : Vpt Address Address TPktList Float Float -> FlowSeries .
+  eq filterFlowPackets(vp, ServerAddress, ClientAddress, nilTPkt, Tstart, Tend) = flowSeries(0, nil, nil) .
+  ceq filterFlowPackets(vp, ServerAddress, ClientAddress, tp(Ts, Tx, Tr, IsNewConnection, PacketBytes) :; RemainingPackets, Tstart, Tend) =
+    addPacket(PacketBytes, Value, filterFlowPackets(vp, ServerAddress, ClientAddress, RemainingPackets, Tstart, Tend))
+    if Value := flowObservationTime(vp, ServerAddress, ClientAddress, tp(Ts, Tx, Tr, IsNewConnection, PacketBytes))
+    /\ (Value >= Tstart) /\ (Value < Tend) .
+  eq filterFlowPackets(vp, ServerAddress, ClientAddress, Packet :; RemainingPackets, Tstart, Tend) =
+    filterFlowPackets(vp, ServerAddress, ClientAddress, RemainingPackets, Tstart, Tend) [owise] .
+
+  --- A flow belongs to the window only if at least one direction has a selected
+  --- observation. Omit zero-packet samples rather than emitting 22 zero fields.
+  --- Retain one-way flows: either src2dst_packets or dst2src_packets may be zero.
+  eq flowNonemptySample(flowSample(FlowKey, SampleValues)) =
+    flowKeepSample(flowSample(FlowKey, SampleValues), sampleTrafficCounts(SampleValues)) .
+
+  --- collectSamples traverses grouped flows, selecting keys with isChannelFlow.
+  --- It calls filterFlowPackets for each direction and computeSample per flow.
+  --- RestFlows is the unprocessed remainder; it is not a filtered map.
+  --- The backward collection swaps endpoint arguments for timestamp selection;
+  --- it does not change the fid or relabel backward observations as forward.
+  op collectSamples : Vpt String FlowMap Float Float -> FlowSamples .
+  eq collectSamples(vp, ChannelLabel, mtFlowMap, Tstart, Tend) = noFlowSamples .
+  eq collectSamples(vp, ChannelLabel,
+       (fid(ServerAddress, ClientAddress, ConnectionId) ~> [ForwardPackets, BackwardPackets]) RestFlows,
+       Tstart, Tend) =
+    (if isChannelFlow(ChannelLabel, fid(ServerAddress, ClientAddress, ConnectionId))
+     then flowNonemptySample(
+       computeSample(
+         fid(ServerAddress, ClientAddress, ConnectionId),
+         filterFlowPackets(vp, ServerAddress, ClientAddress, ForwardPackets, Tstart, Tend),
+         filterFlowPackets(vp, ClientAddress, ServerAddress, BackwardPackets, Tstart, Tend)))
+     else noFlowSamples fi)
+    collectSamples(vp, ChannelLabel, RestFlows, Tstart, Tend) .
+
+  --- Inspect the unfiltered forward list for the connection's unique new? marker.
+  --- Return 1 when that marker is visible and its Ts lies in [Tstart, Tend).
+  --- Otherwise return 0, including when the marker is absent from the log.
+  --- Do not reuse the packet-feature filter: it may select by Tx or Tr.
+  --- For example, Ts = 9.9 and Tx = 10.1 counts as a new connection in [0, 10),
+  --- while the packet is excluded from IXP packet features for that window.
+  op newConnectionIndicator : Vpt Address Address TPktList Float Float -> Nat .
+  eq newConnectionIndicator(vp, ServerAddress, ClientAddress, nilTPkt, Tstart, Tend) = 0 .
+  ceq newConnectionIndicator(vp, ServerAddress, ClientAddress, tp(Ts, Tx, Tr, true, PacketBytes) :; RemainingPackets, Tstart, Tend) =
+    if (Ts >= Tstart) and (Ts < Tend) then 1 else 0 fi
+    if Value := flowObservationTime(vp, ServerAddress, ClientAddress, tp(Ts, Tx, Tr, true, PacketBytes)) .
+  eq newConnectionIndicator(vp, ServerAddress, ClientAddress, Packet :; RemainingPackets, Tstart, Tend) =
+    newConnectionIndicator(vp, ServerAddress, ClientAddress, RemainingPackets, Tstart, Tend) [owise] .
+
+  --- Sum the 0/1 indicators for all channel-matching keys in the input map.
+  --- Scan forward lists directly, independently of the samples retained above.
+  op newConnectionCount : Vpt String FlowMap Float Float -> Nat .
+  eq newConnectionCount(vp, ChannelLabel, mtFlowMap, Tstart, Tend) = 0 .
+  eq newConnectionCount(vp, ChannelLabel,
+       (fid(ServerAddress, ClientAddress, ConnectionId) ~> [ForwardPackets, BackwardPackets]) RestFlows,
+       Tstart, Tend) =
+    (if isChannelFlow(ChannelLabel, fid(ServerAddress, ClientAddress, ConnectionId))
+     then newConnectionIndicator(vp, ServerAddress, ClientAddress, ForwardPackets, Tstart, Tend)
+     else 0 fi) + newConnectionCount(vp, ChannelLabel, RestFlows, Tstart, Tend) .
+
+  --- trafficCounts(FlowCount, PacketCount, ByteCount) holds exact Nat counts.
+  --- These describe selected packet observations across both directions.
+  --- New connections are counted separately by newConnectionCount.
+  sort TrafficCounts .
+
+  op trafficCounts : Nat Nat Nat -> TrafficCounts [ctor] .
+
+  --- sampleTrafficCounts reads the directional packet/byte fields of one row.
+  --- A row contributes one flow exactly when its combined packet count is positive.
+  op sampleTrafficCounts : FlowValues -> TrafficCounts .
+  eq sampleTrafficCounts(flowFeatures(
+      BidirectionalDurationMs, Src2DstPackets, Dst2SrcPackets,
+      Src2DstBytes, Dst2SrcBytes, Src2DstMeanPs,
+      Src2DstStddevPs, Src2DstMinPs, Src2DstMaxPs,
+      Dst2SrcMeanPs, Dst2SrcStddevPs, Dst2SrcMinPs,
+      Dst2SrcMaxPs, Src2DstMeanPiatMs, Src2DstStddevPiatMs,
+      Src2DstMaxPiatMs, Dst2SrcMeanPiatMs, Dst2SrcStddevPiatMs,
+      Dst2SrcMaxPiatMs, BidirectionalMeanPiatMs, BidirectionalStddevPiatMs,
+      BidirectionalMaxPiatMs)) =
+    trafficCounts(if Src2DstPackets + Dst2SrcPackets > 0 then 1 else 0 fi,
+      Src2DstPackets + Dst2SrcPackets, Src2DstBytes + Dst2SrcBytes) .
+
+  --- Keep a nonempty sample; a zero-packet row contributes noFlowSamples.
+  op flowKeepSample : FlowSample TrafficCounts -> FlowSamples .
+  eq flowKeepSample(Sample, trafficCounts(FlowCount, PacketCount, ByteCount)) =
+    if FlowCount > 0 then Sample else noFlowSamples fi .
+
+  --- Add two count triples component by component.
+  op addTrafficCounts : TrafficCounts TrafficCounts -> TrafficCounts .
+  eq addTrafficCounts(trafficCounts(FlowCount, PacketCount, ByteCount), trafficCounts(FlowCount2, PacketCount2, ByteCount2)) =
+    trafficCounts(FlowCount + FlowCount2, PacketCount + PacketCount2, ByteCount + ByteCount2) .
+
+  --- Sum all sample counts; an empty collection contributes trafficCounts(0, 0, 0).
+  op sumSampleTrafficCounts : FlowSamples -> TrafficCounts .
+  eq sumSampleTrafficCounts(noFlowSamples) = trafficCounts(0, 0, 0) .
+  eq sumSampleTrafficCounts(flowSample(FlowKey, SampleValues) Samples) =
+    addTrafficCounts(sampleTrafficCounts(SampleValues), sumSampleTrafficCounts(Samples)) .
+  --- makeHCSFlowInfo assembles channelResult; it performs no packet filtering.
+  --- Arguments: samples, traffic counts, new connection count, window seconds.
+  --- The caller guarantees positive duration before the rate division.
+  op makeHCSFlowInfo : FlowSamples TrafficCounts Nat Float -> ChannelWindowResult .
+  eq makeHCSFlowInfo(
+       Samples, trafficCounts(FlowCount, PacketCount, ByteCount),
+       NewConnectionCount, WindowDurationSeconds) =
+    channelResult(
+      aggregateStats(
+        FlowCount,
+        float(NewConnectionCount) / WindowDurationSeconds,
+        PacketCount,
+        ByteCount),
+      flowSamples(Samples)) .
+
+  --- collectHCSFlowInfo validates the interval and coordinates the computation.
+  --- Bind Samples once, sum their traffic counts, count new connections, and
+  --- pass those results to makeHCSFlowInfo. Flows is the complete input map.
+  --- Initiation counting inspects unfiltered forward lists because it uses Ts;
+  --- sample packet selection may use Tx or Tr instead.
+  op collectHCSFlowInfo : Vpt String FlowMap Float Float -> ChannelWindowResult .
+  ceq collectHCSFlowInfo(vp, ChannelLabel, Flows, Tstart, Tend) =
+    invalidChannelWindow(Tstart, Tend) if Tend <= Tstart .
+  ceq collectHCSFlowInfo(vp, ChannelLabel, Flows, Tstart, Tend) =
+    makeHCSFlowInfo(
+      Samples,
+      sumSampleTrafficCounts(Samples),
+      newConnectionCount(vp, ChannelLabel, Flows, Tstart, Tend),
+      _-_(Tend, Tstart))
+    if Tend > Tstart
+    /\ Samples := collectSamples(vp, ChannelLabel, Flows, Tstart, Tend) .
+
+  --- getHCSFlowInfo is the public entry point: vp, channel label, full FlowMap,
+  --- Tstart, Tend. The scenario supplies channel membership and visibility.
+  --- Example calls after importing its configuration:
+  ---   red getHCSFlowInfo(ixpN, "hcs_sky", myFlowMap, 0.0, 10.0) .
+  ---   red getHCSFlowInfo(cl[1], "hcs_sky", myFlowMap, 0.0, 10.0) .
+  --- A label with no matching entries returns empty samples and zero totals,
+  --- according to the scenario's isChannelFlow rules (including its fallback).
+  op getHCSFlowInfo : Vpt String FlowMap Float Float -> ChannelWindowResult .
+  eq getHCSFlowInfo(vp, ChannelLabel, Flows, Tstart, Tend) =
+    collectHCSFlowInfo(vp, ChannelLabel, Flows, Tstart, Tend) .
+
+endm

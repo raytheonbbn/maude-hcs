@@ -1,0 +1,94 @@
+set show advisories off .
+
+***(
+A flow map has elements of the form
+
+    (srv,cli,id) |-> (fwd,bwd)
+
+[[capture tow ch in one]]
+cli is the address of the client actor
+srv is the address of the server actor
+id is the connection counter
+fwd is the list of packets in the cli->srv direction
+       (ts,tx,tr,new?,size) 
+       -- new? is true if this is the first packet of cnx/flow
+bwd is the list of packets in the srv-cli direction
+       (ts,tx,tr,new?,size)  
+       new? is always false, since the client opens connections
+
+)
+
+sload ../../deps/dns_formalization/Maude/common/actor .
+
+fmod FLOW-MAP is
+  inc CONVERSION .
+  inc ACTOR-MODEL .
+
+  
+  
+vars  tsnd tixp trcv : Float .
+vars  sz : Nat .
+vars  new? : Bool .
+vars  tpkt : TPkt .
+vars  tpl tpl0 tpl1 : TPktList .
+
+
+sort FloatInf .
+subsort Float < FloatInf .
+op infty : -> FloatInf [ctor] .
+
+  
+sorts TPkt TPktList .
+subsort TPkt  < TPktList .
+
+op tp : Float Float Float Bool Nat -> TPkt .
+
+op getSendTime : TPkt -> Float .
+eq getSendTime(tp(tsnd,tixp,trcv,new?,sz)) = tsnd .
+op getRecvTime : TPkt -> Float .
+eq getRecvTime(tp(tsnd,tixp,trcv,new?,sz)) = trcv .
+op getIXPTime : TPkt -> Float .
+eq getIXPTime(tp(tsnd,tixp,trcv,new?,sz)) = tixp .
+
+op getNew : TPkt -> Bool .
+eq getNew(tp(tsnd,tixp,trcv,new?,sz)) = new? .
+op getPSize : TPkt -> Nat .
+eq getPSize(tp(tsnd,tixp,trcv,new?,sz)) = sz .
+
+
+op nilTPkt : -> TPktList [ctor] .
+op _:;_ : TPktList TPktList -> TPktList 
+           [ctor assoc id: nilTPkt] .
+
+
+
+op len : TPktList -> Nat .
+eq len(nilTPkt) = 0 .
+eq len(tpkt :; tpl) = s len(tpl) .
+
+sort TPLPair .
+op `[_`,_`] : TPktList TPktList -> TPLPair [ctor] .
+ops getFwd getBwd : TPLPair -> TPktList .
+eq getFwd([tpl0,tpl1]) = tpl0 .
+eq getBwd([tpl0,tpl1]) = tpl1 .
+
+sort FlowId .
+op fid : Address Address Nat -> FlowId [ctor] .
+
+sorts FlowItem FlowMap .
+subsort FlowItem < FlowMap .
+
+op _~>_ : FlowId TPLPair -> FlowItem [ctor] .
+op mtFlowMap : -> FlowMap [ctor] .
+op __ : FlowMap FlowMap -> FlowMap 
+          [ctor assoc comm id: mtFlowMap] .
+
+
+sort Vpt .
+sort ChanCl .
+
+op isVisAdr : Vpt Address -> Bool .
+--- scenario specific
+
+endfm
+
