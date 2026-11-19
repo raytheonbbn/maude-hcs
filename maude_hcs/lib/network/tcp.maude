@@ -1119,6 +1119,17 @@ mod TCP-ANALYTICAL-MODEL is
   op tcpDeliverySizes : Nat           FloatList -> NatList .
   eq tcpDeliverySizes(msgSize, deliveryTimes) =
     tcpDeliverySizes(msgSize, deliveryTimes, lenFL(deliveryTimes) > ceilDiv(msgSize, MSS-SIZE-BYTES)) .
+
+  --- Data packet sizes include handshake packets when present in deliveryTimes.
+  --- One header-only size per emitted ACK aligns with both ACK observation timelines.
+  sort PacketSizes .
+  op packetSizes : NatList NatList -> PacketSizes [ctor] .
+  op tcpDeliverySizes : Nat FloatList FloatList -> PacketSizes .
+  eq tcpDeliverySizes(msgSize, deliveryTimes, ackTimes:FloatList) =
+    packetSizes(tcpDeliverySizes(msgSize, deliveryTimes),
+                $makeDeliverySizes(lenFL(ackTimes:FloatList),
+                                   IP-HEADER-BYTES + TCP-HEADER-BYTES,
+                                   nilNatList)) .
 endm
 
 mod TCP_NODE is
