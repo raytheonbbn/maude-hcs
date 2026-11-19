@@ -114,6 +114,12 @@ op isPrivMsgReq : IrcMsg -> Bool .
 eq isPrivMsgReq(PrivMsgReq(ircName:IrcName, ircUser:IrcUserName, txt:String)) = true .
 eq isPrivMsgReq(ircMsg) = false [owise] .
 
+--- A flushed socket write may contain several IRC messages.
+op containsPrivMsgReq : IrcMsgList -> Bool .
+eq containsPrivMsgReq(emptyIrcMsgList) = false .
+eq containsPrivMsgReq(ircMsg ;; IRC_MSGS) =
+  isPrivMsgReq(ircMsg) or containsPrivMsgReq(IRC_MSGS) .
+
 op mkIrcByteSeqIface : Address Address Address  
                    -> Actor .
 eq mkIrcByteSeqIface(ifAddr,ircAddr,epAddr)
@@ -201,17 +207,17 @@ eq scheduleSpreadIrcMsgs(msg REST:Config)
 .
 
 crl [fromIrc2ep-dropped]:
-  {T, (to ifAddr from ircAddr : ircMsg)}
+  {T, (to ifAddr from ircAddr : IRC_MSGS)}
   < ifAddr : IrcByteSeqIface | attrs >
  =>
   < ifAddr : IrcByteSeqIface | attrs >
-  (if isPrivMsgReq(ircMsg)
+  (if containsPrivMsgReq(IRC_MSGS)
    then [0.0, (to ircAddr from ifAddr : ClientConnLost), 0]
    else null
    fi)
   if getLinkUp(attrs) == false
   /\ attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
-[print "(" T ") IrcIface " ifAddr " Link DOWN - dropped outgoing " ircMsg]
+[print "(" T ") IrcIface " ifAddr " Link DOWN - dropped outgoing " IRC_MSGS]
 .
 
 crl [fromEp2Irc]:

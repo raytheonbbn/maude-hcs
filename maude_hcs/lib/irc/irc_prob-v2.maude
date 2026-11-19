@@ -442,7 +442,7 @@ ceq [irc-action-not-understood] :
   .
 
 --- Connected and ready: send PrivMsgReq normally
-ceq ircExeAction(attrs,ircAddr,umAddr,"roommsg",aspec,j) 
+ceq ircExeAction(attrs,ircAddr,umAddr,"roommsg",aspec,j)
     =  {attrs2,smsgs,j1}
 if isClientConnectedAndReady(attrs) == true
 /\ jf(fl) := aspec["message_length_bytes"]
@@ -452,13 +452,13 @@ if isClientConnectedAndReady(attrs) == true
 /\ ircMsg := 
      genPrivMsgReq(ircAddr,ctr,userId,room,round(fl)) 
 /\ msg0 := to transport(rbAddr) from ircAddr : ircMsg
-/\ msg1 := to umAddr from ircAddr : actionR("ok")     
+/\ msg1 := to umAddr from ircAddr : actionR("ok")
 /\ {smsgs,j1} := delayMsgsX(j,msg0 msg1,null)
 /\ attrs2 := attrs0, msgCtr: s ctr
 .
 
 --- Disconnected or failing over: DROP outgoing IRC message (do NOT buffer)
-ceq ircExeAction(attrs,ircAddr,umAddr,"roommsg",aspec,j) 
+ceq ircExeAction(attrs,ircAddr,umAddr,"roommsg",aspec,j)
     =  {attrs2,smsgs,j1}
 if isClientConnectedAndReady(attrs) == false
 /\ cs := getConnState(attrs)
@@ -466,7 +466,7 @@ if isClientConnectedAndReady(attrs) == false
 /\ jf(fl) := aspec["message_length_bytes"]
 /\ js(room) := aspec["room"]
 /\ attrs0, msgCtr: ctr := attrs
-/\ msg1 := to umAddr from ircAddr : actionR("ok")     
+/\ msg1 := to umAddr from ircAddr : actionR("ok")
 /\ {smsgs,j1} := delayMsgsX(j,msg1,null)
 /\ attrs1 := incDroppedMsgCtr((attrs0, msgCtr: s ctr))
 /\ attrs2 := attrs1
@@ -489,7 +489,7 @@ if js(room) := aspec["room"]
 /\ attrs1, raceboatAddr: rbAddr := attrs
 /\ ircMsg :=  genJoinMsgReq(ircAddr,room) 
 /\ msg0 := to transport(rbAddr) from ircAddr : ircMsg
-/\ msg1 := to umAddr from ircAddr : actionR("ok")     
+/\ msg1 := to umAddr from ircAddr : actionR("ok")
 /\ {smsgs,j1} := delayMsgsX(j,msg0 msg1,null)
 .
 
@@ -1084,10 +1084,13 @@ if js(room) := aspec["room"]
                                                    IRC_SERVER_ADDR))
     /\ attrsTrans := refreshUser(attrs, makeIrcUserName(ircSourceAddr), T)
     /\ {smsgs,j1} := delayMsgsX(j, sessionReplies(attrs, msgs:Config), null)
-    *** Schedule the flush events, one per outgoing message.
-    /\ flushMsgs:Config := $scheduleFlushes(null, smsgs, IRC_SERVER_ADDR)
+    --- CP4 session writes retain their original scheduling (including peer
+    --- relays); ordinary IRC traffic keeps the upstream socket batching.
+    /\ flushMsgs:Config := (if replyEpoch(attrs, rbAddr) > 0 then smsgs
+                           else $scheduleFlushes(null, smsgs, IRC_SERVER_ADDR) fi)
     *** Buffer the outgoing messages, with a time of release.
-    /\ attrsNext := $bufferIrcMsgs(attrsTrans, smsgs, T)
+    /\ attrsNext := (if replyEpoch(attrs, rbAddr) > 0 then attrsTrans
+                     else $bufferIrcMsgs(attrsTrans, smsgs, T) fi)
     [ print "(" T ") IRC Server handling incoming chat " chatText " from " ircSourceAddr " to " ircName ", turning chat around w/ msgs "  msgs:Config ]
   .
 
@@ -1159,13 +1162,13 @@ if js(room) := aspec["room"]
   =>
   rCtr(j1)
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
-  smsgs    
+  smsgs
   *** For CP3, disable Pings.
   ***  [IRC-PING-INTV-S, (to IRC_SERVER_ADDR from IRC_SERVER_ADDR : PingTimeout(IRC_CLIENT_ADDR)), 0]
   if JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR) := incomingContent:Content
     /\ attrsTrans := registerIrcUser(unregisterRemoteIrcUserFromChannel(attrs, IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR),
                                      IRC_CHANNEL_NAME:IrcChannelName,
-                                     IRC_CLIENT_ADDR) 
+                                     IRC_CLIENT_ADDR)
 **** recording user connection address    
     /\ attrsTrans1 := registerIrcUserAddress(attrsTrans,
                         makeIrcUserName(IRC_CLIENT_ADDR),rbAddr)
