@@ -103,12 +103,15 @@ eq decodeIrcMsgs(
   = (to DST:Address from SRC:Address : IRC_MSG)
     decodeIrcMsgs(REST:Config)
 .
---- Spread the messages to schedule delivery a small delta apart, keep the
---- order.
-op scheduleSpreadIrcMsgs : Config -> Config .
-eq scheduleSpreadIrcMsgs(null) = null .
-eq scheduleSpreadIrcMsgs(msg REST:Config)
-  = [0.0001, msg, 0] scheduleSpreadIrcMsgs(REST:Config)
+--- Spread the messages to schedule delivery a small delta apart, this still
+--- risks changing the order because Config does not preserve it.
+op MSGSPREADS : -> Float .
+eq MSGSPREADS = 0.00005 .
+op $scheduleSpreadIrcMsgs : Config Float -> Config .
+eq $scheduleSpreadIrcMsgs(null, Any:Float) = null .
+eq $scheduleSpreadIrcMsgs(msg REST:Config, SPREAD_S:Float)
+  = [SPREAD_S:Float, msg, 0] $scheduleSpreadIrcMsgs(REST:Config,
+                                                    SPREAD_S:Float + MSGSPREADS)
 .
 
 rl [fromIrc2ep]:
@@ -131,7 +134,7 @@ crl [fromEp2Irc]:
     --- Translate multiple (or a single) byteseq(IrcMsg) into multiple messages
     --- with a single IrcMsg.
   if MSGS:Config := decodeIrcMsgs(unpackToMsgs(byteseq, ircAddr, byteSeq(epAddr)))
-    /\ smsgs := scheduleSpreadIrcMsgs(MSGS:Config)
+    /\ smsgs := $scheduleSpreadIrcMsgs(MSGS:Config, 0.)
     /\ IRC_MSGS := configToIrcMsgList(MSGS:Config)
     /\ mattrs1 := ircLogRcvd(mattrs, T, ircAddr, epAddr, IRC_MSGS)
   [ print "(" T ") IRC Iface transforms " byteseq " to IrcMsg." ]
