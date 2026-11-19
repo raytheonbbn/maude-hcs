@@ -109,7 +109,7 @@ mod NETWORK_NODE is
   vars map tcpConnxns tcpConnxnsNext MAP : Map{ConnxnHandle, AttributeSet} .
   vars name NAME : Name .
   vars count flowId j jLast jTrans msgSize COUNT ID CONNXN_ID : Nat .
-  vars sizeList SIZE_LIST : NatList .
+  vars sizeList ackSizeList SIZE_LIST : NatList .
   vars response RESPONSE : Response .
   vars query QUERY : Query .
   
@@ -456,8 +456,9 @@ mod NETWORK_NODE is
                                       NOW)
       /\ delay:Float := msgDelay(timeListAtDst)
       /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : CONTENT)
-      **** Get the packet size list.
-      /\ sizeList := tcpDeliverySizes(msgSize, timeListAtDst)
+      --- Get data and ACK packet sizes from the corresponding timelines.
+      /\ packetSizes(sizeList, ackSizeList)
+          := tcpDeliverySizes(msgSize, timeListAtDst, ackTimeListAtSender)
       --- Set forward flowBusy. Reverse flows have no flowBusy attribute.
       /\ flowAttrsLast := (setFlowBusy(flowAttrsTrans, true),
                            queuedMsgs: MSG_QUEUE,
@@ -467,7 +468,8 @@ mod NETWORK_NODE is
                            timesAtIxp: timeListAtIxp,
                            ackTimesAtIxp: ackTimeListAtIxp,
                            ackTimesAtSender: ackTimeListAtSender,
-                           sizes: sizeList)
+                           sizes: sizeList,
+                           ackSizes: ackSizeList)
     [ print "tcpSend " msg ]
   .
 
@@ -557,7 +559,8 @@ mod NETWORK_NODE is
                         timesAtIxp: timeListAtIxp,
                         ackTimesAtIxp: ackTimeListAtIxp,
                         ackTimesAtSender: ackTimeListAtSender,
-                        sizes: sizeList),
+                        sizes: sizeList,
+                        ackSizes: ackSizeList),
                        advAttrs,
                        MSG,
                        ID:Nat,
@@ -582,7 +585,8 @@ mod NETWORK_NODE is
                        timesAtIxp: timeListAtIxp,
                        ackTimesAtIxp: ackTimeListAtIxp,
                        ackTimesAtSender: ackTimeListAtSender,
-                       sizes: sizeList),
+                       sizes: sizeList,
+                       ackSizes: ackSizeList),
                       advAttrs,
                       null,
                       ID:Nat,
