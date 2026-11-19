@@ -103,13 +103,13 @@ mod NETWORK_NODE is
   vars CONTENT : Content .
   vars ackTimerMsgs msgs outMsgs scheduledMsgs MSGS : Config .
   vars ACK_DELAY NOW : Float .
-  vars timeListAtDst timeListAtIxp TIME_LIST : FloatList .
+  vars timeListAtDst timeListAtIxp ackTimeListAtIxp ackTimeListAtSender TIME_LIST : FloatList .
   vars msg msg_src_to_ixp msg_ixp_to_tgt outMsg request transportMsg MSG REQUEST : Msg .
   vars MSG_QUEUE : MsgQueue .
   vars map tcpConnxns tcpConnxnsNext MAP : Map{ConnxnHandle, AttributeSet} .
   vars name NAME : Name .
   vars count flowId j jLast jTrans msgSize COUNT ID CONNXN_ID : Nat .
-  vars sizeList SIZE_LIST : NatList .
+  vars sizeList ackSizeList SIZE_LIST : NatList .
   vars response RESPONSE : Response .
   vars query QUERY : Query .
   
@@ -442,7 +442,12 @@ mod NETWORK_NODE is
       /\ msgSize := getSize(CONTENT)
       /\ LINK_ATTRS_0 := getLinkData(msg_src_to_ixp)
       /\ LINK_ATTRS_1 := getLinkData(msg_ixp_to_tgt)
-      /\ (timePacketListAtDst: timeListAtDst, timePacketListAtIxp: timeListAtIxp, tcpState: flowAttrsTrans, nextJ: jTrans)
+      /\ (timePacketListAtDst: timeListAtDst,
+          timePacketListAtIxp: timeListAtIxp,
+          timeAckListAtIxp: ackTimeListAtIxp,
+          timeAckListAtSender: ackTimeListAtSender,
+          tcpState: flowAttrsTrans,
+          nextJ: jTrans)
             := getSegmentDistribution(j,
                                       MSG,
                                       LINK_ATTRS_0,
@@ -451,8 +456,9 @@ mod NETWORK_NODE is
                                       NOW)
       /\ delay:Float := msgDelay(timeListAtDst)
       /\ msg := (to REMOTE_ADDR from LOCAL_ADDR : CONTENT)
-      **** Get the packet size list.
-      /\ sizeList := tcpDeliverySizes(msgSize, timeListAtDst)
+      --- Get data and ACK packet sizes from the corresponding timelines.
+      /\ packetSizes(sizeList, ackSizeList)
+          := tcpDeliverySizes(msgSize, timeListAtDst, ackTimeListAtSender)
       --- Set forward flowBusy. Reverse flows have no flowBusy attribute.
       /\ flowAttrsLast := (setFlowBusy(flowAttrsTrans, true),
                            queuedMsgs: MSG_QUEUE,
@@ -460,7 +466,10 @@ mod NETWORK_NODE is
                            --- by the caller.
                            timesAtDst: timeListAtDst,
                            timesAtIxp: timeListAtIxp,
-                           sizes: sizeList)
+                           ackTimesAtIxp: ackTimeListAtIxp,
+                           ackTimesAtSender: ackTimeListAtSender,
+                           sizes: sizeList,
+                           ackSizes: ackSizeList)
     [ print "tcpSend " msg ]
   .
 
@@ -548,7 +557,10 @@ mod NETWORK_NODE is
   ceq writeToAdversary((flowAttrs,
                         timesAtDst: timeListAtDst,
                         timesAtIxp: timeListAtIxp,
-                        sizes: sizeList),
+                        ackTimesAtIxp: ackTimeListAtIxp,
+                        ackTimesAtSender: ackTimeListAtSender,
+                        sizes: sizeList,
+                        ackSizes: ackSizeList),
                        advAttrs,
                        MSG,
                        ID:Nat,
@@ -571,7 +583,10 @@ mod NETWORK_NODE is
   eq writeToAdversary((flowAttrs,
                        timesAtDst: timeListAtDst,
                        timesAtIxp: timeListAtIxp,
-                       sizes: sizeList),
+                       ackTimesAtIxp: ackTimeListAtIxp,
+                       ackTimesAtSender: ackTimeListAtSender,
+                       sizes: sizeList,
+                       ackSizes: ackSizeList),
                       advAttrs,
                       null,
                       ID:Nat,

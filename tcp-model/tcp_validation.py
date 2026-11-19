@@ -168,6 +168,32 @@ def process_pcap_arrivals(packets, isn, t0, num_segments):
                                     arrival_times[k_val] = (float(pkt.time) - t0) * 1000.0
     return arrival_times[1:]
 
+
+def process_pcap_acks(packets, isn, t0, num_segments):
+    """
+    Extracts per-segment cumulative ACK arrival times (in ms relative to t0).
+    For each segment k in 1..num_segments, records the timestamp of the first
+    arriving TCP ACK from 10.0.2.2 -> 10.0.1.1 whose acknowledgment number
+    covers segment k.
+    """
+    ack_times = [None] * (num_segments + 1)
+    if isn is not None and t0 is not None:
+        for pkt in packets:
+            if TCP in pkt and IP in pkt:
+                if pkt[IP].src == "10.0.2.2" and pkt[IP].dst == "10.0.1.1":
+                    flags = int(pkt[TCP].flags)
+                    # Must carry ACK flag (0x10) and not be SYN (0x02)
+                    if (flags & 0x10) and not (flags & 0x02):
+                        ack_seq = pkt[TCP].ack
+                        relative_ack = (ack_seq - (isn + 1)) % 4294967296
+                        if 0 < relative_ack <= (num_segments + 10) * 1448:
+                            acked_k = min(num_segments, relative_ack // 1448)
+                            pkt_ms = (float(pkt.time) - t0) * 1000.0
+                            for k_val in range(1, acked_k + 1):
+                                if ack_times[k_val] is None:
+                                    ack_times[k_val] = pkt_ms
+    return ack_times[1:]
+
 # ==============================================================================
 # Main Orchestration
 # ==============================================================================
@@ -218,7 +244,7 @@ if __name__ == "__main__":
                     if os.path.exists(f): os.remove(f)
                     
                 p_client = subprocess.Popen(["sudo", "ip", "netns", "exec", "ns_client", "tcpdump", "-i", "veth_c", "tcp", "port", str(port), "-w", client_pcap], stderr=subprocess.DEVNULL)
-                p_router = subprocess.Popen(["sudo", "ip", "netns", "exec", "ns_router", "tcpdump", "-i", "veth_r1", "tcp", "port", str(port), "-w", router_pcap], stderr=subprocess.DEVNULL)
+                p_router = subprocess.Popen(["sudo", "ip", "netns", "exec", "ns_router", "tcpdump", "-i", "any", "tcp", "port", str(port), "-w", router_pcap], stderr=subprocess.DEVNULL)
                 p_server = subprocess.Popen(["sudo", "ip", "netns", "exec", "ns_server", "tcpdump", "-i", "veth_s", "tcp", "port", str(port), "-w", server_pcap], stderr=subprocess.DEVNULL)
                 
                 time.sleep(1) 
@@ -258,17 +284,21 @@ if __name__ == "__main__":
                 if t0 is None or isn is None:
                     return None
 
-                first_hop_times = process_pcap_arrivals(r_pkts, isn, t0, num_segments)
-                dest_times      = process_pcap_arrivals(s_pkts, isn, t0, num_segments)
+                ixp_times        = process_pcap_arrivals(r_pkts, isn, t0, num_segments)
+                dest_times       = process_pcap_arrivals(s_pkts, isn, t0, num_segments)
+                ack_ixp_times    = process_pcap_acks(r_pkts, isn, t0, num_segments)
+                ack_sender_times = process_pcap_acks(c_pkts, isn, t0, num_segments)
 
                 for f in [client_pcap, router_pcap, server_pcap]:
                     if os.path.exists(f): os.remove(f)
 
-                valid_first = sum(1 for t in first_hop_times if t is not None)
-                valid_dest  = sum(1 for t in dest_times if t is not None)
+                valid_ixp        = sum(1 for t in ixp_times if t is not None)
+                valid_dest       = sum(1 for t in dest_times if t is not None)
+                valid_ack_ixp    = sum(1 for t in ack_ixp_times if t is not None)
+                valid_ack_sender = sum(1 for t in ack_sender_times if t is not None)
 
-                if valid_first > 0 and valid_dest > 0:
-                    return [first_hop_times, dest_times]
+                if valid_ixp > 0 and valid_dest > 0 and valid_ack_ixp > 0 and valid_ack_sender > 0:
+                    return [ixp_times, dest_times, ack_ixp_times, ack_sender_times]
                 else:
                     print(f"Missing packets in trial {trial_idx}.")
                     return None
@@ -294,34 +324,49 @@ if __name__ == "__main__":
 
     print("=== Generating Plot ===")
     
-    # Shape: (num_trials, 2 [hop1, dest], num_segments)
+    # Shape: (num_trials, 4 [ixp, dest, ack_ixp, ack_sender], num_segments)
+    # Also supports legacy cached arrays of shape (num_trials, 2, num_segments).
     trials_matrix = np.array(all_trials_data, dtype=float)
+    has_empirical_acks = trials_matrix.ndim == 3 and trials_matrix.shape[1] >= 4
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        emp_first_mean   = np.nanmean(trials_matrix[:, 0, :], axis=0)
-        emp_first_median = np.nanmedian(trials_matrix[:, 0, :], axis=0)
-        emp_first_p25    = np.nanpercentile(trials_matrix[:, 0, :], 25, axis=0)
-        emp_first_p75    = np.nanpercentile(trials_matrix[:, 0, :], 75, axis=0)
+        emp_ixp_mean   = np.nanmean(trials_matrix[:, 0, :], axis=0)
+        emp_ixp_median = np.nanmedian(trials_matrix[:, 0, :], axis=0)
+        emp_ixp_p25    = np.nanpercentile(trials_matrix[:, 0, :], 25, axis=0)
+        emp_ixp_p75    = np.nanpercentile(trials_matrix[:, 0, :], 75, axis=0)
         
         emp_dest_mean    = np.nanmean(trials_matrix[:, 1, :], axis=0)
         emp_dest_median  = np.nanmedian(trials_matrix[:, 1, :], axis=0)
         emp_dest_p25     = np.nanpercentile(trials_matrix[:, 1, :], 25, axis=0)
         emp_dest_p75     = np.nanpercentile(trials_matrix[:, 1, :], 75, axis=0)
 
+        if has_empirical_acks:
+            emp_ack_ixp_mean   = np.nanmean(trials_matrix[:, 2, :], axis=0)
+            emp_ack_ixp_median = np.nanmedian(trials_matrix[:, 2, :], axis=0)
+            emp_ack_ixp_p25    = np.nanpercentile(trials_matrix[:, 2, :], 25, axis=0)
+            emp_ack_ixp_p75    = np.nanpercentile(trials_matrix[:, 2, :], 75, axis=0)
+
+            emp_ack_snd_mean   = np.nanmean(trials_matrix[:, 3, :], axis=0)
+            emp_ack_snd_median = np.nanmedian(trials_matrix[:, 3, :], axis=0)
+            emp_ack_snd_p25    = np.nanpercentile(trials_matrix[:, 3, :], 25, axis=0)
+            emp_ack_snd_p75    = np.nanpercentile(trials_matrix[:, 3, :], 75, axis=0)
+
     N = num_segments
-    model_first, model_dest = [], []
+    model_ixp, model_dest, model_ack_ixp, model_ack_sender = [], [], [], []
     flights = {}
     
     for k in range(1, N + 1):
-        t_first_k, t_dest_k, f_k = expected_time_k(k)
-        model_first.append(t_first_k * 1000.0)
+        t_ixp_k, t_dest_k, t_ack_ixp_k, t_ack_sender_k, f_k = expected_time_k(k)
+        model_ixp.append(t_ixp_k * 1000.0)
         model_dest.append(t_dest_k * 1000.0)
+        model_ack_ixp.append(t_ack_ixp_k * 1000.0)
+        model_ack_sender.append(t_ack_sender_k * 1000.0)
         if f_k not in flights:
             flights[f_k] = []
         flights[f_k].append(k)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(12, 18), sharex=True)
     k_vals = list(range(1, N + 1))
     OWD_ms = OWD * 1000.0
 
@@ -334,21 +379,21 @@ if __name__ == "__main__":
             ax.axvspan(min_k - 0.5, max_k + 0.5, facecolor=color, alpha=0.5, label=label)
 
     # --------------------------------------------------------------------------
-    # Subplot 1: First-Hop Arrivals
+    # Subplot 1: IXP Data Arrivals
     # --------------------------------------------------------------------------
     # The pcaps already include physical network delays. We apply a uniform 
     # alignment offset (50ms) to both hops to account for the model's TLS handshake 
     # start time (80ms) vs the empirical start time (30ms).
     alignment_offset = 50.0
 
-    ax1.plot(k_vals, model_first, label='Model First-Hop ($E[T_{k, first}]$)', color='blue', linewidth=2)
-    ax1.plot(k_vals, emp_first_mean + alignment_offset, label='Empirical First-Hop (Mean)', color='red', linewidth=2)
-    ax1.plot(k_vals, emp_first_median + alignment_offset, label='Empirical First-Hop (Median)', color='darkred', linestyle='--', linewidth=1.5)
-    ax1.fill_between(k_vals, emp_first_p25 + alignment_offset, emp_first_p75 + alignment_offset, color='red', alpha=0.2, label='Empirical 25th-75th %ile')
+    ax1.plot(k_vals, model_ixp, label='Model IXP ($E[T_{k, ixp}]$)', color='blue', linewidth=2)
+    ax1.plot(k_vals, emp_ixp_mean + alignment_offset, label='Empirical IXP (Mean)', color='red', linewidth=2)
+    ax1.plot(k_vals, emp_ixp_median + alignment_offset, label='Empirical IXP (Median)', color='darkred', linestyle='--', linewidth=1.5)
+    ax1.fill_between(k_vals, emp_ixp_p25 + alignment_offset, emp_ixp_p75 + alignment_offset, color='red', alpha=0.2, label='Empirical 25th-75th %ile')
     
     add_flight_spans(ax1)
     ax1.set_ylabel('Relative Arrival Time (ms)', fontsize=11)
-    ax1.set_title('First-Hop Arrival Times (Link 1 Router Ingress)', fontsize=12, fontweight='bold')
+    ax1.set_title('IXP Data Arrival Times (Link 1 Router Ingress)', fontsize=12, fontweight='bold')
     ax1.grid(True, linestyle=':', alpha=0.7)
     
     handles1, labels1 = ax1.get_legend_handles_labels()
@@ -356,7 +401,7 @@ if __name__ == "__main__":
     ax1.legend(by_label1.values(), by_label1.keys(), loc='upper left')
 
     # --------------------------------------------------------------------------
-    # Subplot 2: Final Destination Arrivals
+    # Subplot 2: Final Destination Data Arrivals
     # --------------------------------------------------------------------------
     ax2.plot(k_vals, model_dest, label='Model Dest Arrival ($E[T_{k, dest}]$)', color='blue', linewidth=2)
     ax2.plot(k_vals, emp_dest_mean + alignment_offset, label='Empirical Dest (Mean)', color='red', linewidth=2)
@@ -364,16 +409,56 @@ if __name__ == "__main__":
     ax2.fill_between(k_vals, emp_dest_p25 + alignment_offset, emp_dest_p75 + alignment_offset, color='red', alpha=0.2, label='Empirical 25th-75th %ile')
     
     add_flight_spans(ax2)
-    ax2.set_xlabel('Segment Index ($k$)', fontsize=12)
     ax2.set_ylabel('Relative Arrival Time (ms)', fontsize=11)
-    ax2.set_title('Final Destination Arrival Times (Link 2 Server Ingress)', fontsize=12, fontweight='bold')
+    ax2.set_title('Final Destination Data Arrival Times (Link 2 Server Ingress)', fontsize=12, fontweight='bold')
     ax2.grid(True, linestyle=':', alpha=0.7)
 
     handles2, labels2 = ax2.get_legend_handles_labels()
     by_label2 = dict(zip(labels2, handles2))
     ax2.legend(by_label2.values(), by_label2.keys(), loc='upper left')
 
-    fig.suptitle(f'2-Hop TCP Delivery Validation ({len(all_trials_data)} Trials - L1: {args.tc_profile}, L2: {l2_prof})', fontsize=14, y=0.98)
+    # --------------------------------------------------------------------------
+    # Subplot 3: IXP ACK Arrivals
+    # --------------------------------------------------------------------------
+    ack_ixp_k_vals = [k for k, v in zip(k_vals, model_ack_ixp) if np.isfinite(v)]
+    ack_ixp_y_vals = [v for v in model_ack_ixp if np.isfinite(v)]
+    ax3.plot(ack_ixp_k_vals, ack_ixp_y_vals, label='Model IXP ACK Arrival ($E[T_{ack, k, ixp}]$)', color='blue', linewidth=2)
+    if has_empirical_acks:
+        ax3.plot(k_vals, emp_ack_ixp_mean + alignment_offset, label='Empirical IXP ACK (Mean)', color='red', linewidth=2)
+        ax3.plot(k_vals, emp_ack_ixp_median + alignment_offset, label='Empirical IXP ACK (Median)', color='darkred', linestyle='--', linewidth=1.5)
+        ax3.fill_between(k_vals, emp_ack_ixp_p25 + alignment_offset, emp_ack_ixp_p75 + alignment_offset, color='red', alpha=0.2, label='Empirical 25th-75th %ile')
+
+    add_flight_spans(ax3)
+    ax3.set_ylabel('Relative Arrival Time (ms)', fontsize=11)
+    ax3.set_title('IXP ACK Arrival Times (Router Reverse Path)', fontsize=12, fontweight='bold')
+    ax3.grid(True, linestyle=':', alpha=0.7)
+
+    handles3, labels3 = ax3.get_legend_handles_labels()
+    by_label3 = dict(zip(labels3, handles3))
+    ax3.legend(by_label3.values(), by_label3.keys(), loc='upper left')
+
+    # --------------------------------------------------------------------------
+    # Subplot 4: Sender ACK Arrivals
+    # --------------------------------------------------------------------------
+    ack_snd_k_vals = [k for k, v in zip(k_vals, model_ack_sender) if np.isfinite(v)]
+    ack_snd_y_vals = [v for v in model_ack_sender if np.isfinite(v)]
+    ax4.plot(ack_snd_k_vals, ack_snd_y_vals, label='Model Sender ACK Arrival ($E[T_{ack, k, sender}]$)', color='blue', linewidth=2)
+    if has_empirical_acks:
+        ax4.plot(k_vals, emp_ack_snd_mean + alignment_offset, label='Empirical Sender ACK (Mean)', color='red', linewidth=2)
+        ax4.plot(k_vals, emp_ack_snd_median + alignment_offset, label='Empirical Sender ACK (Median)', color='darkred', linestyle='--', linewidth=1.5)
+        ax4.fill_between(k_vals, emp_ack_snd_p25 + alignment_offset, emp_ack_snd_p75 + alignment_offset, color='red', alpha=0.2, label='Empirical 25th-75th %ile')
+
+    add_flight_spans(ax4)
+    ax4.set_xlabel('Segment Index ($k$)', fontsize=12)
+    ax4.set_ylabel('Relative Arrival Time (ms)', fontsize=11)
+    ax4.set_title('Sender ACK Arrival Times (Client Ingress)', fontsize=12, fontweight='bold')
+    ax4.grid(True, linestyle=':', alpha=0.7)
+
+    handles4, labels4 = ax4.get_legend_handles_labels()
+    by_label4 = dict(zip(labels4, handles4))
+    ax4.legend(by_label4.values(), by_label4.keys(), loc='upper left')
+
+    fig.suptitle(f'2-Hop TCP Data & ACK Delivery Validation ({len(all_trials_data)} Trials - L1: {args.tc_profile}, L2: {l2_prof})', fontsize=14, y=0.99)
     
     plt.tight_layout()
     plot_file = 'tcp_validation_plot.png'
@@ -381,4 +466,14 @@ if __name__ == "__main__":
     print(f"Plot successfully saved to {plot_file}")
 
     total_retrans = get_total_retransmissions()
+    model_unique_acks = len(ack_snd_y_vals)
     print(f"\n[MODEL OUTPUT] Total Expected Retransmissions (L1: '{args.tc_profile}', L2: '{l2_prof}'): {total_retrans:.2f}")
+    print(f"[MODEL OUTPUT] Expected Cumulative Delayed ACKs for {N} segments: {model_unique_acks}")
+    if has_empirical_acks:
+        emp_unique_acks_per_trial = [
+            len(np.unique(np.round(trial[3][np.isfinite(trial[3])], 6)))
+            for trial in trials_matrix
+        ]
+        print(f"[EMPIRICAL]    Mean Cumulative ACKs across {len(all_trials_data)} trials: {np.mean(emp_unique_acks_per_trial):.2f} (median: {np.median(emp_unique_acks_per_trial):.1f})")
+    else:
+        print("[NOTE] Cached .npy array only contains 2 channels (data arrivals); run without --cached to capture empirical ACK arrival times.")

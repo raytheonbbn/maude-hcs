@@ -66,8 +66,9 @@ def _evaluate_maude_transfer(request):
         raise RuntimeError(f'Maude could not parse transfer: {expression}')
     term.reduce()
     arguments = list(term.arguments())
-    if str(term.symbol()) != 'tlR' or len(arguments) != 3:
-        raise RuntimeError(f'Transfer did not reduce to tlR(destination, ixp, state): {term}')
+    if str(term.symbol()) != 'tlR' or len(arguments) != 5:
+        raise RuntimeError(
+            f'Transfer did not reduce to tlR(destination, ixp, ack_ixp, ack_sender, state): {term}')
 
     def flatten(node, operator, identity):
         symbol = str(node.symbol()).replace('`', '')
@@ -83,7 +84,7 @@ def _evaluate_maude_transfer(request):
                 for value in flatten(node, '_::_', 'nilFloatList')]
 
     fields = {}
-    for attribute in flatten(arguments[2], '_,_', 'noneAS'):
+    for attribute in flatten(arguments[4], '_,_', 'noneAS'):
         name = str(attribute.symbol())
         values = list(attribute.arguments())
         if name in fields or len(values) != 1:
@@ -100,6 +101,8 @@ def _evaluate_maude_transfer(request):
     return {
         'destination_times': times(arguments[0], 'destination arrival time'),
         'ixp_times': times(arguments[1], 'IXP arrival time'),
+        'ack_ixp_times': times(arguments[2], 'IXP ACK arrival time'),
+        'ack_sender_times': times(arguments[3], 'sender ACK arrival time'),
         'state': {
             'cwnd': fields['cwnd:_'], 'w_max': fields['wMax:_'],
             't_since': fields['tSince:_'], 'in_slow_start': fields['inSS:_'],
@@ -142,7 +145,7 @@ def _run_maude_subprocess(request):
 
 def get_maude_transfer(profile, num_bytes, is_new=True, state=None, *, start_time,
                        backend='auto'):
-    """Return data-segment destination times and the updated Python TcpState."""
+    """Return destination data times, IXP/sender ACK times, and updated TcpState."""
     expected_count = _segment_count(num_bytes)
     if backend not in ('auto', 'binding', 'subprocess'):
         raise ValueError(f'Unknown Maude backend: {backend}')
@@ -168,7 +171,8 @@ def get_maude_transfer(profile, num_bytes, is_new=True, state=None, *, start_tim
         if len(result[key]) != expected_full_count:
             raise RuntimeError(f'{key}: expected {expected_full_count} entries, got {len(result[key])}')
     times = result['destination_times'][5:] if is_new else result['destination_times']
-    return times, tcp_analytical_model.TcpState(**result['state'])
+    return (times, result['ack_ixp_times'], result['ack_sender_times'],
+            tcp_analytical_model.TcpState(**result['state']))
 
 
 # Arrival times are seconds; allow 1 ns absolute error plus small relative roundoff.
@@ -190,12 +194,14 @@ def _segment_count(num_bytes):
 def get_python_transfer(profile, num_bytes, is_new=True, state=None, *, start_time):
     num_segments = _segment_count(num_bytes)
     tcp_analytical_model.set_active_profile(profile)
-    _, t_dest, final_state = tcp_analytical_model.simulate_transfer(
+    _, t_dest, ack_ixp, ack_sender, final_state = tcp_analytical_model.simulate_transfer(
         num_segments, is_new=is_new, state=state, start_time=start_time)
-    return list(t_dest), final_state
+    return list(t_dest), list(ack_ixp), list(ack_sender), final_state
 
 
-def _compare_transfer(py_times, py_state, md_times, md_state, *, expected_segments, label):
+def _compare_transfer(py_times, py_state, md_times, md_state, *,
+                      py_ack_ixp, py_ack_sender, md_ack_ixp, md_ack_sender,
+                      expected_segments, label):
     if len(py_times) != expected_segments or len(md_times) != expected_segments:
         raise ValueError(
             f'{label}: expected {expected_segments} data arrivals; '
@@ -210,6 +216,30 @@ def _compare_transfer(py_times, py_state, md_times, md_state, *, expected_segmen
             raise ValueError(
                 f'{label}: segment {index} arrival differs: '
                 f'Python={py_time!r}, Maude={md_time!r}')
+
+    for location, py_acks, md_acks in (
+            ('IXP', py_ack_ixp, md_ack_ixp),
+            ('sender', py_ack_sender, md_ack_sender)):
+        if len(py_acks) != len(md_acks):
+            raise ValueError(
+                f'{label}: {location} ACK count differs: '
+                f'Python={len(py_acks)}, Maude={len(md_acks)}')
+        if not 1 <= len(py_acks) <= expected_segments:
+            raise ValueError(
+                f'{label}: {location} ACK count must be between 1 and '
+                f'{expected_segments}, got {len(py_acks)}')
+        for index, (py_ack, md_ack) in enumerate(zip(py_acks, md_acks), start=1):
+            if not math.isfinite(py_ack) or not math.isfinite(md_ack):
+                raise ValueError(f'{label}: nonfinite {location} ACK arrival at ACK {index}')
+            if not math.isclose(py_ack, md_ack, rel_tol=REL_TOL, abs_tol=ABS_TOL):
+                raise ValueError(
+                    f'{label}: {location} ACK {index} arrival differs: '
+                    f'Python={py_ack!r}, Maude={md_ack!r}')
+    for model, ixp_acks, sender_acks in (
+            ('Python', py_ack_ixp, py_ack_sender),
+            ('Maude', md_ack_ixp, md_ack_sender)):
+        if len(ixp_acks) != len(sender_acks):
+            raise ValueError(f'{label}: {model} IXP/sender ACK counts differ')
 
     for field in STATE_FIELDS:
         py_value = getattr(py_state, field)
@@ -233,7 +263,7 @@ def _compare_transfer(py_times, py_state, md_times, md_state, *, expected_segmen
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description='Compare Python and Maude destination arrival times and TCP state.')
+        description='Compare Python and Maude data/ACK arrival times, ACK counts, and TCP state.')
     parser.add_argument('--maude-backend', choices=('auto', 'binding', 'subprocess'),
                         default='auto', help='Maude execution path (default: auto)')
     parser.add_argument('--output', default=os.path.join(script_dir, 'maude_vs_python_comparison.png'),
@@ -261,15 +291,18 @@ def main(argv=None):
                 md_start = 0.0 if is_new else md_state.last_ack_time
                 if py_start is None or md_start is None:
                     raise ValueError(f'{label}: previous transfer did not return an ACK time')
-                py_times, py_state = get_python_transfer(
+                py_times, py_ack_ixp, py_ack_sender, py_state = get_python_transfer(
                     profile, num_bytes, is_new=is_new, state=py_state, start_time=py_start)
-                md_times, md_state = get_maude_transfer(
+                md_times, md_ack_ixp, md_ack_sender, md_state = get_maude_transfer(
                     profile, num_bytes, is_new=is_new, state=md_state, start_time=md_start,
                     backend=args.maude_backend)
                 max_diff = _compare_transfer(
                     py_times, py_state, md_times, md_state,
+                    py_ack_ixp=py_ack_ixp, py_ack_sender=py_ack_sender,
+                    md_ack_ixp=md_ack_ixp, md_ack_sender=md_ack_sender,
                     expected_segments=count, label=label)
                 print(f'PASS {label}: max arrival difference {max_diff:.6e} s; '
+                      f'{len(py_ack_sender)} ACKs and all ACK arrival times agree; '
                       'all six TCP state fields agree')
                 print(f'  Python final state: {py_state}')
                 print(f'  Maude  final state: {md_state}')
