@@ -1,0 +1,165 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Shared CP4 four-server / six-client topology for the smoke test and
+--- the archived simple_baseline replay. No workload or faults are scheduled here.
+
+set show advisories off .
+
+sload irc-mamodel-v2
+sload ../common/maude/irc-action-actor-v2.maude
+sload irc_prob-v2
+sload ircMonitor
+sload irc-session-interface
+sload irc-link-interface
+
+mod IRC-CP4-TEST-TOPOLOGY is
+  inc IRC-USER-ACTION-ACTOR-V2 .
+  inc IRC-MAMODEL-V2 .
+  inc IRC-V2 .
+  inc IRC-SESSION-INTERFACE .
+  inc IRC-LINK-INTERFACE .
+  inc IRC_MONITOR .
+
+  --- Global constants
+  eq MAModelMap = ("irc-test" |-> irc-mamodel-v2) .
+  eq noiseMax(msg:Msg) = 0.00001 .
+  eq IRC-STALE-DURATION-S = 30.0 .
+  eq IRC-PING-INTV-S = 10.0 .
+
+  --- -------------------------------------------------------------------------
+  --- CP4 Reference Architecture Addresses
+  --- 4 IRC Servers in tree topology:
+  ---   S1 <-> S2, S1 <-> S3, S2 <-> S4
+  --- 6 IRC Clients (Alice 1 .. Alice 6) each with Primary & Backup servers
+  --- -------------------------------------------------------------------------
+  ops ircSAd1 ircSAd2 ircSAd3 ircSAd4 : -> Address .
+  op ircMonAd : -> Address .
+
+  --- Server-to-server virtual endpoint addresses; records owned by their IRC servers
+  ops ifs12 ifs21 ifs13 ifs31 ifs24 ifs42 : -> Address .
+
+  --- Client addresses and UM addresses
+  ops ircCAd1 ircCAd2 ircCAd3 ircCAd4 ircCAd5 ircCAd6 : -> Address .
+  ops ircUAd1 ircUAd2 : -> Address .
+
+  --- Client-to-server primary (p) and backup (b) virtual endpoint pairs
+  --- Alice 1: Primary S1, Backup S2
+  ops ifc1p ifs1c1 ifc1b ifs2c1 : -> Address .
+  --- Alice 2: Primary S2, Backup S3
+  ops ifc2p ifs2c2 ifc2b ifs3c2 : -> Address .
+  --- Alice 3: Primary S4, Backup S2
+  ops ifc3p ifs4c3 ifc3b ifs2c3 : -> Address .
+  --- Alice 4: Primary S3, Backup S1
+  ops ifc4p ifs3c4 ifc4b ifs1c4 : -> Address .
+  --- Alice 5: Primary S1, Backup S4
+  ops ifc5p ifs1c5 ifc5b ifs4c5 : -> Address .
+  --- Alice 6: Primary S3, Backup S1
+  ops ifc6p ifs3c6 ifc6b ifs1c6 : -> Address .
+
+  --- -------------------------------------------------------------------------
+  --- Server actors own their incident server-to-server links
+  --- -------------------------------------------------------------------------
+  ops ircServer1 ircServer2 ircServer3 ircServer4 ircMonitor : -> Actor .
+  ops srvIf12 srvIf21 srvIf13 srvIf31 srvIf24 srvIf42 : -> IrcLinkTable .
+
+  --- S1 peers with S2 (via ifs12) and S3 (via ifs13)
+  eq ircServer1 = withCp4TestSessions(withIrcLinks(mkIrcServer(ircSAd1, (ifs12 ; ifs13)), srvIf12 srvIf13)) .
+  --- S2 peers with S1 (via ifs21) and S4 (via ifs24)
+  eq ircServer2 = withCp4TestSessions(withIrcLinks(mkIrcServer(ircSAd2, (ifs21 ; ifs24)), srvIf21 srvIf24)) .
+  --- S3 peers with S1 (via ifs31)
+  eq ircServer3 = withCp4TestSessions(withIrcLinks(mkIrcServer(ircSAd3, ifs31), srvIf31)) .
+  --- S4 peers with S2 (via ifs42)
+  eq ircServer4 = withCp4TestSessions(withIrcLinks(mkIrcServer(ircSAd4, ifs42), srvIf42)) .
+
+  eq srvIf12 = mkIrcLinkEndpoint(ifs12, ircSAd1, ifs21) .
+  eq srvIf21 = mkIrcLinkEndpoint(ifs21, ircSAd2, ifs12) .
+  eq srvIf13 = mkIrcLinkEndpoint(ifs13, ircSAd1, ifs31) .
+  eq srvIf31 = mkIrcLinkEndpoint(ifs31, ircSAd3, ifs13) .
+  eq srvIf24 = mkIrcLinkEndpoint(ifs24, ircSAd2, ifs42) .
+  eq srvIf42 = mkIrcLinkEndpoint(ifs42, ircSAd4, ifs24) .
+
+  eq ircMonitor = mkIrcMonitor(ircMonAd) .
+
+  op serverTreeConfig : -> Config .
+  eq serverTreeConfig =
+    ircServer1 ircServer2 ircServer3 ircServer4
+    ircMonitor
+  .
+
+  --- -------------------------------------------------------------------------
+  --- Primary/backup session endpoint records owned by the existing IRC actors
+  --- -------------------------------------------------------------------------
+  ops cIf1p sIf1c1 cIf1b sIf2c1 : -> IrcSessionTable .
+  ops cIf2p sIf2c2 cIf2b sIf3c2 : -> IrcSessionTable .
+  ops cIf3p sIf4c3 cIf3b sIf2c3 : -> IrcSessionTable .
+  ops cIf4p sIf3c4 cIf4b sIf1c4 : -> IrcSessionTable .
+  ops cIf5p sIf1c5 cIf5b sIf4c5 : -> IrcSessionTable .
+  ops cIf6p sIf3c6 cIf6b sIf1c6 : -> IrcSessionTable .
+
+  eq cIf1p  = mkIrcSessionEndpoint(ifc1p, ircCAd1, ifs1c1, true, ircCAd1) .
+  eq sIf1c1 = mkIrcSessionEndpoint(ifs1c1, ircSAd1, ifc1p, false, ircCAd1) .
+  eq cIf1b  = mkIrcSessionEndpoint(ifc1b, ircCAd1, ifs2c1, true, ircCAd1) .
+  eq sIf2c1 = mkIrcSessionEndpoint(ifs2c1, ircSAd2, ifc1b, false, ircCAd1) .
+
+  eq cIf2p  = mkIrcSessionEndpoint(ifc2p, ircCAd2, ifs2c2, true, ircCAd2) .
+  eq sIf2c2 = mkIrcSessionEndpoint(ifs2c2, ircSAd2, ifc2p, false, ircCAd2) .
+  eq cIf2b  = mkIrcSessionEndpoint(ifc2b, ircCAd2, ifs3c2, true, ircCAd2) .
+  eq sIf3c2 = mkIrcSessionEndpoint(ifs3c2, ircSAd3, ifc2b, false, ircCAd2) .
+
+  eq cIf3p  = mkIrcSessionEndpoint(ifc3p, ircCAd3, ifs4c3, true, ircCAd3) .
+  eq sIf4c3 = mkIrcSessionEndpoint(ifs4c3, ircSAd4, ifc3p, false, ircCAd3) .
+  eq cIf3b  = mkIrcSessionEndpoint(ifc3b, ircCAd3, ifs2c3, true, ircCAd3) .
+  eq sIf2c3 = mkIrcSessionEndpoint(ifs2c3, ircSAd2, ifc3b, false, ircCAd3) .
+
+  eq cIf4p  = mkIrcSessionEndpoint(ifc4p, ircCAd4, ifs3c4, true, ircCAd4) .
+  eq sIf3c4 = mkIrcSessionEndpoint(ifs3c4, ircSAd3, ifc4p, false, ircCAd4) .
+  eq cIf4b  = mkIrcSessionEndpoint(ifc4b, ircCAd4, ifs1c4, true, ircCAd4) .
+  eq sIf1c4 = mkIrcSessionEndpoint(ifs1c4, ircSAd1, ifc4b, false, ircCAd4) .
+
+  eq cIf5p  = mkIrcSessionEndpoint(ifc5p, ircCAd5, ifs1c5, true, ircCAd5) .
+  eq sIf1c5 = mkIrcSessionEndpoint(ifs1c5, ircSAd1, ifc5p, false, ircCAd5) .
+  eq cIf5b  = mkIrcSessionEndpoint(ifc5b, ircCAd5, ifs4c5, true, ircCAd5) .
+  eq sIf4c5 = mkIrcSessionEndpoint(ifs4c5, ircSAd4, ifc5b, false, ircCAd5) .
+
+  eq cIf6p  = mkIrcSessionEndpoint(ifc6p, ircCAd6, ifs3c6, true, ircCAd6) .
+  eq sIf3c6 = mkIrcSessionEndpoint(ifs3c6, ircSAd3, ifc6p, false, ircCAd6) .
+  eq cIf6b  = mkIrcSessionEndpoint(ifc6b, ircCAd6, ifs1c6, true, ircCAd6) .
+  eq sIf1c6 = mkIrcSessionEndpoint(ifs1c6, ircSAd1, ifc6b, false, ircCAd6) .
+
+  --- Test-only wiring: attach both client endpoints and each server's accepted
+  --- endpoints to their existing owners. This creates no transport actors.
+  var attrs : AttributeSet .
+  op withCp4TestSessions : Actor -> Actor .
+  eq withCp4TestSessions(< ircCAd1 : IrcClient | attrs >) =
+    withIrcSessions(< ircCAd1 : IrcClient | attrs >, cIf1p cIf1b) .
+  eq withCp4TestSessions(< ircCAd2 : IrcClient | attrs >) =
+    withIrcSessions(< ircCAd2 : IrcClient | attrs >, cIf2p cIf2b) .
+  eq withCp4TestSessions(< ircCAd3 : IrcClient | attrs >) =
+    withIrcSessions(< ircCAd3 : IrcClient | attrs >, cIf3p cIf3b) .
+  eq withCp4TestSessions(< ircCAd4 : IrcClient | attrs >) =
+    withIrcSessions(< ircCAd4 : IrcClient | attrs >, cIf4p cIf4b) .
+  eq withCp4TestSessions(< ircCAd5 : IrcClient | attrs >) =
+    withIrcSessions(< ircCAd5 : IrcClient | attrs >, cIf5p cIf5b) .
+  eq withCp4TestSessions(< ircCAd6 : IrcClient | attrs >) =
+    withIrcSessions(< ircCAd6 : IrcClient | attrs >, cIf6p cIf6b) .
+  eq withCp4TestSessions(< ircSAd1 : IrcServer | attrs >) =
+    withIrcSessions(< ircSAd1 : IrcServer | attrs >, sIf1c1 sIf1c4 sIf1c5 sIf1c6) .
+  eq withCp4TestSessions(< ircSAd2 : IrcServer | attrs >) =
+    withIrcSessions(< ircSAd2 : IrcServer | attrs >, sIf2c1 sIf2c2 sIf2c3) .
+  eq withCp4TestSessions(< ircSAd3 : IrcServer | attrs >) =
+    withIrcSessions(< ircSAd3 : IrcServer | attrs >, sIf3c2 sIf3c4 sIf3c6) .
+  eq withCp4TestSessions(< ircSAd4 : IrcServer | attrs >) =
+    withIrcSessions(< ircSAd4 : IrcServer | attrs >, sIf4c3 sIf4c5) .
+
+  --- -------------------------------------------------------------------------
+  --- Channel Lists per Client (matching reference_architecture_config.yaml)
+  --- -------------------------------------------------------------------------
+  ops chsAlice1 chsAlice2 chsAlice3 chsAlice4 chsAlice5 chsAlice6 : -> IrcChannelNameList .
+  eq chsAlice1 = makeIrcChannelName("#chat") :: makeIrcChannelName("#general") .
+  eq chsAlice2 = makeIrcChannelName("#chat") :: makeIrcChannelName("#random") .
+  eq chsAlice3 = makeIrcChannelName("#chat") :: makeIrcChannelName("#general") :: makeIrcChannelName("#random") .
+  eq chsAlice4 = makeIrcChannelName("#chat") :: makeIrcChannelName("#general") .
+  eq chsAlice5 = makeIrcChannelName("#general") :: makeIrcChannelName("#random") .
+  eq chsAlice6 = makeIrcChannelName("#chat") :: makeIrcChannelName("#general") .
+
+endm

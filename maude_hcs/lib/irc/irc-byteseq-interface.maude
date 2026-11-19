@@ -140,6 +140,39 @@ crl [fromEp2Irc]:
   [ print "(" T ") IRC Iface transforms " byteseq " to IrcMsg." ]
 .
 
+--- Stateless address-based translation, compatible with PWND-109.
+--- IRC actors retain reachability/session state outside this module.
+--- Indicate that this address handles ByteSeqs.
+op byteSeq  : Address -> Address [ctor] .
+--- Indicate that this address handles IrcMsg.
+op ircMsg   : Address -> Address [ctor] .
+
+rl [shared-fromIrc2ep]:
+  {T, (to byteSeq(epAddr) from ircAddr : IRC_MSGS)}
+  < monAddr : IrcMonitor | mattrs >
+ =>
+  < monAddr : IrcMonitor | ircLogSent(mattrs, T, epAddr, ircAddr, IRC_MSGS) >
+  [0., (to epAddr from ircMsg(ircAddr) : ircToByteseq(IRC_MSGS)), 0]
+  [ print "(" T ") IRC Iface transforms " IRC_MSGS " to byteseqs." ]
+.
+
+crl [shared-fromEp2Irc]:
+  rCtr(j)
+  {T, (to ircMsg(ircAddr) from epAddr : byteseq)}
+  < monAddr : IrcMonitor | mattrs >
+ =>
+  rCtr(j)
+  smsgs
+  < monAddr : IrcMonitor | mattrs1 >
+    --- Translate multiple (or a single) byteseq(IrcMsg) into multiple messages
+    --- with a single IrcMsg.
+  if MSGS:Config := decodeIrcMsgs(unpackToMsgs(byteseq, ircAddr, byteSeq(epAddr)))
+    /\ smsgs := scheduleSpreadIrcMsgs(MSGS:Config)
+    /\ IRC_MSGS := configToIrcMsgList(MSGS:Config)
+    /\ mattrs1 := ircLogRcvd(mattrs, T, ircAddr, epAddr, IRC_MSGS)
+  [ print "(" T ") IRC Iface transforms " byteseq " to IrcMsg." ]
+.
+
 endm
 
 mod TEST-IRC-BYTESEQ-INTERFACE is
