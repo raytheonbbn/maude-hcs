@@ -5,10 +5,10 @@
 --- from pwnd_pkg_v1_0_0_10022026. Uses session-aware CP4 transport and
 --- buffers failed local writes until connection recovery and channel rejoin.
 
-sload cp4-topology
+sload cp4_test_topology
 
 mod IRC-CP4-FAILOVER-BASELINE-TEST is
-  inc IRC-CP4-TOPOLOGY .
+  inc IRC-CP4-TEST-TOPOLOGY .
 
   --- -------------------------------------------------------------------------
   --- CP4 Failover Clients (Alice 1 .. Alice 6)
@@ -27,10 +27,10 @@ mod IRC-CP4-FAILOVER-BASELINE-TEST is
   --- Alice 1: Primary S1 (ifc1p), Backup S2 (ifc1b), pingTO=8.0, basePongTO=5.0
   --- Scheduled messages at t=2.0 (pre-failover on S1) and t=25.0 (23.0s later, post-failover on S2)
   eq ircClient1 =
-    mkIrcClient-cp4(ircCAd1, (ifc1p ; ifc1b), "alice1", chsAlice1, 8.0, 5.0,
+    withCp4TestSessions(mkIrcClient-cp4(ircCAd1, (ifc1p ; ifc1b), "alice1", chsAlice1, 8.0, 5.0,
       imd(2.0, "#chat", 64) ::
       imd(23.0, "#general", 72) ::
-      nilIMD) .
+      nilIMD)) .
 
   --- Alice 2: Primary S2 (ifc2p), Backup S3 (ifc2b), pingTO=30.0, basePongTO=5.0
   --- Scheduled messages:
@@ -39,41 +39,40 @@ mod IRC-CP4-FAILOVER-BASELINE-TEST is
   ---   3) dt=0.00005 (t~12.00005): another close-spaced input, retained if recovery blocks the send thread
   ---   4) dt=4.0 (t~16.0): later scheduled input; delivery depends on the current session
   eq ircClient2 =
-    mkIrcClient-cp4(ircCAd2, (ifc2p ; ifc2b), "alice2", chsAlice2, 30.0, 5.0,
+    withCp4TestSessions(mkIrcClient-cp4(ircCAd2, (ifc2p ; ifc2b), "alice2", chsAlice2, 30.0, 5.0,
       imd(3.0, "#chat", 60) ::
       imd(9.0, "#chat", 80) ::
       imd(0.00005, "#random", 90) ::
       imd(4.0, "#chat", 100) ::
-      nilIMD) .
+      nilIMD)) .
 
   --- Alice 3: Primary S4 (ifc3p), Backup S2 (ifc3b)
   eq ircClient3 =
-    mkIrcClient-cp4(ircCAd3, (ifc3p ; ifc3b), "alice3", chsAlice3, 30.0, 5.0,
+    withCp4TestSessions(mkIrcClient-cp4(ircCAd3, (ifc3p ; ifc3b), "alice3", chsAlice3, 30.0, 5.0,
       imd(4.0, "#random", 68) ::
       imd(24.0, "#chat", 84) ::
-      nilIMD) .
+      nilIMD)) .
 
   --- Alice 4: Primary S3 (ifc4p), Backup S1 (ifc4b)
   eq ircClient4 =
-    mkIrcClient-cp4(ircCAd4, (ifc4p ; ifc4b), "alice4", chsAlice4, 30.0, 5.0,
+    withCp4TestSessions(mkIrcClient-cp4(ircCAd4, (ifc4p ; ifc4b), "alice4", chsAlice4, 30.0, 5.0,
       imd(5.0, "#general", 64) ::
-      nilIMD) .
+      nilIMD)) .
 
   --- Alice 5: Primary S1 (ifc5p), Backup S4 (ifc5b)
   eq ircClient5 =
-    mkIrcClient-cp4(ircCAd5, (ifc5p ; ifc5b), "alice5", chsAlice5, 30.0, 5.0,
-      nilIMD) .
+    withCp4TestSessions(mkIrcClient-cp4(ircCAd5, (ifc5p ; ifc5b), "alice5", chsAlice5, 30.0, 5.0,
+      nilIMD)) .
 
   --- Alice 6: Primary S3 (ifc6p), Backup S1 (ifc6b)
   eq ircClient6 =
-    mkIrcClient-cp4(ircCAd6, (ifc6p ; ifc6b), "alice6", chsAlice6, 30.0, 5.0,
-      nilIMD) .
+    withCp4TestSessions(mkIrcClient-cp4(ircCAd6, (ifc6p ; ifc6b), "alice6", chsAlice6, 30.0, 5.0,
+      nilIMD)) .
 
   op baselineInitConfig : Nat -> Config .
   eq baselineInitConfig(j:Nat) =
     rCtr(j:Nat)
     serverTreeConfig
-    clientIfacesConfig
     ircClient1 ircClient2 ircClient3 ircClient4 ircClient5 ircClient6
 
     --- Initiate connections for all 6 clients

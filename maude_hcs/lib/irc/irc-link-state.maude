@@ -1,0 +1,70 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+--- Reachability belongs to the transport, independently of IRC serialization.
+sload ../common/maude/delay-drop-x.maude
+
+mod IRC-LINK-STATE is
+  inc DELAY-X .
+
+  vars endpoint peerEndpoint : Address .
+  var attrs : AttributeSet .
+  vars wasUp nowUp : Bool .
+  var scheduledDelay : Float .
+
+  --- Virtual endpoint records identify the local IRC actor and the remote
+  --- transport endpoint. They are routing addresses, not extra actors.
+  op localIrcAddress:_ : Address -> Attribute [ctor] .
+  op peerEndpointAddress:_ : Address -> Attribute [ctor] .
+
+  --- Whether traffic can cross this endpoint's network link. This models
+  --- reachability only; a partition need not immediately invalidate a socket.
+  op isLinkUp:_ : Bool -> Attribute [ctor] .
+  op getIsLinkUp : AttributeSet -> Bool .
+  eq getIsLinkUp((attrs, isLinkUp: nowUp)) = nowUp .
+  op setIsLinkUp : AttributeSet Bool -> AttributeSet .
+  eq setIsLinkUp((attrs, isLinkUp: wasUp), nowUp) = (attrs, isLinkUp: nowUp) .
+
+  --- A fault event changes one virtual endpoint's reachability. It is consumed
+  --- by the owning IRC client or server, never by an IRC/ByteSeq translator.
+  op SetLinkState : Bool -> Content [ctor] .
+
+  --- Schedule a bidirectional partition or repair after scheduledDelay simulation seconds.
+  --- The two endpoint records remain independent, so SetLinkState can also model
+  --- a one-sided fault. Repair does not replay dropped traffic or reopen sessions.
+  op mkDisconnect : Float Address Address -> Config .
+  eq mkDisconnect(scheduledDelay, endpoint, peerEndpoint) =
+    [scheduledDelay, (to endpoint from endpoint : SetLinkState(false)), 0]
+    [scheduledDelay, (to peerEndpoint from peerEndpoint : SetLinkState(false)), 0] .
+  op mkReconnect : Float Address Address -> Config .
+  eq mkReconnect(scheduledDelay, endpoint, peerEndpoint) =
+    [scheduledDelay, (to endpoint from endpoint : SetLinkState(true)), 0]
+    [scheduledDelay, (to peerEndpoint from peerEndpoint : SetLinkState(true)), 0] .
+endm

@@ -1,0 +1,170 @@
+--- MAUDE_HCS: maude_hcs
+---
+--- Software Markings (UNCLASS)
+--- Maude-HCS Software
+---
+--- Copyright (C) 2025 RTX BBN Technologies Inc. All Rights Reserved
+---
+--- The computer software and computer software documentation are licensed
+--- under the Apache License, Version 2.0 (the "License"); you may not use
+--- this file except in compliance with the License. A copy of the License
+--- is provided in the LICENSE file, but you may obtain a copy of the
+--- License at:  https://www.apache.org/licenses/LICENSE-2.0
+---
+--- The computer software and computer software documentation are based
+--- upon work supported by the Defense Advanced Research Projects Agency (DARPA)
+--- under Agreement No. HR00l 12590083.
+---
+--- This document does not contain technology or technical data controlled under
+--- either the U.S. International Traffic in Arms Regulations or the U.S. Export
+--- Administration Regulations.
+---
+--- DISTRIBUTION STATEMENT A: Approved for public release; distribution is
+--- unlimited.
+---
+--- Notice: Markings. Any reproduction of this computer software, computer
+--- software documentation, or portions thereof must also reproduce the markings
+--- contained herein. Refer to the provided NOTICE file.
+---
+--- MAUDE_HCS: end
+
+--- Server-to-server link transport, independent of IRC serialization.
+--- Each existing IRC server owns its endpoint records. No transport or
+--- translator actor is allocated per link; byteSeq/ircMsg use shared rules.
+sload irc-byteseq-interface
+sload irc-link-state
+sload common/_aux
+
+mod IRC-LINK-INTERFACE is
+  inc IRC-BYTESEQ-INTERFACE .
+  inc IRC-LINK-STATE .
+  inc IRC_NODE .
+
+  vars ownerAddr endpoint localIrc peerEndpoint senderAddr : Address .
+  vars ownerAttrs endpointAttrs : AttributeSet .
+  var endpoints : IrcLinkTable .
+  var nowUp : Bool .
+  var currentTime : Float .
+  vars randomCounter nextCounter : Nat .
+  var ircMessages : IrcMsgList .
+  var ircMessage : IrcMsg .
+  var bytes : ByteSeq .
+  var wireMessage : Msg .
+  var scheduledMessages : Config .
+
+  --- Endpoint IDs are routing keys, not actors. Every key occurs once and is
+  --- attached to the server named by its localIrcAddress attribute.
+  sort IrcLinkTable .
+  op emptyIrcLinkTable : -> IrcLinkTable [ctor] .
+  op __ : IrcLinkTable IrcLinkTable -> IrcLinkTable
+    [ctor assoc comm id: emptyIrcLinkTable] .
+  op linkEndpoint : Address AttributeSet -> IrcLinkTable [ctor] .
+  op linkEndpoints:_ : IrcLinkTable -> Attribute [ctor] .
+  op mkIrcLinkEndpoint : Address Address Address -> IrcLinkTable .
+  eq mkIrcLinkEndpoint(endpoint, localIrc, peerEndpoint) =
+    linkEndpoint(endpoint, (localIrcAddress: localIrc,
+      peerEndpointAddress: peerEndpoint, isLinkUp: true)) .
+
+  --- Attach a server's incident links without adding actors to the simulation.
+  op withIrcLinks : Actor IrcLinkTable -> Actor .
+  eq withIrcLinks(< ownerAddr : IrcServer | ownerAttrs >, endpoints) =
+    < ownerAddr : IrcServer | ownerAttrs, linkEndpoints: endpoints > .
+
+  --- Private routing tags let the shared translator return to the correct
+  --- endpoint. Network scheduling, faults and source-address restoration stay
+  --- here; the translator needs no per-link attributes or knowledge of these tags.
+  ops ircLinkOutput ircLinkInput : Address Address -> Address [ctor] .
+  --- Monitoring records the network endpoint/local IRC owner, not routing tags.
+  eq ircMonitorAddress(ircLinkOutput(endpoint, peerEndpoint)) = peerEndpoint .
+  eq ircMonitorAddress(ircLinkInput(endpoint, ownerAddr)) = ownerAddr .
+
+  --- Apply a partition/repair to exactly the addressed endpoint record.
+  rl [link-state]:
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, endpointAttrs) endpoints) >
+    {currentTime, (to endpoint from senderAddr : SetLinkState(nowUp))}
+  =>
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, setIsLinkUp(endpointAttrs, nowUp)) endpoints) >
+    [ print "(" currentTime ") IRC Link " endpoint " isLinkUp set to " nowUp ]
+  .
+
+  --- Translate a socket batch only while the outgoing link is reachable.
+  crl [link-encode]:
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, (endpointAttrs, localIrcAddress: ownerAddr, peerEndpointAddress: peerEndpoint)) endpoints) >
+    {currentTime, (to endpoint from ownerAddr : ircMessages)}
+  =>
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, (endpointAttrs, localIrcAddress: ownerAddr, peerEndpointAddress: peerEndpoint)) endpoints) >
+    {currentTime, (to byteSeq(ircLinkOutput(endpoint, peerEndpoint)) from ownerAddr : ircMessages)}
+    if getIsLinkUp(endpointAttrs)
+    [ print "(" currentTime ") IRC Link " endpoint " encoding " ircMessages ]
+  .
+
+  --- The shared translator has no link state. The owning server schedules the
+  --- encoded bytes using the same delay/jitter policy as the original adapter.
+  crl [link-send]:
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, (endpointAttrs,
+        peerEndpointAddress: peerEndpoint)) endpoints) >
+    {currentTime, (to ircLinkOutput(endpoint, peerEndpoint) from ircMsg(ownerAddr) : bytes)}
+    rCtr(randomCounter)
+  =>
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, (endpointAttrs,
+        peerEndpointAddress: peerEndpoint)) endpoints) >
+    rCtr(s randomCounter)
+    (if getIsLinkUp(endpointAttrs) then scheduledMessages else null fi)
+    if wireMessage := (to peerEndpoint from endpoint : bytes)
+      /\ {scheduledMessages, nextCounter} :=
+        (if trimAdapterJitter and delayType(wireMessage) == "Constant"
+         then {[overhead(wireMessage) + delayConst(wireMessage), wireMessage, 0], s randomCounter}
+         else delayMsgsX(randomCounter, wireMessage, null) fi)
+    [ print "(" currentTime ") IRC Link " endpoint " sending encoded batch" ]
+  .
+
+  --- A partition drops the entire batch; IRC peer messages do not produce a
+  --- client socket error. Client socket failures are modeled by session state.
+  crl [link-drop-outgoing]:
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, (endpointAttrs, localIrcAddress: ownerAddr, peerEndpointAddress: peerEndpoint)) endpoints) >
+    {currentTime, (to endpoint from ownerAddr : ircMessages)}
+  =>
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, (endpointAttrs, localIrcAddress: ownerAddr, peerEndpointAddress: peerEndpoint)) endpoints) >
+    if not getIsLinkUp(endpointAttrs)
+    [ print "(" currentTime ") IRC Link " endpoint " Link DOWN - dropped outgoing " ircMessages ]
+  .
+
+  --- Reachability is checked on arrival, before the shared decoder runs.
+  rl [link-receive]:
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, (endpointAttrs,
+        peerEndpointAddress: peerEndpoint)) endpoints) >
+    {currentTime, (to endpoint from peerEndpoint : bytes)}
+  =>
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, (endpointAttrs,
+        peerEndpointAddress: peerEndpoint)) endpoints) >
+    (if getIsLinkUp(endpointAttrs)
+     then {currentTime, (to ircMsg(ircLinkInput(endpoint, ownerAddr)) from peerEndpoint : bytes)}
+     else null fi)
+    [ print "(" currentTime ") IRC Link " endpoint " received bytes" ]
+  .
+
+  --- Restore the virtual endpoint as sender so the server can exclude its
+  --- ingress link when relaying to the other members of the server tree.
+  rl [link-deliver]:
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, (endpointAttrs,
+        peerEndpointAddress: peerEndpoint)) endpoints) >
+    {currentTime, (to ircLinkInput(endpoint, ownerAddr) from byteSeq(peerEndpoint) : ircMessage)}
+  =>
+    < ownerAddr : IrcServer | ownerAttrs,
+      linkEndpoints: (linkEndpoint(endpoint, (endpointAttrs,
+        peerEndpointAddress: peerEndpoint)) endpoints) >
+    {currentTime, (to ownerAddr from endpoint : ircMessage)}
+    [ print "(" currentTime ") IRC Link " endpoint " delivering " ircMessage ]
+  .
+endm

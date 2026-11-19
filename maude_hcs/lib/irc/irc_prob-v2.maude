@@ -245,7 +245,10 @@ mod IRC-V2 is
     genClientChannelJoins(ircAddr, rbAddr, chList) .
 
   op clientControl : AttributeSet IrcMsg -> Content .
-  eq clientControl((attrs, pingEpoch: ep), ircMsg) = ClientControl(ep, ircMsg) .
+  --- Epoch zero keeps legacy transports' plain IRC payloads. Once a connection
+  --- starts, the epoch envelope prevents an old session from changing liveness.
+  eq clientControl((attrs, pingEpoch: ep), ircMsg) =
+    (if ep == 0 then ircMsg else ClientControl(ep, ircMsg) fi) .
   eq clientControl(attrs, ircMsg) = ircMsg [owise] .
   op genClientChannelJoins : Address Address IrcChannelNameList Nat -> Config .
   eq genClientChannelJoins(ircAddr, rbAddr, emptyIrcChannelNameList, ep) = null .
@@ -321,7 +324,8 @@ mod IRC-V2 is
     {attrs, msgs [0.0, (to ircAddr from ircAddr : FlushClientQueue), 0]} .
 
   op validClientEndpoint : AttributeSet Address -> Bool .
-  eq validClientEndpoint((attrs, pingEpoch: ep), rbAddr) = rbAddr == getRaceboatAddr(attrs) .
+  eq validClientEndpoint((attrs, pingEpoch: ep), rbAddr) =
+    ep == 0 or rbAddr == getRaceboatAddr(attrs) .
   eq validClientEndpoint(attrs, rbAddr) = true [owise] .
 
   crl [irc-client-discard-old-endpoint]:
@@ -865,7 +869,14 @@ if js(room) := aspec["room"]
     < ircAddr : IrcClient | attrs, sendQueue: (queued(ircMsg) ++ queue), writePending: false >
     {T, (to ircAddr from ircAddr : FlushClientQueue)}
     => < ircAddr : IrcClient | attrs, sendQueue: (queued(ircMsg) ++ queue), writePending: true >
-       [0.0, (to transport(getRaceboatAddr(attrs)) from ircAddr : ClientWrite(getPingEpoch(attrs), ircMsg)), 0]
+       --- Epoch zero uses the idealized legacy transport: a local write always
+       --- succeeds and the translator receives a plain IRC message. Registered
+       --- sessions instead obtain completion/error feedback from session state.
+       (if getPingEpoch(attrs) == 0
+        then [0.0, (to transport(getRaceboatAddr(attrs)) from ircAddr : ircMsg), 0]
+             [0.0, (to ircAddr from getRaceboatAddr(attrs) : WriteAccepted(0, ircMsg)), 0]
+        else [0.0, (to transport(getRaceboatAddr(attrs)) from ircAddr : ClientWrite(getPingEpoch(attrs), ircMsg)), 0]
+        fi)
     if getConnState(attrs) == connected /\ isChannelsReady(attrs)
     [print "(" T ") IRC Client " ircAddr " send attempt " ircMsg] .
 
@@ -1004,7 +1015,7 @@ if js(room) := aspec["room"]
     /\ {smsgs, j1} := delayMsgsX(j, sessionReplies(attrs,
         createUserQuitMsgs(attrs, IRC_CLIENT_ADDR)
         createPeerSrvMsgs(IRC_SERVER_ADDR, getPeerServers(attrsNext), nullAddr, nullAddr,
-                         SrvQuit(IRC_CLIENT_ADDR, IRC_SERVER_ADDR))), null)
+                         Quit(nullAddr, IRC_CLIENT_ADDR, IRC_SERVER_ADDR))), null)
     [print "(" T ") IRC Server " IRC_SERVER_ADDR " expired session for " IRC_CLIENT_ADDR " epoch " ep] .
 
   --- A linked peer may already have moved this user to another server.
@@ -1052,7 +1063,7 @@ if js(room) := aspec["room"]
   .
 
   --- Handle incoming chat from local client: forward to all local users in the channel
-  --- AND forward SrvPrivMsg to linked peer servers in the server tree.
+  --- AND forward PrivMsgReq to linked peer servers in the server tree.
   crl [server-handle-incoming-chat]:
   rCtr(j)
   < IRC_SERVER_ADDR : IrcServer | attrs >
@@ -1078,7 +1089,7 @@ if js(room) := aspec["room"]
                                         getPeerServers(attrs),
                                         rbAddr,
                                         nullAddr,
-                                        SrvPrivMsg(ircName,
+                                        PrivMsgReq(ircName,
                                                    makeIrcUserName(ircSourceAddr),
                                                    chatText,
                                                    IRC_SERVER_ADDR))
@@ -1120,13 +1131,13 @@ if js(room) := aspec["room"]
     => < IRC_SERVER_ADDR : IrcServer | refreshUser(attrs, ircUserName, T) >
     if emptyIrcPayload(chatText) .
 
-  --- Handle server-to-server relayed chat (SrvPrivMsg): deliver to local channel members
+  --- Handle server-to-server relayed chat (PrivMsgReq): deliver to local channel members
   --- on this server and forward along remaining branches of the server tree.
   crl [server-handle-srv-privmsg]:
   rCtr(j)
   < IRC_SERVER_ADDR : IrcServer | attrs >
     {T, (to IRC_SERVER_ADDR from rbAddr :
-         SrvPrivMsg(ircName,
+         PrivMsgReq(ircName,
                     makeIrcUserName(ircSourceAddr),
                     chatText,
                     origSrvAddr))}
@@ -1145,16 +1156,16 @@ if js(room) := aspec["room"]
                                       getPeerServers(attrs),
                                       rbAddr,
                                       origSrvAddr,
-                                      SrvPrivMsg(ircName,
+                                      PrivMsgReq(ircName,
                                                  makeIrcUserName(ircSourceAddr),
                                                  chatText,
                                                  IRC_SERVER_ADDR))
   /\ {smsgs, j1} := delayMsgsX(j, sessionReplies(attrs, msgs:Config), null)
-  [print "(" T ") IRC Server " IRC_SERVER_ADDR " received SrvPrivMsg " chatText " from peer server " origSrvAddr " for channel " ircName ", forwarding to local clients and downstream peers."]
+  [print "(" T ") IRC Server " IRC_SERVER_ADDR " received PrivMsgReq " chatText " from peer server " origSrvAddr " for channel " ircName ", forwarding to local clients and downstream peers."]
   .
 
   --- Handle a local user joining a channel: register locally, send confirmation to joiner
-  --- and local channel members, and propagate SrvJoinChannel to linked peer servers.
+  --- and local channel members, and propagate JoinChannel to linked peer servers.
   crl [server-handle-join-channel]:
   rCtr(j)
   < IRC_SERVER_ADDR : IrcServer | attrs >
@@ -1182,21 +1193,21 @@ if js(room) := aspec["room"]
                                         getPeerServers(attrsNext),
                                         rbAddr,
                                         nullAddr,
-                                        SrvJoinChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                        JoinChannel(IRC_CHANNEL_NAME:IrcChannelName,
                                                        IRC_CLIENT_ADDR,
                                                        IRC_SERVER_ADDR))
    /\ {smsgs,j1} := delayMsgsX(j, sessionReplies(attrsNext, msgs:Config), null)
     [ print "(" T ") IRC Server " IRC_SERVER_ADDR " handling request for " IRC_CLIENT_ADDR " to join " IRC_CHANNEL_NAME:IrcChannelName " channel." ]
   .
 
-  --- Handle server-to-server channel join propagation (SrvJoinChannel)
+  --- Handle server-to-server channel join propagation (JoinChannel)
   --- If user failed over from this server to a remote server, remove them from local channelMap
   --- and record them in remoteChannelMap, notify local members, and propagate down the server tree.
   crl [server-handle-srv-join-channel]:
   rCtr(j)
   < IRC_SERVER_ADDR : IrcServer | attrs >
     {T, (to IRC_SERVER_ADDR from rbAddr :
-         SrvJoinChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR, origSrvAddr))}
+         JoinChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR, origSrvAddr))}
   =>
   rCtr(j1)
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
@@ -1216,11 +1227,11 @@ if js(room) := aspec["room"]
                                       getPeerServers(attrsNext),
                                       rbAddr,
                                       origSrvAddr,
-                                      SrvJoinChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                      JoinChannel(IRC_CHANNEL_NAME:IrcChannelName,
                                                      IRC_CLIENT_ADDR,
                                                      IRC_SERVER_ADDR))
   /\ {smsgs, j1} := delayMsgsX(j, sessionReplies(attrsNext, msgs:Config), null)
-  [print "(" T ") IRC Server " IRC_SERVER_ADDR " received SrvJoinChannel for " IRC_CLIENT_ADDR " in " IRC_CHANNEL_NAME:IrcChannelName " from peer server " origSrvAddr]
+  [print "(" T ") IRC Server " IRC_SERVER_ADDR " received JoinChannel for " IRC_CLIENT_ADDR " in " IRC_CHANNEL_NAME:IrcChannelName " from peer server " origSrvAddr]
   .
 
   --- Handle a user parting (leaving) a channel.
@@ -1244,7 +1255,7 @@ if js(room) := aspec["room"]
                                         getPeerServers(attrsTrans),
                                         rbAddr,
                                         nullAddr,
-                                        SrvPartChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                        PartChannel(IRC_CHANNEL_NAME:IrcChannelName,
                                                        IRC_CLIENT_ADDR,
                                                        IRC_SERVER_ADDR))
   /\ {smsgs,j1}  :=  delayMsgsX(j, sessionReplies(attrsTrans, msgs:Config), null)
@@ -1255,12 +1266,12 @@ if js(room) := aspec["room"]
   [ print "(" T ") IRC Server handling part channel for " IRC_CLIENT_ADDR ", sending " msgs:Config ]
   .
 
-  --- Handle server-to-server channel part propagation (SrvPartChannel)
+  --- Handle server-to-server channel part propagation (PartChannel)
   crl [server-handle-srv-part-channel]:
   rCtr(j)
   < IRC_SERVER_ADDR : IrcServer | attrs >
     {T, (to IRC_SERVER_ADDR from rbAddr :
-         SrvPartChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR, origSrvAddr))}
+         PartChannel(IRC_CHANNEL_NAME:IrcChannelName, IRC_CLIENT_ADDR, origSrvAddr))}
   =>
   rCtr(j1)
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
@@ -1276,17 +1287,17 @@ if js(room) := aspec["room"]
                                       getPeerServers(attrsNext),
                                       rbAddr,
                                       origSrvAddr,
-                                      SrvPartChannel(IRC_CHANNEL_NAME:IrcChannelName,
+                                      PartChannel(IRC_CHANNEL_NAME:IrcChannelName,
                                                      IRC_CLIENT_ADDR,
                                                      IRC_SERVER_ADDR))
   /\ {smsgs, j1} := delayMsgsX(j, sessionReplies(attrsNext, msgs:Config), null)
   .
 
-  --- Handle server-to-server Quit propagation (SrvQuit)
+  --- Handle server-to-server Quit propagation (Quit)
   crl [server-handle-srv-quit]:
   rCtr(j)
   < IRC_SERVER_ADDR : IrcServer | attrs >
-    {T, (to IRC_SERVER_ADDR from rbAddr : SrvQuit(IRC_CLIENT_ADDR, origSrvAddr))}
+    {T, (to IRC_SERVER_ADDR from rbAddr : Quit(DST_ADDR, IRC_CLIENT_ADDR, origSrvAddr))}
   =>
   rCtr(j1)
   < IRC_SERVER_ADDR : IrcServer | attrsNext >
@@ -1297,7 +1308,7 @@ if js(room) := aspec["room"]
                                       getPeerServers(attrsNext),
                                       rbAddr,
                                       origSrvAddr,
-                                      SrvQuit(IRC_CLIENT_ADDR, IRC_SERVER_ADDR))
+                                      Quit(nullAddr, IRC_CLIENT_ADDR, IRC_SERVER_ADDR))
   /\ {smsgs, j1} := delayMsgsX(j, sessionReplies(attrsNext, msgs:Config), null)
   .
 
@@ -1305,18 +1316,18 @@ if js(room) := aspec["room"]
   crl [server-handle-srv-ping]:
   rCtr(j)
   < IRC_SERVER_ADDR : IrcServer | attrs >
-    {T, (to IRC_SERVER_ADDR from rbAddr : SrvPing(origSrvAddr, IRC_SERVER_ADDR))}
+    {T, (to IRC_SERVER_ADDR from rbAddr : Ping(origSrvAddr, IRC_SERVER_ADDR))}
   =>
   rCtr(j1)
   < IRC_SERVER_ADDR : IrcServer | attrs >
   smsgs
-  if msg0 := (to transport(rbAddr) from IRC_SERVER_ADDR : SrvPong(IRC_SERVER_ADDR, origSrvAddr))
+  if msg0 := (to transport(rbAddr) from IRC_SERVER_ADDR : Pong(IRC_SERVER_ADDR, origSrvAddr))
   /\ {smsgs, j1} := delayMsgsX(j, sessionReplies(attrs, msg0), null)
   .
 
   rl [server-handle-srv-pong]:
   < IRC_SERVER_ADDR : IrcServer | attrs >
-    {T, (to IRC_SERVER_ADDR from rbAddr : SrvPong(origSrvAddr, IRC_SERVER_ADDR))}
+    {T, (to IRC_SERVER_ADDR from rbAddr : Pong(origSrvAddr, IRC_SERVER_ADDR))}
   =>
   < IRC_SERVER_ADDR : IrcServer | attrs >
   .

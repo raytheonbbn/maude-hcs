@@ -125,27 +125,32 @@ eq ircLogRcvd(mattrs, T, epAddr, ircAddr, ircMsg ;; ircMsgs)
                 ircMsgs)
 .
 
+--- Transport routing tags may specialize this hook to retain the physical
+--- endpoint/IRC addresses in observations. Ordinary addresses are unchanged.
+op ircMonitorAddress : Address -> Address .
+eq ircMonitorAddress(addr) = addr [owise] .
+
 op genMTS : Float Address Address Content 
             -> MessageTimestampList .
 eq genMTS(GT,addr0,addr1,c:Content)
          = nilMessageTimestampList [owise] .
 ceq genMTS(GT,addr0,addr1, c:Content)
      = 
-   messageTimestamp(GT, addr1, addr0, getSize(c:Content),
+   messageTimestamp(GT, ircMonitorAddress(addr1), ircMonitorAddress(addr0), getSize(c:Content),
                     IRC_NAME, stringHash(TEXT))
  if PrivMsgReq(IRC_NAME,IRC_USER_NAME,TEXT) := c:Content
    .
 ceq genMTS(GT,addr0,addr1,c:Content)
    =
- messageTimestamp(GT, addr1, addr0, getSize(c:Content),
+ messageTimestamp(GT, ircMonitorAddress(addr1), ircMonitorAddress(addr0), getSize(c:Content),
                   IRC_NAME, stringHash(TEXT))
   if PrivMsgRes(IRC_NAME,IRC_USER_NAME,TEXT) := c:Content
   .
 ceq genMTS(GT,addr0,addr1,c:Content)
    =
- messageTimestamp(GT, addr1, addr0, getSize(c:Content),
+ messageTimestamp(GT, ircMonitorAddress(addr1), ircMonitorAddress(addr0), getSize(c:Content),
                   IRC_NAME, stringHash(TEXT))
-  if SrvPrivMsg(IRC_NAME,IRC_USER_NAME,TEXT,srvAddr) := c:Content
+  if PrivMsgReq(IRC_NAME,IRC_USER_NAME,TEXT,srvAddr) := c:Content
   .
 
 endm

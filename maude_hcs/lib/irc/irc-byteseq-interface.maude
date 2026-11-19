@@ -85,40 +85,6 @@ eq getSize(pack(byteseq)) = getSize(byteseq) .
 op IrcByteSeqIface : -> ActorType .
 op ircAddress:_  : Address -> Attribute [ctor] .
 op epAddress:_  : Address -> Attribute [ctor] .  --- tunnel
-op linkUp:_ : Bool -> Attribute [ctor] .
-
-op SetLinkState : Bool -> Content [ctor] .
-
-op getLinkUp : AttributeSet -> Bool .
-eq getLinkUp((attrs, linkUp: b:Bool)) = b:Bool .
-eq getLinkUp(attrs) = true [owise] .
-
-op setLinkUp : AttributeSet Bool -> AttributeSet .
-eq setLinkUp((attrs, linkUp: b0:Bool), b:Bool) = (attrs, linkUp: b:Bool) .
-eq setLinkUp(attrs, b:Bool) = (attrs, linkUp: b:Bool) [owise] .
-
---- Helpers to schedule disconnect / reconnect of a bidirectional interface pair at time dt
-op mkDisconnect : Float Address Address -> Config .
-eq mkDisconnect(dt:Float, if1:Address, if2:Address) =
-  [dt:Float, (to if1:Address from if1:Address : SetLinkState(false)), 0]
-  [dt:Float, (to if2:Address from if2:Address : SetLinkState(false)), 0]
-.
-
-op mkReconnect : Float Address Address -> Config .
-eq mkReconnect(dt:Float, if1:Address, if2:Address) =
-  [dt:Float, (to if1:Address from if1:Address : SetLinkState(true)), 0]
-  [dt:Float, (to if2:Address from if2:Address : SetLinkState(true)), 0]
-.
-
-op isPrivMsgReq : IrcMsg -> Bool .
-eq isPrivMsgReq(PrivMsgReq(ircName:IrcName, ircUser:IrcUserName, txt:String)) = true .
-eq isPrivMsgReq(ircMsg) = false [owise] .
-
---- A flushed socket write may contain several IRC messages.
-op containsPrivMsgReq : IrcMsgList -> Bool .
-eq containsPrivMsgReq(emptyIrcMsgList) = false .
-eq containsPrivMsgReq(ircMsg ;; IRC_MSGS) =
-  isPrivMsgReq(ircMsg) or containsPrivMsgReq(IRC_MSGS) .
 
 op mkIrcByteSeqIface : Address Address Address  
                    -> Actor .
@@ -126,40 +92,8 @@ eq mkIrcByteSeqIface(ifAddr,ircAddr,epAddr)
    =
    < ifAddr : IrcByteSeqIface | 
       ircAddress: ircAddr,  --- wants ircMsg
-      epAddress: epAddr,    --- wants bytseq
-      linkUp: true
+      epAddress: epAddr    --- wants bytseq
       >  .
-
-rl [iface-set-link-state]:
-  {T, (to ifAddr from srcAddr:Address : SetLinkState(b:Bool))}
-  < ifAddr : IrcByteSeqIface | attrs >
- =>
-  < ifAddr : IrcByteSeqIface | setLinkUp(attrs, b:Bool) >
-[print "(" T ") IrcIface " ifAddr " linkUp set to " b:Bool]
-.
-
---- Compatibility for CP4 clients using the legacy idealized byte adapter.
---- The session-aware adapter provides actual generation and socket semantics.
-rl [legacy-client-control]:
-  < ifAddr : IrcByteSeqIface | attrs >
-  {T, (to ifAddr from ircAddr : ClientControl(ep:Nat, ircMsg))}
-  => < ifAddr : IrcByteSeqIface | attrs > {T, (to ifAddr from ircAddr : ircMsg)} .
-rl [legacy-server-write]:
-  < ifAddr : IrcByteSeqIface | attrs >
-  {T, (to ifAddr from ircAddr : ServerWrite(ep:Nat, ircMsg))}
-  => < ifAddr : IrcByteSeqIface | attrs > {T, (to ifAddr from ircAddr : ircMsg)} .
-rl [legacy-retire-session]:
-  < ifAddr : IrcByteSeqIface | attrs >
-  {T, (to ifAddr from ircAddr : RetireSession(ep:Nat))}
-  => < ifAddr : IrcByteSeqIface | attrs > .
-rl [legacy-client-write]:
-  < ifAddr : IrcByteSeqIface | attrs >
-  {T, (to ifAddr from ircAddr : ClientWrite(ep:Nat, ircMsg))}
-  => < ifAddr : IrcByteSeqIface | attrs >
-     (if getLinkUp(attrs)
-      then [0.0, (to ircAddr from ifAddr : WriteAccepted(ep:Nat, ircMsg)), 0]
-           {T, (to ifAddr from ircAddr : ircMsg)}
-      else [0.0, (to ircAddr from ifAddr : WriteRejected(ep:Nat, ircMsg)), 0] fi) .
 
 crl [fromIrc2ep]:
   rCtr(j)
@@ -171,8 +105,7 @@ crl [fromIrc2ep]:
   < ifAddr : IrcByteSeqIface | attrs >
   < monAddr : IrcMonitor | mattrs1 >
   smsgs
-  if getLinkUp(attrs) == true
- /\ attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
+  if attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
   /\ msg := (to epAddr from ifAddr : ircToByteseq(IRC_MSGS))
   /\ {smsgs,j1} := (if trimAdapterJitter and delayType(msg) == "Constant"
       then {[overhead(msg) + delayConst(msg),msg,0], s j}
@@ -206,20 +139,6 @@ eq scheduleSpreadIrcMsgs(msg REST:Config)
   = [0.0001, msg, 0] scheduleSpreadIrcMsgs(REST:Config)
 .
 
-crl [fromIrc2ep-dropped]:
-  {T, (to ifAddr from ircAddr : IRC_MSGS)}
-  < ifAddr : IrcByteSeqIface | attrs >
- =>
-  < ifAddr : IrcByteSeqIface | attrs >
-  (if containsPrivMsgReq(IRC_MSGS)
-   then [0.0, (to ircAddr from ifAddr : ClientConnLost), 0]
-   else null
-   fi)
-  if getLinkUp(attrs) == false
-  /\ attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
-[print "(" T ") IrcIface " ifAddr " Link DOWN - dropped outgoing " IRC_MSGS]
-.
-
 crl [fromEp2Irc]:
   rCtr(j)
   {T, (to ifAddr from epAddr : byteseq)}
@@ -230,8 +149,7 @@ crl [fromEp2Irc]:
   smsgs
   < ifAddr : IrcByteSeqIface |  attrs >
   < monAddr : IrcMonitor | mattrs1 >
- if getLinkUp(attrs) == true
- /\ attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
+ if attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
    --- Translate multiple (or a single) byteseq(IrcMsg) into multiple messages
    --- with a single IrcMsg.
  /\ MSGS:Config := decodeIrcMsgs(unpackToMsgs(byteseq, ircAddr, ifAddr))
@@ -241,14 +159,38 @@ crl [fromEp2Irc]:
 
 [print "(" T ") " "IrcIface " ifAddr "  rcvd " byteseq ]  .
 
-crl [fromEp2Irc-dropped]:
-  {T, (to ifAddr from epAddr : byteseq)}
-  < ifAddr : IrcByteSeqIface | attrs >
+--- Stateless address-based translation, compatible with PWND-109.
+--- IRC actors retain reachability/session state outside this module.
+--- Indicate that this address handles ByteSeqs.
+op byteSeq  : Address -> Address [ctor] .
+--- Indicate that this address handles IrcMsg.
+op ircMsg   : Address -> Address [ctor] .
+
+rl [shared-fromIrc2ep]:
+  {T, (to byteSeq(epAddr) from ircAddr : IRC_MSGS)}
+  < monAddr : IrcMonitor | mattrs >
  =>
-  < ifAddr : IrcByteSeqIface | attrs >
- if getLinkUp(attrs) == false
- /\ attrs0, ircAddress: ircAddr, epAddress: epAddr := attrs
-[print "(" T ") IrcIface " ifAddr " Link DOWN - dropped incoming " byteseq] .
+  < monAddr : IrcMonitor | ircLogSent(mattrs, T, epAddr, ircAddr, IRC_MSGS) >
+  [0., (to epAddr from ircMsg(ircAddr) : ircToByteseq(IRC_MSGS)), 0]
+  [ print "(" T ") IRC Iface transforms " IRC_MSGS " to byteseqs." ]
+.
+
+crl [shared-fromEp2Irc]:
+  rCtr(j)
+  {T, (to ircMsg(ircAddr) from epAddr : byteseq)}
+  < monAddr : IrcMonitor | mattrs >
+ =>
+  rCtr(j)
+  smsgs
+  < monAddr : IrcMonitor | mattrs1 >
+    --- Translate multiple (or a single) byteseq(IrcMsg) into multiple messages
+    --- with a single IrcMsg.
+  if MSGS:Config := decodeIrcMsgs(unpackToMsgs(byteseq, ircAddr, byteSeq(epAddr)))
+    /\ smsgs := scheduleSpreadIrcMsgs(MSGS:Config)
+    /\ IRC_MSGS := configToIrcMsgList(MSGS:Config)
+    /\ mattrs1 := ircLogRcvd(mattrs, T, ircAddr, epAddr, IRC_MSGS)
+  [ print "(" T ") IRC Iface transforms " byteseq " to IrcMsg." ]
+.
 
 endm
 

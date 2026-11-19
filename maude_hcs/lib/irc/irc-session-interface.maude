@@ -4,221 +4,453 @@
 --- remote session elicits a reset; that write may succeed locally, later writes fail.
 --- This deliberately does not emulate TCP retransmission or packet-level loss.
 sload irc-byteseq-interface
+sload irc-link-state
 sload common/_aux
 
 mod IRC-SESSION-INTERFACE is
   inc IRC-BYTESEQ-INTERFACE .
+  inc IRC-LINK-STATE .
   inc IRC_NODE .
 
-  vars A B C U : Address .
-  vars AS AS1 : AttributeSet .
-  vars E F : Nat .
-  vars T D L P : Float .
-  vars M : IrcMsg .
-  vars K : Content .
-  vars R V X : Bool .
+  vars endpointAddr localIrcAddr peerEndpointAddr userAddr : Address .
+  vars endpointAttrs updatedAttrs : AttributeSet .
+  vars generation previousGeneration : Nat .
+  vars currentTime oneWayDelay lastInputTime pingTime registrationTime : Float .
+  var ircMessage : IrcMsg .
+  vars isClient isLive isBroken newLiveState newBrokenState isReachable : Bool .
 
-  op IrcSessionIface : -> ActorType [ctor] .
+  --- Existing IRC clients and servers own their session endpoint records,
+  --- including primary and backup connections. No additional actors are needed.
+  --- Endpoint addresses remain routing keys, with a unique key for each record.
+  --- A record's localIrcAddress must match the address of its owning IRC actor.
+  sort IrcSessionTable .
+  op emptyIrcSessionTable : -> IrcSessionTable [ctor] .
+  op __ : IrcSessionTable IrcSessionTable -> IrcSessionTable
+    [ctor assoc comm id: emptyIrcSessionTable] .
+  op sessionEndpoint : Address AttributeSet -> IrcSessionTable [ctor] .
+  --- Endpoint records owned by this IRC client or server.
+  op sessionEndpoints:_ : IrcSessionTable -> Attribute [ctor] .
+  var ownerAddr : Address .
+  var ownerType : ActorType .
+  var ownerAttrs : AttributeSet .
+  vars endpoints otherEndpoints : IrcSessionTable .
+  --- True for the client endpoint; false for its server-side peer.
   op clientSide:_ : Bool -> Attribute [ctor] .
+  --- Monotonic connection generation; rejects delayed traffic from old sessions.
   op sessionEpoch:_ : Nat -> Attribute [ctor] .
+  --- Whether this endpoint currently considers the remote session established.
   op sessionLive:_ : Bool -> Attribute [ctor] .
+  --- Locally observed socket failure; a partition alone does not set this.
   op socketBroken:_ : Bool -> Attribute [ctor] .
+  --- Client identity used for server expiration notices and per-client delay.
   op sessionUser:_ : Address -> Attribute [ctor] .
+  --- One-way transport delay in seconds for this connection.
   op wireDelay:_ : Float -> Attribute [ctor] .
+  --- Simulation time of the most recent server-side incoming message.
   op idleSince:_ : Float -> Attribute [ctor] .
+  --- Simulation time of the outstanding server ping; -1.0 means none.
   op pingSent:_ : Float -> Attribute [ctor] .
+  --- Server registration gate: defer ordinary input until this time.
   op registrationUntil:_ : Float -> Attribute [ctor] .
 
+  --- Wire envelopes carry the connection generation through delivery and reset.
   op SessionWire : Nat IrcMsg -> ByteSeq [ctor] .
   op SessionReset : Nat -> ByteSeq [ctor] .
   op SessionRetired : Nat -> ByteSeq [ctor] .
+  --- Internal events also carry the generation so old timers are harmless.
   op SessionCheck : Nat -> Content [ctor] .
   op ProcessSessionInput : Nat IrcMsg -> Content [ctor] .
 
-  --- Explicit simulation parameters, overridden by scenario input when available.
-  op cp4WireDelay : Address -> Float .
-  eq cp4WireDelay(A) = 0.001 [owise] .
-  op cp4HandshakeRoundTrips : -> Float .
-  eq cp4HandshakeRoundTrips = 4.0 .
-  op cp4RegistrationPenalty : -> Float .
-  eq cp4RegistrationPenalty = 1.0 .
-  op cp4ServerIdle : -> Float .
-  eq cp4ServerIdle = 10.0 .
-  op cp4ServerPongWait : -> Float .
-  eq cp4ServerPongWait = 20.0 .
-  op cp4ServerScan : -> Float .
-  eq cp4ServerScan = 1.0 .
+  --- Explicit defaults, in seconds except for the handshake round-trip count.
+  --- Scenarios can specialize DefaultWireDelay for particular client addresses.
+  op DefaultWireDelay : Address -> Float .
+  eq DefaultWireDelay(endpointAddr) = 0.001 [owise] .
+  op DefaultHandshakeRoundTrips : -> Float .
+  eq DefaultHandshakeRoundTrips = 4.0 .
+  op DefaultRegistrationPenalty : -> Float .
+  eq DefaultRegistrationPenalty = 1.0 .
+  op DefaultServerIdle : -> Float .
+  eq DefaultServerIdle = 10.0 .
+  op DefaultServerPongWait : -> Float .
+  eq DefaultServerPongWait = 20.0 .
+  op DefaultServerScan : -> Float .
+  eq DefaultServerScan = 1.0 .
 
-  op mkIrcSessionIface : Address Address Address Bool Address -> Actor .
-  eq mkIrcSessionIface(A, B, C, R, U) =
-    < A : IrcSessionIface | ircAddress: B, epAddress: C, linkUp: true,
-      clientSide: R, sessionEpoch: 0, sessionLive: false, socketBroken: false,
-      sessionUser: U, wireDelay: cp4WireDelay(U), idleSince: 0.0,
-      pingSent: -1.0, registrationUntil: 0.0 > .
+  --- Construct an inactive endpoint record; its owner opens it on connection.
+  op mkIrcSessionEndpoint : Address Address Address Bool Address -> IrcSessionTable .
+  eq mkIrcSessionEndpoint(endpointAddr, localIrcAddr, peerEndpointAddr, isClient, userAddr) =
+    sessionEndpoint(endpointAddr, (localIrcAddress: localIrcAddr, peerEndpointAddress: peerEndpointAddr,
+      isLinkUp: true,
+      clientSide: isClient, sessionEpoch: 0, sessionLive: false, socketBroken: false,
+      sessionUser: userAddr, wireDelay: DefaultWireDelay(userAddr), idleSince: 0.0,
+      pingSent: -1.0, registrationUntil: 0.0)) .
 
+  --- Attach connection state only to the IRC actor that owns these endpoints.
+  --- Keeping this state on clients/servers avoids an extra actor per connection.
+  op withIrcSessions : Actor IrcSessionTable -> Actor .
+  ceq withIrcSessions(< ownerAddr : IrcClient | ownerAttrs >, endpoints) =
+    < ownerAddr : IrcClient | ownerAttrs, sessionEndpoints: endpoints >
+    if sessionsOwnedBy(endpoints, ownerAddr) .
+  ceq withIrcSessions(< ownerAddr : IrcServer | ownerAttrs >, endpoints) =
+    < ownerAddr : IrcServer | ownerAttrs, sessionEndpoints: endpoints >
+    if sessionsOwnedBy(endpoints, ownerAddr) .
+
+  op sessionsOwnedBy : IrcSessionTable Address -> Bool .
+  eq sessionsOwnedBy(emptyIrcSessionTable, ownerAddr) = true .
+  eq sessionsOwnedBy(
+      sessionEndpoint(endpointAddr, (endpointAttrs, localIrcAddress: localIrcAddr))
+      otherEndpoints, ownerAddr) =
+    localIrcAddr == ownerAddr and sessionsOwnedBy(otherEndpoints, ownerAddr) .
+
+  --- Record accessors and updates retain all unrelated endpoint attributes.
   op epochOf : AttributeSet -> Nat .
-  eq epochOf((AS, sessionEpoch: E)) = E .
+  eq epochOf((endpointAttrs, sessionEpoch: generation)) = generation .
   op liveSession : AttributeSet -> Bool .
-  eq liveSession((AS, sessionLive: V)) = V .
+  eq liveSession((endpointAttrs, sessionLive: isLive)) = isLive .
   op brokenSocket : AttributeSet -> Bool .
-  eq brokenSocket((AS, socketBroken: V)) = V .
+  eq brokenSocket((endpointAttrs, socketBroken: isBroken)) = isBroken .
   op setSession : AttributeSet Nat Bool Bool -> AttributeSet .
-  eq setSession((AS, sessionEpoch: F, sessionLive: V, socketBroken: X), E, R, V1:Bool) =
-    (AS, sessionEpoch: E, sessionLive: R, socketBroken: V1:Bool) .
+  eq setSession((endpointAttrs, sessionEpoch: previousGeneration,
+                 sessionLive: isLive, socketBroken: isBroken),
+                generation, newLiveState, newBrokenState) =
+    (endpointAttrs, sessionEpoch: generation, sessionLive: newLiveState, socketBroken: newBrokenState) .
   op heardSession : AttributeSet Float -> AttributeSet .
-  eq heardSession((AS, idleSince: L, pingSent: P), T) = (AS, idleSince: T, pingSent: -1.0) .
+  eq heardSession((endpointAttrs, idleSince: lastInputTime, pingSent: pingTime), currentTime) =
+    (endpointAttrs, idleSince: currentTime, pingSent: -1.0) .
   op setPingSent : AttributeSet Float -> AttributeSet .
-  eq setPingSent((AS, pingSent: P), T) = (AS, pingSent: T) .
+  eq setPingSent((endpointAttrs, pingSent: pingTime), currentTime) =
+    (endpointAttrs, pingSent: currentTime) .
   op setRegistration : AttributeSet Float -> AttributeSet .
-  eq setRegistration((AS, registrationUntil: L), T) = (AS, registrationUntil: T) .
+  eq setRegistration((endpointAttrs, registrationUntil: registrationTime), currentTime) =
+    (endpointAttrs, registrationUntil: currentTime) .
   op isConnect : IrcMsg -> Bool .
-  eq isConnect(ClientConnect(U, E)) = true .
-  eq isConnect(M) = false [owise] .
+  eq isConnect(ClientConnect(userAddr, generation)) = true .
+  eq isConnect(ircMessage) = false [owise] .
   op isLivenessPing : IrcMsg -> Bool .
-  eq isLivenessPing(Ping(N:IrcUserName, U)) = true .
-  eq isLivenessPing(M) = false [owise] .
+  eq isLivenessPing(Ping(userName:IrcUserName, userAddr)) = true .
+  eq isLivenessPing(ircMessage) = false [owise] .
 
+  --- Change reachability independently of session/socket validity.
   rl [session-link-state]:
-    < A : IrcSessionIface | AS >
-    {T, (to A from B : SetLinkState(V))}
-    => < A : IrcSessionIface | setLinkUp(AS, V) > .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, endpointAttrs) otherEndpoints) >
+    {currentTime, (to endpointAddr from localIrcAddr : SetLinkState(isReachable))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, setIsLinkUp(endpointAttrs, isReachable)) otherEndpoints) >
+    [ print "(" currentTime ") IRC Session " endpointAddr " sets reachability to " isReachable ]
+  .
 
+  --- Start a newer client generation and model its handshake transport delay.
   crl [session-connect]:
-    < A : IrcSessionIface | AS, clientSide: true, ircAddress: B, epAddress: C, wireDelay: D >
-    {T, (to A from B : ClientConnect(U, E))}
-    => < A : IrcSessionIface | setSession(AS, E, true, false),
-         clientSide: true, ircAddress: B, epAddress: C, wireDelay: D >
-       (if getLinkUp(AS) then
-         [(1.0 + 2.0 * cp4HandshakeRoundTrips) * D,
-          (to C from A : SessionWire(E, ClientConnect(U, E))), 0]
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: true, localIrcAddress: localIrcAddr,
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+    {currentTime, (to endpointAddr from localIrcAddr : ClientConnect(userAddr, generation))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (setSession(endpointAttrs, generation, true, false),
+        clientSide: true, localIrcAddress: localIrcAddr,
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+       (if getIsLinkUp(endpointAttrs) then
+         [(1.0 + 2.0 * DefaultHandshakeRoundTrips) * oneWayDelay,
+          (to peerEndpointAddr from endpointAddr : SessionWire(generation, ClientConnect(userAddr,
+            generation))), 0]
         else null fi)
-    if E > epochOf(AS) .
+    if generation > epochOf(endpointAttrs)
+    [ print "(" currentTime ") IRC Session " endpointAddr " starts connection; epoch " generation ]
+  .
 
+  --- Ignore a connection request whose generation is no longer current.
   crl [session-obsolete-connect]:
-    < A : IrcSessionIface | AS >
-    {T, (to A from B : ClientConnect(U, E))}
-    => < A : IrcSessionIface | AS > if E <= epochOf(AS) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, endpointAttrs) otherEndpoints) >
+    {currentTime, (to endpointAddr from localIrcAddr : ClientConnect(userAddr, generation))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, endpointAttrs) otherEndpoints) >
+    if generation <= epochOf(endpointAttrs)
+    [ print "(" currentTime ") IRC Session " endpointAddr " ignores obsolete connection; epoch " generation ]
+  .
 
-  --- Teardown is local even during a partition. The peer learns it only if reachable.
+  --- Retire locally even during a partition; notify the peer only if reachable.
   crl [session-retire]:
-    < A : IrcSessionIface | AS, epAddress: C, wireDelay: D >
-    {T, (to A from B : RetireSession(E))}
-    => < A : IrcSessionIface | setSession(AS, E, false, true), epAddress: C, wireDelay: D >
-       (if getLinkUp(AS) then [D, (to C from A : SessionRetired(E)), 0] else null fi)
-    if E == epochOf(AS) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs,
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+    {currentTime, (to endpointAddr from localIrcAddr : RetireSession(generation))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (setSession(endpointAttrs, generation, false, true),
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+    (if getIsLinkUp(endpointAttrs)
+     then [oneWayDelay, (to peerEndpointAddr from endpointAddr : SessionRetired(generation)), 0]
+     else null fi)
+    if generation == epochOf(endpointAttrs)
+    [ print "(" currentTime ") IRC Session " endpointAddr " retires connection; epoch " generation ]
+  .
+
+  --- A delayed retirement must not close a newer connection.
   crl [session-retire-stale]:
-    < A : IrcSessionIface | AS > {T, (to A from B : RetireSession(E))}
-    => < A : IrcSessionIface | AS > if E =/= epochOf(AS) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, endpointAttrs) otherEndpoints) >
+    {currentTime, (to endpointAddr from localIrcAddr : RetireSession(generation))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, endpointAttrs) otherEndpoints) >
+    if generation =/= epochOf(endpointAttrs)
+    [ print "(" currentTime ") IRC Session " endpointAddr " ignores stale retirement; epoch " generation ]
+  .
 
+  --- A local write succeeds until an error is observed, even on a partitioned link.
   rl [session-write]:
-    < A : IrcSessionIface | AS, ircAddress: B >
-    {T, (to A from B : ClientWrite(E, M))}
-    => < A : IrcSessionIface | AS, ircAddress: B >
-       (if E == epochOf(AS) and liveSession(AS) and not brokenSocket(AS)
-        then [0.0, (to B from A : WriteAccepted(E, M)), 0]
-             [0.0, (to A from B : ClientControl(E, M)), 0]
-        else [0.0, (to B from A : WriteRejected(E, M)), 0] fi) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, localIrcAddress: localIrcAddr)) otherEndpoints) >
+    {currentTime, (to endpointAddr from localIrcAddr : ClientWrite(generation, ircMessage))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, localIrcAddress: localIrcAddr)) otherEndpoints) >
+       (if generation == epochOf(endpointAttrs) and liveSession(endpointAttrs) and not
+         brokenSocket(endpointAttrs)
+        then [0.0, (to localIrcAddr from endpointAddr : WriteAccepted(generation, ircMessage)), 0]
+             [0.0, (to endpointAddr from localIrcAddr : ClientControl(generation, ircMessage)), 0]
+        else [0.0, (to localIrcAddr from endpointAddr : WriteRejected(generation, ircMessage)), 0] fi)
+    [ print "(" currentTime ") IRC Session " endpointAddr " checks local write; epoch " generation ]
+  .
 
+  --- Send current-generation control traffic, or report a known failed ping.
   rl [session-client-control]:
-    < A : IrcSessionIface | AS, ircAddress: B, epAddress: C, wireDelay: D >
-    {T, (to A from B : ClientControl(E, M))}
-    => < A : IrcSessionIface | AS, ircAddress: B, epAddress: C, wireDelay: D >
-       (if E == epochOf(AS)
-        then (if liveSession(AS) and not brokenSocket(AS)
-              then (if getLinkUp(AS) then [D, (to C from A : SessionWire(E, M)), 0] else null fi)
-              else (if isLivenessPing(M) then [0.0, (to B from A : ClientConnLost(E)), 0] else null fi) fi)
-        else null fi) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, localIrcAddress: localIrcAddr,
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+    {currentTime, (to endpointAddr from localIrcAddr : ClientControl(generation, ircMessage))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, localIrcAddress: localIrcAddr,
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+       (if generation == epochOf(endpointAttrs)
+        then (if liveSession(endpointAttrs) and not brokenSocket(endpointAttrs)
+              then (if getIsLinkUp(endpointAttrs) then [oneWayDelay, (to peerEndpointAddr from endpointAddr
+                : SessionWire(generation, ircMessage)), 0] else null fi)
+              else (if isLivenessPing(ircMessage) then [0.0, (to localIrcAddr from endpointAddr :
+                ClientConnLost(generation)), 0] else null fi) fi)
+        else null fi)
+    [ print "(" currentTime ") IRC Session " endpointAddr " processes client control; epoch " generation ]
+  .
 
+  --- Transmit server output only for the current live, reachable connection.
   rl [session-server-write]:
-    < A : IrcSessionIface | AS, ircAddress: B, epAddress: C, wireDelay: D >
-    {T, (to A from B : ServerWrite(E, M))}
-    => < A : IrcSessionIface | AS, ircAddress: B, epAddress: C, wireDelay: D >
-       (if E == epochOf(AS) and liveSession(AS) and getLinkUp(AS)
-        then [D, (to C from A : SessionWire(E, M)), 0] else null fi) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, localIrcAddress: localIrcAddr,
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+    {currentTime, (to endpointAddr from localIrcAddr : ServerWrite(generation, ircMessage))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, localIrcAddress: localIrcAddr,
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+       (if generation == epochOf(endpointAttrs) and liveSession(endpointAttrs) and
+         getIsLinkUp(endpointAttrs)
+        then [oneWayDelay, (to peerEndpointAddr from endpointAddr : SessionWire(generation, ircMessage)), 0]
+          else null fi)
+    [ print "(" currentTime ") IRC Session " endpointAddr " processes server output; epoch " generation ]
+  .
 
+  --- Transmit ordinary protocol messages with the endpoint generation attached.
   crl [session-outgoing]:
-    < A : IrcSessionIface | AS, clientSide: R, ircAddress: B, epAddress: C, wireDelay: D >
-    {T, (to A from B : M)}
-    => < A : IrcSessionIface | AS, clientSide: R, ircAddress: B, epAddress: C, wireDelay: D >
-       (if liveSession(AS) and not brokenSocket(AS)
-        then (if getLinkUp(AS) then [D, (to C from A : SessionWire(epochOf(AS), M)), 0] else null fi)
-        else (if R and isLivenessPing(M)
-              then [0.0, (to B from A : ClientConnLost(epochOf(AS))), 0] else null fi) fi)
-    if not isConnect(M) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: isClient, localIrcAddress: localIrcAddr,
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+    {currentTime, (to endpointAddr from localIrcAddr : ircMessage)}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: isClient, localIrcAddress: localIrcAddr,
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+       (if liveSession(endpointAttrs) and not brokenSocket(endpointAttrs)
+        then (if getIsLinkUp(endpointAttrs) then [oneWayDelay, (to peerEndpointAddr from endpointAddr :
+          SessionWire(epochOf(endpointAttrs), ircMessage)), 0] else null fi)
+        else (if isClient and isLivenessPing(ircMessage)
+              then [0.0, (to localIrcAddr from endpointAddr : ClientConnLost(epochOf(endpointAttrs))), 0]
+                else null fi) fi)
+    if not isConnect(ircMessage)
+    [ print "(" currentTime ") IRC Session " endpointAddr " processes protocol output" ]
+  .
 
+  --- Accept a newer handshake, start the registration gate, and schedule idle scans.
   crl [session-server-open]:
-    < A : IrcSessionIface | AS, clientSide: false, ircAddress: B, epAddress: C >
-    {T, (to A from C : SessionWire(E, ClientConnect(U, E)))}
-    => < A : IrcSessionIface | setRegistration(heardSession(setSession(AS, E, true, false), T),
-            T + cp4RegistrationPenalty), clientSide: false, ircAddress: B, epAddress: C >
-       {T, (to B from A : ClientConnect(U, E))}
-       [cp4ServerScan, (to A from A : SessionCheck(E)), 0]
-    if getLinkUp(AS) /\ E > epochOf(AS) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: false, localIrcAddress: localIrcAddr,
+        peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+    {currentTime, (to endpointAddr from peerEndpointAddr : SessionWire(generation, ClientConnect(userAddr,
+      generation)))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr,
+        (setRegistration(heardSession(setSession(endpointAttrs, generation, true, false), currentTime),
+                         currentTime + DefaultRegistrationPenalty),
+         clientSide: false, localIrcAddress: localIrcAddr,
+         peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+       {currentTime, (to localIrcAddr from endpointAddr : ClientConnect(userAddr, generation))}
+       [DefaultServerScan, (to endpointAddr from endpointAddr : SessionCheck(generation)), 0]
+    if getIsLinkUp(endpointAttrs)
+      /\ generation > epochOf(endpointAttrs)
+    [ print "(" currentTime ") IRC Session " endpointAddr " opens server connection; epoch " generation ]
+  .
 
+  --- Activity refreshes the idle timer before registration-gated input is processed.
   crl [session-server-input]:
-    < A : IrcSessionIface | AS, clientSide: false, registrationUntil: L, epAddress: C >
-    {T, (to A from C : SessionWire(E, M))}
-    => < A : IrcSessionIface | heardSession(AS, T), clientSide: false, registrationUntil: L, epAddress: C >
-       [max(0.0, L - T), (to A from A : ProcessSessionInput(E, M)), 0]
-    if getLinkUp(AS) /\ liveSession(AS) /\ E == epochOf(AS) /\ not isConnect(M) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: false, registrationUntil: registrationTime,
+        peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+    {currentTime, (to endpointAddr from peerEndpointAddr : SessionWire(generation, ircMessage))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (heardSession(endpointAttrs, currentTime), clientSide: false,
+        registrationUntil: registrationTime, peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+       [max(0.0, registrationTime - currentTime), (to endpointAddr from endpointAddr :
+         ProcessSessionInput(generation, ircMessage)), 0]
+    if getIsLinkUp(endpointAttrs)
+      /\ liveSession(endpointAttrs)
+      /\ generation == epochOf(endpointAttrs)
+      /\ not isConnect(ircMessage)
+    [ print "(" currentTime ") IRC Session " endpointAddr " queues server input; epoch " generation ]
+  .
+
+  --- Recheck the generation after the registration delay before delivering input.
   rl [session-process-input]:
-    < A : IrcSessionIface | AS, ircAddress: B >
-    {T, (to A from A : ProcessSessionInput(E, M))}
-    => < A : IrcSessionIface | AS, ircAddress: B >
-       (if liveSession(AS) and E == epochOf(AS) then {T, (to B from A : M)} else null fi) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, localIrcAddress: localIrcAddr)) otherEndpoints) >
+    {currentTime, (to endpointAddr from endpointAddr : ProcessSessionInput(generation, ircMessage))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, localIrcAddress: localIrcAddr)) otherEndpoints) >
+       (if liveSession(endpointAttrs) and generation == epochOf(endpointAttrs) then {currentTime, (to
+         localIrcAddr from endpointAddr : ircMessage)} else null fi)
+    [ print "(" currentTime ") IRC Session " endpointAddr " processes queued input; epoch " generation ]
+  .
 
+  --- Deliver valid wire traffic with its generation for client-side stale checks.
   crl [session-client-input]:
-    < A : IrcSessionIface | AS, clientSide: true, ircAddress: B, epAddress: C >
-    {T, (to A from C : SessionWire(E, M))}
-    => < A : IrcSessionIface | AS, clientSide: true, ircAddress: B, epAddress: C >
-       {T, (to B from A : SessionDelivery(E, M))}
-    if getLinkUp(AS) /\ liveSession(AS) /\ not brokenSocket(AS) /\ E == epochOf(AS) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: true, localIrcAddress: localIrcAddr,
+        peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+    {currentTime, (to endpointAddr from peerEndpointAddr : SessionWire(generation, ircMessage))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: true, localIrcAddress: localIrcAddr,
+        peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+       {currentTime, (to localIrcAddr from endpointAddr : SessionDelivery(generation, ircMessage))}
+    if getIsLinkUp(endpointAttrs)
+      /\ liveSession(endpointAttrs)
+      /\ not brokenSocket(endpointAttrs)
+      /\ generation == epochOf(endpointAttrs)
+    [ print "(" currentTime ") IRC Session " endpointAddr " delivers client input; epoch " generation ]
+  .
 
-  --- The failed network packet is not a failed send call. Feedback arrives later.
+  --- Traffic to a closed remote session elicits a delayed reset, not a send failure.
   crl [session-closed-peer-reset]:
-    < A : IrcSessionIface | AS, clientSide: false, epAddress: C, wireDelay: D >
-    {T, (to A from C : SessionWire(E, M))}
-    => < A : IrcSessionIface | AS, clientSide: false, epAddress: C, wireDelay: D >
-       [D, (to C from A : SessionReset(E)), 0]
-    if getLinkUp(AS) /\ not liveSession(AS) /\ E == epochOf(AS) /\ not isConnect(M) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: false,
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+    {currentTime, (to endpointAddr from peerEndpointAddr : SessionWire(generation, ircMessage))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: false,
+        peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
+       [oneWayDelay, (to peerEndpointAddr from endpointAddr : SessionReset(generation)), 0]
+    if getIsLinkUp(endpointAttrs)
+      /\ not liveSession(endpointAttrs)
+      /\ generation == epochOf(endpointAttrs)
+      /\ not isConnect(ircMessage)
+    [ print "(" currentTime ") IRC Session " endpointAddr " returns closed-session reset; epoch " generation ]
+  .
 
+  --- Discard traffic on a failed link, obsolete generations, or closed client sockets.
   crl [session-discard-wire]:
-    < A : IrcSessionIface | AS, clientSide: R, epAddress: C >
-    {T, (to A from C : SessionWire(E, M))}
-    => < A : IrcSessionIface | AS, clientSide: R, epAddress: C >
-    if not getLinkUp(AS)
-       or (R and (E =/= epochOf(AS) or not liveSession(AS) or brokenSocket(AS)))
-       or (not R and ((isConnect(M) and E <= epochOf(AS)) or (not isConnect(M) and E =/= epochOf(AS)))) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: isClient,
+        peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+    {currentTime, (to endpointAddr from peerEndpointAddr : SessionWire(generation, ircMessage))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: isClient,
+        peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+    if not getIsLinkUp(endpointAttrs)
+       or (isClient and (generation =/= epochOf(endpointAttrs) or not liveSession(endpointAttrs) or
+         brokenSocket(endpointAttrs)))
+       or (not isClient and ((isConnect(ircMessage) and generation <= epochOf(endpointAttrs)) or (not
+         isConnect(ircMessage) and generation =/= epochOf(endpointAttrs))))
+    [ print "(" currentTime ") IRC Session " endpointAddr " discards wire traffic; epoch " generation ]
+  .
 
+  --- A reachable reset for the current generation makes the socket failure observable.
   rl [session-reset]:
-    < A : IrcSessionIface | AS, epAddress: C >
-    {T, (to A from C : SessionReset(E))}
-    => < A : IrcSessionIface |
-         (if getLinkUp(AS) and E == epochOf(AS) then setSession(AS, E, false, true) else AS fi), epAddress: C > .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs,
+        peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+    {currentTime, (to endpointAddr from peerEndpointAddr : SessionReset(generation))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr,
+        ((if getIsLinkUp(endpointAttrs) and generation == epochOf(endpointAttrs)
+          then setSession(endpointAttrs, generation, false, true) else endpointAttrs fi),
+         peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+    [ print "(" currentTime ") IRC Session " endpointAddr " processes reset; epoch " generation ]
+  .
 
+  --- A valid peer retirement closes the session and removes its server membership.
   rl [session-peer-retired]:
-    < A : IrcSessionIface | AS, ircAddress: B, sessionUser: U, epAddress: C >
-    {T, (to A from C : SessionRetired(E))}
-    => < A : IrcSessionIface |
-         (if getLinkUp(AS) and E == epochOf(AS) then setSession(AS, E, false, true) else AS fi),
-         ircAddress: B, sessionUser: U, epAddress: C >
-       (if getLinkUp(AS) and E == epochOf(AS)
-        then {T, (to B from A : SessionExpired(U, E))} else null fi) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, localIrcAddress: localIrcAddr, sessionUser: userAddr,
+        peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+    {currentTime, (to endpointAddr from peerEndpointAddr : SessionRetired(generation))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr,
+        ((if getIsLinkUp(endpointAttrs) and generation == epochOf(endpointAttrs)
+          then setSession(endpointAttrs, generation, false, true) else endpointAttrs fi),
+         localIrcAddress: localIrcAddr, sessionUser: userAddr,
+         peerEndpointAddress: peerEndpointAddr)) otherEndpoints) >
+       (if getIsLinkUp(endpointAttrs) and generation == epochOf(endpointAttrs)
+        then {currentTime, (to localIrcAddr from endpointAddr : SessionExpired(userAddr, generation))} else
+          null fi)
+    [ print "(" currentTime ") IRC Session " endpointAddr " processes peer retirement; epoch " generation ]
+  .
 
+  --- Ping an idle session, then expire it if the pong deadline passes.
   crl [session-server-idle]:
-    < A : IrcSessionIface | AS, ircAddress: B, sessionUser: U, idleSince: L, pingSent: P >
-    {T, (to A from A : SessionCheck(E))}
-    => < A : IrcSessionIface | AS1, ircAddress: B, sessionUser: U, idleSince: L >
-       (if P >= 0.0 and T >= P + cp4ServerPongWait
-        then {T, (to B from A : SessionExpired(U, E))}
-        else [cp4ServerScan, (to A from A : SessionCheck(E)), 0]
-          (if P < 0.0 and T - L > cp4ServerIdle
-           then [0.0, (to A from B : Ping(makeIrcUserName(U), B)), 0] else null fi) fi)
-    if E == epochOf(AS) /\ liveSession(AS)
-    /\ AS1 := (if P >= 0.0 and T >= P + cp4ServerPongWait
-               then setSession((AS, pingSent: P), E, false, false)
-               else (AS, pingSent: (if P < 0.0 and T - L > cp4ServerIdle then T else P fi)) fi) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs, localIrcAddress: localIrcAddr, sessionUser: userAddr,
+        idleSince: lastInputTime, pingSent: pingTime)) otherEndpoints) >
+    {currentTime, (to endpointAddr from endpointAddr : SessionCheck(generation))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (updatedAttrs, localIrcAddress: localIrcAddr, sessionUser: userAddr,
+        idleSince: lastInputTime)) otherEndpoints) >
+       (if pingTime >= 0.0 and currentTime >= pingTime + DefaultServerPongWait
+        then {currentTime, (to localIrcAddr from endpointAddr : SessionExpired(userAddr, generation))}
+        else [DefaultServerScan, (to endpointAddr from endpointAddr : SessionCheck(generation)), 0]
+          (if pingTime < 0.0 and currentTime - lastInputTime > DefaultServerIdle
+           then [0.0, (to endpointAddr from localIrcAddr : Ping(makeIrcUserName(userAddr), localIrcAddr)),
+             0] else null fi) fi)
+    if generation == epochOf(endpointAttrs)
+      /\ liveSession(endpointAttrs)
+      /\ updatedAttrs := (if pingTime >= 0.0 and currentTime >= pingTime + DefaultServerPongWait
+               then setSession((endpointAttrs, pingSent: pingTime), generation, false, false)
+               else (endpointAttrs, pingSent: (if pingTime < 0.0 and currentTime - lastInputTime >
+                 DefaultServerIdle then currentTime else pingTime fi)) fi)
+    [ print "(" currentTime ") IRC Session " endpointAddr " checks server idle deadline; epoch " generation ]
+  .
+
+  --- Stop periodic checks once their generation is retired or superseded.
   crl [session-server-check-obsolete]:
-    < A : IrcSessionIface | AS > {T, (to A from A : SessionCheck(E))}
-    => < A : IrcSessionIface | AS > if E =/= epochOf(AS) or not liveSession(AS) .
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, endpointAttrs) otherEndpoints) >
+    {currentTime, (to endpointAddr from endpointAddr : SessionCheck(generation))}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, endpointAttrs) otherEndpoints) >
+    if generation =/= epochOf(endpointAttrs) or not liveSession(endpointAttrs)
+    [ print "(" currentTime ") IRC Session " endpointAddr " discards obsolete idle check; epoch " generation ]
+  .
+
 endm
