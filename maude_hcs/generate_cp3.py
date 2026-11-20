@@ -202,9 +202,9 @@ def parse_scenario_yaml(yaml_path):
     
     nodes_data = config.get("nodes", {})
     for node_type, n_info in nodes_data.items():
-        channel_cfg = n_info.get("channel_config", [{}])[0]
-        channel_raw = channel_cfg.get("channel", "")
-        channel = channel_map.get(channel_raw, channel_raw)
+        channel_cfg = n_info.get("channel_config", [{}])["primary"]
+        channel_ty = channel_cfg["channel"]["type"]
+        channel = channel_map.get(channel_ty, channel_ty)
         
         # Extract custom user models if present
         vars_cfg = channel_cfg.get("vars", {})
@@ -1431,7 +1431,10 @@ def gen_main_file(tgen_instances, networks, loss_profiles, hcs_profiles_by_chann
         L(f"                                   publicDnsAddr,")
         L(f"                                   IXP-DEFAULT-ADDR) .")
         L("")
-        
+    
+    print(hcs_client_ids["mastodon"])
+    print(hcs_quantity_by_channel["mastodon"])
+    print(hcs_profiles_by_channel["mastodon"])
     for idx, i in enumerate(hcs_client_ids["mastodon"]):
         profile = distribute_profiles(hcs_quantity_by_channel["mastodon"], hcs_profiles_by_channel["mastodon"])[idx]
         irc_key = f"irc-{profile.replace('_', '-')}"
