@@ -361,7 +361,7 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
                     times_ixp[k]  = t + OWD1 + i * SER1 + p_drop * dt_seg_recovery
                     times_dest[k] = t + OWD  + i * SER  + p_drop * dt_seg_recovery
                     flts[k]       = flt
-            seg += window_flight_size
+            seg += actual_flight_size
 
             if is_none:
                 dt = p0 * RTT + p_l * dt_rack
@@ -386,7 +386,9 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             t += dt
             flt += 1
 
-            W_next_ss = min(W_ss * 2, LOCAL_MAX_CWND)
+            # RFC 3465 Appropriate Byte Counting: cwnd grows by the number of
+            # segments actually sent and acknowledged in the flight.
+            W_next_ss = min(W_ss + actual_flight_size, LOCAL_MAX_CWND)
             p0_next, _, el_fwd_next, _ = _path.flight_stats_path(W_next_ss)
 
             if el_fwd >= 0.5 or el_fwd_next >= 0.5 or (seg + W_ss > BUFFER_CAPACITY) or window_flight_size >= LOCAL_MAX_CWND:
@@ -398,7 +400,7 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
         if exited_due_to_loss:
             in_slow_start = False
             p_l_last = 1.0 - last_p0
-            cwnd = max(2.0, min(last_p0 * float(W_ss * 2) + p_l_last * max(float(W_ss) * CUBIC_B, 2.0), LOCAL_MAX_CWND))
+            cwnd = max(2.0, min(last_p0 * float(W_next_ss) + p_l_last * max(float(W_ss) * CUBIC_B, 2.0), LOCAL_MAX_CWND))
             w_max = min(cwnd / CUBIC_B, LOCAL_MAX_CWND)
             t_since = 0.0
         else:
@@ -478,7 +480,9 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             else:
                 t_since += E_dt
 
-            w_reno = cwnd + (1.0 / max(1.0, cwnd))
+            # Flight-aggregated newly ACKed segment credit: a full window
+            # contributes one segment, a partial flight contributes proportionally less.
+            w_reno = cwnd + (actual_flight_size / max(1.0, cwnd))
             w_no   = max(_cubic_w(t_since, w_max), w_reno)
 
             cwnd_next = p0 * w_no + p_fast_or_tlp * (cwnd * CUBIC_B) + p_rto * 1.0
