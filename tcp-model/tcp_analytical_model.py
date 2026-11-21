@@ -268,10 +268,10 @@ def init_tcp_state():
 
 # ─────────────────────── Timeline Generation ───────────────────────
 
-def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, start_time=0.0):
+def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, start_time=0.0, flts=None):
     """
-    Computes expected ACK arrival times at the IXP and the Sender under Linux QuickACK
-    and Delayed ACKs (net/ipv4/tcp_input.c & net/ipv4/tcp_output.c).
+    Computes expected ACK arrival times at the IXP and the Sender under Linux QuickACK,
+    Delayed ACKs, and reverse-path ACK loss (net/ipv4/tcp_input.c & net/ipv4/tcp_output.c).
 
     In Linux TCP:
       - On the first data segment of a new connection (icsk_ack.ato == 0 in
@@ -292,9 +292,15 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
         if not (or at the end of the transfer), the timer fires at `t_k + DELACK_MIN`.
       - Every emitted ACK calls tcp_event_ack_sent -> tcp_dec_quickack_mode(sk, 1),
         decrementing `quick = max(0, quick - 1)`.
+      - Reverse-path ACK loss:
+          * An interior ACK dropped on the reverse path (prob p2 before IXP, p_e2e before
+            Sender) is cumulatively covered by the next emitted ACK in the same flight.
+          * The final ACK of a flight dropped on the reverse path has no subsequent ACK in
+            that flight and waits for the sender's Tail Loss Probe (TLP) recovery.
     """
     ack_times_ixp    = np.full(max_k + 1, np.nan)
     ack_times_sender = np.full(max_k + 1, np.nan)
+    ack_depart       = np.full(max_k + 1, np.nan)
     ack_times_ixp[0]    = 0.0
     ack_times_sender[0] = 0.0
 
@@ -323,8 +329,7 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
 
         # If a pending delayed ACK timer expired before segment k arrived, emit it first
         if pending > 0 and deadline < t_k:
-            ack_times_ixp[last_k]    = deadline + OWD2
-            ack_times_sender[last_k] = deadline + OWD
+            ack_depart[last_k] = deadline
             quick = max(0, quick - 1)
             pending = 0
             deadline = None
@@ -341,22 +346,53 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
 
         # __tcp_ack_snd_check: immediate ACK if in quickack mode or >= 2 segments pending
         if quick > 0 or pending >= 2:
-            ack_times_ixp[k]    = t_k + OWD2
-            ack_times_sender[k] = t_k + OWD
+            ack_depart[k] = t_k
             quick = max(0, quick - 1)
             pending = 0
             deadline = None
         elif t_k >= deadline:
-            ack_times_ixp[k]    = deadline + OWD2
-            ack_times_sender[k] = deadline + OWD
+            ack_depart[k] = deadline
             quick = max(0, quick - 1)
             pending = 0
             deadline = None
 
     if pending > 0:
-        ack_times_ixp[last_k]    = deadline + OWD2
-        ack_times_sender[last_k] = deadline + OWD
+        ack_depart[last_k] = deadline
         quick = max(0, quick - 1)
+
+    # Apply reverse-path propagation and reverse-path ACK loss recovery
+    is_none = _path.drop_prob <= 1e-10
+    p_rev_ixp = 0.0 if is_none else _link2.drop_prob
+    p_rev_snd = 0.0 if is_none else _path.drop_prob
+    p_probe_ok = (1.0 - p_rev_snd) ** 2
+    p_probe_fail = 1.0 - p_probe_ok
+
+    emitted_ks = [k for k in range(1, max_k + 1) if np.isfinite(ack_depart[k])]
+    for idx, k in enumerate(emitted_ks):
+        t_dep = float(ack_depart[k])
+        has_next_in_flight = False
+        if idx + 1 < len(emitted_ks):
+            k_next = emitted_ks[idx + 1]
+            t_next = float(ack_depart[k_next])
+            if flts is not None and flts[k] > 0 and flts[k_next] > 0:
+                has_next_in_flight = (flts[k] == flts[k_next])
+            else:
+                has_next_in_flight = ((t_next - t_dep) <= DELACK_MIN)
+
+        if has_next_in_flight:
+            dt_ack_rec = max(0.0, float(ack_depart[emitted_ks[idx + 1]]) - t_dep)
+        else:
+            # Count segments in this flight to determine the single- vs multi-segment PTO
+            if flts is not None and flts[k] > 0:
+                flt_id = flts[k]
+                flt_size = int(np.sum(flts[1:max_k + 1] == flt_id))
+            else:
+                flt_size = 2 if idx > 0 else 1
+            pto_ack = _tlp_pto(max(1, flt_size))
+            dt_ack_rec = pto_ack + p_probe_ok * RTT + p_probe_fail * RTO_MIN
+
+        ack_times_ixp[k]    = t_dep + OWD2 + p_rev_ixp * dt_ack_rec
+        ack_times_sender[k] = t_dep + OWD  + p_rev_snd * dt_ack_rec
 
     return ack_times_ixp, ack_times_sender, quick
 
@@ -435,8 +471,10 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             dt_rack = (2.0 * RTT + RTT * RACK_FRAC) * (0.5 if is_none else 1.0)
             pto = _tlp_pto(actual_flight_size)
             p_drop = p_l if is_none else _path.drop_prob
-            dt_tlp_single = pto + (1.0 - p_drop) * RTT + p_drop * RTO_MIN
-            dt_tlp_multi = pto + (1.0 - p_drop) * (2.0 * RTT) + p_drop * RTO_MIN
+            p_probe_ok = (1.0 - p_drop) ** 2
+            p_probe_fail = 1.0 - p_probe_ok
+            dt_tlp_single = pto + p_probe_ok * RTT + p_probe_fail * RTO_MIN
+            dt_tlp_multi = pto + p_probe_ok * (2.0 * RTT) + p_probe_fail * RTO_MIN
 
             # Per-segment recovery:
             # If segment i is dropped, there are rem = actual_flight_size - 1 - i subsequent
@@ -444,7 +482,7 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             # RACK detects the loss after RTT + RTT * RACK_FRAC; if all subsequent segments are
             # also lost (p_drop^rem, including i == actual_flight_size - 1 where rem == 0),
             # recovery waits for the Tail Loss Probe (PTO), falling back to RTO_MIN if the
-            # TLP probe itself is also dropped.
+            # TLP probe or its reverse ACK is also dropped.
             dt_tlp_seg = dt_tlp_single * (0.5 if is_none else 1.0)
 
             for i in range(actual_flight_size):
@@ -462,20 +500,20 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             if is_none:
                 dt = p0 * RTT + p_l * dt_rack
             else:
-                # Flight-level RACK-TLP decomposition:
-                # Use the actual packet count F for recovery probabilities;
-                # p0 above remains the congestion-window statistic.
-                #   1. flight_p0 = (1 - p)^F: zero loss -> RTT
+                # Flight-level RACK-TLP decomposition (including reverse-path ACK loss):
+                #   1. flight_p0 = (1 - p)^F: zero forward loss -> RTT if final ACK survives
+                #      (prob 1 - p), or TLP recovery dt_tlp_single if final ACK is lost (prob p)
                 #   2. p_rack = (1 - p) - (1 - p)^F: interior loss(es), last segment arrives -> RACK
                 #   3. p_tlp_single = (1 - p)^(F - 1) * p: only last segment lost -> TLP probe
-                #      repairs directly in PTO + RTT (prob 1 - p), or PTO + RTO_MIN if probe dropped
+                #      repairs directly in PTO + RTT (prob (1 - p)^2), or PTO + RTO_MIN if probe/ACK dropped
                 #   4. p_tlp_multi = p - p_tlp_single: last segment + earlier segment(s) lost ->
-                #      TLP probe SACK triggers RACK recovery in PTO + 2*RTT (prob 1 - p), or PTO + RTO_MIN
+                #      TLP probe SACK triggers RACK recovery in PTO + 2*RTT (prob (1 - p)^2), or PTO + RTO_MIN
                 flight_p0 = (1.0 - p_drop) ** actual_flight_size
+                dt_zero_fwd = (1.0 - p_drop) * RTT + p_drop * dt_tlp_single
                 p_rack = max(0.0, (1.0 - p_drop) - flight_p0)
                 p_tlp_single = ((1.0 - p_drop) ** max(0, actual_flight_size - 1)) * p_drop
                 p_tlp_multi = max(0.0, p_drop - p_tlp_single)
-                dt = (flight_p0 * RTT
+                dt = (flight_p0 * dt_zero_fwd
                       + p_rack * dt_rack
                       + p_tlp_single * dt_tlp_single
                       + p_tlp_multi * dt_tlp_multi)
@@ -537,6 +575,8 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
                 p_rto = pa
             else:
                 p_drop = _path.drop_prob
+                p_probe_ok = (1.0 - p_drop) ** 2
+                p_probe_fail = 1.0 - p_probe_ok
                 # Timing uses the actual flight; window statistics p0/pa
                 # remain unchanged for the congestion update below.
                 pto = _tlp_pto(actual_flight_size)
@@ -544,15 +584,16 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
                 p_rack = max(0.0, (1.0 - p_drop) - flight_p0)
                 p_tlp_single = ((1.0 - p_drop) ** max(0, actual_flight_size - 1)) * p_drop
                 p_tlp_multi = max(0.0, p_drop - p_tlp_single)
-                dt_tlp_single = pto + (1.0 - p_drop) * RTT + p_drop * RTO_MIN
-                dt_tlp_multi = pto + (1.0 - p_drop) * (2.0 * RTT) + p_drop * RTO_MIN
-                E_dt_nominal = (flight_p0 * RTT
+                dt_tlp_single = pto + p_probe_ok * RTT + p_probe_fail * RTO_MIN
+                dt_tlp_multi = pto + p_probe_ok * (2.0 * RTT) + p_probe_fail * RTO_MIN
+                dt_zero_fwd = (1.0 - p_drop) * RTT + p_drop * dt_tlp_single
+                E_dt_nominal = (flight_p0 * dt_zero_fwd
                                 + p_rack * dt_rack
                                 + p_tlp_single * dt_tlp_single
                                 + p_tlp_multi * dt_tlp_multi)
                 # Under RACK-TLP, full RTO reset to cwnd=1 occurs when the entire flight
-                # AND its TLP probe are lost (pa * p_drop)
-                p_rto = pa * p_drop
+                # AND its TLP probe round-trip fail (pa * p_probe_fail)
+                p_rto = pa * p_probe_fail
                 p_fast_or_tlp = max(0.0, (1.0 - p0) - p_rto)
 
             serialized_segments = E_del if is_none else float(actual_flight_size)
@@ -586,7 +627,7 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             flt += 1
 
     ack_times_ixp, ack_times_sender, quickacks_left = _compute_delayed_ack_times(
-        times_dest, max_k, is_new=is_new, state=state, start_time=start_time)
+        times_dest, max_k, is_new=is_new, state=state, start_time=start_time, flts=flts)
 
     valid_dest = times_dest[np.isfinite(times_dest)]
     valid_ack_sender = ack_times_sender[np.isfinite(ack_times_sender)]
