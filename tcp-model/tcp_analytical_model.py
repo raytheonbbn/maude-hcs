@@ -293,10 +293,10 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
       - Every emitted ACK calls tcp_event_ack_sent -> tcp_dec_quickack_mode(sk, 1),
         decrementing `quick = max(0, quick - 1)`.
       - Reverse-path ACK loss:
-          * An interior ACK dropped on the reverse path (prob p2 before IXP, p_e2e before
-            Sender) is cumulatively covered by the next emitted ACK in the same flight.
-          * The final ACK of a flight dropped on the reverse path has no subsequent ACK in
-            that flight and waits for the sender's Tail Loss Probe (TLP) recovery.
+          * When an emitted ACK is dropped on the reverse path (prob p2 before IXP,
+            p_e2e before Sender), it is cumulatively covered by subsequent surviving
+            ACKs (even across flight boundaries) or repaired via the sender's Tail
+            Loss Probe (TLP), whichever completes first.
     """
     ack_times_ixp    = np.full(max_k + 1, np.nan)
     ack_times_sender = np.full(max_k + 1, np.nan)
@@ -306,20 +306,21 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
 
     if is_new:
         quick = TCP_MAX_QUICKACKS
+        prev_t = None
     else:
         quick = (int(state.quickacks_left)
                  if state is not None and getattr(state, 'quickacks_left', None) is not None
                  else 0)
         if (state is not None and state.last_send_time is not None
-                and state.last_ack_time is not None and start_time >= state.last_ack_time
-                and (start_time - state.last_send_time) > RTO_MIN):
-            quick = TCP_MAX_QUICKACKS
+                and state.last_ack_time is not None and start_time >= state.last_ack_time):
+            prev_t = (float(state.last_send_time) + OWD) - float(start_time)
+        else:
+            prev_t = None
 
     pending = 0
     deadline = None
     last_k = 0
     running_t = 0.0
-    prev_t = None
 
     for k in range(1, max_k + 1):
         if not np.isfinite(times_dest[k]):
@@ -368,31 +369,32 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
     p_probe_fail = 1.0 - p_probe_ok
 
     emitted_ks = [k for k in range(1, max_k + 1) if np.isfinite(ack_depart[k])]
-    for idx, k in enumerate(emitted_ks):
-        t_dep = float(ack_depart[k])
-        has_next_in_flight = False
-        if idx + 1 < len(emitted_ks):
-            k_next = emitted_ks[idx + 1]
-            t_next = float(ack_depart[k_next])
-            if flts is not None and flts[k] > 0 and flts[k_next] > 0:
-                has_next_in_flight = (flts[k] == flts[k_next])
-            else:
-                has_next_in_flight = ((t_next - t_dep) <= DELACK_MIN)
+    if emitted_ks:
+        eff_dep_ixp = np.zeros(len(emitted_ks), dtype=float)
+        eff_dep_snd = np.zeros(len(emitted_ks), dtype=float)
 
-        if has_next_in_flight:
-            dt_ack_rec = max(0.0, float(ack_depart[emitted_ks[idx + 1]]) - t_dep)
-        else:
-            # Count segments in this flight to determine the single- vs multi-segment PTO
+        for idx in range(len(emitted_ks) - 1, -1, -1):
+            k = emitted_ks[idx]
+            t_dep = float(ack_depart[k])
             if flts is not None and flts[k] > 0:
                 flt_id = flts[k]
                 flt_size = int(np.sum(flts[1:max_k + 1] == flt_id))
             else:
                 flt_size = 2 if idx > 0 else 1
             pto_ack = _tlp_pto(max(1, flt_size))
-            dt_ack_rec = pto_ack + p_probe_ok * RTT + p_probe_fail * RTO_MIN
+            t_tlp_rec = t_dep + pto_ack + p_probe_ok * RTT + p_probe_fail * RTO_MIN
 
-        ack_times_ixp[k]    = t_dep + OWD2 + p_rev_ixp * dt_ack_rec
-        ack_times_sender[k] = t_dep + OWD  + p_rev_snd * dt_ack_rec
+            if idx == len(emitted_ks) - 1:
+                rec_dep_ixp = t_tlp_rec
+                rec_dep_snd = t_tlp_rec
+            else:
+                rec_dep_ixp = min(eff_dep_ixp[idx + 1], t_tlp_rec)
+                rec_dep_snd = min(eff_dep_snd[idx + 1], t_tlp_rec)
+
+            eff_dep_ixp[idx] = (1.0 - p_rev_ixp) * t_dep + p_rev_ixp * rec_dep_ixp
+            eff_dep_snd[idx] = (1.0 - p_rev_snd) * t_dep + p_rev_snd * rec_dep_snd
+            ack_times_ixp[k]    = eff_dep_ixp[idx] + OWD2
+            ack_times_sender[k] = eff_dep_snd[idx] + OWD
 
     return ack_times_ixp, ack_times_sender, quick
 
@@ -668,13 +670,17 @@ def simulate_transfer(num_segments, is_new=True, state=None, *, start_time):
         final_state,
     )
 
-def expected_time_k(k):
+def expected_time_k(k, max_k=None):
     """Returns (t_ixp, t_dest, t_ack_ixp, t_ack_sender, flight_id) for segment k."""
     global _cache
-    if 'times_dest' not in _cache or k >= len(_cache['times_dest']):
-        n = max(2000, k + 500)
-        t_ixp, t_dest, ack_ixp, ack_sender, f, el, _ = _build_timeline(n)
+    target_n = max(int(max_k), k) if max_k is not None else max(2000, k + 500)
+    cached_max_k = _cache.get('max_k')
+    if ('times_dest' not in _cache
+            or (max_k is not None and cached_max_k != target_n)
+            or (max_k is None and (cached_max_k is not None or k >= len(_cache['times_dest'])))):
+        t_ixp, t_dest, ack_ixp, ack_sender, f, el, _ = _build_timeline(target_n)
         _cache = {
+            'max_k': target_n if max_k is not None else None,
             'times_ixp': t_ixp,
             'times_dest': t_dest,
             'ack_times_ixp': ack_ixp,

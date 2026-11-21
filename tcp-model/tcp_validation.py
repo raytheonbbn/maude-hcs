@@ -398,7 +398,7 @@ if __name__ == "__main__":
     flights = {}
     
     for k in range(1, N + 1):
-        t_ixp_k, t_dest_k, t_ack_ixp_k, t_ack_sender_k, f_k = expected_time_k(k)
+        t_ixp_k, t_dest_k, t_ack_ixp_k, t_ack_sender_k, f_k = expected_time_k(k, max_k=N)
         model_ixp.append(t_ixp_k * 1000.0)
         model_dest.append(t_dest_k * 1000.0)
         model_ack_ixp.append(t_ack_ixp_k * 1000.0)
