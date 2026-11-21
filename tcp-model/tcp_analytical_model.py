@@ -114,6 +114,104 @@ CUBIC_C           = 0.4
 CUBIC_B           = 0.7
 RACK_FRAC         = 0.25
 
+TCP_HEADER_BYTES  = 32
+IP_HEADER_BYTES   = 20
+HEADER_BYTES      = IP_HEADER_BYTES + TCP_HEADER_BYTES  # 52B
+MTU_SIZE_BYTES    = 1500
+MSS_SIZE_BYTES    = MTU_SIZE_BYTES - HEADER_BYTES       # 1448B
+
+
+def hs_times(ow_offset: float, is_new: bool = True) -> np.ndarray:
+    """
+    Returns the 5 forward (Client -> Server) TCP + TLS handshake timestamps for new connections:
+      1. SYN                   sent at t = 0.0
+      2. ACK (TCP 3-way HS)    sent at t = 1.0 * RTT (2 * OWD)
+      3. TLS Client Hello      sent at t = 1.0 * RTT (2 * OWD)
+      4. ACK (TLS HS)          sent at t = 2.0 * RTT (4 * OWD)
+      5. TLS Change Cipher     sent at t = 2.0 * RTT (4 * OWD)
+    """
+    if not is_new:
+        return np.empty(0, dtype=float)
+    return np.array([
+        ow_offset,
+        2.0 * OWD + ow_offset,
+        2.0 * OWD + ow_offset,
+        4.0 * OWD + ow_offset,
+        4.0 * OWD + ow_offset,
+    ], dtype=float)
+
+
+def hs_ack_times(ow_offset: float, is_new: bool = True) -> np.ndarray:
+    """
+    Returns the 4 reverse (Server -> Client) TCP + TLS handshake timestamps for new connections:
+      1. SYN-ACK               departing Server at t = 1.0 * OWD (0.5 * RTT)
+      2. ACK (TLS ClientHello) departing Server at t = 3.0 * OWD (1.5 * RTT)
+      3. TLS Server Hello      departing Server at t = 3.0 * OWD (1.5 * RTT)
+      4. ACK (TLS ChangeCipher) departing Server at t = 5.0 * OWD (2.5 * RTT)
+    """
+    if not is_new:
+        return np.empty(0, dtype=float)
+    return np.array([
+        1.0 * OWD + ow_offset,
+        3.0 * OWD + ow_offset,
+        3.0 * OWD + ow_offset,
+        5.0 * OWD + ow_offset,
+    ], dtype=float)
+
+
+def hs_sizes(is_new: bool = True) -> list[int]:
+    """Returns the 5 forward handshake packet sizes in bytes: [52, 52, 1500, 52, 1500]."""
+    if not is_new:
+        return []
+    return [
+        HEADER_BYTES,
+        HEADER_BYTES,
+        MTU_SIZE_BYTES,
+        HEADER_BYTES,
+        MTU_SIZE_BYTES,
+    ]
+
+
+def hs_ack_sizes(is_new: bool = True) -> list[int]:
+    """Returns the 4 reverse handshake packet sizes in bytes: [52, 52, 1500, 52]."""
+    if not is_new:
+        return []
+    return [
+        HEADER_BYTES,
+        HEADER_BYTES,
+        MTU_SIZE_BYTES,
+        HEADER_BYTES,
+    ]
+
+
+def tcp_delivery_sizes(msg_size: int, delivery_times=None, ack_times=None, is_new: bool | None = None):
+    """
+    Computes wire packet sizes (including 52B IP+TCP headers) for forward and reverse timelines.
+    When ack_times is omitted, returns the forward data size list (including forward handshake
+    sizes when is_new=True). When ack_times is provided, returns (data_sizes, ack_sizes).
+    """
+    if isinstance(msg_size, bool) or not isinstance(msg_size, int) or msg_size <= 0:
+        raise ValueError("msg_size must be a positive integer")
+    num_original_segments = (msg_size + MSS_SIZE_BYTES - 1) // MSS_SIZE_BYTES
+    if is_new is None:
+        if delivery_times is not None:
+            is_new = len(delivery_times) > num_original_segments
+        else:
+            is_new = True
+    last_payload_bytes = msg_size - (num_original_segments - 1) * MSS_SIZE_BYTES
+    last_pkt_size_bytes = last_payload_bytes + HEADER_BYTES
+    data_sizes = (
+        hs_sizes(bool(is_new))
+        + [MTU_SIZE_BYTES] * max(0, num_original_segments - 1)
+        + [last_pkt_size_bytes]
+    )
+    if ack_times is None:
+        return data_sizes
+    hs_rev = hs_ack_sizes(bool(is_new))
+    num_data_acks = max(0, len(ack_times) - len(hs_rev))
+    ack_sizes = hs_rev + [HEADER_BYTES] * num_data_acks
+    return data_sizes, ack_sizes
+
 
 def _tlp_pto(flight_size: int) -> float:
     """Computes Linux RFC 8985 Tail Loss Probe Timeout (PTO) for a flight of W segments."""
@@ -512,18 +610,20 @@ _cache: dict = {}
 def simulate_transfer(num_segments, is_new=True, state=None, *, start_time):
     """
     Simulates transmission of num_segments, returning
-    (times_ixp, times_dest, ack_times_ixp, ack_times_sender, final_state),
-    where ack_times_ixp and ack_times_sender contain one timestamp per emitted ACK packet.
+    (times_ixp, times_dest, ack_times_ixp, ack_times_sender, final_state).
+    For new connections (is_new=True), prepends the 5 forward handshake packet
+    timestamps to times_ixp/times_dest and the 4 reverse handshake packet
+    timestamps to ack_times_ixp/ack_times_sender.
     """
     t_ixp, t_dest, ack_ixp, ack_sender, _, _, final_state = _build_timeline(
         num_segments, is_new=is_new, state=state, start_time=start_time)
     ack_ixp_slice = ack_ixp[1:num_segments + 1]
     ack_sender_slice = ack_sender[1:num_segments + 1]
     return (
-        t_ixp[1:num_segments + 1],
-        t_dest[1:num_segments + 1],
-        ack_ixp_slice[np.isfinite(ack_ixp_slice)],
-        ack_sender_slice[np.isfinite(ack_sender_slice)],
+        np.concatenate((hs_times(OWD1, is_new), t_ixp[1:num_segments + 1])),
+        np.concatenate((hs_times(OWD, is_new), t_dest[1:num_segments + 1])),
+        np.concatenate((hs_ack_times(OWD2, is_new), ack_ixp_slice[np.isfinite(ack_ixp_slice)])),
+        np.concatenate((hs_ack_times(OWD, is_new), ack_sender_slice[np.isfinite(ack_sender_slice)])),
         final_state,
     )
 
