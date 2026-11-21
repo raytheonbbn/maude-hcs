@@ -106,12 +106,13 @@ BUFFER_CAPACITY = 1000            # Physical limit where tail-drop loss occurs
 
 # ─────────────────────── TCP Parameters ───────────────────────
 
-IW         = 10
-RTO_MIN    = 0.2
-DELACK_MIN = 0.040                # Linux TCP_DELACK_MIN (40ms delayed ACK timer)
-CUBIC_C    = 0.4
-CUBIC_B    = 0.7
-RACK_FRAC  = 0.25
+IW                = 10
+RTO_MIN           = 0.2
+DELACK_MIN        = 0.040         # Linux TCP_DELACK_MIN (40ms delayed ACK timer)
+TCP_MAX_QUICKACKS = 16            # Linux include/net/tcp.h TCP_MAX_QUICKACKS
+CUBIC_C           = 0.4
+CUBIC_B           = 0.7
+RACK_FRAC         = 0.25
 
 
 def _tlp_pto(flight_size: int) -> float:
@@ -148,15 +149,16 @@ def _cubic_w(t, w_max):
     return max(1.0, CUBIC_C * (t - K) ** 3 + w_max)
 
 class TcpState:
-    """Encapsulates TCP congestion state across connection transfers."""
+    """Encapsulates TCP congestion and receiver quickack state across connection transfers."""
     def __init__(self, cwnd=10.0, w_max=None, t_since=0.0, in_slow_start=True,
-                 last_send_time=None, last_ack_time=None):
+                 last_send_time=None, last_ack_time=None, quickacks_left=None):
         self.cwnd = float(cwnd)
         self.w_max = float(w_max if w_max is not None else (self.cwnd / CUBIC_B))
         self.t_since = float(t_since)
         self.in_slow_start = bool(in_slow_start)
         self.last_send_time = last_send_time
         self.last_ack_time = last_ack_time
+        self.quickacks_left = quickacks_left
 
     def __repr__(self):
         return (f"TcpState(cwnd={self.cwnd:.6f}, w_max={self.w_max:.6f}, "
@@ -168,46 +170,97 @@ def init_tcp_state():
 
 # ─────────────────────── Timeline Generation ───────────────────────
 
-def _compute_delayed_ack_times(times_dest, max_k):
+def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, start_time=0.0):
     """
-    Computes expected ACK arrival times at the IXP and the Sender under Linux Delayed ACKs.
+    Computes expected ACK arrival times at the IXP and the Sender under Linux QuickACK
+    and Delayed ACKs (net/ipv4/tcp_input.c & net/ipv4/tcp_output.c).
 
-    In Linux TCP (net/ipv4/tcp_input.c):
-      - When an unacknowledged segment k arrives at times_dest[k], the receiver arms
-        the delayed ACK timer for times_dest[k] + DELACK_MIN (40ms).
-      - If a 2nd segment (k + 1) arrives before the delayed ACK timer expires
-        (times_dest[k + 1] <= times_dest[k] + DELACK_MIN), the receiver immediately
-        emits one cumulative ACK at t_ack_depart = max(times_dest[k], times_dest[k + 1])
-        (recorded at index k + 1, leaving index k as NaN), and advances by 2 segments.
-      - Otherwise (if k is the final segment or the next segment arrives after the
-        delayed ACK timer expires), the timer fires at t_ack_depart = times_dest[k] + DELACK_MIN,
-        emitting an ACK at index k, and advances by 1 segment.
-      - Once generated at the destination at t_ack_depart:
-          ack_times_ixp    = t_ack_depart + OWD2
-          ack_times_sender = t_ack_depart + OWD
+    In Linux TCP:
+      - On the first data segment of a new connection (icsk_ack.ato == 0 in
+        tcp_event_data_recv), tcp_incr_quickack(sk, TCP_MAX_QUICKACKS) initializes
+        the quickack budget `quick = TCP_MAX_QUICKACKS` (16).
+      - On a reused connection (is_new=False), the receiver retains any remaining
+        `quickacks_left` from the prior transfer (defaulting to 0 if already exhausted
+        or unspecified), and replenishes `quick = TCP_MAX_QUICKACKS` if the receiver
+        idle gap since the previous received data segment exceeds RTO_MIN
+        (now - icsk_ack.lrcvtime > icsk_rto in tcp_event_data_recv).
+      - In __tcp_ack_snd_check, each arriving segment triggers an immediate cumulative
+        ACK if either:
+          1. `quick > 0` (tcp_in_quickack_mode), or
+          2. at least 2 full-sized segments are unacknowledged (`pending >= 2`).
+      - Otherwise (`quick == 0` and `pending == 1`), the receiver arms the delayed ACK
+        timer for `t_k + DELACK_MIN` (40ms). If the next segment arrives before that
+        deadline, both segments are cumulatively ACKed upon the 2nd segment's arrival;
+        if not (or at the end of the transfer), the timer fires at `t_k + DELACK_MIN`.
+      - Every emitted ACK calls tcp_event_ack_sent -> tcp_dec_quickack_mode(sk, 1),
+        decrementing `quick = max(0, quick - 1)`.
     """
     ack_times_ixp    = np.full(max_k + 1, np.nan)
     ack_times_sender = np.full(max_k + 1, np.nan)
     ack_times_ixp[0]    = 0.0
     ack_times_sender[0] = 0.0
 
-    k = 1
-    while k <= max_k and np.isfinite(times_dest[k]):
-        t_k = float(times_dest[k])
-        if k + 1 <= max_k and np.isfinite(times_dest[k + 1]) and float(times_dest[k + 1]) <= t_k + DELACK_MIN:
-            # 2nd segment arrives before delayed ACK timer expires -> immediate cumulative ACK
-            t_ack_depart = max(t_k, float(times_dest[k + 1]))
-            ack_times_ixp[k + 1]    = t_ack_depart + OWD2
-            ack_times_sender[k + 1] = t_ack_depart + OWD
-            k += 2
-        else:
-            # Delayed ACK timer expires before any next segment arrives
-            t_ack_depart = t_k + DELACK_MIN
-            ack_times_ixp[k]    = t_ack_depart + OWD2
-            ack_times_sender[k] = t_ack_depart + OWD
-            k += 1
+    if is_new:
+        quick = TCP_MAX_QUICKACKS
+        prev_abs_rcv = None
+    else:
+        quick = (int(state.quickacks_left)
+                 if state is not None and getattr(state, 'quickacks_left', None) is not None
+                 else 0)
+        prev_abs_rcv = ((float(state.last_send_time) + OWD)
+                        if state is not None and state.last_send_time is not None
+                        else None)
 
-    return ack_times_ixp, ack_times_sender
+    pending = 0
+    deadline = None
+    last_k = 0
+    running_t = 0.0
+
+    for k in range(1, max_k + 1):
+        if not np.isfinite(times_dest[k]):
+            break
+        t_k = max(running_t, float(times_dest[k]))
+        running_t = t_k
+
+        # If a pending delayed ACK timer expired before segment k arrived, emit it first
+        if pending > 0 and deadline < t_k:
+            ack_times_ixp[last_k]    = deadline + OWD2
+            ack_times_sender[last_k] = deadline + OWD
+            quick = max(0, quick - 1)
+            pending = 0
+            deadline = None
+
+        # tcp_event_data_recv: replenish quickacks if receiver idle gap > RTO_MIN
+        abs_rcv = start_time + t_k
+        if prev_abs_rcv is not None and (abs_rcv - prev_abs_rcv) > RTO_MIN:
+            quick = TCP_MAX_QUICKACKS
+        prev_abs_rcv = abs_rcv
+
+        if pending == 0:
+            deadline = t_k + DELACK_MIN
+        pending += 1
+        last_k = k
+
+        # __tcp_ack_snd_check: immediate ACK if in quickack mode or >= 2 segments pending
+        if quick > 0 or pending >= 2:
+            ack_times_ixp[k]    = t_k + OWD2
+            ack_times_sender[k] = t_k + OWD
+            quick = max(0, quick - 1)
+            pending = 0
+            deadline = None
+        elif t_k >= deadline:
+            ack_times_ixp[k]    = deadline + OWD2
+            ack_times_sender[k] = deadline + OWD
+            quick = max(0, quick - 1)
+            pending = 0
+            deadline = None
+
+    if pending > 0:
+        ack_times_ixp[last_k]    = deadline + OWD2
+        ack_times_sender[last_k] = deadline + OWD
+        quick = max(0, quick - 1)
+
+    return ack_times_ixp, ack_times_sender, quick
 
 
 def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
@@ -432,7 +485,8 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             cwnd = max(2.0, min(cwnd_next, LOCAL_MAX_CWND))
             flt += 1
 
-    ack_times_ixp, ack_times_sender = _compute_delayed_ack_times(times_dest, max_k)
+    ack_times_ixp, ack_times_sender, quickacks_left = _compute_delayed_ack_times(
+        times_dest, max_k, is_new=is_new, state=state, start_time=start_time)
 
     valid_dest = times_dest[np.isfinite(times_dest)]
     valid_ack_sender = ack_times_sender[np.isfinite(ack_times_sender)]
@@ -445,7 +499,8 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
         last_ack_time = state.last_ack_time if state is not None else None
     final_state = TcpState(cwnd=cwnd, w_max=w_max, t_since=t_since,
                            in_slow_start=in_slow_start,
-                           last_send_time=last_send_time, last_ack_time=last_ack_time)
+                           last_send_time=last_send_time, last_ack_time=last_ack_time,
+                           quickacks_left=quickacks_left)
     return times_ixp, times_dest, ack_times_ixp, ack_times_sender, flts, total_el, final_state
 
 # ─────────────────────── Public API ───────────────────────
