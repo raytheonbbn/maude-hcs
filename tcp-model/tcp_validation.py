@@ -178,12 +178,12 @@ def process_pcap_arrivals(packets, isn, t0, num_segments):
 
 def process_pcap_acks(packets, isn, t0, num_segments):
     """
-    Extracts per-segment cumulative ACK arrival times (in ms relative to t0).
-    For each segment k in 1..num_segments, records the timestamp of the first
-    arriving TCP ACK from 10.0.2.2 -> 10.0.1.1 whose acknowledgment number
-    covers segment k.
+    Extracts emitted ACK packet arrival times (in ms relative to t0), indexed by
+    the exact segment k in 1..num_segments that each cumulative ACK packet
+    newly acknowledges (leaving segments that did not emit their own ACK as None).
     """
     ack_times = [None] * (num_segments + 1)
+    highest_acked = 0
     if isn is not None and t0 is not None:
         for pkt in packets:
             if TCP in pkt and IP in pkt:
@@ -195,11 +195,37 @@ def process_pcap_acks(packets, isn, t0, num_segments):
                         relative_ack = (ack_seq - (isn + 1)) % 4294967296
                         if 0 < relative_ack <= (num_segments + 10) * 1448:
                             acked_k = min(num_segments, relative_ack // 1448)
-                            pkt_ms = (float(pkt.time) - t0) * 1000.0
-                            for k_val in range(1, acked_k + 1):
-                                if ack_times[k_val] is None:
-                                    ack_times[k_val] = pkt_ms
+                            if acked_k > highest_acked:
+                                pkt_ms = (float(pkt.time) - t0) * 1000.0
+                                ack_times[acked_k] = pkt_ms
+                                highest_acked = acked_k
     return ack_times[1:]
+
+
+def _extract_emitted_ack_matrix(ack_matrix):
+    """
+    Normalizes an empirical ACK matrix of shape (num_trials, num_segments) so that
+    only the segment index k that actually emitted each cumulative ACK is finite
+    (converting any legacy back-filled consecutive duplicate timestamps to NaN),
+    and computes a second matrix of shape (num_trials, num_segments) holding the
+    number of segments newly acknowledged (delta_k) by each emitted ACK packet.
+    """
+    emitted = np.array(ack_matrix, dtype=float, copy=True)
+    delta_k = np.full_like(emitted, np.nan)
+    num_trials, num_segs = emitted.shape
+    for t_idx in range(num_trials):
+        row = emitted[t_idx]
+        # Convert legacy back-filled runs (row[k] == row[k+1]) to NaN except at the run's end
+        for k in range(num_segs - 1):
+            if np.isfinite(row[k]) and np.isfinite(row[k + 1]) and abs(row[k] - row[k + 1]) < 1e-9:
+                row[k] = np.nan
+        prev_k = 0
+        for k in range(num_segs):
+            if np.isfinite(row[k]):
+                seg_num = k + 1
+                delta_k[t_idx, k] = float(seg_num - prev_k)
+                prev_k = seg_num
+    return emitted, delta_k
 
 # ==============================================================================
 # Main Orchestration
@@ -349,15 +375,23 @@ if __name__ == "__main__":
         emp_dest_p75     = np.nanpercentile(trials_matrix[:, 1, :], 75, axis=0)
 
         if has_empirical_acks:
-            emp_ack_ixp_mean   = np.nanmean(trials_matrix[:, 2, :], axis=0)
-            emp_ack_ixp_median = np.nanmedian(trials_matrix[:, 2, :], axis=0)
-            emp_ack_ixp_p25    = np.nanpercentile(trials_matrix[:, 2, :], 25, axis=0)
-            emp_ack_ixp_p75    = np.nanpercentile(trials_matrix[:, 2, :], 75, axis=0)
+            emitted_ack_ixp, _ = _extract_emitted_ack_matrix(trials_matrix[:, 2, :])
+            emitted_ack_snd, emp_ack_delta_k = _extract_emitted_ack_matrix(trials_matrix[:, 3, :])
 
-            emp_ack_snd_mean   = np.nanmean(trials_matrix[:, 3, :], axis=0)
-            emp_ack_snd_median = np.nanmedian(trials_matrix[:, 3, :], axis=0)
-            emp_ack_snd_p25    = np.nanpercentile(trials_matrix[:, 3, :], 25, axis=0)
-            emp_ack_snd_p75    = np.nanpercentile(trials_matrix[:, 3, :], 75, axis=0)
+            emp_ack_ixp_mean   = np.nanmean(emitted_ack_ixp, axis=0)
+            emp_ack_ixp_median = np.nanmedian(emitted_ack_ixp, axis=0)
+            emp_ack_ixp_p25    = np.nanpercentile(emitted_ack_ixp, 25, axis=0)
+            emp_ack_ixp_p75    = np.nanpercentile(emitted_ack_ixp, 75, axis=0)
+
+            emp_ack_snd_mean   = np.nanmean(emitted_ack_snd, axis=0)
+            emp_ack_snd_median = np.nanmedian(emitted_ack_snd, axis=0)
+            emp_ack_snd_p25    = np.nanpercentile(emitted_ack_snd, 25, axis=0)
+            emp_ack_snd_p75    = np.nanpercentile(emitted_ack_snd, 75, axis=0)
+
+            emp_delta_mean     = np.nanmean(emp_ack_delta_k, axis=0)
+            emp_delta_median   = np.nanmedian(emp_ack_delta_k, axis=0)
+            emp_delta_p25      = np.nanpercentile(emp_ack_delta_k, 25, axis=0)
+            emp_delta_p75      = np.nanpercentile(emp_ack_delta_k, 75, axis=0)
 
     N = num_segments
     model_ixp, model_dest, model_ack_ixp, model_ack_sender = [], [], [], []
@@ -373,7 +407,7 @@ if __name__ == "__main__":
             flights[f_k] = []
         flights[f_k].append(k)
 
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(12, 18), sharex=True)
+    fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, figsize=(12, 22), sharex=True)
     k_vals = list(range(1, N + 1))
     OWD_ms = OWD * 1000.0
 
@@ -425,19 +459,27 @@ if __name__ == "__main__":
     ax2.legend(by_label2.values(), by_label2.keys(), loc='upper left')
 
     # --------------------------------------------------------------------------
-    # Subplot 3: IXP ACK Arrivals
+    # Subplot 3: IXP ACK Arrivals (Discrete ACK Packets)
     # --------------------------------------------------------------------------
     ack_ixp_k_vals = [k for k, v in zip(k_vals, model_ack_ixp) if np.isfinite(v)]
     ack_ixp_y_vals = [v for v in model_ack_ixp if np.isfinite(v)]
-    ax3.plot(ack_ixp_k_vals, ack_ixp_y_vals, label='Model IXP ACK Arrival ($E[T_{ack, k, ixp}]$)', color='blue', linewidth=2)
+    ax3.plot(ack_ixp_k_vals, ack_ixp_y_vals, label='Model IXP ACK Packets ($E[T_{ack, k, ixp}]$)',
+             color='blue', linewidth=1.5, marker='o', markersize=3.5)
     if has_empirical_acks:
-        ax3.plot(k_vals, emp_ack_ixp_mean + alignment_offset, label='Empirical IXP ACK (Mean)', color='red', linewidth=2)
-        ax3.plot(k_vals, emp_ack_ixp_median + alignment_offset, label='Empirical IXP ACK (Median)', color='darkred', linestyle='--', linewidth=1.5)
-        ax3.fill_between(k_vals, emp_ack_ixp_p25 + alignment_offset, emp_ack_ixp_p75 + alignment_offset, color='red', alpha=0.2, label='Empirical 25th-75th %ile')
+        emp_ixp_ack_mask = np.isfinite(emp_ack_ixp_mean)
+        emp_ixp_k = np.array(k_vals)[emp_ixp_ack_mask]
+        ax3.plot(emp_ixp_k, emp_ack_ixp_mean[emp_ixp_ack_mask] + alignment_offset,
+                 label='Empirical IXP ACK Packets (Mean)', color='red', linewidth=1.5, marker='x', markersize=3.5)
+        ax3.plot(emp_ixp_k, emp_ack_ixp_median[emp_ixp_ack_mask] + alignment_offset,
+                 label='Empirical IXP ACK Packets (Median)', color='darkred', linestyle='--', linewidth=1.2)
+        ax3.fill_between(emp_ixp_k,
+                         emp_ack_ixp_p25[emp_ixp_ack_mask] + alignment_offset,
+                         emp_ack_ixp_p75[emp_ixp_ack_mask] + alignment_offset,
+                         color='red', alpha=0.2, label='Empirical 25th-75th %ile')
 
     add_flight_spans(ax3)
     ax3.set_ylabel('Relative Arrival Time (ms)', fontsize=11)
-    ax3.set_title('IXP ACK Arrival Times (Router Reverse Path)', fontsize=12, fontweight='bold')
+    ax3.set_title('IXP ACK Arrival Times (Discrete Emitted ACK Packets)', fontsize=12, fontweight='bold')
     ax3.grid(True, linestyle=':', alpha=0.7)
 
     handles3, labels3 = ax3.get_legend_handles_labels()
@@ -445,27 +487,67 @@ if __name__ == "__main__":
     ax3.legend(by_label3.values(), by_label3.keys(), loc='upper left')
 
     # --------------------------------------------------------------------------
-    # Subplot 4: Sender ACK Arrivals
+    # Subplot 4: Sender ACK Arrivals (Discrete ACK Packets)
     # --------------------------------------------------------------------------
     ack_snd_k_vals = [k for k, v in zip(k_vals, model_ack_sender) if np.isfinite(v)]
     ack_snd_y_vals = [v for v in model_ack_sender if np.isfinite(v)]
-    ax4.plot(ack_snd_k_vals, ack_snd_y_vals, label='Model Sender ACK Arrival ($E[T_{ack, k, sender}]$)', color='blue', linewidth=2)
+    ax4.plot(ack_snd_k_vals, ack_snd_y_vals, label='Model Sender ACK Packets ($E[T_{ack, k, sender}]$)',
+             color='blue', linewidth=1.5, marker='o', markersize=3.5)
     if has_empirical_acks:
-        ax4.plot(k_vals, emp_ack_snd_mean + alignment_offset, label='Empirical Sender ACK (Mean)', color='red', linewidth=2)
-        ax4.plot(k_vals, emp_ack_snd_median + alignment_offset, label='Empirical Sender ACK (Median)', color='darkred', linestyle='--', linewidth=1.5)
-        ax4.fill_between(k_vals, emp_ack_snd_p25 + alignment_offset, emp_ack_snd_p75 + alignment_offset, color='red', alpha=0.2, label='Empirical 25th-75th %ile')
+        emp_snd_ack_mask = np.isfinite(emp_ack_snd_mean)
+        emp_snd_k = np.array(k_vals)[emp_snd_ack_mask]
+        ax4.plot(emp_snd_k, emp_ack_snd_mean[emp_snd_ack_mask] + alignment_offset,
+                 label='Empirical Sender ACK Packets (Mean)', color='red', linewidth=1.5, marker='x', markersize=3.5)
+        ax4.plot(emp_snd_k, emp_ack_snd_median[emp_snd_ack_mask] + alignment_offset,
+                 label='Empirical Sender ACK Packets (Median)', color='darkred', linestyle='--', linewidth=1.2)
+        ax4.fill_between(emp_snd_k,
+                         emp_ack_snd_p25[emp_snd_ack_mask] + alignment_offset,
+                         emp_ack_snd_p75[emp_snd_ack_mask] + alignment_offset,
+                         color='red', alpha=0.2, label='Empirical 25th-75th %ile')
 
     add_flight_spans(ax4)
-    ax4.set_xlabel('Segment Index ($k$)', fontsize=12)
     ax4.set_ylabel('Relative Arrival Time (ms)', fontsize=11)
-    ax4.set_title('Sender ACK Arrival Times (Client Ingress)', fontsize=12, fontweight='bold')
+    ax4.set_title('Sender ACK Arrival Times (Discrete Emitted ACK Packets)', fontsize=12, fontweight='bold')
     ax4.grid(True, linestyle=':', alpha=0.7)
 
     handles4, labels4 = ax4.get_legend_handles_labels()
     by_label4 = dict(zip(labels4, handles4))
     ax4.legend(by_label4.values(), by_label4.keys(), loc='upper left')
 
-    fig.suptitle(f'2-Hop TCP Data & ACK Delivery Validation ({len(all_trials_data)} Trials - L1: {args.tc_profile}, L2: {l2_prof})', fontsize=14, y=0.99)
+    # --------------------------------------------------------------------------
+    # Subplot 5: Segments Newly Acknowledged per Emitted ACK Packet (Delta k)
+    # --------------------------------------------------------------------------
+    model_ack_deltas = np.diff([0] + ack_snd_k_vals)
+    ax5.step(ack_snd_k_vals, model_ack_deltas, where='post',
+             label='Model Segments per ACK ($\\Delta k$: 1=QuickACK, 2=Delayed ACK)',
+             color='blue', linewidth=2, marker='o', markersize=4)
+    if has_empirical_acks:
+        emp_delta_mask = np.isfinite(emp_delta_mean)
+        emp_delta_k_vals = np.array(k_vals)[emp_delta_mask]
+        ax5.plot(emp_delta_k_vals, emp_delta_mean[emp_delta_mask],
+                 label='Empirical Segments per ACK (Mean $\\Delta k$)',
+                 color='red', linewidth=1.5, marker='x', markersize=4)
+        ax5.plot(emp_delta_k_vals, emp_delta_median[emp_delta_mask],
+                 label='Empirical Segments per ACK (Median $\\Delta k$)',
+                 color='darkred', linestyle='--', linewidth=1.5)
+        ax5.fill_between(emp_delta_k_vals,
+                         emp_delta_p25[emp_delta_mask],
+                         emp_delta_p75[emp_delta_mask],
+                         color='red', alpha=0.2, label='Empirical 25th-75th %ile')
+
+    add_flight_spans(ax5)
+    ax5.set_xlabel('Acknowledged Segment Index ($k$)', fontsize=12)
+    ax5.set_ylabel('Segments / ACK ($\\Delta k$)', fontsize=11)
+    ax5.set_title('ACK Granularity: Newly Acknowledged Segments per ACK Packet ($\\Delta k = 1$ Single, $\\Delta k = 2$ Every Other, $\\Delta k > 2$ Stretch)',
+                  fontsize=12, fontweight='bold')
+    ax5.set_yticks(range(1, max(4, int(np.nanmax(emp_delta_mean)) + 2 if has_empirical_acks and np.any(np.isfinite(emp_delta_mean)) else 4)))
+    ax5.grid(True, linestyle=':', alpha=0.7)
+
+    handles5, labels5 = ax5.get_legend_handles_labels()
+    by_label5 = dict(zip(labels5, handles5))
+    ax5.legend(by_label5.values(), by_label5.keys(), loc='upper left')
+
+    fig.suptitle(f'2-Hop TCP Data & ACK Delivery Validation ({len(all_trials_data)} Trials - L1: {args.tc_profile}, L2: {l2_prof})', fontsize=14, y=0.995)
     
     plt.tight_layout()
     plot_file = 'tcp_validation_plot.png'
@@ -475,11 +557,11 @@ if __name__ == "__main__":
     total_retrans = get_total_retransmissions()
     model_unique_acks = len(ack_snd_y_vals)
     print(f"\n[MODEL OUTPUT] Total Expected Retransmissions (L1: '{args.tc_profile}', L2: '{l2_prof}'): {total_retrans:.2f}")
-    print(f"[MODEL OUTPUT] Expected Cumulative Delayed ACKs for {N} segments: {model_unique_acks}")
+    print(f"[MODEL OUTPUT] Expected Cumulative ACKs for {N} segments: {model_unique_acks}")
     if has_empirical_acks:
         emp_unique_acks_per_trial = [
-            len(np.unique(np.round(trial[3][np.isfinite(trial[3])], 6)))
-            for trial in trials_matrix
+            int(np.sum(np.isfinite(row)))
+            for row in emitted_ack_snd
         ]
         print(f"[EMPIRICAL]    Mean Cumulative ACKs across {len(all_trials_data)} trials: {np.mean(emp_unique_acks_per_trial):.2f} (median: {np.median(emp_unique_acks_per_trial):.1f})")
     else:
