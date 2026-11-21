@@ -202,19 +202,20 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
 
     if is_new:
         quick = TCP_MAX_QUICKACKS
-        prev_abs_rcv = None
     else:
         quick = (int(state.quickacks_left)
                  if state is not None and getattr(state, 'quickacks_left', None) is not None
                  else 0)
-        prev_abs_rcv = ((float(state.last_send_time) + OWD)
-                        if state is not None and state.last_send_time is not None
-                        else None)
+        if (state is not None and state.last_send_time is not None
+                and state.last_ack_time is not None and start_time >= state.last_ack_time
+                and (start_time - state.last_send_time) > RTO_MIN):
+            quick = TCP_MAX_QUICKACKS
 
     pending = 0
     deadline = None
     last_k = 0
     running_t = 0.0
+    prev_t = None
 
     for k in range(1, max_k + 1):
         if not np.isfinite(times_dest[k]):
@@ -230,11 +231,10 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
             pending = 0
             deadline = None
 
-        # tcp_event_data_recv: replenish quickacks if receiver idle gap > RTO_MIN
-        abs_rcv = start_time + t_k
-        if prev_abs_rcv is not None and (abs_rcv - prev_abs_rcv) > RTO_MIN:
+        # tcp_event_data_recv: replenish quickacks if intra-transfer receive gap > RTO_MIN
+        if prev_t is not None and (t_k - prev_t) > RTO_MIN:
             quick = TCP_MAX_QUICKACKS
-        prev_abs_rcv = abs_rcv
+        prev_t = t_k
 
         if pending == 0:
             deadline = t_k + DELACK_MIN
@@ -306,10 +306,8 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
                 while idle > RTO_MIN and cwnd > float(IW):
                     cwnd = max(float(IW), float(int(cwnd) // 2))
                     idle -= RTO_MIN
-                in_slow_start = cwnd <= float(IW)
-                if in_slow_start:
-                    cwnd = min(cwnd, float(IW))
-                    t_since = 0.0
+                in_slow_start = True
+                t_since = 0.0
         if in_slow_start:
             W_ss = max(1, int(round(cwnd)))
         else:
