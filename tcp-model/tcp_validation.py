@@ -71,6 +71,13 @@ def setup_environment():
     run_cmd("sudo ip netns exec ns_server ip link set veth_s up")
     run_cmd("sudo ip netns exec ns_server ip link set lo up")
 
+    # Disable TSO, GSO, and GRO on all veth interfaces so packets are segmented
+    # to standard 1500B MTU frames and not coalesced across virtual links
+    run_cmd("sudo ip netns exec ns_client ethtool -K veth_c tso off gso off gro off")
+    run_cmd("sudo ip netns exec ns_router ethtool -K veth_r1 tso off gso off gro off")
+    run_cmd("sudo ip netns exec ns_router ethtool -K veth_r2 tso off gso off gro off")
+    run_cmd("sudo ip netns exec ns_server ethtool -K veth_s tso off gso off gro off")
+
     # Routing Tables
     run_cmd("sudo ip netns exec ns_client ip route add default via 10.0.1.2")
     run_cmd("sudo ip netns exec ns_server ip route add default via 10.0.2.1")
