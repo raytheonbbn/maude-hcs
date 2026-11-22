@@ -108,8 +108,10 @@ BUFFER_CAPACITY = 1000            # Physical limit where tail-drop loss occurs
 
 IW                = 10
 RTO_MIN           = 0.2
-DELACK_MIN        = 0.040         # Linux TCP_DELACK_MIN (40ms delayed ACK timer)
-TCP_MAX_QUICKACKS = 16            # Linux include/net/tcp.h TCP_MAX_QUICKACKS
+DELACK_MIN         = 0.040        # Linux TCP_DELACK_MIN (40ms delayed ACK timer)
+TCP_MAX_QUICKACKS  = 16           # Linux include/net/tcp.h TCP_MAX_QUICKACKS
+RCV_GROW_START_SEG = 72           # Segment index where tcp_rcv_space_adjust expands sk_rcvbuf
+RCV_GROW_END_SEG   = 264          # Segment index where rcv_ssthresh reaches autotuned tcp_space ceiling
 CUBIC_C           = 0.4
 CUBIC_B           = 0.7
 RACK_FRAC         = 0.25
@@ -282,6 +284,12 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
         or unspecified), and replenishes `quick = TCP_MAX_QUICKACKS` if the receiver
         idle gap since the previous received data segment exceeds RTO_MIN
         (now - icsk_ack.lrcvtime > icsk_rto in tcp_event_data_recv).
+      - Receive-window autotuning QuickACKs (tcp_rcv_space_adjust & tcp_grow_window):
+        Once Flight 3 completes (after segment RCV_GROW_START_SEG = 72), Linux's
+        receive-buffer autotuner expands sk_rcvbuf / tcp_space(sk) up to ~384 KB
+        (RCV_GROW_END_SEG = 264 segments). While rcv_ssthresh grows across segments
+        73..264, tcp_grow_window sets `icsk_ack.quick |= 1` on each segment, forcing
+        an immediate QuickACK (delta_k = 1) until the new window ceiling is reached.
       - In __tcp_ack_snd_check, each arriving segment triggers an immediate cumulative
         ACK if either:
           1. `quick > 0` (tcp_in_quickack_mode), or
@@ -339,6 +347,11 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
         if prev_t is not None and (t_k - prev_t) > RTO_MIN:
             quick = TCP_MAX_QUICKACKS
         prev_t = t_k
+
+        # tcp_grow_window: while rcv_ssthresh grows toward the autotuned tcp_space(sk)
+        # ceiling (segments 73..264), Linux executes `icsk_ack.quick |= 1`.
+        if RCV_GROW_START_SEG < k <= RCV_GROW_END_SEG:
+            quick = max(quick, 1)
 
         if pending == 0:
             deadline = t_k + DELACK_MIN
