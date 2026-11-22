@@ -178,9 +178,9 @@ def process_pcap_arrivals(packets, isn, t0, num_segments):
 
 def process_pcap_acks(packets, isn, t0, num_segments):
     """
-    Extracts emitted ACK packet arrival times (in ms relative to t0), indexed by
-    the exact segment k in 1..num_segments that each cumulative ACK packet
-    newly acknowledges (leaving segments that did not emit their own ACK as None).
+    Extracts emitted ACK packet arrival times (in ms relative to t0), including
+    cumulative ACKs, SACK duplicate ACKs, and hole-filling ACKs, indexed by the
+    segment k in 1..num_segments that triggered each ACK/SACK packet.
     """
     ack_times = [None] * (num_segments + 1)
     highest_acked = 0
@@ -189,16 +189,53 @@ def process_pcap_acks(packets, isn, t0, num_segments):
             if TCP in pkt and IP in pkt:
                 if pkt[IP].src == "10.0.2.2" and pkt[IP].dst == "10.0.1.1":
                     flags = int(pkt[TCP].flags)
-                    # Must carry ACK flag (0x10) and not be SYN (0x02)
-                    if (flags & 0x10) and not (flags & 0x02):
+                    # Must carry ACK flag (0x10) and not be SYN (0x02) or RST (0x04)
+                    if (flags & 0x10) and not (flags & 0x06):
                         ack_seq = pkt[TCP].ack
                         relative_ack = (ack_seq - (isn + 1)) % 4294967296
                         if 0 < relative_ack <= (num_segments + 10) * 1448:
+                            # Ignore pure connection-teardown FIN-ACKs after all data is ACKed
+                            if highest_acked >= num_segments and (
+                                    relative_ack > num_segments * 1448 or (flags & 0x01)):
+                                continue
                             acked_k = min(num_segments, relative_ack // 1448)
+                            pkt_ms = (float(pkt.time) - t0) * 1000.0
                             if acked_k > highest_acked:
-                                pkt_ms = (float(pkt.time) - t0) * 1000.0
-                                ack_times[acked_k] = pkt_ms
+                                if ack_times[acked_k] is None:
+                                    ack_times[acked_k] = pkt_ms
+                                else:
+                                    # Cumulative ACK filling an earlier hole after out-of-order SACKs:
+                                    # attribute to the first unacknowledged hole segment in (highest_acked, acked_k]
+                                    for k_fill in range(highest_acked + 1, acked_k + 1):
+                                        if ack_times[k_fill] is None:
+                                            ack_times[k_fill] = pkt_ms
+                                            break
                                 highest_acked = acked_k
+                            else:
+                                # Duplicate ACK: check TCP SACK options (RFC 2018 Section 4:
+                                # first SACK block identifies the segment that triggered this ACK)
+                                sack_blocks = None
+                                for opt_name, opt_val in getattr(pkt[TCP], "options", ()):
+                                    if opt_name == "SAck" and opt_val and len(opt_val) >= 2:
+                                        sack_blocks = opt_val
+                                        break
+                                if sack_blocks is not None:
+                                    left_edge, right_edge = sack_blocks[0], sack_blocks[1]
+                                    rel_right = (right_edge - (isn + 1)) % 4294967296
+                                    if 0 < rel_right <= (num_segments + 10) * 1448:
+                                        sacked_k = min(num_segments, rel_right // 1448)
+                                        if 1 <= sacked_k <= num_segments:
+                                            if ack_times[sacked_k] is None:
+                                                ack_times[sacked_k] = pkt_ms
+                                            else:
+                                                rel_left = (left_edge - (isn + 1)) % 4294967296
+                                                left_k = max(1, min(num_segments, rel_left // 1448 + 1))
+                                                for k_fill in range(left_k, sacked_k + 1):
+                                                    if ack_times[k_fill] is None:
+                                                        ack_times[k_fill] = pkt_ms
+                                                        break
+                                elif 1 <= acked_k <= num_segments and ack_times[acked_k] is None:
+                                    ack_times[acked_k] = pkt_ms
     return ack_times[1:]
 
 
@@ -540,7 +577,9 @@ if __name__ == "__main__":
     ax5.set_ylabel('Segments / ACK ($\\Delta k$)', fontsize=11)
     ax5.set_title('ACK Granularity: Newly Acknowledged Segments per ACK Packet ($\\Delta k = 1$ Single, $\\Delta k = 2$ Every Other, $\\Delta k > 2$ Stretch)',
                   fontsize=12, fontweight='bold')
-    ax5.set_yticks(range(1, max(4, int(np.nanmax(emp_delta_mean)) + 2 if has_empirical_acks and np.any(np.isfinite(emp_delta_mean)) else 4)))
+    max_delta_y = max(4, int(np.nanmax(emp_delta_mean)) + 2 if has_empirical_acks and np.any(np.isfinite(emp_delta_mean)) else 4)
+    tick_step = max(1, (max_delta_y - 1) // 8)
+    ax5.set_yticks(range(1, max_delta_y, tick_step))
     ax5.grid(True, linestyle=':', alpha=0.7)
 
     handles5, labels5 = ax5.get_legend_handles_labels()
@@ -557,12 +596,12 @@ if __name__ == "__main__":
     total_retrans = get_total_retransmissions()
     model_unique_acks = len(ack_snd_y_vals)
     print(f"\n[MODEL OUTPUT] Total Expected Retransmissions (L1: '{args.tc_profile}', L2: '{l2_prof}'): {total_retrans:.2f}")
-    print(f"[MODEL OUTPUT] Expected Cumulative ACKs for {N} segments: {model_unique_acks}")
+    print(f"[MODEL OUTPUT] Expected Data ACKs (incl. SACKs) for {N} segments: {model_unique_acks}")
     if has_empirical_acks:
         emp_unique_acks_per_trial = [
             int(np.sum(np.isfinite(row)))
             for row in emitted_ack_snd
         ]
-        print(f"[EMPIRICAL]    Mean Cumulative ACKs across {len(all_trials_data)} trials: {np.mean(emp_unique_acks_per_trial):.2f} (median: {np.median(emp_unique_acks_per_trial):.1f})")
+        print(f"[EMPIRICAL]    Mean Data ACKs (incl. dupACKs/SACKs) across {len(all_trials_data)} trials: {np.mean(emp_unique_acks_per_trial):.2f} (median: {np.median(emp_unique_acks_per_trial):.1f})")
     else:
         print("[NOTE] Cached .npy array only contains 2 channels (data arrivals); run without --cached to capture empirical ACK arrival times.")
