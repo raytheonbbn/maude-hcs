@@ -7,6 +7,8 @@ import os
 import matplotlib.pyplot as plt
 import concurrent.futures
 import argparse
+import shutil
+import struct
 import warnings
 
 # Ensure stdout is unbuffered so main process prints interleave correctly with subprocesses
@@ -176,6 +178,46 @@ def process_pcap_arrivals(packets, isn, t0, num_segments):
     return arrival_times[1:]
 
 
+def _extract_first_sack_block(tcp_pkt):
+    """
+    Safely extracts the first SACK block (left_edge, right_edge) from a Scapy TCP
+    layer, handling tuple/list/bytes option representations and falling back to
+    raw RFC 2018 option kind 5 bytes if needed.
+    """
+    for opt_item in getattr(tcp_pkt, "options", ()):
+        if isinstance(opt_item, (tuple, list)) and len(opt_item) >= 2:
+            opt_name, opt_val = opt_item[0], opt_item[1]
+            if opt_name == "SAck":
+                if isinstance(opt_val, (tuple, list)) and len(opt_val) >= 2:
+                    return int(opt_val[0]), int(opt_val[1])
+                if isinstance(opt_val, (bytes, bytearray)) and len(opt_val) >= 8:
+                    return struct.unpack("!II", bytes(opt_val[:8]))
+    try:
+        raw_tcp = bytes(tcp_pkt)
+        dataofs = getattr(tcp_pkt, "dataofs", None)
+        hdr_len = int(dataofs) * 4 if dataofs else min(len(raw_tcp), 60)
+        opts = raw_tcp[20:min(len(raw_tcp), hdr_len)]
+        idx = 0
+        while idx < len(opts):
+            kind = opts[idx]
+            if kind == 0:
+                break
+            if kind == 1:
+                idx += 1
+                continue
+            if idx + 1 >= len(opts):
+                break
+            opt_len = opts[idx + 1]
+            if opt_len < 2 or idx + opt_len > len(opts):
+                break
+            if kind == 5 and opt_len >= 10:
+                return struct.unpack("!II", opts[idx + 2:idx + 10])
+            idx += opt_len
+    except Exception:
+        pass
+    return None
+
+
 def process_pcap_acks(packets, isn, t0, num_segments):
     """
     Extracts emitted ACK packet arrival times (in ms relative to t0), including
@@ -214,13 +256,9 @@ def process_pcap_acks(packets, isn, t0, num_segments):
                             else:
                                 # Duplicate ACK: check TCP SACK options (RFC 2018 Section 4:
                                 # first SACK block identifies the segment that triggered this ACK)
-                                sack_blocks = None
-                                for opt_name, opt_val in getattr(pkt[TCP], "options", ()):
-                                    if opt_name == "SAck" and opt_val and len(opt_val) >= 2:
-                                        sack_blocks = opt_val
-                                        break
-                                if sack_blocks is not None:
-                                    left_edge, right_edge = sack_blocks[0], sack_blocks[1]
+                                sack_block = _extract_first_sack_block(pkt[TCP])
+                                if sack_block is not None:
+                                    left_edge, right_edge = sack_block
                                     rel_right = (right_edge - (isn + 1)) % 4294967296
                                     if 0 < rel_right <= (num_segments + 10) * 1448:
                                         sacked_k = min(num_segments, rel_right // 1448)
@@ -237,6 +275,48 @@ def process_pcap_acks(packets, isn, t0, num_segments):
                                 elif 1 <= acked_k <= num_segments and ack_times[acked_k] is None:
                                     ack_times[acked_k] = pkt_ms
     return ack_times[1:]
+
+
+def count_raw_reverse_packets(packets, isn, num_segments):
+    """
+    Counts all raw reverse-direction TCP packets (10.0.2.2 -> 10.0.1.1) in a pcap:
+      - total_rev: all reverse TCP packets
+      - data_acks: all reverse data-phase ACKs (cumulative ACKs + dupACKs + SACKs),
+                   excluding SYN-ACK and post-transfer teardown FIN-ACKs
+      - cum_acks:  reverse ACKs that advance highest_acked
+      - dup_sacks: reverse duplicate ACKs / SACKs during data transfer
+    """
+    total_rev = 0
+    data_acks = 0
+    cum_acks = 0
+    dup_sacks = 0
+    highest_acked = 0
+    if isn is not None:
+        for pkt in packets:
+            if TCP in pkt and IP in pkt:
+                if pkt[IP].src == "10.0.2.2" and pkt[IP].dst == "10.0.1.1":
+                    total_rev += 1
+                    flags = int(pkt[TCP].flags)
+                    if (flags & 0x10) and not (flags & 0x06):
+                        ack_seq = pkt[TCP].ack
+                        relative_ack = (ack_seq - (isn + 1)) % 4294967296
+                        if 0 < relative_ack <= (num_segments + 10) * 1448:
+                            if highest_acked >= num_segments and (
+                                    relative_ack > num_segments * 1448 or (flags & 0x01)):
+                                continue
+                            acked_k = min(num_segments, relative_ack // 1448)
+                            data_acks += 1
+                            if acked_k > highest_acked:
+                                cum_acks += 1
+                                highest_acked = acked_k
+                            else:
+                                dup_sacks += 1
+    return {
+        "total_rev": total_rev,
+        "data_acks": data_acks,
+        "cum_acks": cum_acks,
+        "dup_sacks": dup_sacks,
+    }
 
 
 def _extract_emitted_ack_matrix(ack_matrix):
@@ -293,6 +373,9 @@ if __name__ == "__main__":
     
     num_trials = 100
     all_trials_data = []
+    raw_rev_stats_server = []
+    raw_rev_stats_client = []
+    saved_lossy_sample = False
 
     should_run_empirical = not args.cached or not os.path.exists(cache_file)
 
@@ -304,6 +387,7 @@ if __name__ == "__main__":
             setup_environment()
             
             def run_trial(trial_idx):
+                global saved_lossy_sample
                 print(f"=== Starting Trial {trial_idx + 1}/{num_trials} ===")
                 client_pcap = f"client_{trial_idx}.pcap"
                 router_pcap = f"router_{trial_idx}.pcap"
@@ -313,9 +397,9 @@ if __name__ == "__main__":
                 for f in [client_pcap, router_pcap, server_pcap]:
                     if os.path.exists(f): os.remove(f)
                     
-                p_client = subprocess.Popen(["sudo", "ip", "netns", "exec", "ns_client", "tcpdump", "-i", "veth_c", "tcp", "port", str(port), "-w", client_pcap], stderr=subprocess.DEVNULL)
-                p_router = subprocess.Popen(["sudo", "ip", "netns", "exec", "ns_router", "tcpdump", "-i", "any", "tcp", "port", str(port), "-w", router_pcap], stderr=subprocess.DEVNULL)
-                p_server = subprocess.Popen(["sudo", "ip", "netns", "exec", "ns_server", "tcpdump", "-i", "veth_s", "tcp", "port", str(port), "-w", server_pcap], stderr=subprocess.DEVNULL)
+                p_client = subprocess.Popen(["sudo", "ip", "netns", "exec", "ns_client", "tcpdump", "-U", "-i", "veth_c", "tcp", "port", str(port), "-w", client_pcap], stderr=subprocess.DEVNULL)
+                p_router = subprocess.Popen(["sudo", "ip", "netns", "exec", "ns_router", "tcpdump", "-U", "-i", "any", "tcp", "port", str(port), "-w", router_pcap], stderr=subprocess.DEVNULL)
+                p_server = subprocess.Popen(["sudo", "ip", "netns", "exec", "ns_server", "tcpdump", "-U", "-i", "veth_s", "tcp", "port", str(port), "-w", server_pcap], stderr=subprocess.DEVNULL)
                 
                 time.sleep(1) 
                 
@@ -335,6 +419,14 @@ if __name__ == "__main__":
                         p.wait(timeout=5)
                     except Exception:
                         pass
+
+                # Always preserve Trial 0 pcaps immediately upon capture
+                if trial_idx == 0:
+                    for src_f, role in [(client_pcap, "client"), (router_pcap, "router"), (server_pcap, "server")]:
+                        if os.path.exists(src_f):
+                            dst_f = f"sample_{role}_{args.tc_profile}_{l2_prof}.pcap"
+                            shutil.copyfile(src_f, dst_f)
+                    print(f"[PCAP SAVED] Kept Trial 0 pcaps as sample_{{client,router,server}}_{args.tc_profile}_{l2_prof}.pcap")
 
                 try:
                     c_pkts = rdpcap(client_pcap)
@@ -358,6 +450,19 @@ if __name__ == "__main__":
                 dest_times       = process_pcap_arrivals(s_pkts, isn, t0, num_segments)
                 ack_ixp_times    = process_pcap_acks(r_pkts, isn, t0, num_segments)
                 ack_sender_times = process_pcap_acks(c_pkts, isn, t0, num_segments)
+
+                srv_rev = count_raw_reverse_packets(s_pkts, isn, num_segments)
+                cli_rev = count_raw_reverse_packets(c_pkts, isn, num_segments)
+                raw_rev_stats_server.append(srv_rev)
+                raw_rev_stats_client.append(cli_rev)
+
+                # Also preserve the first trial with dupACKs/SACKs
+                if not saved_lossy_sample and (srv_rev["dup_sacks"] > 0 or cli_rev["dup_sacks"] > 0):
+                    for src_f, role in [(client_pcap, "client"), (router_pcap, "router"), (server_pcap, "server")]:
+                        dst_f = f"sample_lossy_{role}_{args.tc_profile}_{l2_prof}.pcap"
+                        shutil.copyfile(src_f, dst_f)
+                    saved_lossy_sample = True
+                    print(f"[PCAP SAVED] Kept lossy Trial {trial_idx} pcaps as sample_lossy_{{client,router,server}}_{args.tc_profile}_{l2_prof}.pcap")
 
                 for f in [client_pcap, router_pcap, server_pcap]:
                     if os.path.exists(f): os.remove(f)
@@ -554,18 +659,30 @@ if __name__ == "__main__":
     # --------------------------------------------------------------------------
     # Subplot 5: Segments Newly Acknowledged per Emitted ACK Packet (Delta k)
     # --------------------------------------------------------------------------
+    total_retrans = get_total_retransmissions()
+    model_unique_acks = len(ack_snd_y_vals)
+    emp_ack_mean_val = None
+    emp_ack_med_val = None
+    if has_empirical_acks:
+        emp_unique_acks_per_trial = [
+            int(np.sum(np.isfinite(row)))
+            for row in emitted_ack_snd
+        ]
+        emp_ack_mean_val = float(np.mean(emp_unique_acks_per_trial))
+        emp_ack_med_val = float(np.median(emp_unique_acks_per_trial))
+
     model_ack_deltas = np.diff([0] + ack_snd_k_vals)
     ax5.step(ack_snd_k_vals, model_ack_deltas, where='post',
-             label='Model Segments per ACK ($\\Delta k$: 1=QuickACK, 2=Delayed ACK)',
+             label=f'Model Segments per ACK ($\\Delta k$ — Expected: {model_unique_acks} ACKs)',
              color='blue', linewidth=2, marker='o', markersize=4)
     if has_empirical_acks:
         emp_delta_mask = np.isfinite(emp_delta_mean)
         emp_delta_k_vals = np.array(k_vals)[emp_delta_mask]
         ax5.plot(emp_delta_k_vals, emp_delta_mean[emp_delta_mask],
-                 label='Empirical Segments per ACK (Mean $\\Delta k$)',
+                 label=f'Empirical Segments per ACK (Mean $\\Delta k$ — Mean: {emp_ack_mean_val:.2f} ACKs)',
                  color='red', linewidth=1.5, marker='x', markersize=4)
         ax5.plot(emp_delta_k_vals, emp_delta_median[emp_delta_mask],
-                 label='Empirical Segments per ACK (Median $\\Delta k$)',
+                 label=f'Empirical Segments per ACK (Median $\\Delta k$ — Median: {emp_ack_med_val:.1f} ACKs)',
                  color='darkred', linestyle='--', linewidth=1.5)
         ax5.fill_between(emp_delta_k_vals,
                          emp_delta_p25[emp_delta_mask],
@@ -586,22 +703,36 @@ if __name__ == "__main__":
     by_label5 = dict(zip(labels5, handles5))
     ax5.legend(by_label5.values(), by_label5.keys(), loc='upper left')
 
-    fig.suptitle(f'2-Hop TCP Data & ACK Delivery Validation ({len(all_trials_data)} Trials - L1: {args.tc_profile}, L2: {l2_prof})', fontsize=14, y=0.995)
+    summary_line = f'Model Expected Retrans: {total_retrans:.2f} | Model Expected Data ACKs: {model_unique_acks}'
+    if emp_ack_mean_val is not None:
+        summary_line += f' | Empirical Data ACKs: mean={emp_ack_mean_val:.2f} (median={emp_ack_med_val:.1f})'
+    if raw_rev_stats_server and raw_rev_stats_client:
+        srv_data_acks = [d["data_acks"] for d in raw_rev_stats_server]
+        cli_data_acks = [d["data_acks"] for d in raw_rev_stats_client]
+        summary_line += (f' | Raw Wire ACKs Srv={np.mean(srv_data_acks):.1f} (med {np.median(srv_data_acks):.1f}), '
+                         f'Cli={np.mean(cli_data_acks):.1f} (med {np.median(cli_data_acks):.1f})')
+
+    fig.suptitle(
+        f'2-Hop TCP Data & ACK Delivery Validation ({len(all_trials_data)} Trials - L1: {args.tc_profile}, L2: {l2_prof})\n'
+        f'{summary_line}',
+        fontsize=13, y=0.995
+    )
     
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.985])
     plot_file = 'tcp_validation_plot.png'
     plt.savefig(plot_file, dpi=300)
     print(f"Plot successfully saved to {plot_file}")
 
-    total_retrans = get_total_retransmissions()
-    model_unique_acks = len(ack_snd_y_vals)
     print(f"\n[MODEL OUTPUT] Total Expected Retransmissions (L1: '{args.tc_profile}', L2: '{l2_prof}'): {total_retrans:.2f}")
     print(f"[MODEL OUTPUT] Expected Data ACKs (incl. SACKs) for {N} segments: {model_unique_acks}")
     if has_empirical_acks:
-        emp_unique_acks_per_trial = [
-            int(np.sum(np.isfinite(row)))
-            for row in emitted_ack_snd
-        ]
-        print(f"[EMPIRICAL]    Mean Data ACKs (incl. dupACKs/SACKs) across {len(all_trials_data)} trials: {np.mean(emp_unique_acks_per_trial):.2f} (median: {np.median(emp_unique_acks_per_trial):.1f})")
-    else:
+        print(f"[EMPIRICAL]    Mean Mapped Data ACKs (incl. dupACKs/SACKs) across {len(all_trials_data)} trials: {emp_ack_mean_val:.2f} (median: {emp_ack_med_val:.1f})")
+    if raw_rev_stats_server and raw_rev_stats_client:
+        srv_cum_acks  = [d["cum_acks"] for d in raw_rev_stats_server]
+        srv_dup_sacks = [d["dup_sacks"] for d in raw_rev_stats_server]
+        cli_cum_acks  = [d["cum_acks"] for d in raw_rev_stats_client]
+        cli_dup_sacks = [d["dup_sacks"] for d in raw_rev_stats_client]
+        print(f"[RAW PCAP SRV] Server Emitted Data ACKs: mean={np.mean(srv_data_acks):.2f} (median={np.median(srv_data_acks):.1f}) | cum={np.mean(srv_cum_acks):.2f}, dup/SACK={np.mean(srv_dup_sacks):.2f}")
+        print(f"[RAW PCAP CLI] Client Received Data ACKs: mean={np.mean(cli_data_acks):.2f} (median={np.median(cli_data_acks):.1f}) | cum={np.mean(cli_cum_acks):.2f}, dup/SACK={np.mean(cli_dup_sacks):.2f}")
+    elif not has_empirical_acks:
         print("[NOTE] Cached .npy array only contains 2 channels (data arrivals); run without --cached to capture empirical ACK arrival times.")
