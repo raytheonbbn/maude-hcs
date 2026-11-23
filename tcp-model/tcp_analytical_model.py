@@ -285,14 +285,13 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
         idle gap since the previous received data segment exceeds RTO_MIN
         (now - icsk_ack.lrcvtime > icsk_rto in tcp_event_data_recv).
       - Receive-window autotuning QuickACKs (tcp_rcv_space_adjust & tcp_grow_window):
-        Once Flight 3 completes (after segment RCV_GROW_START_SEG = 72) while the
-        sender is still ramping up in Slow Start (k <= ss_max_k) and no packet-loss
-        hole has opened, Linux's receive-buffer autotuner expands sk_rcvbuf /
-        tcp_space(sk) up to ~384 KB (RCV_GROW_END_SEG = 264 segments). While
-        rcv_ssthresh grows in order, tcp_grow_window sets `icsk_ack.quick |= 1` on
-        each segment, forcing an immediate QuickACK (delta_k = 1). Once a loss
-        opens an out-of-order hole (triggering compressed SACKs in tcp_data_queue_ofo)
-        or the sender exits Slow Start into Congestion Avoidance, window growth stops.
+        Receiver window growth is independent of the sender's slow-start state;
+        Linux also permits growth for SACK-enabled out-of-order arrivals.
+        This approximation uses a segment range (RCV_GROW_START_SEG through
+        RCV_GROW_END_SEG) and a loss-survival discount to estimate the growth
+        interval. The discount remains a heuristic, not a Linux first-loss rule.
+        During that interval, `icsk_ack.quick |= 1` forces immediate QuickACKs.
+        ss_max_k is retained for caller compatibility but does not gate growth.
       - In __tcp_ack_snd_check, each arriving segment triggers an immediate cumulative
         ACK if either:
           1. `quick > 0` (tcp_in_quickack_mode), or
@@ -328,16 +327,18 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
         else:
             prev_t = None
 
-    ss_limit = RCV_GROW_END_SEG if ss_max_k is None else min(RCV_GROW_END_SEG, int(ss_max_k))
-    if ss_limit <= RCV_GROW_START_SEG:
+    # Receiver growth must not be clipped by sender congestion state.
+    # Keep the existing segment/loss heuristic pending a receiver-buffer model.
+    grow_limit = RCV_GROW_END_SEG
+    if grow_limit <= RCV_GROW_START_SEG:
         rcv_grow_end = RCV_GROW_START_SEG
     elif _path.drop_prob <= 1e-10:
-        rcv_grow_end = ss_limit
+        rcv_grow_end = grow_limit
     else:
         p_surv = 1.0 - _path.drop_prob
         expected_grow = sum(
             p_surv ** (j - RCV_GROW_START_SEG)
-            for j in range(RCV_GROW_START_SEG + 1, ss_limit + 1)
+            for j in range(RCV_GROW_START_SEG + 1, grow_limit + 1)
         )
         # Round to an even number of segments so delayed-ACK pairing stays aligned
         rcv_grow_end = RCV_GROW_START_SEG + 2 * int(round(expected_grow / 2.0))
@@ -365,8 +366,8 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
             quick = TCP_MAX_QUICKACKS
         prev_t = t_k
 
-        # tcp_grow_window: while in Slow Start and rcv_ssthresh grows in-order toward
-        # the autotuned tcp_space(sk) ceiling, Linux executes `icsk_ack.quick |= 1`.
+        # Approximate tcp_grow_window's QuickACK request while receiver window
+        # space grows; this does not depend on the sender's slow-start state.
         if RCV_GROW_START_SEG < k <= rcv_grow_end:
             quick = max(quick, 1)
 
