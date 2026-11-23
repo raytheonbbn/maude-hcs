@@ -270,7 +270,7 @@ def init_tcp_state():
 
 # ─────────────────────── Timeline Generation ───────────────────────
 
-def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, start_time=0.0, flts=None):
+def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, start_time=0.0, flts=None, ss_max_k=None):
     """
     Computes expected ACK arrival times at the IXP and the Sender under Linux QuickACK,
     Delayed ACKs, and reverse-path ACK loss (net/ipv4/tcp_input.c & net/ipv4/tcp_output.c).
@@ -285,11 +285,14 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
         idle gap since the previous received data segment exceeds RTO_MIN
         (now - icsk_ack.lrcvtime > icsk_rto in tcp_event_data_recv).
       - Receive-window autotuning QuickACKs (tcp_rcv_space_adjust & tcp_grow_window):
-        Once Flight 3 completes (after segment RCV_GROW_START_SEG = 72), Linux's
-        receive-buffer autotuner expands sk_rcvbuf / tcp_space(sk) up to ~384 KB
-        (RCV_GROW_END_SEG = 264 segments). While rcv_ssthresh grows across segments
-        73..264, tcp_grow_window sets `icsk_ack.quick |= 1` on each segment, forcing
-        an immediate QuickACK (delta_k = 1) until the new window ceiling is reached.
+        Once Flight 3 completes (after segment RCV_GROW_START_SEG = 72) while the
+        sender is still ramping up in Slow Start (k <= ss_max_k) and no packet-loss
+        hole has opened, Linux's receive-buffer autotuner expands sk_rcvbuf /
+        tcp_space(sk) up to ~384 KB (RCV_GROW_END_SEG = 264 segments). While
+        rcv_ssthresh grows in order, tcp_grow_window sets `icsk_ack.quick |= 1` on
+        each segment, forcing an immediate QuickACK (delta_k = 1). Once a loss
+        opens an out-of-order hole (triggering compressed SACKs in tcp_data_queue_ofo)
+        or the sender exits Slow Start into Congestion Avoidance, window growth stops.
       - In __tcp_ack_snd_check, each arriving segment triggers an immediate cumulative
         ACK if either:
           1. `quick > 0` (tcp_in_quickack_mode), or
@@ -325,6 +328,20 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
         else:
             prev_t = None
 
+    ss_limit = RCV_GROW_END_SEG if ss_max_k is None else min(RCV_GROW_END_SEG, int(ss_max_k))
+    if ss_limit <= RCV_GROW_START_SEG:
+        rcv_grow_end = RCV_GROW_START_SEG
+    elif _path.drop_prob <= 1e-10:
+        rcv_grow_end = ss_limit
+    else:
+        p_surv = 1.0 - _path.drop_prob
+        expected_grow = sum(
+            p_surv ** (j - RCV_GROW_START_SEG)
+            for j in range(RCV_GROW_START_SEG + 1, ss_limit + 1)
+        )
+        # Round to an even number of segments so delayed-ACK pairing stays aligned
+        rcv_grow_end = RCV_GROW_START_SEG + 2 * int(round(expected_grow / 2.0))
+
     pending = 0
     deadline = None
     last_k = 0
@@ -348,9 +365,9 @@ def _compute_delayed_ack_times(times_dest, max_k, *, is_new=True, state=None, st
             quick = TCP_MAX_QUICKACKS
         prev_t = t_k
 
-        # tcp_grow_window: while rcv_ssthresh grows toward the autotuned tcp_space(sk)
-        # ceiling (segments 73..264), Linux executes `icsk_ack.quick |= 1`.
-        if RCV_GROW_START_SEG < k <= RCV_GROW_END_SEG:
+        # tcp_grow_window: while in Slow Start and rcv_ssthresh grows in-order toward
+        # the autotuned tcp_space(sk) ceiling, Linux executes `icsk_ack.quick |= 1`.
+        if RCV_GROW_START_SEG < k <= rcv_grow_end:
             quick = max(quick, 1)
 
         if pending == 0:
@@ -462,6 +479,7 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
         else:
             pass
 
+    ss_max_k = 0
     if in_slow_start:
         last_p0 = 1.0
         exited_due_to_loss = False
@@ -546,6 +564,7 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
                 break
             W_ss = W_next_ss
 
+        ss_max_k = int(seg)
         if exited_due_to_loss:
             in_slow_start = False
             p_l_last = 1.0 - last_p0
@@ -642,7 +661,7 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             flt += 1
 
     ack_times_ixp, ack_times_sender, quickacks_left = _compute_delayed_ack_times(
-        times_dest, max_k, is_new=is_new, state=state, start_time=start_time, flts=flts)
+        times_dest, max_k, is_new=is_new, state=state, start_time=start_time, flts=flts, ss_max_k=ss_max_k)
 
     valid_dest = times_dest[np.isfinite(times_dest)]
     valid_ack_sender = ack_times_sender[np.isfinite(ack_times_sender)]
