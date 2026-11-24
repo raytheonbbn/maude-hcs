@@ -3,6 +3,7 @@
 Run with: python -m unittest discover -s tcp-model -p test_plot_maude_vs_python.py
 """
 import importlib.util
+import copy
 import math
 import unittest
 from unittest import mock
@@ -89,7 +90,8 @@ class ComparisonChecks(unittest.TestCase):
 
     def test_every_state_field_is_compared(self):
         for field, value in dict(cwnd=21.0, w_max=31.0, t_since=0.2,
-                                 in_slow_start=False, last_send_time=1.1, last_ack_time=1.14).items():
+                                 in_slow_start=False, last_send_time=1.1, last_ack_time=1.14,
+                                 quickacks_left=1).items():
             with self.subTest(field=field):
                 with self.assertRaisesRegex(ValueError, field):
                     self.compare(md_state=self.state(**{field: value}))
@@ -127,6 +129,35 @@ class ComparisonChecks(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'positive integer'):
                     comparison._segment_count(value)
 
+    def test_full_comparison_checks_handshakes_ixp_and_wire_sizes(self):
+        python = comparison.get_python_timeline('none', 7, start_time=0.0)
+        self.assertEqual(python['data_sizes'][:5], [52, 52, 1500, 52, 1500])
+        self.assertEqual(python['ack_sizes'][:4], [52, 52, 1500, 52])
+        self.assertEqual(python['data_sizes'][-1], 59)
+        comparison.compare_timelines(python, copy.deepcopy(python), num_bytes=7,
+                                      is_new=True, label='full transfer')
+        for key in ('destination_times', 'ixp_times', 'ack_ixp_times', 'ack_sender_times'):
+            modified = copy.deepcopy(python)
+            modified[key][0] += 0.001
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'arrival differs'):
+                comparison.compare_timelines(python, modified, num_bytes=7,
+                                              is_new=True, label='handshake mismatch')
+        for key in ('data_sizes', 'ack_sizes'):
+            modified = copy.deepcopy(python)
+            modified[key][0] += 1
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'sizes differs'):
+                comparison.compare_timelines(python, modified, num_bytes=7,
+                                              is_new=True, label='wire-size mismatch')
+
+    def test_unspecified_and_zero_quickack_budgets_are_distinct(self):
+        with self.assertRaisesRegex(ValueError, 'quickacks_left'):
+            self.compare(py_state=self.state(quickacks_left=None),
+                         md_state=self.state(quickacks_left=0))
+        for invalid in (-1, 1.5, math.nan, True):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, 'quickacks_left'):
+                self.compare(py_state=self.state(quickacks_left=invalid),
+                             md_state=self.state(quickacks_left=invalid))
+
 
 class AdapterChecks(unittest.TestCase):
     def test_handshake_entries_are_removed_only_for_new_connections(self):
@@ -134,7 +165,7 @@ class AdapterChecks(unittest.TestCase):
                      last_send_time=1.0, last_ack_time=1.04)
         for is_new, count in ((True, 40), (False, 80)):
             raw = list(range(count + (5 if is_new else 0)))
-            ixp_acks = [0.1 + i * 0.01 for i in range(count // 2)]
+            ixp_acks = [0.1 + i * 0.01 for i in range(count // 2 + (4 if is_new else 0))]
             sender_acks = [value + 0.01 for value in ixp_acks]
             result = dict(destination_times=raw, ixp_times=raw,
                           ack_ixp_times=ixp_acks, ack_sender_times=sender_acks, state=state)
@@ -144,14 +175,39 @@ class AdapterChecks(unittest.TestCase):
                     times, returned_ixp_acks, returned_sender_acks, returned_state = comparison.get_maude_transfer(
                         'none', count * 1448, is_new=is_new, start_time=0.0, backend='binding')
                     self.assertEqual(times, raw[5:] if is_new else raw)
-                    self.assertEqual(returned_ixp_acks, ixp_acks)
-                    self.assertEqual(returned_sender_acks, sender_acks)
+                    self.assertEqual(returned_ixp_acks, ixp_acks[4:] if is_new else ixp_acks)
+                    self.assertEqual(returned_sender_acks, sender_acks[4:] if is_new else sender_acks)
                     self.assertEqual(returned_state.last_ack_time, 1.04)
         result = dict(destination_times=[0.1] * 40, ixp_times=[0.1] * 40, state=state)
         with mock.patch.object(comparison.importlib.util, 'find_spec', return_value=object()), \
              mock.patch.object(comparison, '_evaluate_maude_transfer', return_value=result):
             with self.assertRaisesRegex(RuntimeError, 'expected 45 entries'):
                 comparison.get_maude_transfer('none', 57920, start_time=0.0, backend='binding')
+
+    def test_python_and_maude_adapters_remove_identical_handshake_prefixes(self):
+        full = comparison.get_python_timeline('none', 3 * 1448, start_time=0.0)
+        raw = dict(full, state=vars(full['state']).copy())
+        with mock.patch.object(comparison.importlib.util, 'find_spec', return_value=object()), \
+             mock.patch.object(comparison, '_evaluate_maude_transfer', return_value=raw):
+            md = comparison.get_maude_transfer('none', 3 * 1448, start_time=0.0)
+        py = comparison.get_python_transfer('none', 3 * 1448, start_time=0.0)
+        self.assertEqual(py[:3], md[:3])
+        self.assertEqual(len(py[0]), 3)
+        self.assertEqual(len(py[2]), 3)
+
+    def test_retained_quickack_budget_and_asymmetric_profile_reach_worker(self):
+        state = comparison.tcp_analytical_model.TcpState(quickacks_left=7)
+        full = comparison.get_python_timeline('excellent', 1448, is_new=False,
+                                               state=state, start_time=0.0, profile_l2='good')
+        raw = dict(full, state=vars(full['state']).copy())
+        with mock.patch.object(comparison.importlib.util, 'find_spec', return_value=object()), \
+             mock.patch.object(comparison, '_evaluate_maude_transfer', return_value=raw) as worker:
+            comparison.get_maude_transfer('excellent', 1448, is_new=False, state=state,
+                                          start_time=0.0, profile_l2='good')
+        request = worker.call_args.args[0]
+        self.assertEqual(request['state']['quickacks_left'], 7)
+        self.assertEqual(request['drop_p'], 0.001)
+        self.assertEqual(request['drop_p_l2'], 0.005)
 
     def test_subprocess_errors_and_missing_or_invalid_results_are_reported(self):
         marker = comparison._MAUDE_RESULT_MARKER
@@ -198,48 +254,93 @@ class AdapterChecks(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec('maude'), 'Maude Python binding required')
 class RealTransferChecks(unittest.TestCase):
+    def assert_pair(self, profile, size, *, is_new, py_state=None, md_state=None,
+                    start_time=0.0, backend='binding', profile_l2=None):
+        python = comparison.get_python_timeline(profile, size, is_new=is_new,
+                    state=py_state, start_time=start_time, profile_l2=profile_l2)
+        maude = comparison.get_maude_timeline(profile, size, is_new=is_new,
+                    state=md_state, start_time=start_time, backend=backend,
+                    profile_l2=profile_l2)
+        comparison.compare_timelines(python, maude, num_bytes=size, is_new=is_new,
+                                      label=f'{profile}/{profile_l2 or profile}, {backend}')
+        return python, maude
+
     def test_new_and_reused_transfers_through_both_backends(self):
         for backend in ('binding', 'subprocess'):
             for profile in ('none', 'fair'):
-                py_state = md_state = None
+                python = maude = None
                 for is_new, size in ((True, 57920), (False, 115840)):
                     with self.subTest(backend=backend, profile=profile, is_new=is_new):
-                        py_start = 0.0 if is_new else py_state.last_ack_time
-                        md_start = 0.0 if is_new else md_state.last_ack_time
-                        py_times, py_ack_ixp, py_ack_sender, py_state = comparison.get_python_transfer(
-                            profile, size, is_new=is_new, state=py_state, start_time=py_start)
-                        md_times, md_ack_ixp, md_ack_sender, md_state = comparison.get_maude_transfer(
-                            profile, size, is_new=is_new, state=md_state, start_time=md_start,
-                            backend=backend)
-                        comparison._compare_transfer(
-                            py_times, py_state, md_times, md_state,
-                            py_ack_ixp=py_ack_ixp, py_ack_sender=py_ack_sender,
-                            md_ack_ixp=md_ack_ixp, md_ack_sender=md_ack_sender,
-                            expected_segments=comparison._segment_count(size), label='real transfer')
+                        start_time = 0.0 if is_new else python['state'].last_ack_time
+                        python, maude = self.assert_pair(profile, size, is_new=is_new,
+                            py_state=None if is_new else python['state'],
+                            md_state=None if is_new else maude['state'],
+                            start_time=start_time, backend=backend)
 
-    def test_small_and_odd_transfers_have_matching_ack_counts_and_times(self):
-        # Explicit small examples; ACK counts are not generally ceil(segments / 2)
-        # when interarrival gaps can trigger the delayed ACK timer.
-        cases = ((1, 1), (1448, 1), (1449, 1), (3 * 1448, 2), (11 * 1448, 6))
+    def test_receiver_growth_profiles_match_at_300_segments(self):
+        expected_data_acks = {'none': 254, 'excellent': 238, 'good': 201}
+        for profile in ('none', 'excellent', 'good', 'fair'):
+            with self.subTest(profile=profile):
+                python, maude = self.assert_pair(profile, 300 * 1448, is_new=True)
+                if profile in expected_data_acks:
+                    self.assertEqual(len(python['ack_sender_times']) - 4,
+                                     expected_data_acks[profile])
+                self.assertEqual(python['ack_sizes'][:4], [52, 52, 1500, 52])
+                self.assertEqual(maude['ack_sizes'][:4], [52, 52, 1500, 52])
+
+    def test_short_and_odd_transfers_preserve_quickack_budget(self):
+        cases = ((1, 1, 1), (1449, 2, 2), (3 * 1448, 3, 3), (11 * 1448, 11, 8))
         for backend in ('binding', 'subprocess'):
-            for size, expected_acks in cases:
-                py_state = md_state = None
-                for is_new in (True, False):
+            for size, new_acks, reused_acks in cases:
+                python = maude = None
+                for is_new, expected_acks in ((True, new_acks), (False, reused_acks)):
                     with self.subTest(backend=backend, size=size, is_new=is_new):
-                        py_start = 0.0 if is_new else py_state.last_ack_time
-                        md_start = 0.0 if is_new else md_state.last_ack_time
-                        py_times, py_ack_ixp, py_ack_sender, py_state = comparison.get_python_transfer(
-                            'none', size, is_new=is_new, state=py_state, start_time=py_start)
-                        md_times, md_ack_ixp, md_ack_sender, md_state = comparison.get_maude_transfer(
-                            'none', size, is_new=is_new, state=md_state, start_time=md_start,
-                            backend=backend)
-                        self.assertEqual(len(py_ack_sender), expected_acks)
-                        self.assertEqual(len(md_ack_sender), expected_acks)
-                        comparison._compare_transfer(
-                            py_times, py_state, md_times, md_state,
-                            py_ack_ixp=py_ack_ixp, py_ack_sender=py_ack_sender,
-                            md_ack_ixp=md_ack_ixp, md_ack_sender=md_ack_sender,
-                            expected_segments=comparison._segment_count(size), label='small/odd transfer')
+                        start_time = 0.0 if is_new else python['state'].last_ack_time
+                        python, maude = self.assert_pair('none', size, is_new=is_new,
+                            py_state=None if is_new else python['state'],
+                            md_state=None if is_new else maude['state'],
+                            start_time=start_time, backend=backend)
+                        skip = 4 if is_new else 0
+                        self.assertEqual(len(python['ack_sender_times']) - skip, expected_acks)
+                        self.assertEqual(len(maude['ack_sender_times']) - skip, expected_acks)
+                if size == 3 * 1448:
+                    self.assertEqual(python['state'].quickacks_left, 10)
+                    self.assertEqual(maude['state'].quickacks_left, 10)
+
+    def test_idle_restart_and_asymmetric_paths(self):
+        comparison.check_edge_cases(backend='binding')
+
+    def test_state_update_replaces_quickack_budget_and_preserves_other_attributes(self):
+        # Ensure the source is loaded even when this test runs on its own.
+        self.assert_pair('none', 1448, is_new=True)
+        import maude
+        module = maude.getModule('TCP-ANALYTICAL-MODEL')
+        term = module.parseTerm('updateTcpState((newCnx: false, '
+            'makeTcpState(20.0, 30.0, 0.0, true, 0.0, 0.04, 7.0)), '
+            'makeTcpState(30.0, 40.0, 0.1, false, 0.04, 0.08, 2.0))')
+        self.assertIsNotNone(term)
+        term.reduce()
+        attributes = []
+        def visit(node):
+            if str(node.symbol()).replace('`', '') == '_,_':
+                for child in node.arguments():
+                    visit(child)
+            elif str(node.symbol()) != 'noneAS':
+                attributes.append(node)
+        visit(term)
+        quick = [attribute for attribute in attributes
+                 if str(attribute.symbol()).replace('`', '') == 'quickacksLeft:_']
+        self.assertEqual(len(quick), 1, str(term))
+        self.assertEqual(float(str(list(quick[0].arguments())[0])), 2.0)
+        self.assertIn('newCnx: false', str(term))
+        for expression in (
+            'hasTcpState((cwnd: 20.0, wMax: 30.0, tSince: 0.0, inSS: true, '
+                'lastSend: 0.0, lastAck: 0.04))',
+            'hasTcpState(makeTcpState(20.0, 30.0, 0.0, true, 0.0, 0.04))'):
+            result = module.parseTerm(expression)
+            self.assertIsNotNone(result)
+            result.reduce()
+            self.assertEqual(str(result), 'true')
 
 
 if __name__ == '__main__':
