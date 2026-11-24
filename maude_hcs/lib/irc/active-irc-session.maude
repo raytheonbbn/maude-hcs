@@ -1,0 +1,66 @@
+--- Optional CP4 IRC session transport using the shared active TCP model.
+--- The IRC session owns acceptance, failure detection, failover, and replay;
+--- TCP owns segmentation, loss recovery, and connection reset.
+sload irc-session-interface
+sload ../network/active-network
+
+mod ACTIVE-IRC-SESSION is
+  inc IRC-SESSION-INTERFACE .
+  inc ACTIVE-NETWORK-CONNECTION .
+
+  op sessionTcp:_ : Address -> Attribute [ctor] .
+  op enableActiveIrcSession : Actor Address -> Actor .
+  eq enableActiveIrcSession(< A:Address : IrcSessionIface |
+      AS:AttributeSet, sessionTcp: OLD:Address >, S:Address) =
+    < A:Address : IrcSessionIface | AS:AttributeSet, sessionTcp: S:Address > .
+  eq enableActiveIrcSession(< A:Address : IrcSessionIface | AS:AttributeSet >,
+      S:Address) =
+    < A:Address : IrcSessionIface | AS:AttributeSet, sessionTcp: S:Address > [owise] .
+
+  vars A B C S U : Address .
+  vars AS L1 L2 : AttributeSet .
+  vars E I G : Nat .
+  vars T D : Float .
+  var M : IrcMsg .
+  var WHY : String .
+  var CLIENT : Bool .
+
+  eq getSize(SessionWire(E, M)) = getSize(M) .
+
+  --- Native TLS registration writes NICK/USER after the final client flight.
+  --- With Nagle enabled, these small writes wait for that flight's TCP ACK.
+  --- Keep this RTT inside the transfer: rules installed during the wait still
+  --- apply when registration bytes are attempted, and a reset can cancel them.
+  eq atInitialPayloadWait(SessionWire(E, ClientConnect(U, E)), L1, L2, true) =
+    tcpLinkRtt(L1, L2) .
+
+  --- TCP supplies handshake and data timing; do not add the direct adapter's
+  --- synthetic handshake delay a second time. Reconnection is application led.
+  eq sessionSend((AS, sessionTcp: S), D, C, A,
+      SessionWire(E, ClientConnect(U, E))) =
+    [0.0, (to S : TcpReconnectWith(A, C, SessionWire(E, ClientConnect(U, E)))), 0] .
+  ceq sessionSend((AS, sessionTcp: S), D, C, A, SessionWire(E, M)) =
+    [0.0, (to tcp(C) from A : SessionWire(E, M)), 0]
+    if not isConnect(M) .
+
+  --- Explicit session teardown also retires the registered TCP flow. The
+  --- existing session's peer retirement/reset notifications remain lifecycle
+  --- controls; application bytes always take the active TCP path above.
+  --- Keep close active at the current time: its epoch-checked originating
+  --- rule and TCP closure finish before a later queued reconnect can run.
+  eq sessionTransportClose((AS, sessionTcp: S), T) =
+    {T, (to S : TcpClose)} .
+
+  --- An accepted local write remains accepted even when its bytes later fail.
+  --- Mark the socket error; existing next-write/ping logic decides when the
+  --- client discovers it and invokes the existing IRC failover/replay path.
+  rl [session-tcp-failure]:
+    {T, (to A from S : TcpFailed(I, G, WHY, SessionWire(E, M)))}
+    < A : IrcSessionIface | AS, sessionTcp: S, clientSide: CLIENT,
+      ircAddress: B, sessionUser: U >
+    => < A : IrcSessionIface |
+         (if E == epochOf(AS) then setSession(AS, E, false, true) else AS fi),
+         sessionTcp: S, clientSide: CLIENT, ircAddress: B, sessionUser: U >
+       (if E == epochOf(AS) and not CLIENT
+        then {T, (to B from A : SessionExpired(U, E))} else null fi) .
+endm

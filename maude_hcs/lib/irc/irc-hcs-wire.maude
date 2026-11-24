@@ -1,0 +1,48 @@
+--- An IRC endpoint can use any HCS exposing the ByteSeq application interface.
+--- Routing information is local endpoint metadata, never part of the payload.
+sload ../common/maude/byteseq
+sload irc-link-state
+
+mod IRC-HCS-WIRE is
+  inc BYTESEQ .
+  inc IRC-LINK-STATE .
+
+  op hcsSendAddress:_ : Address -> Attribute [ctor] .
+  op hcsReceiveAddress:_ : Address -> Attribute [ctor] .
+  vars endpoint peerEndpoint hcsAddress source destination : Address .
+  var attrs : AttributeSet .
+  var bytes : ByteSeq .
+  var rest : ByteSeqL .
+
+  --- Shared HCS topics can deliver the same payload to several subscribers.
+  --- Keep endpoint identity across the channel so only its intended connection
+  --- accepts the bytes. These addresses are simulation metadata, like epochs.
+  op IrcHcsFrame : Address Address ByteSeq -> ByteSeq [ctor] .
+  eq getSize(IrcHcsFrame(source, destination, bytes)) = getSize(bytes) .
+  eq getHashString(IrcHcsFrame(source, destination, bytes)) = getHashString(bytes) .
+
+  --- Keep direct endpoint transport as the default for existing scenarios.
+  --- An HCS endpoint instead submits bytes to its local channel actor, which
+  --- returns received bytes to the endpoint's address after transport/reassembly.
+  op ircWireMessage : AttributeSet Address Address ByteSeq -> Msg .
+  eq ircWireMessage((attrs, hcsSendAddress: hcsAddress), endpoint, peerEndpoint, bytes)
+    = (to hcsAddress from endpoint : IrcHcsFrame(endpoint, peerEndpoint, bytes)) .
+  eq ircWireMessage(attrs, endpoint, peerEndpoint, bytes)
+    = (to peerEndpoint from endpoint : bytes) [owise] .
+
+  --- Content managers can aggregate frames, and each frame can contain a batch
+  --- of IRC messages. Restore connection routing identity before IRC/session
+  --- processing; unrelated shared-topic frames and bare bytes are discarded.
+  op ircHcsDeliver : ByteSeq Address Address -> Config .
+  op ircHcsDeliverList : ByteSeqL Address Address -> Config .
+  eq ircHcsDeliver(IrcHcsFrame(source, destination, bytes), endpoint, peerEndpoint)
+    = (if source == peerEndpoint and destination == endpoint
+       then unpackToMsgs(bytes, endpoint, peerEndpoint) else null fi) .
+  eq ircHcsDeliver(pack(rest), endpoint, peerEndpoint)
+    = ircHcsDeliverList(rest, endpoint, peerEndpoint) .
+  eq ircHcsDeliver(bytes, endpoint, peerEndpoint) = null [owise] .
+  eq ircHcsDeliverList(nilBS, endpoint, peerEndpoint) = null .
+  eq ircHcsDeliverList(bytes :: rest, endpoint, peerEndpoint)
+    = ircHcsDeliver(bytes, endpoint, peerEndpoint)
+      ircHcsDeliverList(rest, endpoint, peerEndpoint) .
+endm

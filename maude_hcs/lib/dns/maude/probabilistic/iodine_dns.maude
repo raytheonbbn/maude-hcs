@@ -86,6 +86,8 @@ mod IODINE_DNS is
   op pingInterval : -> Float .
   op initialPingDelay : -> Float .
   op receiveToPingDelay : -> Float .
+  --- A local queue wakeup must not be confused with a peer readiness notice.
+  op TryIodineSend : -> Content [ctor] .
   
 
   --------------------------------
@@ -104,7 +106,7 @@ crl [iServerEmbedding]:
   if (not isSending(wattrs) or getNumAttempts(wattrs) > 5)
       --- Server doesn't send, just fragment the current packet and queue it
       --- TODO: Need to be able to config Bob with a downstream fragment length different from upstream
-      /\ wattrsNext := handleNewPacket(wattrs, Pkt, maxDownFragmentLen)
+      /\ wattrsNext := handleNewPacket(wattrs, Pkt, iodineDownFragmentLimit(wattrs))
     [print "(" T ") iServerEmbedding get pkt " Pkt ", making list of fragments." ]
     .
 
@@ -192,7 +194,7 @@ crl [wnameserver-receive-query-weird]:
   /\ {appAfterSend, queuedMsg} := (if isTxComplete(wattrsTrans) and getNumAdmittedPkts(appReady) > 0
       then sendPkt(appReady, BOB) else {appReady, nullMsg} fi)
   /\ wattrs1 := (if queuedMsg == nullMsg then wattrsTrans
-      else handleNewPacket(wattrsTrans, getPkt(queuedMsg), maxDownFragmentLen) fi)
+      else handleNewPacket(wattrsTrans, getPkt(queuedMsg), iodineDownFragmentLimit(wattrsTrans)) fi)
   --- Construct the response only after the queued packet is available.
   /\ {wattrsTrans', msgOut} := buildServerResponse(wattrs1, (to ADDR from ADDR1 : query(ID, QNAME, QTYPE)))
   --- step 2.5: Check if this is for the last fragment, delay send
@@ -332,13 +334,19 @@ crl [wnameserver-receive-query-weird]:
     .
 
 
-  *** This signals either the start or that the WClient is ready to accept new packets.
-  *** Either way, Alice checks if it is ready (now is passed the previous app timeout)
-  *** and sends a packet if so.  Otherwise, it marks WClient as ready and waits for its
-  *** own timeout.
+  --- Only initialization and WClient's completed-packet notification establish
+  --- readiness. New application writes merely wake the existing queue.
+  rl [send-app-ready]:
+    < ALICE : SendApp | appAttrs, iodineReady: IODINEREADY >
+    {T, (to ALICE : start)}
+  =>
+    < ALICE : SendApp | appAttrs, iodineReady: true >
+    [0.0, (to ALICE : TryIodineSend), 0]
+  .
+
   crl [send-app-send-packet]:
     < ALICE : SendApp | appAttrs, fileDestAddr: ADDR, queuePopulated: queueSet, iodineReady: IODINEREADY >
-    {T, (to ALICE : start)}
+    {T, (to ALICE : TryIodineSend)}
   =>
     < ALICE : SendApp | appAttrsNext >
     (if msgOut == nullMsg then null else delayMsgs(msgOut,null) fi)
@@ -353,9 +361,9 @@ crl [wnameserver-receive-query-weird]:
                      else (packetizeProb(appAttrs, ALICE, ADDR, file(0,fileSize), packetSize, maxPacketSize), fileDestAddr: ADDR)
                      fi)
     *** The queue is populated, and the wclient is ready.
-    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, iodineReady: true)
+    /\ appAttrs1 := (appAttrsTrans, queuePopulated: true, iodineReady: IODINEREADY)
     /\ {appAttrsNext, msgOut} :=
-        if getNumAdmittedPkts(appAttrs1) > 0
+        if IODINEREADY and getNumAdmittedPkts(appAttrs1) > 0
           *** If Alice has already admitted packets, send the next one.
           then sendPkt(appAttrs1, ALICE)
           *** Otherwise, it is not time yet.  Leave wclient marked as ready and done nothing else.
@@ -415,7 +423,7 @@ crl [wnameserver-receive-query-weird]:
               ALICE, ADDR, FILE, packetSize, maxPacketSize) >
     **** (appAttrs, fileDestAddr: ADDR, queuePopulated: true),
 ***    [0., (to ALICE : start), 0]
-    delayMsgs((to ALICE : start),null)
+    delayMsgs((to ALICE : TryIodineSend),null)
     [print "(" T ") SendApp handling file " FILE ]
     .
 
