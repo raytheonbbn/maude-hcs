@@ -52,7 +52,7 @@ sload tcp_socket.maude
 ---   dropP: packet drop probability p in [0, 1]
 ---   End-to-end 2-hop composite loss: p_e2e = 1 - (1 - p1) * (1 - p2)
 ---
---- Loss is unidirectional: only client->server path is modelled.
+--- Loss is bidirectional: data and reverse ACK recovery use the IID path.
 --- ================================================================
 
 
@@ -91,7 +91,11 @@ mod TCP-ANALYTICAL-MODEL is
 
   --- Round a Float to nearest integer (as Float)
   op roundF : Float -> Float .
-  eq roundF(X:Float) = floor(X:Float + 5.0e-1) .
+  eq roundF(X:Float) =
+     if X:Float - floor(X:Float) == 5.0e-1
+     then (if f2n(floor(X:Float)) rem 2 == 0
+           then floor(X:Float) else floor(X:Float) + 1.0 fi)
+     else floor(X:Float + 5.0e-1) fi .
 
   --- Cube root (positive values only; returns 0 for <= 0)
   op cbrt : Float -> Float .
@@ -239,898 +243,396 @@ mod TCP-ANALYTICAL-MODEL is
   if P:Float > 1.0e-15 /\ P:Float < (1.0 - 1.0e-15) .
 
 
-  --- ============================================================
-  ---  Segment Time Generators
-  --- ============================================================
 
-  --- genSSSegs(i, W, N, seg, baseTime, ser)
-  ---   Generates times for slow-start segments: seg+i+1 .. min(seg+W, N)
-  ---   time_k = baseTime + i * ser
-  op genSSSegs : Nat Nat Nat Nat Float Float -> FloatList .
-  eq genSSSegs(I:Nat, W:Nat, N:Nat, SG:Nat, BT:Float, SR:Float) =
-     if I:Nat >= W:Nat or (SG:Nat + I:Nat + 1) > N:Nat
-     then nilFloatList
-     else (BT:Float + float(I:Nat) * SR:Float)
-          :: genSSSegs(s(I:Nat), W:Nat, N:Nat, SG:Nat, BT:Float, SR:Float)
-     fi .
-
-  --- genSSSegsTLP(i, W, N, seg, baseTime, ser, pDrop, dtRack, dtTlpSeg)
-  ---   Generates times for slow-start segments with RACK-TLP per-segment recovery:
-  ---   rem = W - 1 - i
-  ---   p_tail = pDrop ^ rem
-  ---   dt_seg_rec = (1 - p_tail) * dtRack + p_tail * dtTlpSeg
-  ---   time_k = baseTime + i * ser + pDrop * dt_seg_rec
-  op genSSSegsTLP : Nat Nat Nat Nat Float Float Float Float Float -> FloatList .
-  eq genSSSegsTLP(I:Nat, W:Nat, N:Nat, SG:Nat, BT:Float, SR:Float,
-                  P_DROP:Float, DT_RACK:Float, DT_TLP_SEG:Float) =
-     if I:Nat >= W:Nat or (SG:Nat + I:Nat + 1) > N:Nat
-     then nilFloatList
-     else (BT:Float + float(I:Nat) * SR:Float +
-           P_DROP:Float * ((1.0 - powF(P_DROP:Float, sd(W:Nat, s(I:Nat)))) * DT_RACK:Float
-                           + powF(P_DROP:Float, sd(W:Nat, s(I:Nat))) * DT_TLP_SEG:Float))
-          :: genSSSegsTLP(s(I:Nat), W:Nat, N:Nat, SG:Nat, BT:Float, SR:Float,
-                          P_DROP:Float, DT_RACK:Float, DT_TLP_SEG:Float)
-     fi .
-
-  --- computeDelayedAckTimes(timesDest, owdOffset)
-  ---   Computes expected ACK arrival times under Linux Delayed ACKs (one entry per emitted ACK).
-  op computeDelayedAckTimes : FloatList Float -> FloatList .
-  eq computeDelayedAckTimes(nilFloatList, OW:Float) = nilFloatList .
-  eq computeDelayedAckTimes(T1:Float :: nilFloatList, OW:Float) =
-     (T1:Float + delackMinC + OW:Float) :: nilFloatList .
-  eq computeDelayedAckTimes(T1:Float :: T2:Float :: FL:FloatList, OW:Float) =
-     if T2:Float <= T1:Float + delackMinC
-     then (max(T1:Float, T2:Float) + OW:Float) :: computeDelayedAckTimes(FL:FloatList, OW:Float)
-     else (T1:Float + delackMinC + OW:Float) :: computeDelayedAckTimes(T2:Float :: FL:FloatList, OW:Float)
-     fi .
-
-  --- genCASegs(kIdx, segEnd, N, segStart, E_del, W, t, O, ser)
-  ---   Generates times for CA segments: kIdx .. min(segEnd, N)
-  ---   fractional_offset = (kIdx - 1 - segStart) / max(1.0, E_del)
-  ---   time_k = t + O + fractional_offset * W * ser
-  op genCASegs : Nat Nat Nat Nat Float Nat Float Float Float -> FloatList .
-  eq genCASegs(KI:Nat, SE:Nat, N:Nat, SS:Nat, ED:Float,
-              W:Nat, T:Float, OW:Float, SR:Float) =
-     if KI:Nat > SE:Nat or KI:Nat > N:Nat
-     then nilFloatList
-     else (T:Float + OW:Float +
-           ((float(sd(KI:Nat, s(SS:Nat))) / max(1.0, ED:Float))
-            * float(W:Nat) * SR:Float))
-          :: genCASegs(s(KI:Nat), SE:Nat, N:Nat, SS:Nat, ED:Float,
-                       W:Nat, T:Float, OW:Float, SR:Float)
-     fi .
-
-
-  --- ============================================================
-  ---  Slow Start Phase
-  --- ============================================================
-
-  --- ============================================================
-  ---  TCP Congestion State & Timeline Result
-  --- ============================================================
-
-***(
-  sort TcpState .
-  ---                 cwnd   wMax   tSince inSS lastSend lastAck
-  op tcpState :       Float  Float  Float  Bool Float Float -> TcpState [ctor] .
-  op tcpState :       Float  Float  Float  Bool -> TcpState .
-  op tcpState :       Float  Float  Float -> TcpState .
-  eq tcpState(CWND, WMX, TS, INSS) = tcpState(CWND, WMX, TS, INSS, -1.0, -1.0) .
-  eq tcpState(CWND, WMX, TS) = tcpState(CWND, WMX, TS, false, -1.0, -1.0) .
-)
-
-  op cwnd:_     : Float -> Attribute [ctor] .
-  op wMax:_     : Float -> Attribute [ctor] .
-  op tSince:_   : Float -> Attribute [ctor] .
-  op inSS:_     : Bool  -> Attribute [ctor] .
+  --- TCP state persists the receiver QuickACK budget across transfers.
+  --- -1 represents an unspecified Python None budget/timestamp.
+  op cwnd:_ : Float -> Attribute [ctor] .
+  op wMax:_ : Float -> Attribute [ctor] .
+  op tSince:_ : Float -> Attribute [ctor] .
+  op inSS:_ : Bool -> Attribute [ctor] .
   op lastSend:_ : Float -> Attribute [ctor] .
-  op lastAck:_  : Float -> Attribute [ctor] .
+  op lastAck:_ : Float -> Attribute [ctor] .
+  op quickacksLeft:_ : Float -> Attribute [ctor] .
+
+  vars CW WM TS LS LA QF NOW OWD1 OWD2 OW RTT0 P PA PP
+       DT DR PD OK FAIL DTS DTM FP0 PR PTS PTM CW1 WM1 TS1
+       PLOSS WRENO WNO PRTO PFAST EDT : Float .
+  vars N SG W F WNEXT IT K Q QR QN PF GROW : Nat .
+  vars B INSS ISNEW HP PENDING : Bool .
+  vars attrs attrs0 attrs1 ST ST1 : AttributeSet .
+  vars DST IXP TD TI FL AL AI AS : FloatList .
+  vars FS FLS : NatList .
+  vars CC1 CC2 : ChannelCfg .
 
   op makeTcpState : Float Float Float Bool -> AttributeSet .
-  eq makeTcpState(CWND, WMX, TS, INSS) = makeTcpState(CWND, WMX, TS, INSS, -1., 1.) .
   op makeTcpState : Float Float Float Bool Float Float -> AttributeSet .
-  eq makeTcpState(CWND, WMX, TS, INSS, LS, LA)
-    = (cwnd:     CWND,
-       wMax:     WMX,
-       tSince:   TS,
-       inSS:     INSS,
-       lastSend: LS,
-       lastAck:  LA)
-  .
-  --- Initial TCP State (start with this).
+  op makeTcpState : Float Float Float Bool Float Float Float -> AttributeSet .
+  eq makeTcpState(CW, WM, TS, B) = makeTcpState(CW, WM, TS, B, -1.0, -1.0) .
+  eq makeTcpState(CW, WM, TS, B, LS, LA) = makeTcpState(CW, WM, TS, B, LS, LA, -1.0) .
+  eq makeTcpState(CW, WM, TS, B, LS, LA, QF) =
+     (cwnd: CW, wMax: WM, tSince: TS, inSS: B,
+      lastSend: LS, lastAck: LA, quickacksLeft: QF) .
   op initTcpState : -> AttributeSet .
-  eq initTcpState = makeTcpState(10.0, 10.0 / cubicB, 0.0, true, -1.0, -1.0) .
-
-  --- Get the lastAck attribute value.  0. if not present.
-  op getLastAck : AttributeSet -> Float .
-  eq getLastAck(attrs, lastAck: LA) = LA .
-  eq getLastAck(attrs) = 0. [owise] .
-
-  op restartCwnd : Float Float -> Float .
-  ceq restartCwnd(CWND, IDLE) = restartCwnd(max(10.0, floor(CWND * 5.0e-1)), IDLE - rtoMinC)
-    if IDLE > rtoMinC and CWND > 10.0 .
-  eq restartCwnd(CWND, IDLE) = CWND [owise] .
+  eq initTcpState = makeTcpState(10.0, 10.0 / cubicB, 0.0, true) .
 
   op hasTcpState : AttributeSet -> Bool .
-  eq hasTcpState((attrs,
-                  cwnd: CWND,
-                  wMax: WMX,
-                  tSince: TS,
-                  inSS: INSS,
-                  lastSend: LS,
-                  lastAck: LA)) = true .
+  eq hasTcpState((attrs, cwnd: CW, wMax: WM, tSince: TS, inSS: B,
+                 lastSend: LS, lastAck: LA)) = true .
   eq hasTcpState(attrs) = false [owise] .
-
-  --- Initialize missing TCP state; otherwise apply idle restart
-  --- before the next send, or preserve state if no restart is needed.
-  op prepareTcpStateForSend : AttributeSet Float -> AttributeSet .
-  eq prepareTcpStateForSend((attrs,
-                             cwnd: CWND,
-                             wMax: WMX,
-                             tSince: TS,
-                             inSS: INSS,
-                             lastSend: LS,
-                             lastAck: LA),
-                            NOW)
-    = (if (LS >= 0.0 and LA >= 0.0 and NOW >= LA and NOW - LS > rtoMinC)
-        then (attrs,
-              cwnd: restartCwnd(CWND, NOW - LS),
-              wMax: WMX,
-              tSince: 0.0,
-              inSS: true,
-              lastSend: LS,
-              lastAck: LA)
-        else (attrs,
-              cwnd: CWND,
-              wMax: WMX,
-              tSince: TS,
-              inSS: INSS,
-              lastSend: LS,
-              lastAck: LA)
-      fi)
-  .
-****  eq prepareTcpStateForSend(ST:AttributeSet, NOW) = ST [owise] .
-  eq prepareTcpStateForSend(ST:AttributeSet, NOW)
-    = prepareTcpStateForSend(updateTcpState(ST:AttributeSet, initTcpState), NOW)
-    [owise]
-  .
-
-  op stampTcpState : TimelineResult Float Float -> TimelineResult .
-  eq stampTcpState(tlR(FL_DST, FL_IXP, FL_ACK_IXP, FL_ACK_SND,
-                       (attrs,
-                        cwnd: CWND,
-                        wMax: WMX,
-                        tSince: TS,
-                        inSS: INSS,
-                        lastSend: LS,
-                        lastAck: LA)), NOW, OW)
-    = tlR(FL_DST, FL_IXP, FL_ACK_IXP, FL_ACK_SND,
-          (attrs, makeTcpState(CWND,
-                               WMX,
-                               TS,
-                               INSS,
-                               NOW + maxFL(FL_DST) - OW,
-                               NOW + (if FL_ACK_SND == nilFloatList
-                                      then maxFL(FL_DST) + OW
-                                      else maxFL(FL_ACK_SND)
-                                      fi)))) .
-
+  op getLastAck : AttributeSet -> Float .
+  eq getLastAck((attrs, lastAck: LA)) = LA .
+  eq getLastAck(attrs) = 0.0 [owise] .
+  op getLastSend : AttributeSet -> Float .
+  eq getLastSend((attrs, lastSend: LS)) = LS .
+  eq getLastSend(attrs) = -1.0 [owise] .
+  op getQuickacksLeft : AttributeSet -> Float .
+  eq getQuickacksLeft((attrs, quickacksLeft: QF)) = QF .
+  eq getQuickacksLeft(attrs) = -1.0 [owise] .
   op stateStartTime : AttributeSet -> Float .
-  eq stateStartTime(attrs, lastAck: LA) = max(0.0, LA) .
-  eq stateStartTime(attrs) = 0. [owise print "Error: No lastAck." ] .
+  eq stateStartTime(attrs) = max(0.0, getLastAck(attrs)) .
 
+  --- Remove only modeled TCP fields; retain application/flow attributes.
+  op clearTcpState : AttributeSet -> AttributeSet .
+  eq clearTcpState((attrs, cwnd: CW)) = clearTcpState(attrs) .
+  eq clearTcpState((attrs, wMax: WM)) = clearTcpState(attrs) .
+  eq clearTcpState((attrs, tSince: TS)) = clearTcpState(attrs) .
+  eq clearTcpState((attrs, inSS: B)) = clearTcpState(attrs) .
+  eq clearTcpState((attrs, lastSend: LS)) = clearTcpState(attrs) .
+  eq clearTcpState((attrs, lastAck: LA)) = clearTcpState(attrs) .
+  eq clearTcpState((attrs, quickacksLeft: QF)) = clearTcpState(attrs) .
+  eq clearTcpState(attrs) = attrs [owise] .
   op updateTcpState : AttributeSet AttributeSet -> AttributeSet .
-  eq updateTcpState((attrs0,
-                     cwnd: CWND,
-                     wMax: WMX,
-                     tSince: TS,
-                     inSS: INSS,
-                     lastSend: LS,
-                     lastAck: LA),
-                    (attrs1,
-                     cwnd:      NEW_CWND:Float,
-                     wMax:      NEW_WMAX:Float,
-                     tSince:    NEW_TIMESINCE:Float,
-                     inSS:      NEW_INSS:Bool,
-                     lastSend:  NEW_LASTSEND:Float,
-                     lastAck:   NEW_LASTACK:Float))
-    = (attrs0,
-        attrs1,
-        cwnd: NEW_CWND:Float,
-        wMax: NEW_WMAX:Float,
-        tSince: NEW_TIMESINCE:Float,
-        inSS: NEW_INSS:Bool,
-        lastSend: NEW_LASTSEND:Float,
-        lastAck: NEW_LASTACK:Float)
-  .
-  eq updateTcpState(attrs, ST:AttributeSet) = (attrs, ST:AttributeSet) [owise] .
+  eq updateTcpState(attrs0, attrs1) = (clearTcpState(attrs0), attrs1) .
+
+  op restartCwnd : Float Float -> Float .
+  ceq restartCwnd(CW, DT) = restartCwnd(max(10.0, floor(CW * 5.0e-1)), DT - rtoMinC)
+    if DT > rtoMinC and CW > 10.0 .
+  eq restartCwnd(CW, DT) = CW [owise] .
+  op prepareTcpStateForSend : AttributeSet Float -> AttributeSet .
+  ceq prepareTcpStateForSend((attrs, cwnd: CW, wMax: WM, tSince: TS,
+                             inSS: INSS, lastSend: LS, lastAck: LA), NOW) =
+     updateTcpState((attrs, cwnd: CW, wMax: WM, tSince: TS,
+                    inSS: INSS, lastSend: LS, lastAck: LA),
+       makeTcpState(if B then restartCwnd(CW1, NOW - LS) else CW1 fi,
+                    max(1.0, min(WM, 1000.0)),
+                    if B then 0.0 else TS fi,
+                    if B then true else INSS fi,
+                    LS, LA, getQuickacksLeft(attrs)))
+    if CW1 := max(2.0, min(CW, 1000.0))
+    /\ B := (LS >= 0.0 and LA >= 0.0 and NOW >= LA and NOW - LS > rtoMinC) .
+  eq prepareTcpStateForSend(ST, NOW) =
+     prepareTcpStateForSend(updateTcpState(ST, initTcpState), NOW) [owise] .
+
+  --- Flight metadata is carried with every segment for ACK-loss TLP recovery.
+  sort ForwardResult .
+  op forwardR : FloatList FloatList NatList AttributeSet -> ForwardResult [ctor] .
+  op repeatNat : Nat Nat -> NatList .
+  eq repeatNat(0, F) = nilNatList .
+  eq repeatNat(s(N), F) = F :: repeatNat(N, F) .
+
+  op genSSSegs : Nat Nat Nat Nat Float Float -> FloatList .
+  eq genSSSegs(K, F, N, SG, DT, OW) =
+     if K >= F or SG + K + 1 > N then nilFloatList
+     else (DT + float(K) * OW) :: genSSSegs(s(K), F, N, SG, DT, OW) fi .
+  op genSSSegsTLP : Nat Nat Nat Nat Float Float Float Float Float -> FloatList .
+  eq genSSSegsTLP(K, F, N, SG, DT, OW, PD, DR, DTS) =
+     if K >= F or SG + K + 1 > N then nilFloatList
+     else (DT + float(K) * OW + PD *
+            ((1.0 - powF(PD, sd(F, s(K)))) * DR
+             + powF(PD, sd(F, s(K))) * DTS))
+          :: genSSSegsTLP(s(K), F, N, SG, DT, OW, PD, DR, DTS) fi .
+
+  --- Expected duration of a lossy flight, including reverse ACK loss.
+  op lossyFlightTime : Nat Float Float -> Float .
+  ceq lossyFlightTime(F, RTT0, P) =
+       FP0 * ((1.0 - P) * RTT0 + P * DTS)
+       + PR * (2.0 * RTT0 + RTT0 * rackF) + PTS * DTS + PTM * DTM
+    if OK := (1.0 - P) * (1.0 - P)
+    /\ FAIL := 1.0 - OK
+    /\ DTS := tlpPto(F, RTT0) + OK * RTT0 + FAIL * rtoMinC
+    /\ DTM := tlpPto(F, RTT0) + OK * (2.0 * RTT0) + FAIL * rtoMinC
+    /\ FP0 := powF(1.0 - P, F)
+    /\ PR := max(0.0, (1.0 - P) - FP0)
+    /\ PTS := powF(1.0 - P, sd(F, 1)) * P
+    /\ PTM := max(0.0, P - PTS) .
+
+  --- Unified forward loop mirrors Python's SS and CA updates. The segment
+  --- counter uses actual flight size in SS and the window size in CA.
+  op forwardLoop : Nat Nat Nat Float Bool Float Float Float
+                   Float Float ChannelCfg FloatList FloatList NatList -> ForwardResult .
+  eq forwardLoop(0, N, SG, DT, INSS, CW, WM, TS, OWD1, OWD2, CC, DST, IXP, FS) =
+     forwardR(DST, IXP, FS, makeTcpState(CW, WM, TS, INSS)) .
+  ceq forwardLoop(s(IT), N, SG, DT, INSS, CW, WM, TS, OWD1, OWD2, CC, DST, IXP, FS) =
+     forwardR(DST, IXP, FS, makeTcpState(CW, WM, TS, INSS))
+    if SG >= N .
+
+  ceq forwardLoop(s(IT), N, SG, DT, true, CW, WM, TS, OWD1, OWD2, CC, DST, IXP, FS) =
+     forwardLoop(IT, N, SG + F, DT + EDT, not B, CW1, WM1, 0.0,
+                 OWD1, OWD2, CC, DST ++ TD, IXP ++ TI, FS :: repeatNat(F, F))
+    if SG < N
+    /\ W := max(1, f2n(roundF(CW)))
+    /\ F := min(min(W, 1000), sd(N, SG))
+    /\ FR := flightStats(W, CC)
+    /\ P0 := if isNoneProfile(CC) and SG + W > 1000
+              then 1.0 - float(sd(SG + W, 1000)) / float(W) else frP0(FR) fi
+    /\ PL := 1.0 - P0
+    /\ RTT0 := 2.0 * (OWD1 + OWD2)
+    /\ DR := (2.0 * RTT0 + RTT0 * rackF) * (if isNoneProfile(CC) then 5.0e-1 else 1.0 fi)
+    /\ PD := if isNoneProfile(CC) then PL else chLossP(CC) fi
+    /\ OK := (1.0 - PD) * (1.0 - PD)
+    /\ DTS := tlpPto(F, RTT0) + OK * RTT0 + (1.0 - OK) * rtoMinC
+    /\ TD := if isNoneProfile(CC)
+              then genSSSegs(0, F, N, SG, DT + (OWD1 + OWD2) + PD * DR, serDly)
+              else genSSSegsTLP(0, F, N, SG, DT + (OWD1 + OWD2), serDly, PD, DR, DTS) fi
+    /\ TI := if isNoneProfile(CC)
+              then genSSSegs(0, F, N, SG, DT + OWD1 + PD * DR, serDly1)
+              else genSSSegsTLP(0, F, N, SG, DT + OWD1, serDly1, PD, DR, DTS) fi
+    /\ EDT := if isNoneProfile(CC) then P0 * RTT0 + PL * DR
+               else lossyFlightTime(F, RTT0, PD) fi
+    /\ WNEXT := min(W + F, 1000)
+    /\ FR2 := flightStats(WNEXT, CC)
+    /\ B := (frEl(FR) >= 5.0e-1 or frEl(FR2) >= 5.0e-1
+              or SG + F + W > 1000 or min(W, 1000) >= 1000)
+    /\ LP := if PL == 0.0 then frP0(FR2) else P0 fi
+    /\ CW1 := if B then max(2.0, min(LP * float(WNEXT)
+                    + (1.0 - LP) * max(float(W) * cubicB, 2.0), 1000.0))
+               else float(WNEXT) fi
+    /\ WM1 := min(CW1 / cubicB, 1000.0) .
+
+  ceq forwardLoop(s(IT), N, SG, DT, false, CW, WM, TS, OWD1, OWD2, CC, DST, IXP, FS) =
+     forwardLoop(IT, N, SG + W, DT + EDT, false, CW1, WM1, TS1,
+                 OWD1, OWD2, CC,
+                 DST ++ genSSSegs(0, F, N, SG, DT + (OWD1 + OWD2), serDly),
+                 IXP ++ genSSSegs(0, F, N, SG, DT + OWD1, serDly1),
+                 FS :: repeatNat(F, F))
+    if SG < N
+    /\ W := max(1, f2n(roundF(CW)))
+    /\ F := min(W, sd(N, SG))
+    /\ FR := flightStats(W, CC)
+    /\ P0 := if isNoneProfile(CC) and W > 1000 and W > f2n(roundF(WM))
+              then max(0.0, 1.0 - float(sd(W, 1000)) / float(W)) else frP0(FR) fi
+    /\ PA := if isNoneProfile(CC) and W > 1000 and W > f2n(roundF(WM))
+              then 0.0 else frPa(FR) fi
+    /\ PP := max(0.0, 1.0 - P0 - PA)
+    /\ RTT0 := 2.0 * (OWD1 + OWD2)
+    /\ P := chLossP(CC)
+    /\ EDT := max((if isNoneProfile(CC) then float(W) else float(F) fi) * serDly,
+                   if isNoneProfile(CC)
+                   then P0 * RTT0 + PP * (2.0 * RTT0 + RTT0 * rackF) + PA * rtoMinC
+                   else lossyFlightTime(F, RTT0, P) fi)
+    /\ PLOSS := PP + PA
+    /\ WM1 := if PLOSS > 1.0e-15 then (1.0 - PLOSS) * WM + PLOSS * CW else WM fi
+    /\ TS1 := if PLOSS > 1.0e-15 then (1.0 - PLOSS) * (TS + EDT) else TS + EDT fi
+    /\ WRENO := CW + float(F) / max(1.0, CW)
+    /\ WNO := max(cubicW(TS1, WM1), WRENO)
+    /\ PRTO := if isNoneProfile(CC) then PA else PA * (1.0 - (1.0 - P) * (1.0 - P)) fi
+    /\ PFAST := if isNoneProfile(CC) then PP else max(0.0, (1.0 - P0) - PRTO) fi
+    /\ CW1 := max(2.0, min(P0 * WNO + PFAST * (CW * cubicB) + PRTO * 1.0, 1000.0)) .
+
+  --- Receiver-window growth is independent of sender slow start. Preserve
+  --- Python's 72..264 segment/loss heuristic, including ties-to-even rounding.
+  op growSurvivalSum : Nat Float Float Float -> Float .
+  eq growSurvivalSum(0, P, DT, OW) = OW .
+  eq growSurvivalSum(s(N), P, DT, OW) = growSurvivalSum(N, P, DT * P, OW + DT * P) .
+  op receiverGrowEnd : Float -> Nat .
+  eq receiverGrowEnd(P) =
+     if P <= 1.0e-10 then 264
+     else 72 + 2 * f2n(roundF(growSurvivalSum(192, 1.0 - P, 1.0, 0.0) / 2.0)) fi .
+
+  --- Explicit emitted ACK events retain the triggering flight's actual size.
+  sort AckEvents AckResult ReverseResult .
+  op noAckEvents : -> AckEvents [ctor] .
+  op ackCons : Float Nat AckEvents -> AckEvents [ctor] .
+  op ackR : AckEvents Nat -> AckResult [ctor] .
+  op revR : FloatList FloatList Float Float Bool -> ReverseResult [ctor] .
+  vars AE : AckEvents .
+  var AR : AckResult .
+  vars T1 T2 PREV RUN DEAD AT EI ES NI NS REC RI RS : Float .
+  op decQuick : Nat -> Nat .
+  eq decQuick(0) = 0 .
+  eq decQuick(s(Q)) = Q .
+  op prependAck : Float Nat AckResult -> AckResult .
+  eq prependAck(AT, F, ackR(AE, Q)) = ackR(ackCons(AT, F, AE), Q) .
+  op ackLoop : FloatList NatList Nat Nat Bool Float Float Bool Float Nat Nat -> AckResult .
+  eq ackLoop(nilFloatList, nilNatList, K, Q, HP, PREV, RUN, PENDING, DEAD, PF, GROW) =
+     if PENDING then ackR(ackCons(DEAD, PF, noAckEvents), decQuick(Q)) else ackR(noAckEvents, Q) fi .
+  ceq ackLoop(T1 :: FL, F :: FLS, K, Q, HP, PREV, RUN, true, DEAD, PF, GROW) =
+     prependAck(DEAD, PF,
+       ackLoop(T1 :: FL, F :: FLS, K, decQuick(Q), HP, PREV, RUN, false, 0.0, 0, GROW))
+    if DEAD < max(RUN, T1) .
+  ceq ackLoop(T1 :: FL, F :: FLS, K, Q, HP, PREV, RUN, PENDING, DEAD, PF, GROW) =
+     if QN > 0 or PENDING
+     then prependAck(AT, F,
+            ackLoop(FL, FLS, s(K), decQuick(QN), true, AT, AT, false, 0.0, 0, GROW))
+     else ackLoop(FL, FLS, s(K), QN, true, AT, AT, true, AT + delackMinC, F, GROW) fi
+    if (not PENDING or not (DEAD < max(RUN, T1)))
+    /\ AT := max(RUN, T1)
+    /\ QR := if HP and AT - PREV > rtoMinC then 16 else Q fi
+    /\ QN := if K > 72 and K <= GROW then max(QR, 1) else QR fi .
+
+  --- Recover ACK coverage backwards across all flight boundaries. Reverse
+  --- loss delays effective coverage; it preserves Python's emitted-ACK slots.
+  op recoverAcks : AckEvents Float Float Float Float Float -> ReverseResult .
+  eq recoverAcks(noAckEvents, OWD1, OWD2, P, PD, RTT0) =
+     revR(nilFloatList, nilFloatList, 0.0, 0.0, false) .
+  ceq recoverAcks(ackCons(AT, F, AE), OWD1, OWD2, P, PD, RTT0) =
+     revR((EI + OWD2) :: AI, (ES + (OWD1 + OWD2)) :: AS, EI, ES, true)
+    if revR(AI, AS, NI, NS, HP) := recoverAcks(AE, OWD1, OWD2, P, PD, RTT0)
+    /\ OK := (1.0 - P) * (1.0 - P)
+    /\ REC := AT + tlpPto(max(1, F), RTT0) + OK * RTT0 + (1.0 - OK) * rtoMinC
+    /\ RI := if HP then min(NI, REC) else REC fi
+    /\ RS := if HP then min(NS, REC) else REC fi
+    /\ EI := (1.0 - PD) * AT + PD * RI
+    /\ ES := (1.0 - P) * AT + P * RS .
 
   sort TimelineResult .
-  ---                 timesDst   timesIxp   ackTimesIxp ackTimesSnd state
-  op tlR :            FloatList  FloatList  FloatList   FloatList   AttributeSet -> TimelineResult [ctor] .
-  op tlR :            FloatList  FloatList  AttributeSet -> TimelineResult .
-  eq tlR(FL_DST:FloatList, FL_IXP:FloatList, S:AttributeSet) =
-     tlR(FL_DST:FloatList, FL_IXP:FloatList, nilFloatList, nilFloatList, S:AttributeSet) .
+  op tlR : FloatList FloatList FloatList FloatList AttributeSet -> TimelineResult [ctor] .
+  op tlR : FloatList FloatList AttributeSet -> TimelineResult .
+  eq tlR(DST, IXP, ST) = tlR(DST, IXP, nilFloatList, nilFloatList, ST) .
+  op tlDstTimes : TimelineResult -> FloatList .
+  op tlIxpTimes : TimelineResult -> FloatList .
+  op tlAckIxpTimes : TimelineResult -> FloatList .
+  op tlAckSndTimes : TimelineResult -> FloatList .
+  op tlState : TimelineResult -> AttributeSet .
+  eq tlDstTimes(tlR(DST, IXP, AI, AS, ST)) = DST .
+  eq tlIxpTimes(tlR(DST, IXP, AI, AS, ST)) = IXP .
+  eq tlAckIxpTimes(tlR(DST, IXP, AI, AS, ST)) = AI .
+  eq tlAckSndTimes(tlR(DST, IXP, AI, AS, ST)) = AS .
+  eq tlState(tlR(DST, IXP, AI, AS, ST)) = ST .
 
-  op makeTlR :        FloatList  FloatList  Float Float AttributeSet -> TimelineResult .
-  eq makeTlR(FL_DST:FloatList, FL_IXP:FloatList, OWD1:Float, OWD2:Float, S:AttributeSet) =
-     tlR(FL_DST:FloatList,
-         FL_IXP:FloatList,
-         computeDelayedAckTimes(FL_DST:FloatList, OWD2:Float),
-         computeDelayedAckTimes(FL_DST:FloatList, OWD1:Float + OWD2:Float),
-         S:AttributeSet) .
+  --- Compatibility helper for callers stamping an existing timeline record.
+  op stampTcpState : TimelineResult Float Float -> TimelineResult .
+  eq stampTcpState(tlR(DST, IXP, AI, AS,
+                       (attrs, cwnd: CW, wMax: WM, tSince: TS, inSS: INSS,
+                        lastSend: LS, lastAck: LA)), NOW, OW) =
+     tlR(DST, IXP, AI, AS,
+         updateTcpState((attrs, cwnd: CW, wMax: WM, tSince: TS, inSS: INSS,
+                         lastSend: LS, lastAck: LA),
+           makeTcpState(CW, WM, TS, INSS, NOW + maxFL(DST) - OW,
+                        NOW + (if AS == nilFloatList then maxFL(DST) + OW else maxFL(AS) fi),
+                        getQuickacksLeft(attrs)))) .
 
-  op tlDstTimes :     TimelineResult -> FloatList .
-  op tlIxpTimes :     TimelineResult -> FloatList .
-  op tlAckIxpTimes :  TimelineResult -> FloatList .
-  op tlAckSndTimes :  TimelineResult -> FloatList .
-  op tlState :        TimelineResult -> AttributeSet .
-  eq tlDstTimes(tlR(FL_DST:FloatList, FL_IXP:FloatList, FL_ACK_IXP:FloatList, FL_ACK_SND:FloatList, S:AttributeSet)) = FL_DST:FloatList .
-  eq tlIxpTimes(tlR(FL_DST:FloatList, FL_IXP:FloatList, FL_ACK_IXP:FloatList, FL_ACK_SND:FloatList, S:AttributeSet)) = FL_IXP:FloatList .
-  eq tlAckIxpTimes(tlR(FL_DST:FloatList, FL_IXP:FloatList, FL_ACK_IXP:FloatList, FL_ACK_SND:FloatList, S:AttributeSet)) = FL_ACK_IXP:FloatList .
-  eq tlAckSndTimes(tlR(FL_DST:FloatList, FL_IXP:FloatList, FL_ACK_IXP:FloatList, FL_ACK_SND:FloatList, S:AttributeSet)) = FL_ACK_SND:FloatList .
-  eq tlState(tlR(FL_DST:FloatList, FL_IXP:FloatList, FL_ACK_IXP:FloatList, FL_ACK_SND:FloatList, S:AttributeSet)) = S:AttributeSet .
+  --- Five forward and four reverse TCP/TLS handshake packets for new flows.
+  op hsTimes : Float Float Float Bool -> FloatList .
+  eq hsTimes(OWD1, OWD2, OW, true) =
+     OW :: (2.0 * (OWD1 + OWD2) + OW) :: (2.0 * (OWD1 + OWD2) + OW) ::
+     (4.0 * (OWD1 + OWD2) + OW) :: (4.0 * (OWD1 + OWD2) + OW) :: nilFloatList .
+  eq hsTimes(OWD1, OWD2, OW, false) = nilFloatList .
+  op hsAckTimes : Float Float Float Bool -> FloatList .
+  eq hsAckTimes(OWD1, OWD2, OW, true) =
+     (OWD1 + OWD2 + OW) :: (3.0 * (OWD1 + OWD2) + OW) ::
+     (3.0 * (OWD1 + OWD2) + OW) :: (5.0 * (OWD1 + OWD2) + OW) :: nilFloatList .
+  eq hsAckTimes(OWD1, OWD2, OW, false) = nilFloatList .
 
-  --- SSResult: state after slow start completes
-  sort SSResult .
-  ---         t       seg    flt    timesDst   timesIxp   lastP0   Wss    inSS
-  op ssR : Float    Nat    Nat    FloatList  FloatList  Float    Nat    Bool
-           -> SSResult [ctor] .
+  op finishTimeline : ForwardResult Bool AttributeSet Float Float Float ChannelCfg ChannelCfg -> TimelineResult .
+  ceq finishTimeline(forwardR(DST, IXP, FS,
+                       (attrs, cwnd: CW, wMax: WM, tSince: TS, inSS: INSS,
+                        lastSend: LS, lastAck: LA)), ISNEW, ST, NOW, OWD1, OWD2, CC1, CC2) =
+     tlR(hsTimes(OWD1, OWD2, OWD1 + OWD2, ISNEW) ++ DST,
+         hsTimes(OWD1, OWD2, OWD1, ISNEW) ++ IXP,
+         hsAckTimes(OWD1, OWD2, OWD2, ISNEW) ++ AI,
+         hsAckTimes(OWD1, OWD2, OWD1 + OWD2, ISNEW) ++ AS,
+         makeTcpState(CW, WM, TS, INSS,
+                      NOW + maxFL(DST) - (OWD1 + OWD2),
+                      NOW + (if AS == nilFloatList then maxFL(DST) + OWD1 + OWD2 else maxFL(AS) fi),
+                      float(Q)))
+    if CC_PATH := composeChannels(CC1, CC2)
+    /\ P := if isNoneProfile(CC_PATH) then 0.0 else chLossP(CC_PATH) fi
+    /\ PD := if isNoneProfile(CC_PATH) then 0.0 else chLossP(CC2) fi
+    /\ HP := (not ISNEW and getLastSend(ST) >= 0.0 and getLastAck(ST) >= 0.0 and NOW >= getLastAck(ST))
+    /\ ackR(AE, Q) := ackLoop(DST, FS, 1,
+                             if ISNEW then 16 else f2n(floor(max(0.0, getQuickacksLeft(ST)))) fi,
+                             HP, getLastSend(ST) + (OWD1 + OWD2) - NOW,
+                             0.0, false, 0.0, 0, receiverGrowEnd(chLossP(CC_PATH)))
+    /\ revR(AI, AS, EI, ES, B) := recoverAcks(AE, OWD1, OWD2, P, PD, 2.0 * (OWD1 + OWD2)) .
 
-  --- ssLoop(t, seg, flt, Wss, N, OWD1, OWD2, CC, accDst, accIxp)
-  --- Implements the slow-start while loop from _build_timeline
-  --- (no-buffer path: LOCAL_MAX_CWND = 1000)
+  op buildTimelineAt : Nat Float Float ChannelCfg ChannelCfg Bool AttributeSet Float -> TimelineResult .
+  eq buildTimelineAt(N, OWD1, OWD2, CC1, CC2, true, ST, NOW) =
+     finishTimeline(forwardLoop(100000, N, 0, 4.0 * (OWD1 + OWD2), true,
+                                10.0, 10.0 / cubicB, 0.0, OWD1, OWD2,
+                                composeChannels(CC1, CC2), nilFloatList, nilFloatList, nilNatList),
+                    true, ST, NOW, OWD1, OWD2, CC1, CC2) .
+  ceq buildTimelineAt(N, OWD1, OWD2, CC1, CC2, false, ST, NOW) =
+     finishTimeline(forwardLoop(100000, N, 0, 0.0, INSS, CW, WM, TS,
+                                OWD1, OWD2, composeChannels(CC1, CC2),
+                                nilFloatList, nilFloatList, nilNatList),
+                    false, ST1, NOW, OWD1, OWD2, CC1, CC2)
+    if ST1 := prepareTcpStateForSend(ST, NOW)
+    /\ (attrs, cwnd: CW, wMax: WM, tSince: TS, inSS: INSS,
+         lastSend: LS, lastAck: LA) := ST1 .
 
-  op ssLoop : Float Nat Nat Nat Nat Float Float ChannelCfg FloatList FloatList
-              -> SSResult .
-
-  vars T OW OWOFF RTT0 DT PA PP EDel EDT WM0 TSC0 WR WNO CNX PLOSS OWD1 OWD2 DT_REC P_DROP LS LA : Float .
-  vars PTO DT_TLP_S DT_TLP_M P_RACK P_TLP_S P_TLP_M P_RTO P_FAST_TLP : Float .
-  var FLIGHT_P0 : Float .
-  var FLIGHT_SIZE : Nat .
-  vars CC1 CC2 : ChannelCfg .
-  var  ISNEW : Bool .
-  var  CWND : Float .
-  vars CW0 CW1 CW2 WMX PLL CWF WMF TSCF TSCF0 EDT0 TS : Float .
-  vars SG N W FLT WSS WNXT IT : Nat .
-  var  SGS SGE : Nat .
-  var  SEGF : Float .
-  vars ACC_DST ACC_IXP FL_DST FL_IXP FL_ACK_IXP FL_ACK_SND : FloatList .
-  vars SX  B INSS : Bool .
-  var  NOW : Float .
-  vars TLR : TimelineResult .
-  vars attrs attrs0 attrs1 : AttributeSet .
-
-  --- Buffer-path variables (ssLoopBuf / caLoopBuf)
-  vars P0CH P0B PLB BDRP RTTB DTB DT_RECB : Float .
-  vars P0CH2 PACH2 CADRP EDelB EDT0B EDTB : Float .
-  vars CWFB WMFB TSCF0B TSCFB : Float .
-  vars PLLB CWB0 CWB1 CWB2 WMXB : Float .
-  var  WMR WNXTB : Nat .
-  var  SXB : Bool .
-  vars NSEGB_DST NSEGB_IXP NSB_DST NSB_IXP NSEGS_DST NSEGS_IXP NS_DST NS_IXP : FloatList .
-
-  --- Base case: all segments delivered during SS
-  ceq ssLoop(T, SG, FLT, WSS, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     ssR(T, SG, FLT, ACC_DST, ACC_IXP, 1.0, WSS, true)
-  if SG >= N .
-
-  --- Recursive case: process one SS flight
-  ceq ssLoop(T, SG, FLT, WSS, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     if SX
-     then ssR(T + DT, SG + f2n(CWND_SS), s(FLT),
-              ACC_DST ++ NSEGS_DST, ACC_IXP ++ NSEGS_IXP,
-              if PL > 1.0e-15 then P0 else frP0(FR2) fi, WSS, false)
-     else ssLoop(T + DT, SG + f2n(CWND_SS), s(FLT), WNXT,
-                 N, OWD1, OWD2, CC,
-                 ACC_DST ++ NSEGS_DST, ACC_IXP ++ NSEGS_IXP)
-     fi
-  if SG < N
-  /\ CWND_SS := min(float(WSS), 1000.0)
-  --- Keep window statistics for congestion evolution; recovery uses packets sent.
-  /\ FLIGHT_SIZE := min(f2n(CWND_SS), sd(N, SG))
-  /\ FR := flightStats(WSS, CC)
-  /\ P0 := frP0(FR)
-  /\ PL := 1.0 - P0
-  /\ RTT0 := 2.0 * (OWD1 + OWD2)
-  /\ DT_REC := 2.0 * RTT0 + RTT0 * rackF
-  /\ PTO := tlpPto(FLIGHT_SIZE, RTT0)
-  /\ P_DROP := chLossP(CC)
-  /\ FLIGHT_P0 := powF(1.0 - P_DROP, FLIGHT_SIZE)
-  /\ DT_TLP_S := PTO + (1.0 - P_DROP) * RTT0 + P_DROP * rtoMinC
-  /\ DT_TLP_M := PTO + (1.0 - P_DROP) * (2.0 * RTT0) + P_DROP * rtoMinC
-  /\ P_RACK := max(0.0, (1.0 - P_DROP) - FLIGHT_P0)
-  /\ P_TLP_S := powF(1.0 - P_DROP, sd(FLIGHT_SIZE, 1)) * P_DROP
-  /\ P_TLP_M := max(0.0, P_DROP - P_TLP_S)
-  /\ DT := FLIGHT_P0 * RTT0 + P_RACK * DT_REC + P_TLP_S * DT_TLP_S + P_TLP_M * DT_TLP_M
-  /\ NSEGS_DST := genSSSegsTLP(0, FLIGHT_SIZE, N, SG, T + OWD1 + OWD2, serDly, P_DROP, DT_REC, DT_TLP_S)
-  /\ NSEGS_IXP := genSSSegsTLP(0, FLIGHT_SIZE, N, SG, T + OWD1, serDly1, P_DROP, DT_REC, DT_TLP_S)
-  /\ WNXT := min(WSS + WSS, 1000)
-  /\ FR2 := flightStats(WNXT, CC)
-  /\ SX := (frEl(FR) >= 5.0e-1 or frEl(FR2) >= 5.0e-1 or float(WSS) >= 1000.0)
-  .
-
-
-  --- ============================================================
-  ---  Slow Start Phase — Buffer-Capacity Path
-  --- ============================================================
-
-  op ssLoopBuf : Float Nat Nat Nat Nat Float Float ChannelCfg FloatList FloatList
-                 -> SSResult .
-
-  --- Base case: all segments delivered
-  ceq ssLoopBuf(T, SG, FLT, WSS, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     ssR(T, SG, FLT, ACC_DST, ACC_IXP, 1.0, WSS, true)
-  if SG >= N .
-
-  --- Recursive case: one buffer-path SS flight
-  ceq ssLoopBuf(T, SG, FLT, WSS, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     if SXB
-     then ssR(T + DTB, SG + WSS, s(FLT),
-              ACC_DST ++ NSEGB_DST,
-              ACC_IXP ++ NSEGB_IXP,
-              if PLB < 1.0e-15
-              then frP0(FRB2)
-              else P0B fi,
-              WSS, false)
-     else ssLoopBuf(T + DTB, SG + WSS, s(FLT),
-                    WNXTB, N, OWD1, OWD2, CC,
-                    ACC_DST ++ NSEGB_DST,
-                    ACC_IXP ++ NSEGB_IXP)
-     fi
-  if SG < N
-  --- Flight stats from channel
-  /\ FRB := flightStats(WSS, CC)
-  /\ P0CH := frP0(FRB)
-  --- Buffer overflow: if seg + Wss > 1000, compute dropped packets
-  /\ BDRP := if float(SG + WSS) > 1000.0
-              then float(SG + WSS) - 1000.0
-              else 0.0 fi
-  --- Loss probability (buffer overflow overrides channel loss)
-  /\ PLB := if BDRP > 1.0e-15
-             then BDRP / float(WSS)
-             else 1.0 - P0CH fi
-  /\ P0B := 1.0 - PLB
-  --- Time step: dt = p0*RTT + p_l*(2*RTT + RTT*rackF)*0.5
-  /\ RTTB := 2.0 * (OWD1 + OWD2)
-  /\ DT_RECB := (2.0 * RTTB + RTTB * rackF) * 5.0e-1
-  /\ DTB := P0B * RTTB + PLB * DT_RECB
-  --- Segments
-  /\ NSEGB_DST := genSSSegs(0, WSS, N, SG, T + OWD1 + OWD2 + PLB * DT_RECB, serDly)
-  /\ NSEGB_IXP := genSSSegs(0, WSS, N, SG, T + OWD1 + PLB * DT_RECB, serDly1)
-  --- Next flight for exit check (cap at 1000)
-  /\ WNXTB := if WSS + WSS > 1000 then 1000 else WSS + WSS fi
-  /\ FRB2 := flightStats(WNXTB, CC)
-  --- Exit: el > 0.5 or buffer overflow happened or at max cwnd
-  /\ SXB := (frEl(FRB) >= 5.0e-1
-             or frEl(FRB2) >= 5.0e-1
-             or BDRP > 0.0
-             or WSS >= 1000)
-  .
-
-
-  --- ============================================================
-  ---  Congestion Avoidance Phase — No-Buffer Path
-  --- ============================================================
-
-  --- caPhase: transition from SS result to CA, then run CA loop
-  --- (LOCAL_MAX_CWND = 1000)
-  op caPhase : SSResult Nat Float Float ChannelCfg -> TimelineResult .
-
-  ceq caPhase(ssR(T, SG, FLT, ACC_DST, ACC_IXP, LP, WSS, INSS), N, OWD1, OWD2, CC) =
-     if INSS
-     then makeTlR(ACC_DST, ACC_IXP, OWD1, OWD2, makeTcpState(float(min(WSS, 1000)), float(min(WSS, 1000)) / cubicB, 0.0, true))
-     else (if SG >= N
-           then makeTlR(ACC_DST, ACC_IXP, OWD1, OWD2, makeTcpState(CW2, WMX, 0.0, false))
-           else caLoop(100000, T, float(SG), FLT, CW2, WMX,
-                       0.0, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP)
-           fi)
-     fi
-  if PLL := 1.0 - LP
-  /\ CW0 := LP * float(WSS + WSS)
-                   + PLL * max(float(WSS) * cubicB, 2.0)
-  /\ CW1 := max(2.0, CW0)
-  /\ CW2 := max(2.0, min(CW1, 1000.0))
-  /\ WMX := min(CW2 / cubicB, 1000.0)
-  .
-
-  --- caLoop(iter, t, segF, flt, cwnd, wMax, tSince,
-  ---        N, OWD1, OWD2, CC, accDst, accIxp)
-  --- Implements the congestion-avoidance for-loop from _build_timeline.
-  --- (LOCAL_MAX_CWND = 1000)
-
-  op caLoop : Nat Float Float Nat Float Float Float
-              Nat Float Float ChannelCfg FloatList FloatList -> TimelineResult .
-
-  --- Base: iteration limit
-  eq caLoop(0, T, SEGF, FLT, CWND, WM0, TSC0,
-            N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     makeTlR(ACC_DST, ACC_IXP, OWD1, OWD2, makeTcpState(CWND, WM0, TSC0, false)) .
-
-  --- Base: all segments delivered
-  ceq caLoop(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
-             N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     makeTlR(ACC_DST, ACC_IXP, OWD1, OWD2, makeTcpState(CWND, WM0, TSC0, false))
-  if SEGF >= float(N) .
-
-  --- Recursive: one CA step
-  ceq caLoop(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
-             N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     caLoop(IT, T + EDT, SEGF + EDel, s(FLT), CWF,
-            WMF, TSCF, N, OWD1, OWD2, CC, ACC_DST ++ NS_DST, ACC_IXP ++ NS_IXP)
-  if SEGF < float(N)
-  --- Window as integer
-  /\ W := max(1, f2n(roundF(CWND)))
-  --- Flight statistics
-  /\ FR := flightStats(W, CC)
-  /\ P0  := frP0(FR)
-  /\ PA  := frPa(FR)
-  /\ PP  := max(0.0, 1.0 - P0 - PA)
-  --- RTT
-  /\ RTT0 := 2.0 * (OWD1 + OWD2)
-  --- Expected delivery step size (W segments)
-  /\ EDel := float(W)
-  --- Integer segment boundaries
-  /\ SGS := f2n(floor(SEGF))
-  /\ SGE := f2n(floor(SEGF + EDel))
-  /\ FLIGHT_SIZE := min(W, sd(N, SGS))
-  --- RACK-TLP expected time step
-  /\ P_DROP := chLossP(CC)
-  /\ PTO := tlpPto(FLIGHT_SIZE, RTT0)
-  /\ FLIGHT_P0 := powF(1.0 - P_DROP, FLIGHT_SIZE)
-  /\ DT_REC := 2.0 * RTT0 + RTT0 * rackF
-  /\ P_RACK := max(0.0, (1.0 - P_DROP) - FLIGHT_P0)
-  /\ P_TLP_S := powF(1.0 - P_DROP, sd(FLIGHT_SIZE, 1)) * P_DROP
-  /\ P_TLP_M := max(0.0, P_DROP - P_TLP_S)
-  /\ DT_TLP_S := PTO + (1.0 - P_DROP) * RTT0 + P_DROP * rtoMinC
-  /\ DT_TLP_M := PTO + (1.0 - P_DROP) * (2.0 * RTT0) + P_DROP * rtoMinC
-  /\ EDT0 := FLIGHT_P0 * RTT0
-             + P_RACK * DT_REC
-             + P_TLP_S * DT_TLP_S
-             + P_TLP_M * DT_TLP_M
-  /\ EDT := max(float(FLIGHT_SIZE) * serDly, EDT0)
-  --- Generate segment times
-  /\ NS_DST := genCASegs(s(SGS), SGE, N, SGS, EDel,
-                         W, T, OWD1 + OWD2, serDly)
-  /\ NS_IXP := genCASegs(s(SGS), SGE, N, SGS, EDel,
-                         W, T, OWD1, serDly1)
-  --- Window dynamics
-  /\ PLOSS := PP + PA
-  /\ WMF :=
-       if PLOSS > 1.0e-15
-       then (1.0 - PLOSS) * WM0 + PLOSS * CWND
-       else WM0
-       fi
-  /\ TSCF0 :=
-       if PLOSS > 1.0e-15
-       then (1.0 - PLOSS) * (TSC0 + EDT)
-       else TSC0 + EDT
-       fi
-  /\ WR  := CWND + (1.0 / max(1.0, CWND))
-  /\ WNO := max(cubicW(TSCF0, WMF), WR)
-  /\ P_RTO := PA * P_DROP
-  /\ P_FAST_TLP := max(0.0, (1.0 - P0) - P_RTO)
-  /\ CNX := P0 * WNO + P_FAST_TLP * (CWND * cubicB) + P_RTO * 1.0
-  /\ CWF := max(2.0, min(CNX, 1000.0))
-  /\ TSCF := TSCF0
-  .
-
-  --- Fallback: return accumulated list if conditions cannot be met
-  eq caLoop(IT, T, SEGF, FLT, CWND, WM0, TSC0,
-            N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     makeTlR(ACC_DST, ACC_IXP, OWD1, OWD2, makeTcpState(CWND, WM0, TSC0, false)) [owise] .
-
-
-  --- ============================================================
-  ---  Congestion Avoidance Phase — Buffer-Capacity Path
-  --- ============================================================
-
-  --- caPhaseBuf: transition from SS result to buffer CA loop
-  op caPhaseBuf : SSResult Nat Float Float ChannelCfg -> TimelineResult .
-
-  ceq caPhaseBuf(ssR(T, SG, FLT, ACC_DST, ACC_IXP, LP, WSS, INSS), N, OWD1, OWD2, CC) =
-     if INSS
-     then makeTlR(ACC_DST, ACC_IXP, OWD1, OWD2, makeTcpState(float(min(WSS, 1000)), float(min(WSS, 1000)) / cubicB, 0.0, true))
-     else (if SG >= N
-           then makeTlR(ACC_DST, ACC_IXP, OWD1, OWD2, makeTcpState(CWB2, WMXB, 0.0, false))
-           else caLoopBuf(100000, T, float(SG), FLT, CWB2, WMXB,
-                          0.0, N, OWD1, OWD2, CC, ACC_DST, ACC_IXP)
-           fi)
-     fi
-  if PLLB := 1.0 - LP
-  /\ CWB0 := LP * float(WSS + WSS)
-               + PLLB * max(float(WSS) * cubicB, 2.0)
-  /\ CWB1 := max(2.0, CWB0)
-  /\ CWB2 := max(2.0, min(CWB1, 1000.0))
-  /\ WMXB := min(CWB2 / cubicB, 1000.0)
-  .
-
-  --- caLoopBuf(iter, t, segF, flt, cwnd, wMax, tSince,
-  ---           N, OWD1, OWD2, CC, accDst, accIxp)
-  --- Buffer-capacity CA loop (MAX_CWND = 1000, BUFFER_CAPACITY = 1000).
-
-  op caLoopBuf : Nat Float Float Nat Float Float Float
-                 Nat Float Float ChannelCfg FloatList FloatList -> TimelineResult .
-
-  --- Base: iteration limit
-  eq caLoopBuf(0, T, SEGF, FLT, CWND, WM0, TSC0,
-               N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     makeTlR(ACC_DST, ACC_IXP, OWD1, OWD2, makeTcpState(CWND, WM0, TSC0, false)) .
-
-  --- Base: all segments delivered
-  ceq caLoopBuf(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
-                N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     makeTlR(ACC_DST, ACC_IXP, OWD1, OWD2, makeTcpState(CWND, WM0, TSC0, false))
-  if SEGF >= float(N) .
-
-  --- Recursive: one buffer CA step
-  ceq caLoopBuf(s(IT), T, SEGF, FLT, CWND, WM0, TSC0,
-                N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     caLoopBuf(IT, T + EDTB, SEGF + EDelB, s(FLT),
-               CWFB, WMFB, TSCFB,
-               N, OWD1, OWD2, CC, ACC_DST ++ NSB_DST, ACC_IXP ++ NSB_IXP)
-  if SEGF < float(N)
-  --- Window as integer
-  /\ W := max(1, f2n(roundF(CWND)))
-  --- Flight statistics from channel
-  /\ FR := flightStats(W, CC)
-  /\ P0CH2 := frP0(FR)
-  /\ PACH2 := frPa(FR)
-  --- Buffer overflow in CA: W > 1000 and W > round(w_max)
-  /\ WMR := max(1, f2n(roundF(WM0)))
-  /\ CADRP := if W > 1000 and W > WMR
-               then float(sd(W, 1000))
-               else 0.0 fi
-  --- Override p0/pa if buffer overflow
-  /\ P0 := if CADRP > 1.0e-15
-            then max(0.0, 1.0 - CADRP / float(W))
-            else P0CH2 fi
-  /\ PA := if CADRP > 1.0e-15
-            then 0.0
-            else PACH2 fi
-  /\ PP := max(0.0, 1.0 - P0 - PA)
-  --- RTT
-  /\ RTT0 := 2.0 * (OWD1 + OWD2)
-  --- Expected delivery step size (W segments)
-  /\ EDelB := float(W)
-  --- Integer segment boundaries
-  /\ SGS := f2n(floor(SEGF))
-  /\ SGE := f2n(floor(SEGF + EDelB))
-  --- Expected time step (MAX_CWND = 1000)
-  /\ EDT0B := P0 * RTT0
-               + PP * (2.0 * RTT0 + RTT0 * rackF)
-               + PA * rtoMinC
-  /\ EDTB := max(EDelB * serDly, EDT0B)
-  --- Generate segment times
-  /\ NSB_DST := genCASegs(s(SGS), SGE, N, SGS, EDelB,
-                          W, T, OWD1 + OWD2, serDly)
-  /\ NSB_IXP := genCASegs(s(SGS), SGE, N, SGS, EDelB,
-                          W, T, OWD1, serDly1)
-  --- Window dynamics (same structure, MAX_CWND = 1000)
-  /\ PLOSS := PP + PA
-  /\ WMFB :=
-       if PLOSS > 1.0e-15
-       then (1.0 - PLOSS) * WM0 + PLOSS * CWND
-       else WM0
-       fi
-  /\ TSCF0B :=
-       if PLOSS > 1.0e-15
-       then (1.0 - PLOSS) * (TSC0 + EDTB)
-       else TSC0 + EDTB
-       fi
-  /\ WR  := CWND + (1.0 / max(1.0, CWND))
-  /\ WNO := max(cubicW(TSCF0B, WMFB), WR)
-  /\ CNX := P0 * WNO + PP * (CWND * cubicB) + PA * 1.0
-  /\ CWFB := max(2.0, min(CNX, 1000.0))
-  /\ TSCFB := TSCF0B
-  .
-
-  --- Fallback
-  eq caLoopBuf(IT, T, SEGF, FLT, CWND, WM0, TSC0,
-               N, OWD1, OWD2, CC, ACC_DST, ACC_IXP) =
-     makeTlR(ACC_DST, ACC_IXP, OWD1, OWD2, makeTcpState(CWND, WM0, TSC0, false)) [owise] .
-
-
-  --- ============================================================
-  ---  Public API
-  --- ============================================================
-
-  op TCP-HEADER-BYTES : -> Nat .
-  op IP-HEADER-BYTES  : -> Nat .
-  op MTU-SIZE-BYTES   : -> Nat .
-  op MSS-SIZE-BYTES   : -> Nat .
-  eq TCP-HEADER-BYTES = 32 [owise] .
-  eq IP-HEADER-BYTES  = 20 [owise] .
-  eq MTU-SIZE-BYTES   = 1500 [owise] .
-  eq MSS-SIZE-BYTES   = MTU-SIZE-BYTES - IP-HEADER-BYTES - TCP-HEADER-BYTES .
-
-  op newCnx:_ : Bool -> Attribute [ctor] .
-
-  --- Extract newCnx flag (defaults to true if not present)
-  op getNewCnx : AttributeSet -> Bool .
-  eq getNewCnx((linkAttrs, newCnx: B)) = B .
-  eq getNewCnx(linkAttrs) = true [owise] .
-
-  --- Legacy timeline builders returning FloatList
+  op buildTimelineResult : Nat Float Float ChannelCfg ChannelCfg Bool AttributeSet -> TimelineResult [memo] .
+  eq buildTimelineResult(N, OWD1, OWD2, CC1, CC2, ISNEW, ST) =
+     buildTimelineAt(N, OWD1, OWD2, CC1, CC2, ISNEW, ST, stateStartTime(ST)) .
   op buildFinalDestTimeline : Nat Float Float ChannelCfg ChannelCfg -> FloatList .
-  eq buildFinalDestTimeline(N, OWD1, OWD2, CC1, CC2) = buildFinalDestTimeline(N, OWD1, OWD2, CC1, CC2, true) .
-
   op buildFinalDestTimeline : Nat Float Float ChannelCfg ChannelCfg Bool -> FloatList .
+  eq buildFinalDestTimeline(N, OWD1, OWD2, CC1, CC2) = buildFinalDestTimeline(N, OWD1, OWD2, CC1, CC2, true) .
   eq buildFinalDestTimeline(N, OWD1, OWD2, CC1, CC2, ISNEW) =
      tlDstTimes(buildTimelineResult(N, OWD1, OWD2, CC1, CC2, ISNEW, initTcpState)) .
-
   op buildFirstHopTimeline : Nat Float Float ChannelCfg ChannelCfg -> FloatList .
-  eq buildFirstHopTimeline(N, OWD1, OWD2, CC1, CC2) = buildFirstHopTimeline(N, OWD1, OWD2, CC1, CC2, true) .
-
   op buildFirstHopTimeline : Nat Float Float ChannelCfg ChannelCfg Bool -> FloatList .
+  eq buildFirstHopTimeline(N, OWD1, OWD2, CC1, CC2) = buildFirstHopTimeline(N, OWD1, OWD2, CC1, CC2, true) .
   eq buildFirstHopTimeline(N, OWD1, OWD2, CC1, CC2, ISNEW) =
      tlIxpTimes(buildTimelineResult(N, OWD1, OWD2, CC1, CC2, ISNEW, initTcpState)) .
 
-  --- buildTimelineResult(N, OWD1, OWD2, CC1, CC2, ISNEW, ST)
-  ---
-  --- Computes BOTH Final-Destination (Hop 2, offset OWD1 + OWD2, serDly) and
-  --- First-Hop / IXP (Hop 1, offset OWD1, serDly1) timelines in a single pass.
-  ---
-  --- Connection Setup Modeling:
-  ---   - ISNEW == true  (New Connection):
-  ---       Counts BOTH the TCP 3-Way Handshake (1 RTT) and the TLS Handshake (1 RTT),
-  ---       totaling 2 RTT (4.0 * (OWD1 + OWD2)) setup delay before application data transmission.
-  ---       Prepends 5 handshake packet timestamps to the output timelines:
-  ---         1. SYN                   at t = 0.0 + OWOFF
-  ---         2. ACK (TCP 3-way HS)   at t = 1.0 * RTT + OWOFF
-  ---         3. TLS Client Hello      at t = 1.0 * RTT + OWOFF
-  ---         4. ACK (TLS HS)         at t = 2.0 * RTT + OWOFF
-  ---         5. TLS Change Cipher     at t = 2.0 * RTT + OWOFF
-  ---       First application data segment(s) start transmitting at t = 2.0 * RTT (4.0 * (OWD1 + OWD2)).
-  ---
-  ---   - ISNEW == false (Reused Connection):
-  ---       Bypasses all TCP and TLS handshakes.
-  ---       Application data transmission starts immediately at t = 0.0 + OWOFF
-  ---       with the supplied TcpState (cwnd, wMax, tSince, inSS).
-
-  op buildTimelineResult : Nat Float Float ChannelCfg ChannelCfg Bool AttributeSet -> TimelineResult [memo] .
-
-  --- Helper for prepending 5 TCP+TLS handshake timestamps (SYN, ACK, Client Hello, ACK, Change Cipher Spec)
-  op hsTimes : Float Float Float Bool -> FloatList .
-  eq hsTimes(OWD1, OWD2, OWOFF, true) =
-    OWOFF ::
-    (2.0 * (OWD1 + OWD2) + OWOFF) ::
-    (2.0 * (OWD1 + OWD2) + OWOFF) ::
-    (4.0 * (OWD1 + OWD2) + OWOFF) ::
-    (4.0 * (OWD1 + OWD2) + OWOFF) :: nilFloatList .
-  eq hsTimes(OWD1, OWD2, OWOFF, false) = nilFloatList .
-
-  --- Buffer-capacity path: when both links are "none" profile
-  --- ISNEW == true: run Handshake and Slow Start
-  ceq buildTimelineResult(N,
-                          OWD1,
-                          OWD2,
-                          CC1,
-                          CC2,
-                          true,
-                          ST:AttributeSet) =
-     tlR(hsTimes(OWD1, OWD2, OWD1 + OWD2, true) ++ tlDstTimes(TLR),
-         hsTimes(OWD1, OWD2, OWD1, true) ++ tlIxpTimes(TLR),
-         tlAckIxpTimes(TLR),
-         tlAckSndTimes(TLR),
-         tlState(TLR))
-  if isNoneProfile(CC1) and isNoneProfile(CC2)
-  /\ CC_PATH := composeChannels(CC1, CC2)
-  /\ TLR := caPhaseBuf(
-       ssLoopBuf(4.0 * (OWD1 + OWD2),
-                 0, 1, 10,
-                 N, OWD1, OWD2, CC_PATH,
-                 nilFloatList, nilFloatList),
-       N, OWD1, OWD2, CC_PATH) .
-
-  --- ISNEW == false, inSS == true: bypass Handshake, continue in Slow Start
-  ceq buildTimelineResult(N,
-                          OWD1,
-                          OWD2,
-                          CC1,
-                          CC2,
-                          false,
-                          (attrs,
-                           cwnd: CWND,
-                           inSS: true))
-    = caPhaseBuf(
-       ssLoopBuf(0.0,
-                 0, 1, max(1, f2n(roundF(CWND))),
-                 N, OWD1, OWD2, CC_PATH,
-                 nilFloatList, nilFloatList),
-       N, OWD1, OWD2, CC_PATH)
-  if isNoneProfile(CC1) and isNoneProfile(CC2)
-  /\ CC_PATH := composeChannels(CC1, CC2) .
-
-  --- ISNEW == false, inSS == false: bypass Handshake and Slow Start, start directly in CA
-  ceq buildTimelineResult(N,
-                          OWD1,
-                          OWD2,
-                          CC1,
-                          CC2,
-                          false,
-                          (attrs,
-                           cwnd: CWND,
-                           wMax: WMX,
-                           tSince: TS,
-                           inSS: false))
-    = caLoopBuf(100000, 0.0, 0.0, 1, CWND, WMX, TS,
-               N, OWD1, OWD2, CC_PATH, nilFloatList, nilFloatList)
-  if isNoneProfile(CC1) and isNoneProfile(CC2)
-  /\ CC_PATH := composeChannels(CC1, CC2) .
-
-  --- No-buffer path: all other profiles
-  --- ISNEW == true: run Handshake and Slow Start
-  ceq buildTimelineResult(N,
-                          OWD1,
-                          OWD2,
-                          CC1,
-                          CC2,
-                          true,
-                          ST:AttributeSet) =
-     tlR(hsTimes(OWD1, OWD2, OWD1 + OWD2, true) ++ tlDstTimes(TLR),
-         hsTimes(OWD1, OWD2, OWD1, true) ++ tlIxpTimes(TLR),
-         tlAckIxpTimes(TLR),
-         tlAckSndTimes(TLR),
-         tlState(TLR))
-  if (not (isNoneProfile(CC1) and isNoneProfile(CC2)))
-  /\ CC_PATH := composeChannels(CC1, CC2)
-  /\ TLR := caPhase(
-       ssLoop(4.0 * (OWD1 + OWD2),
-              0, 1, 10,
-              N, OWD1, OWD2, CC_PATH,
-              nilFloatList, nilFloatList),
-       N, OWD1, OWD2, CC_PATH) .
-
-  --- ISNEW == false, inSS == true: bypass Handshake, continue in Slow Start
-  ceq buildTimelineResult(N,
-                          OWD1,
-                          OWD2,
-                          CC1,
-                          CC2,
-                          false,
-                          (attrs,
-                           cwnd: CWND,
-                           inSS: true)) =
-     caPhase(
-       ssLoop(0.0,
-              0, 1, max(1, f2n(roundF(CWND))),
-              N, OWD1, OWD2, CC_PATH,
-              nilFloatList, nilFloatList),
-       N, OWD1, OWD2, CC_PATH)
-  if (not (isNoneProfile(CC1) and isNoneProfile(CC2)))
-  /\ CC_PATH := composeChannels(CC1, CC2) .
-
-  --- ISNEW == false, inSS == false: bypass Handshake and Slow Start, start directly in CA
-  ceq buildTimelineResult(N,
-                          OWD1,
-                          OWD2,
-                          CC1,
-                          CC2,
-                          false,
-                          (attrs,
-                           cwnd: CWND,
-                           wMax: WMX,
-                           tSince: TS,
-                           inSS: false)) =
-     caLoop(100000, 0.0, 0.0, 1, CWND, WMX, TS,
-            N, OWD1, OWD2, CC_PATH, nilFloatList, nilFloatList)
-  if (not (isNoneProfile(CC1) and isNoneProfile(CC2)))
-  /\ CC_PATH := composeChannels(CC1, CC2) .
-
-  --- Fallback for ISNEW == true
-  ceq buildTimelineResult(N,
-                          OWD1,
-                          OWD2,
-                          CC1,
-                          CC2,
-                          true,
-                          ST:AttributeSet) =
-     tlR(hsTimes(OWD1, OWD2, OWD1 + OWD2, true) ++ tlDstTimes(TLR),
-         hsTimes(OWD1, OWD2, OWD1, true) ++ tlIxpTimes(TLR),
-         tlAckIxpTimes(TLR),
-         tlAckSndTimes(TLR),
-         tlState(TLR))
-  if TLR := caPhase(
-       ssLoop(4.0 * (OWD1 + OWD2),
-              0, 1, 10,
-              N, OWD1, OWD2, composeChannels(CC1, CC2),
-              nilFloatList, nilFloatList),
-       N, OWD1, OWD2, composeChannels(CC1, CC2)) [owise] .
-
-  --- Fallback for ISNEW == false
-  eq buildTimelineResult(N,
-                         OWD1,
-                         OWD2,
-                         CC1,
-                         CC2,
-                         false,
-                         (attrs,
-                          cwnd: CWND,
-                          wMax: WMX,
-                          tSince: TS,
-                          inSS: false)) =
-     caLoop(100000, 0.0, 0.0, 1, CWND, WMX, TS,
-            N, OWD1, OWD2, composeChannels(CC1, CC2), nilFloatList, nilFloatList) [owise] .
-
-  --- tcpTimelineResult (computes both Final-Dest and First-Hop timelines + updated TcpState)
+  op TCP-HEADER-BYTES : -> Nat .
+  op IP-HEADER-BYTES : -> Nat .
+  op MTU-SIZE-BYTES : -> Nat .
+  op MSS-SIZE-BYTES : -> Nat .
+  eq TCP-HEADER-BYTES = 32 [owise] .
+  eq IP-HEADER-BYTES = 20 [owise] .
+  eq MTU-SIZE-BYTES = 1500 [owise] .
+  eq MSS-SIZE-BYTES = MTU-SIZE-BYTES - IP-HEADER-BYTES - TCP-HEADER-BYTES .
+  op newCnx:_ : Bool -> Attribute [ctor] .
+  op getNewCnx : AttributeSet -> Bool .
+  eq getNewCnx((attrs, newCnx: B)) = B .
+  eq getNewCnx(attrs) = true [owise] .
   op tcpTimelineResult : Nat AttributeSet AttributeSet Bool AttributeSet Float -> TimelineResult .
-  ceq tcpTimelineResult(MSZ:Nat, linkAttrs1, linkAttrs2, B, ST:AttributeSet, NOW) =
-    stampTcpState(buildTimelineResult(NSeg:Nat,
-                                      getOneWayDelay(linkAttrs1),
-                                      getOneWayDelay(linkAttrs2),
-                                      CC1:ChannelCfg,
-                                      CC2:ChannelCfg,
-                                      B,
-                                      prepareTcpStateForSend(ST:AttributeSet, NOW)),
-                  NOW,
-                  getOneWayDelay(linkAttrs1) + getOneWayDelay(linkAttrs2))
-  if NSeg:Nat := ceilDiv(MSZ:Nat, MSS-SIZE-BYTES)
-    /\ CC1:ChannelCfg := makeChannel(linkAttrs1)
-    /\ CC2:ChannelCfg := makeChannel(linkAttrs2)
-  .
-
-  --- tcpFinalDestTimes & tcpFirstHopTimes
+  eq tcpTimelineResult(N, linkAttrs1, linkAttrs2, B, ST, NOW) =
+     buildTimelineAt(ceilDiv(N, MSS-SIZE-BYTES),
+                     getOneWayDelay(linkAttrs1), getOneWayDelay(linkAttrs2),
+                     makeChannel(linkAttrs1), makeChannel(linkAttrs2), B, ST, NOW) .
   op tcpFinalDestTimes : Nat AttributeSet AttributeSet Bool AttributeSet Float -> FloatList .
-  eq tcpFinalDestTimes(MSZ:Nat, linkAttrs1, linkAttrs2, B, ST:AttributeSet, NOW) =
-     tlDstTimes(tcpTimelineResult(MSZ:Nat, linkAttrs1, linkAttrs2, B, ST:AttributeSet, NOW)) .
-
+  eq tcpFinalDestTimes(N, linkAttrs1, linkAttrs2, B, ST, NOW) =
+     tlDstTimes(tcpTimelineResult(N, linkAttrs1, linkAttrs2, B, ST, NOW)) .
   op tcpFirstHopTimes : Nat AttributeSet AttributeSet Bool AttributeSet Float -> FloatList .
-  eq tcpFirstHopTimes(MSZ:Nat, linkAttrs1, linkAttrs2, B, ST:AttributeSet, NOW) =
-     tlIxpTimes(tcpTimelineResult(MSZ:Nat, linkAttrs1, linkAttrs2, B, ST:AttributeSet, NOW)) .
+  eq tcpFirstHopTimes(N, linkAttrs1, linkAttrs2, B, ST, NOW) =
+     tlIxpTimes(tcpTimelineResult(N, linkAttrs1, linkAttrs2, B, ST, NOW)) .
 
-  vars deliveryTimes : FloatList .
-  vars msgSize lastPayloadBytes lastPktSizeBytes numOriginalSegments n : Nat .
-  vars deliverySizes : NatList .
-
-  --- Make a list of n segments with a certain size.
-  ---                     NumSeg  TheirSize CurrentList (it is recursive).
-  op $makeDeliverySizes : Nat     Nat       NatList -> NatList .
-  eq $makeDeliverySizes(s n, msgSize, deliverySizes)
-    = $makeDeliverySizes(n, msgSize, deliverySizes :: msgSize)
-  .
-  eq $makeDeliverySizes(0, msgSize, deliverySizes) = deliverySizes .
-
-  --- Helper for prepending 5 TCP+TLS handshake delivery sizes (52B SYN, 52B ACK, 1500B Client Hello, 52B ACK, 1500B Change Cipher Spec)
+  --- Packet sizes include both forward and reverse handshake packets.
+  op $makeDeliverySizes : Nat Nat NatList -> NatList .
+  eq $makeDeliverySizes(0, N, FS) = FS .
+  eq $makeDeliverySizes(s(K), N, FS) = $makeDeliverySizes(K, N, FS :: N) .
   op hsSizes : Bool -> NatList .
-  eq hsSizes(true) =
-    (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
-    (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
-    MTU-SIZE-BYTES ::
-    (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
-    MTU-SIZE-BYTES :: nilNatList .
+  eq hsSizes(true) = (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
+                    (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: MTU-SIZE-BYTES ::
+                    (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: MTU-SIZE-BYTES :: nilNatList .
   eq hsSizes(false) = nilNatList .
-
-  --- Get the TCP delivery sizes on the wire (in Bytes, including 52B headers)
-  ---
-  --- For new connections (ISNEW == true), prepends the 5 handshake packet sizes on the wire:
-  ---   (52B SYN :: 52B ACK :: 1500B TLS Client Hello :: 52B ACK :: 1500B TLS Change Cipher Spec)
-  ---                   TotalMsgSize  DeliveryTimes  ISNEW
-  op tcpDeliverySizes : Nat           FloatList      Bool -> NatList .
-  ceq tcpDeliverySizes(msgSize, deliveryTimes, ISNEW) =
-    hsSizes(ISNEW) :: deliverySizes
-    if numOriginalSegments := ceilDiv(msgSize, MSS-SIZE-BYTES)
-      /\ lastPayloadBytes := sd(msgSize, (numOriginalSegments - 1) * MSS-SIZE-BYTES)
-      /\ lastPktSizeBytes := lastPayloadBytes + IP-HEADER-BYTES + TCP-HEADER-BYTES
-      /\ deliverySizes := $makeDeliverySizes(sd(numOriginalSegments, 1), MTU-SIZE-BYTES, nilNatList) :: lastPktSizeBytes
-  .
-
-  ---                   TotalMsgSize  DeliveryTimes
-  op tcpDeliverySizes : Nat           FloatList -> NatList .
-  eq tcpDeliverySizes(msgSize, deliveryTimes) =
-    tcpDeliverySizes(msgSize, deliveryTimes, lenFL(deliveryTimes) > ceilDiv(msgSize, MSS-SIZE-BYTES)) .
-
-  --- Data packet sizes include handshake packets when present in deliveryTimes.
-  --- One header-only size per emitted ACK aligns with both ACK observation timelines.
+  op hsAckSizes : Bool -> NatList .
+  eq hsAckSizes(true) = (IP-HEADER-BYTES + TCP-HEADER-BYTES) ::
+                       (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: MTU-SIZE-BYTES ::
+                       (IP-HEADER-BYTES + TCP-HEADER-BYTES) :: nilNatList .
+  eq hsAckSizes(false) = nilNatList .
+  op tcpDeliverySizes : Nat FloatList Bool -> NatList .
+  eq tcpDeliverySizes(N, DST, B) =
+     hsSizes(B) :: $makeDeliverySizes(sd(ceilDiv(N, MSS-SIZE-BYTES), 1), MTU-SIZE-BYTES, nilNatList)
+     :: (sd(N, sd(ceilDiv(N, MSS-SIZE-BYTES), 1) * MSS-SIZE-BYTES) + IP-HEADER-BYTES + TCP-HEADER-BYTES) .
+  op tcpDeliverySizes : Nat FloatList -> NatList .
+  eq tcpDeliverySizes(N, DST) = tcpDeliverySizes(N, DST, lenFL(DST) > ceilDiv(N, MSS-SIZE-BYTES)) .
   sort PacketSizes .
   op packetSizes : NatList NatList -> PacketSizes [ctor] .
   op tcpDeliverySizes : Nat FloatList FloatList -> PacketSizes .
-  eq tcpDeliverySizes(msgSize, deliveryTimes, ackTimes:FloatList) =
-    packetSizes(tcpDeliverySizes(msgSize, deliveryTimes),
-                $makeDeliverySizes(lenFL(ackTimes:FloatList),
-                                   IP-HEADER-BYTES + TCP-HEADER-BYTES,
-                                   nilNatList)) .
+  op tcpDeliverySizes : Nat FloatList FloatList Bool -> PacketSizes .
+  op nonnegativeDifference : Nat Nat -> Nat .
+  eq nonnegativeDifference(N, K) = if N >= K then sd(N, K) else 0 fi .
+  eq tcpDeliverySizes(N, DST, AL) =
+     tcpDeliverySizes(N, DST, AL, lenFL(DST) > ceilDiv(N, MSS-SIZE-BYTES)) .
+  eq tcpDeliverySizes(N, DST, AL, B) =
+     packetSizes(tcpDeliverySizes(N, DST, B),
+       hsAckSizes(B) :: $makeDeliverySizes(nonnegativeDifference(lenFL(AL), if B then 4 else 0 fi),
+                                          IP-HEADER-BYTES + TCP-HEADER-BYTES, nilNatList)) .
 endm
+
 
 mod TCP_NODE is
   pr CP2_SORTS .
