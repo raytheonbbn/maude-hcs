@@ -1,10 +1,14 @@
 sload ../irc/ircMonitor.maude
 sload ../irc/common/_aux.maude
+sload ../smc/smc_cp4-refactored.maude
+
 
 mod TEST-UTILS is
 
   inc IRC_MONITOR .
   inc IRC_NODE .
+  inc SMC_CP4 .
+
 
   op all-msgs-received _ : Config -> Bool .
   op non-zero-msgs-received _ : Config -> Bool .
@@ -14,7 +18,21 @@ mod TEST-UTILS is
   vars C : Config .
   var M : MessageTimestamp .
   vars MTL0 MTL1 : MessageTimestampList .
-  vars sum : Nat .
+  vars sum N : Nat .
+  var ADDR : Address .
+  var TOL : TimesObsList .
+  var Q : Query .
+  var MSG : Msg .
+  vars Ts Tx Tr : Float .
+  var ID : Id .
+  var NAME : Name .
+  vars fromAddr toAddr : Address .
+  var CO : Content .
+  var RTYPE : RType .
+  vars B1 B2 : Bool .
+  vars ALICE BOB : Address .
+  vars N1 N2 N3 N4 N5 : Nat .
+  var bytes : ByteSeq .
 
   eq len-msg-timestamp-list nilMessageTimestampList = 0 .
   eq len-msg-timestamp-list (M ; MTL0) = 1 + len-msg-timestamp-list MTL0 .
@@ -101,6 +119,28 @@ mod TEST-UTILS is
     < addr:Address : IrcMonitor | attrs, msgRcvd: MTL0 > C) = $sumBytes(MTL0, 0)
     [owise]
   .
+
+  op print-tol : Config -> Bool .
+  op print-tol-aux : TimesObsList -> Bool .
+  op print-query : Query -> Bool .
+
+  --- nilTO
+
+  eq print-tol(
+    < ADDR : Adversary | dns: TOL, attrs > C
+  ) = print-tol-aux(TOL) .
+
+  eq print-tol-aux(nilTO) = true .
+  eq print-tol-aux(tm(Ts, Tx, Tr, to toAddr from fromAddr : CO) ;; TOL) =
+    if visible(ixpN, tm(Ts, Tx, Tr, to toAddr from fromAddr : CO), 0.0, 9999999.0, outgoing) and isDNSQuery(CO)
+    then print-query(CO) and print-tol-aux(TOL)
+    else print-tol-aux(TOL) 
+    fi .
+
+  ceq print-query(query(ID, NAME, RTYPE)) = true
+  if N := sizeQName(NAME) [ print "nameLength: " N ] .
+
+
 endm
 
 mod TEST-UTILS_TEST is
