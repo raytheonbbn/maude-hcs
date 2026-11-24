@@ -3,13 +3,14 @@ from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json, config
 
 def net_name_to_alice(name: str) -> str:
-    match name:
-        case "masCl1IrcAddr" | "iodCl1IrcAddr" | "obfsCl1IrcAddr" | "skyCl1IrcAddr" | "wtCl1IrcAddr":
-            return "alice_1"
-        case "masCl2IrcAddr" | "iodCl2IrcAddr" | "obfsCl2IrcAddr" | "skyCl2IrcAddr" | "wtCl2IrcAddr":
-            return "alice_2"
-        case _:
-            raise RuntimeError("Unrecognized client name")
+    return name
+    # match name:
+    #     case "masCl1IrcAddr" | "iodCl1IrcAddr" | "obfsCl1IrcAddr" | "skyCl1IrcAddr" | "wtCl1IrcAddr":
+    #         return "alice_1"
+    #     case "masCl2IrcAddr" | "iodCl2IrcAddr" | "obfsCl2IrcAddr" | "skyCl2IrcAddr" | "wtCl2IrcAddr":
+    #         return "alice_2"
+    #     case _:
+    #         raise RuntimeError("Unrecognized client name")
 
 @dataclass_json
 @dataclass(frozen=True)
