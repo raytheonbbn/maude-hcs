@@ -1,0 +1,295 @@
+env: pwnd_cp4_ref_arch_config
+
+conversation_duration: 1920
+max_start_delay: 90
+one_way_availability: 30
+analysis_window_size: 300
+input_seed: 1234
+
+################################################################################
+# Network
+################################################################################
+
+network:
+
+  client_net_1:
+    nat: false
+    network: client
+    params:
+      upstream:
+        latency_ms: 30
+      downstream:
+        latency_ms: 30
+
+  client_net_2:
+    nat: false
+    network: client
+    params:
+      upstream:
+        latency_ms: 25
+      downstream:
+        latency_ms: 25
+
+  client_net_3:
+    nat: false
+    network: client
+    params:
+      upstream:
+        latency_ms: 10
+      downstream:
+        latency_ms: 10
+
+  client_net_4:
+    nat: false
+    network: client
+    params:
+      upstream:
+        latency_ms: 15
+      downstream:
+        latency_ms: 15
+
+  client_net_5:
+    nat: false
+    network: client
+    params:
+      upstream:
+        latency_ms: 20
+      downstream:
+        latency_ms: 20
+  
+  client_net_6:
+    nat: false
+    network: client
+    params:
+      upstream:
+        latency_ms: 25
+      downstream:
+        latency_ms: 25
+
+  server_net:
+    network: server
+    params:
+      upstream:
+        latency_ms: 5
+      downstream:
+        latency_ms: 5
+
+  dns_net:
+    network: dns
+    params:
+      upstream:
+        latency_ms: 5
+      downstream:
+        latency_ms: 5
+
+################################################################################
+# IRC Server Nodes
+################################################################################
+
+irc_servers:
+
+  servers:
+
+    irc_server_1:
+      network: server_net
+      client_channels:
+        mastodon:
+          user_model: "server_mastodon_bidi.json"
+          hashtag_send: "server1_client1"
+          hashtag_recv: "client1_server1"
+          username: "bob_0"  # not changable, just for reference. 
+
+        iodine:
+          max_query_length: 102
+          max_response_size: 202
+
+        obfs:
+          iat_mode: 0
+
+        racetunnel: 
+          port: 7014  # not changable, just for reference.
+          tls_name: "client-tunnel-irc3.pwnd.com"  # not changable, just for reference.
+        
+        skyhook:
+          user_model: "server_skyhook_gaus.json"
+
+  topology: {}
+
+################################################################################
+# IRC Client Nodes
+################################################################################
+
+nodes:
+
+  node_type_irc12: # alice 1
+
+    channel_config:
+
+      primary:
+        direction: bidirectional
+        channel:
+          type: mastodon
+          config:
+            user_model: "client_mastodon_bidi.json"
+            username: "alice_1"  # not changable, just for reference.
+        server: irc_server_1
+
+      backup:
+        direction: bidirectional
+        channel:
+          type: iodine
+          config:
+            max_query_length: 102
+            max_response_size: 202
+        server: irc_server_1
+
+    client_per_network:
+      client_net_1:
+        quantity: 1
+        profiles:
+          irc_13: 1
+
+  node_type_irc23: # alice 2
+
+    channel_config:
+
+      primary:
+        direction: bidirectional
+        channel:
+          type: iodine
+          config:
+            max_query_length: 102
+            max_response_size: 202
+        server: irc_server_1
+
+      backup:
+        direction: bidirectional
+        channel:
+          type: obfs
+          config:
+            iat_mode: 0
+        server: irc_server_1
+
+    client_per_network:
+      client_net_2:
+        quantity: 1
+        profiles:
+          irc_13: 1
+
+  node_type_irc42: # alice 3
+
+    channel_config:
+
+      primary:
+        direction: bidirectional
+        channel:
+          type: racetunnel
+          config: {}
+        server: irc_server_1
+
+      backup:
+        direction: bidirectional
+        channel:
+          type: iodine
+          config:
+            max_query_length: 102
+            max_response_size: 202
+        server: irc_server_1
+
+    client_per_network:
+      client_net_3:
+        quantity: 1
+        profiles:
+          irc_13: 1.0
+
+  node_type_irc31: # alice 4
+
+    channel_config:
+
+      primary:
+        direction: bidirectional
+        channel:
+          type: obfs
+          config:
+            iat_mode: 0
+        server: irc_server_1
+
+      backup:
+        direction: bidirectional
+        channel:
+          type: mastodon
+          config:
+            user_model: "client_mastodon_bidi.json"
+            username: "alice_4"  # not changable, just for reference.
+        server: irc_server_1
+
+    client_per_network:
+      client_net_4:
+        quantity: 1
+        profiles:
+          irc_13: 1
+
+  node_type_irc14: # alice 5
+
+    channel_config:
+
+      primary:
+        direction: bidirectional
+        channel:
+          type: iodine
+          config:
+            max_query_length: 102
+            max_response_size: 202
+        server: irc_server_1
+
+      backup:
+        direction: bidirectional
+        channel:
+          type: racetunnel
+          config: {}
+        server: irc_server_1
+
+    client_per_network:
+      client_net_2:
+        quantity: 1
+        profiles:
+          irc_13: 1.0
+  
+  node_type_irc13: # alice 6
+
+    channel_config:
+
+      primary:
+        direction: bidirectional
+        channel:
+          type: skyhook
+          config:
+            user_model: "client_skyhook_gaus.json"
+        server: irc_server_1
+
+      backup:
+        direction: bidirectional
+        channel:
+          type: obfs
+          config:
+            iat_mode: 0
+        server: irc_server_1
+
+    client_per_network:
+      client_net_6:
+        quantity: 1
+        profiles:
+          irc_13: 1.0
+
+
+################################################################################
+# TGEN
+################################################################################
+tgen: {}
+
+
+################################################################################
+# Adversary
+################################################################################
+
+adversary: {}
