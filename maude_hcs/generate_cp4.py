@@ -214,6 +214,7 @@ def parse_scenario_yaml(yaml_path):
         client_channels = {convert_rt(k): v for k, v in server_dict["client_channels"].items()}
         for v in client_channels.values():
             if v.get("user_model", "").endswith(".json"):
+                logger.info(v["user_model"])
                 v["user_model"] = v['user_model'][:-5]
         irc_servers.append(IrcServer(name=server_name, net=server_dict["network"], client_channels=client_channels))
 
@@ -232,6 +233,7 @@ def parse_scenario_yaml(yaml_path):
         config = channel.get("config", {})
         
         if "user_model" in config:
+            logger.info(config)
             user_model = config["user_model"]
             if user_model.endswith(".json"): user_model = user_model[:-5]
         
@@ -246,22 +248,42 @@ def parse_scenario_yaml(yaml_path):
                 hcs_nodes.append(HcsNode(channel=channel_ty, channel_idx=0, idx=hcs_node_idx, net=net_name, irc_prof=prof, user_model=user_model))
                 hcs_node_idx += 1
 
-    def convert_net_name(name, node: HcsNode):
-        if node.net == name:
-            return f"client_net_{convert_wt(node.channel)}"
-        else:
-            return name
+    def old_style_name(channel):
+        if channel == "skyhook": channel = "sky"
+        return f"client_net_{convert_wt(channel)}"
+    
+    logger.info("Nodes: %s", hcs_nodes)
+    logger.info("Networks: %s", networks)
     
     # Assign indexes within each channel, and change network names to old style names for compatibility
-    for channel in ["webtunnel", "mastodon", "iodine", "obfs", "sky"]:
+    # still broken for iodine
+    for channel in ["webtunnel", "mastodon", "iodine", "obfs", "skyhook"]:
         nodes = [node for node in hcs_nodes if node.channel == channel]
+        logger.info("nodes slice: %s", nodes)
+
         if nodes:
-            networks = {convert_net_name(k, nodes[0]): v for k, v in networks.items()}
+            chan = nodes[0].channel
+            net_name = nodes[0].net
+
+            # Swap the key in networks dictionary to use old style name
+            networks[old_style_name(channel)] = networks[net_name]
+            del networks[net_name]
+
+            net_id_map[old_style_name(channel)] = net_id_map[net_name]
+            del net_id_map[net_name]
+
+            # Update other nodes to use old style name as well
+            for node in hcs_nodes:
+                if node.net == net_name:
+                    node.net = old_style_name(channel)
+        
+        logger.info("nodes slice: %s", nodes)
+
         for idx, node in enumerate(nodes):
             node.channel_idx = idx
     
-    logger.info(networks)
-    logger.info("hcs_nodes: %s", hcs_nodes)
+    logger.info("Nodes: %s", hcs_nodes)
+    logger.info("Networks: %s", networks)
 
     # Parse TGENs
     tgen_type_map = {
@@ -672,6 +694,8 @@ def gen_main_file(tgen_instances, networks, loss_profiles, duration, irc_servers
     all_channels = [chan for serv in irc_servers for chan in serv.client_channels]
     all_hcs_irc_profiles = {node.irc_prof for node in hcs_nodes}
 
+    logger.info(irc_servers)
+
     mast_server_models = {chan["user_model"]
         for serv in irc_servers
         for chan_name, chan in serv.client_channels.items()
@@ -692,7 +716,10 @@ def gen_main_file(tgen_instances, networks, loss_profiles, duration, irc_servers
         L(f"sload mastodon_action_models/{model}.maude")
 
     for model in sky_server_models.union(sky_user_models):
-        L(f"sload mastodon_action_models/{model}.maude")
+        L(f"sload skyhook_action_models/{model}.maude")
+    
+    logger.info(sky_server_models)
+    logger.info(mast_server_models)
 
     client_net_type_map = {}
     for node in hcs_nodes:
@@ -1138,6 +1165,9 @@ def gen_main_file(tgen_instances, networks, loss_profiles, duration, irc_servers
         if net_name != "dns_net":
             L(f"  --- DNS composed link from/to {net_name} to dns_net")
             linkdata(L, op_name_dns_comp, DEF_LP, (latency_ms + dns_net_latency_ms) / 1000.0,  v1=True)
+
+    if "skyhook" in all_channels:
+        linkdata(L, link_param_name("minio_net"), "", 0.0)
     
     L("  ---------------------------------------------------")
     L("  --- Link Data (Readable Addresses Only)")
