@@ -4,15 +4,17 @@ import numpy as np
 # TCP Analytical Model over Two Cascaded Bidirectional IID Loss Links
 # ==============================================================================
 #
-# Computes E[T_k]: expected arrival time of the k-th TCP data segment at both:
-#   1. First-hop intermediate node (e.g. Router / IXP)
-#   2. Final destination server
+# Computes E[T_k]: expected arrival time of the k-th TCP data segment and its
+# corresponding TCP ACK at:
+#   1. IXP intermediate node: times_ixp, ack_times_ixp
+#   2. Final destination server / sender: times_dest, ack_times_sender
 # measured from the client's first SYN transmission across two links.
 #
 # Models TCP as implemented in Ubuntu 22.04 (Linux 5.15+):
 #   - CUBIC congestion control (default)
 #   - SACK (Selective Acknowledgment)
-#   - RACK-TLP (Recent ACK / Tail Loss Probe) loss detection
+#   - RACK-TLP (Recent ACK / Tail Loss Probe, RFC 8985) loss detection
+#   - Linux Delayed ACKs (every 2nd full-sized segment, plus delayed ACK timer)
 #   - Slow Start and Congestion Avoidance
 #   - Independent and Identically Distributed (IID) packet loss channel
 # ==============================================================================
@@ -104,11 +106,19 @@ BUFFER_CAPACITY = 1000            # Physical limit where tail-drop loss occurs
 
 # ─────────────────────── TCP Parameters ───────────────────────
 
-IW        = 10
-RTO_MIN   = 0.2
-CUBIC_C   = 0.4
-CUBIC_B   = 0.7
-RACK_FRAC = 0.25
+IW         = 10
+RTO_MIN    = 0.2
+DELACK_MIN = 0.040                # Linux TCP_DELACK_MIN (40ms delayed ACK timer)
+CUBIC_C    = 0.4
+CUBIC_B    = 0.7
+RACK_FRAC  = 0.25
+
+
+def _tlp_pto(flight_size: int) -> float:
+    """Computes Linux RFC 8985 Tail Loss Probe Timeout (PTO) for a flight of W segments."""
+    if flight_size <= 1:
+        return max(2.0 * RTT, 1.5 * RTT + DELACK_MIN)
+    return 2.0 * RTT
 
 # ─────────────────────── Global Path Setup ───────────────────────
 
@@ -158,13 +168,55 @@ def init_tcp_state():
 
 # ─────────────────────── Timeline Generation ───────────────────────
 
+def _compute_delayed_ack_times(times_dest, max_k):
+    """
+    Computes expected ACK arrival times at the IXP and the Sender under Linux Delayed ACKs.
+
+    In Linux TCP (net/ipv4/tcp_input.c):
+      - When an unacknowledged segment k arrives at times_dest[k], the receiver arms
+        the delayed ACK timer for times_dest[k] + DELACK_MIN (40ms).
+      - If a 2nd segment (k + 1) arrives before the delayed ACK timer expires
+        (times_dest[k + 1] <= times_dest[k] + DELACK_MIN), the receiver immediately
+        emits one cumulative ACK at t_ack_depart = max(times_dest[k], times_dest[k + 1])
+        (recorded at index k + 1, leaving index k as NaN), and advances by 2 segments.
+      - Otherwise (if k is the final segment or the next segment arrives after the
+        delayed ACK timer expires), the timer fires at t_ack_depart = times_dest[k] + DELACK_MIN,
+        emitting an ACK at index k, and advances by 1 segment.
+      - Once generated at the destination at t_ack_depart:
+          ack_times_ixp    = t_ack_depart + OWD2
+          ack_times_sender = t_ack_depart + OWD
+    """
+    ack_times_ixp    = np.full(max_k + 1, np.nan)
+    ack_times_sender = np.full(max_k + 1, np.nan)
+    ack_times_ixp[0]    = 0.0
+    ack_times_sender[0] = 0.0
+
+    k = 1
+    while k <= max_k and np.isfinite(times_dest[k]):
+        t_k = float(times_dest[k])
+        if k + 1 <= max_k and np.isfinite(times_dest[k + 1]) and float(times_dest[k + 1]) <= t_k + DELACK_MIN:
+            # 2nd segment arrives before delayed ACK timer expires -> immediate cumulative ACK
+            t_ack_depart = max(t_k, float(times_dest[k + 1]))
+            ack_times_ixp[k + 1]    = t_ack_depart + OWD2
+            ack_times_sender[k + 1] = t_ack_depart + OWD
+            k += 2
+        else:
+            # Delayed ACK timer expires before any next segment arrives
+            t_ack_depart = t_k + DELACK_MIN
+            ack_times_ixp[k]    = t_ack_depart + OWD2
+            ack_times_sender[k] = t_ack_depart + OWD
+            k += 1
+
+    return ack_times_ixp, ack_times_sender
+
+
 def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
-    times_first = np.full(max_k + 1, np.nan)
-    times_dest  = np.full(max_k + 1, np.nan)
-    flts        = np.zeros(max_k + 1, dtype=int)
+    times_ixp  = np.full(max_k + 1, np.nan)
+    times_dest = np.full(max_k + 1, np.nan)
+    flts       = np.zeros(max_k + 1, dtype=int)
     
-    times_first[0] = 0.0
-    times_dest[0]  = 0.0
+    times_ixp[0]  = 0.0
+    times_dest[0] = 0.0
     total_el = 0.0
 
     LOCAL_MAX_CWND = 1000
@@ -226,27 +278,65 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             else:
                 total_el += el_fwd
 
-            current_flight_size = min(int(W_ss), LOCAL_MAX_CWND)
-            dt_recovery = (2.0 * RTT + RTT * RACK_FRAC) * (0.5 if is_none else 1.0)
+            # Recovery depends on packets actually sent, even when the final
+            # flight does not fill the congestion window. Keep the existing
+            # window-based congestion/slow-start evolution separate.
+            window_flight_size = min(int(W_ss), LOCAL_MAX_CWND)
+            actual_flight_size = min(window_flight_size, max_k - seg)
+            dt_rack = (2.0 * RTT + RTT * RACK_FRAC) * (0.5 if is_none else 1.0)
+            pto = _tlp_pto(actual_flight_size)
             p_drop = p_l if is_none else _path.drop_prob
+            dt_tlp_single = pto + (1.0 - p_drop) * RTT + p_drop * RTO_MIN
+            dt_tlp_multi = pto + (1.0 - p_drop) * (2.0 * RTT) + p_drop * RTO_MIN
 
-            for i in range(current_flight_size):
+            # Per-segment recovery:
+            # If segment i is dropped, there are rem = actual_flight_size - 1 - i subsequent
+            # segments in the flight. If at least one subsequent segment arrives (1 - p_drop^rem),
+            # RACK detects the loss after RTT + RTT * RACK_FRAC; if all subsequent segments are
+            # also lost (p_drop^rem, including i == actual_flight_size - 1 where rem == 0),
+            # recovery waits for the Tail Loss Probe (PTO), falling back to RTO_MIN if the
+            # TLP probe itself is also dropped.
+            dt_tlp_seg = dt_tlp_single * (0.5 if is_none else 1.0)
+
+            for i in range(actual_flight_size):
                 k = seg + i + 1
                 if k <= max_k:
-                    # Arrival at First Hop (Link 1) vs Final Destination (Link 1 + Link 2)
-                    times_first[k] = t + OWD1 + i * SER1 + p_drop * dt_recovery
-                    times_dest[k]  = t + OWD  + i * SER  + p_drop * dt_recovery
-                    flts[k]        = flt
-            seg += current_flight_size
+                    rem = actual_flight_size - 1 - i
+                    p_tail_from_i = (p_drop ** rem) if not is_none else 0.0
+                    dt_seg_recovery = (1.0 - p_tail_from_i) * dt_rack + p_tail_from_i * dt_tlp_seg
+                    # Arrival at IXP (Link 1) vs Final Destination (Link 1 + Link 2)
+                    times_ixp[k]  = t + OWD1 + i * SER1 + p_drop * dt_seg_recovery
+                    times_dest[k] = t + OWD  + i * SER  + p_drop * dt_seg_recovery
+                    flts[k]       = flt
+            seg += window_flight_size
 
-            dt = p0 * RTT + p_l * dt_recovery
+            if is_none:
+                dt = p0 * RTT + p_l * dt_rack
+            else:
+                # Flight-level RACK-TLP decomposition:
+                # Use the actual packet count F for recovery probabilities;
+                # p0 above remains the congestion-window statistic.
+                #   1. flight_p0 = (1 - p)^F: zero loss -> RTT
+                #   2. p_rack = (1 - p) - (1 - p)^F: interior loss(es), last segment arrives -> RACK
+                #   3. p_tlp_single = (1 - p)^(F - 1) * p: only last segment lost -> TLP probe
+                #      repairs directly in PTO + RTT (prob 1 - p), or PTO + RTO_MIN if probe dropped
+                #   4. p_tlp_multi = p - p_tlp_single: last segment + earlier segment(s) lost ->
+                #      TLP probe SACK triggers RACK recovery in PTO + 2*RTT (prob 1 - p), or PTO + RTO_MIN
+                flight_p0 = (1.0 - p_drop) ** actual_flight_size
+                p_rack = max(0.0, (1.0 - p_drop) - flight_p0)
+                p_tlp_single = ((1.0 - p_drop) ** max(0, actual_flight_size - 1)) * p_drop
+                p_tlp_multi = max(0.0, p_drop - p_tlp_single)
+                dt = (flight_p0 * RTT
+                      + p_rack * dt_rack
+                      + p_tlp_single * dt_tlp_single
+                      + p_tlp_multi * dt_tlp_multi)
             t += dt
             flt += 1
 
             W_next_ss = min(W_ss * 2, LOCAL_MAX_CWND)
             p0_next, _, el_fwd_next, _ = _path.flight_stats_path(W_next_ss)
 
-            if el_fwd >= 0.5 or el_fwd_next >= 0.5 or (seg + W_ss > BUFFER_CAPACITY) or current_flight_size >= LOCAL_MAX_CWND:
+            if el_fwd >= 0.5 or el_fwd_next >= 0.5 or (seg + W_ss > BUFFER_CAPACITY) or window_flight_size >= LOCAL_MAX_CWND:
                 last_p0 = p0_next if p_l == 0.0 else p0
                 exited_due_to_loss = True
                 break
@@ -287,16 +377,42 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
 
             seg_start = int(np.floor(seg))
             seg_end   = int(np.floor(seg + E_del))
+            actual_flight_size = min(W, max_k - seg_start)
 
-            E_dt_nominal = p0 * RTT + pp * (2.0 * RTT + RTT * RACK_FRAC) + pa * RTO_MIN
-            E_dt = max(E_del * SER, E_dt_nominal)
+            dt_rack = 2.0 * RTT + RTT * RACK_FRAC
+            if is_none:
+                E_dt_nominal = p0 * RTT + pp * dt_rack + pa * RTO_MIN
+                p_fast_or_tlp = pp
+                p_rto = pa
+            else:
+                p_drop = _path.drop_prob
+                # Timing uses the actual flight; window statistics p0/pa
+                # remain unchanged for the congestion update below.
+                pto = _tlp_pto(actual_flight_size)
+                flight_p0 = (1.0 - p_drop) ** actual_flight_size
+                p_rack = max(0.0, (1.0 - p_drop) - flight_p0)
+                p_tlp_single = ((1.0 - p_drop) ** max(0, actual_flight_size - 1)) * p_drop
+                p_tlp_multi = max(0.0, p_drop - p_tlp_single)
+                dt_tlp_single = pto + (1.0 - p_drop) * RTT + p_drop * RTO_MIN
+                dt_tlp_multi = pto + (1.0 - p_drop) * (2.0 * RTT) + p_drop * RTO_MIN
+                E_dt_nominal = (flight_p0 * RTT
+                                + p_rack * dt_rack
+                                + p_tlp_single * dt_tlp_single
+                                + p_tlp_multi * dt_tlp_multi)
+                # Under RACK-TLP, full RTO reset to cwnd=1 occurs when the entire flight
+                # AND its TLP probe are lost (pa * p_drop)
+                p_rto = pa * p_drop
+                p_fast_or_tlp = max(0.0, (1.0 - p0) - p_rto)
+
+            serialized_segments = E_del if is_none else float(actual_flight_size)
+            E_dt = max(serialized_segments * SER, E_dt_nominal)
 
             for k_idx in range(seg_start + 1, seg_end + 1):
                 if k_idx <= max_k:
                     fractional_offset = (k_idx - 1 - seg_start) / max(1.0, E_del)
-                    times_first[k_idx] = t + OWD1 + (fractional_offset * W * SER1)
-                    times_dest[k_idx]  = t + OWD  + (fractional_offset * W * SER)
-                    flts[k_idx]        = flt
+                    times_ixp[k_idx]  = t + OWD1 + (fractional_offset * W * SER1)
+                    times_dest[k_idx] = t + OWD  + (fractional_offset * W * SER)
+                    flts[k_idx]       = flt
 
             seg += E_del
             t   += E_dt
@@ -312,50 +428,69 @@ def _build_timeline(max_k=2000, is_new=True, state=None, start_time=None):
             w_reno = cwnd + (1.0 / max(1.0, cwnd))
             w_no   = max(_cubic_w(t_since, w_max), w_reno)
 
-            cwnd_next = p0 * w_no + pp * (cwnd * CUBIC_B) + pa * 1.0
+            cwnd_next = p0 * w_no + p_fast_or_tlp * (cwnd * CUBIC_B) + p_rto * 1.0
             cwnd = max(2.0, min(cwnd_next, LOCAL_MAX_CWND))
             flt += 1
 
+    ack_times_ixp, ack_times_sender = _compute_delayed_ack_times(times_dest, max_k)
+
     valid_dest = times_dest[np.isfinite(times_dest)]
+    valid_ack_sender = ack_times_sender[np.isfinite(ack_times_sender)]
     if len(valid_dest) > 1:
         last_dest = float(np.max(valid_dest[1:]))
         last_send_time = start_time + last_dest - OWD
-        last_ack_time = start_time + last_dest + OWD
+        last_ack_time = start_time + float(np.max(valid_ack_sender[1:]))
     else:
         last_send_time = state.last_send_time if state is not None else None
         last_ack_time = state.last_ack_time if state is not None else None
     final_state = TcpState(cwnd=cwnd, w_max=w_max, t_since=t_since,
                            in_slow_start=in_slow_start,
                            last_send_time=last_send_time, last_ack_time=last_ack_time)
-    return times_first, times_dest, flts, total_el, final_state
+    return times_ixp, times_dest, ack_times_ixp, ack_times_sender, flts, total_el, final_state
 
 # ─────────────────────── Public API ───────────────────────
 
 _cache: dict = {}
 
 def simulate_transfer(num_segments, is_new=True, state=None, *, start_time):
-    """Simulates transmission of num_segments, returning (times_first, times_dest, final_state)."""
-    t_first, t_dest, _, _, final_state = _build_timeline(
+    """
+    Simulates transmission of num_segments, returning
+    (times_ixp, times_dest, ack_times_ixp, ack_times_sender, final_state),
+    where ack_times_ixp and ack_times_sender contain one timestamp per emitted ACK packet.
+    """
+    t_ixp, t_dest, ack_ixp, ack_sender, _, _, final_state = _build_timeline(
         num_segments, is_new=is_new, state=state, start_time=start_time)
-    return t_first[1:num_segments + 1], t_dest[1:num_segments + 1], final_state
+    ack_ixp_slice = ack_ixp[1:num_segments + 1]
+    ack_sender_slice = ack_sender[1:num_segments + 1]
+    return (
+        t_ixp[1:num_segments + 1],
+        t_dest[1:num_segments + 1],
+        ack_ixp_slice[np.isfinite(ack_ixp_slice)],
+        ack_sender_slice[np.isfinite(ack_sender_slice)],
+        final_state,
+    )
 
 def expected_time_k(k):
-    """Returns (t_first_hop, t_destination, flight_id) for segment k."""
+    """Returns (t_ixp, t_dest, t_ack_ixp, t_ack_sender, flight_id) for segment k."""
     global _cache
     if 'times_dest' not in _cache or k >= len(_cache['times_dest']):
         n = max(2000, k + 500)
-        t_first, t_dest, f, el, _ = _build_timeline(n)
+        t_ixp, t_dest, ack_ixp, ack_sender, f, el, _ = _build_timeline(n)
         _cache = {
-            'times_first': t_first,
+            'times_ixp': t_ixp,
             'times_dest': t_dest,
+            'ack_times_ixp': ack_ixp,
+            'ack_times_sender': ack_sender,
             'flights': f,
             'total_el': el
         }
     if k <= 0:
-        return 0.0, 0.0, 0
+        return 0.0, 0.0, 0.0, 0.0, 0
     return (
-        float(_cache['times_first'][k]),
+        float(_cache['times_ixp'][k]),
         float(_cache['times_dest'][k]),
+        float(_cache['ack_times_ixp'][k]),
+        float(_cache['ack_times_sender'][k]),
         int(_cache['flights'][k])
     )
 
