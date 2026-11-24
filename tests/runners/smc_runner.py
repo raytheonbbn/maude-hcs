@@ -56,7 +56,7 @@ def format_cmd(nspace_args: Namespace, test_arg: dict):
 
     return "".join([
         f"maude-hcs scheck \\\n",
-        f"    --file {(GLOBALS.TOP_LEVEL_DIR / test_arg.get("file", "maude_hcs/lib/smc/smc_cp3.maude")).resolve()} \\\n",
+        f"    --file {(GLOBALS.TOP_LEVEL_DIR / test_arg.get("file", "maude_hcs/lib/smc/smc_cp4.maude")).resolve()} \\\n",
         get_opt_if_present("nsims"),
         get_opt_if_present("seed"),
         get_opt_if_present("jobs"),
@@ -97,7 +97,7 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
     args = Namespace(
 
         # Configurable by test
-        file=str((GLOBALS.TOP_LEVEL_DIR / arg.get("file", "maude_hcs/lib/smc/smc_cp3.maude")).resolve()),
+        file=str((GLOBALS.TOP_LEVEL_DIR / arg.get("file", "maude_hcs/lib/smc/smc_cp4.maude")).resolve()),
         nsims=arg.get("nsims", "1-1"),
         seed=arg.get("seed", None),
         jobs=arg.get("jobs", 0),
@@ -124,6 +124,8 @@ def smc_runner(test_cfg: "TestConfig", build_dir: Path, run_cfg: "RunConfig", lo
         format="json",
         plot=False,
         verbose=False,
+        
+        smethod="chow-robbins",
     )
 
     logger.info(format_cmd(args, arg))

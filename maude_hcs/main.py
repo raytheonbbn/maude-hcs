@@ -43,6 +43,7 @@ from contextlib import redirect_stdout, redirect_stderr
 
 from maude_hcs.lib import GLOBALS
 from maude_hcs.generate_cp3 import generate
+from maude_hcs.generate_cp4 import generate as generate_cp4
 from umaudemc.command.scheck import scheck
 from maude_hcs import convert_markov_json_to_maude_v2
 from maude_hcs import convert_markov_json_to_maude_v1
@@ -294,9 +295,13 @@ def build_cli_parser():
     return parser
 
 def handle_command(command, parser, args: argparse.Namespace):
+    logger.info("args: %s", args)
     match command:
         case "generate":
-            generate(args)
+            if args.cp4:
+                generate_cp4(args)
+            else:
+                generate(args)
         case "scheck":
             run_scheck(args)
         case "markov-v2":

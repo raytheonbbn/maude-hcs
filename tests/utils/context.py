@@ -82,6 +82,7 @@ class GenArgs:
     parallelize_baseline:       bool = False
     confidentiality:            bool = False
     performance:                bool = False
+    cp4:                        bool = False
 
 
 @dataclass_json
@@ -179,6 +180,7 @@ class Context:
                         parallelize_baseline=gen_args_d.get("parallelize_baseline", False),
                         confidentiality=gen_args_d.get("confidentiality", False),
                         performance=gen_args_d.get("performance", False),
+                        cp4=gen_args_d.get("cp4", False),
                     )
                 )
 

@@ -100,6 +100,8 @@ def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path, build_dir: 
         parallelizeBaseline=gen_args.parallelize_baseline,
         confidentiality=gen_args.confidentiality,
         perf=gen_args.performance,
+
+        cp4=gen_args.cp4,
     )
 
     handle_command(args.command, None, args)
