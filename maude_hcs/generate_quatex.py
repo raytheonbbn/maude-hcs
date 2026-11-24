@@ -176,8 +176,14 @@ def mk_vantage_point_chunk(cfg: Config, win: int, cum: bool, vantage: str, feat:
        # this indep is a duplicate of cum 
        logger.info("skipping independent win %s: %s", win, tag)
        return Lines()
+
+    if feat.startswith("tcp"): log = "getTsPL"
+    elif feat.startswith("dns"): log = "getTsML"
+    else: raise RuntimeError("unrecognized feat")
+
+    expr = f'compObsFeatureX({vantage}, {feat}, {log} (getAdversary(C)), {real_start}, {real_end})'
     return Lines(
-        f'eval E[s.rval("getCUSUMZt(getAdversary(C), {vantage}, {feat}, {real_start}, {real_end}, {slide_win}, {bin_size})")]; {tag}'
+        f"eval E[s.rval(\"{expr}\")]; {tag}"
     )
 
 def all_queries(cfg: Config) -> Lines:
@@ -188,7 +194,7 @@ def all_queries(cfg: Config) -> Lines:
        *[mk_latency_query_chunk(cfg, win, True) for win in win_range],
        *[mk_global_integrity_chunk(cfg, win, True) for win in win_range],
        *[mk_client_integrity_chunk(cfg, win, True, client) for win in win_range for client in cfg.clients],
-       *[mk_availability_chunk(cfg, win, True) for win in win_range],
+    #    *[mk_availability_chunk(cfg, win, True) for win in win_range],
        *[mk_vantage_point_chunk(cfg, win, True, vant, feat, tag)
             for win in win_range
             for vant in cfg.vants
