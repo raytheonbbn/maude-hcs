@@ -5,11 +5,11 @@ Maude experiment with IRC clients, primary/backup connections, and the configure
 server tree. Both client connections and server-to-server links carry their IRC
 traffic through the selected HCS model.
 
-From the repository root, generate the included reference fixture:
+From the repository root, generate the included reference architecture:
 
 ```sh
 python3 -m maude_hcs.generate_cp4 \
-  tests/contexts/cp4_reference/reference_architecture_config.yaml \
+  use-cases/challenge-problem-4/reference_architecture_config.yaml \
   --out-dir results/cp4-reference \
   --scenario-name cp4_reference
 maude results/cp4-reference/cp4_reference_run.maude
@@ -19,7 +19,7 @@ The installed command accepts the same arguments:
 
 ```sh
 maude-hcs generate-cp4 \
-  tests/contexts/cp4_reference/reference_architecture_config.yaml \
+  use-cases/challenge-problem-4/reference_architecture_config.yaml \
   --out-dir results/cp4-reference \
   --scenario-name cp4_reference
 ```
