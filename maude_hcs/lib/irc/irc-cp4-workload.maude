@@ -1,0 +1,50 @@
+--- CP4 workload input uses the client's session-aware FIFO. User-model actions
+--- never register users directly at a server or bypass the selected HCS.
+sload irc_prob-v2
+sload ../common/maude/irc-action-actor-v2
+
+mod IRC-CP4-WORKLOAD is
+  inc IRC-V2 .
+  inc IRC-USER-ACTION-ACTOR-V2 .
+
+  op cp4Input : Address -> Address [ctor] .
+  op Cp4ChatInput : String String -> Content [ctor] .
+  vars client userModel : Address .
+  var attrs : AttributeSet .
+  var spec : Map{String,JV} .
+  var queue : IrcSendQueue .
+  vars user room payload : String .
+  var count : Nat .
+  var time : Float .
+  var chat : IrcMsg .
+
+  --- The generator supplies initial channel membership from the same profile.
+  --- Acknowledge initialization locally; JOIN travels through the IRC session.
+  crl [cp4-workload-rooms]:
+    {time, (to cp4Input(client) from userModel : actionQ(spec))}
+    => [0.0, (to userModel from cp4Input(client) : actionR("ok")), 0]
+    if js("set_room_numbers") := spec["type"] .
+
+  --- Acknowledge input independently of the socket, like a precomputed testbed
+  --- CSV. Recovery can block writes while later workload inputs keep arriving.
+  crl [cp4-workload-chat]:
+    < client : IrcClient | attrs, userId: user, msgCtr: count, sendQueue: queue >
+    {time, (to cp4Input(client) from userModel : actionQ(spec))}
+    => < client : IrcClient | attrs, userId: user, msgCtr: s count,
+           sendQueue: (queue ++ queued(chat)) >
+       [0.0, (to client from client : FlushClientQueue), 0]
+       [0.0, (to userModel from cp4Input(client) : actionR("ok")), 0]
+    if js("roommsg") := spec["type"]
+      /\ js(room) := spec["room"]
+      /\ chat := genPrivMsgReq(client, count, user, room,
+                              jv2nat(spec["message_length_bytes"])) .
+
+  --- Explicit CSV input retains the original message text and absolute timing.
+  rl [cp4-workload-csv]:
+    < client : IrcClient | attrs, msgCtr: count, sendQueue: queue >
+    {time, (to cp4Input(client) : Cp4ChatInput(room, payload))}
+    => < client : IrcClient | attrs, msgCtr: s count,
+           sendQueue: (queue ++ queued(PrivMsgReq(makeIrcChannelName(room),
+                              makeIrcUserName(client), payload))) >
+       [0.0, (to client from client : FlushClientQueue), 0] .
+endm

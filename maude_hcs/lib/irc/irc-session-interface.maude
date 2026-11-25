@@ -5,14 +5,16 @@
 --- This deliberately does not emulate TCP retransmission or packet-level loss.
 sload irc-byteseq-interface
 sload irc-link-state
+sload irc-hcs-wire
 sload common/_aux
 
 mod IRC-SESSION-INTERFACE is
   inc IRC-BYTESEQ-INTERFACE .
   inc IRC-LINK-STATE .
+  inc IRC-HCS-WIRE .
   inc IRC_NODE .
 
-  vars endpointAddr localIrcAddr peerEndpointAddr userAddr : Address .
+  vars endpointAddr localIrcAddr peerEndpointAddr userAddr hcsSender hcsReceiver : Address .
   vars endpointAttrs updatedAttrs : AttributeSet .
   vars generation previousGeneration : Nat .
   vars currentTime oneWayDelay lastInputTime pingTime registrationTime : Float .
@@ -57,6 +59,15 @@ mod IRC-SESSION-INTERFACE is
   op SessionWire : Nat IrcMsg -> ByteSeq [ctor] .
   op SessionReset : Nat -> ByteSeq [ctor] .
   op SessionRetired : Nat -> ByteSeq [ctor] .
+  --- Epochs are simulation metadata; the data payload has its IRC wire size.
+  --- Reset/retirement use a small transport control packet size.
+  eq getSize(SessionWire(generation, ircMessage)) = getSize(ircMessage) .
+  eq getSize(SessionReset(generation)) = 40 .
+  eq getSize(SessionRetired(generation)) = 40 .
+  eq getHashString(SessionWire(generation, ircMessage)) =
+    "session-" + string(generation, 10) + "-" + getHashString(ircMessage) .
+  eq getHashString(SessionReset(generation)) = "reset-" + string(generation, 10) .
+  eq getHashString(SessionRetired(generation)) = "retired-" + string(generation, 10) .
   --- Internal events also carry the generation so old timers are harmless.
   op SessionCheck : Nat -> Content [ctor] .
   op ProcessSessionInput : Nat IrcMsg -> Content [ctor] .
@@ -70,9 +81,9 @@ mod IRC-SESSION-INTERFACE is
   op DefaultRegistrationPenalty : -> Float .
   eq DefaultRegistrationPenalty = 1.0 .
   op DefaultServerIdle : -> Float .
-  eq DefaultServerIdle = 10.0 .
+  eq DefaultServerIdle = 10.0 [owise] .
   op DefaultServerPongWait : -> Float .
-  eq DefaultServerPongWait = 20.0 .
+  eq DefaultServerPongWait = 20.0 [owise] .
   op DefaultServerScan : -> Float .
   eq DefaultServerScan = 1.0 .
 
@@ -83,6 +94,22 @@ mod IRC-SESSION-INTERFACE is
       isLinkUp: true,
       clientSide: isClient, sessionEpoch: 0, sessionLive: false, socketBroken: false,
       sessionUser: userAddr, wireDelay: DefaultWireDelay(userAddr), idleSince: 0.0,
+      pingSent: -1.0, registrationUntil: 0.0)) .
+
+  --- HCS supplies transport delay; do not add the direct-wire latency again.
+  --- Primary and backup paths have separate records and can use different HCSs.
+  op mkIrcHcsSessionEndpoint : Address Address Address Bool Address Address -> IrcSessionTable .
+  eq mkIrcHcsSessionEndpoint(endpointAddr, localIrcAddr, peerEndpointAddr, isClient,
+                            userAddr, hcsSender) =
+    mkIrcHcsSessionEndpoint(endpointAddr, localIrcAddr, peerEndpointAddr, isClient,
+                            userAddr, hcsSender, hcsSender) .
+  op mkIrcHcsSessionEndpoint : Address Address Address Bool Address Address Address -> IrcSessionTable .
+  eq mkIrcHcsSessionEndpoint(endpointAddr, localIrcAddr, peerEndpointAddr, isClient,
+                            userAddr, hcsSender, hcsReceiver) =
+    sessionEndpoint(endpointAddr, (localIrcAddress: localIrcAddr, peerEndpointAddress: peerEndpointAddr,
+      isLinkUp: true, hcsSendAddress: hcsSender, hcsReceiveAddress: hcsReceiver,
+      clientSide: isClient, sessionEpoch: 0, sessionLive: false, socketBroken: false,
+      sessionUser: userAddr, wireDelay: 0.0, idleSince: 0.0,
       pingSent: -1.0, registrationUntil: 0.0)) .
 
   --- Attach connection state only to the IRC actor that owns these endpoints.
@@ -154,8 +181,8 @@ mod IRC-SESSION-INTERFACE is
         peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
        (if getIsLinkUp(endpointAttrs) then
          [(1.0 + 2.0 * DefaultHandshakeRoundTrips) * oneWayDelay,
-          (to peerEndpointAddr from endpointAddr : SessionWire(generation, ClientConnect(userAddr,
-            generation))), 0]
+          ircWireMessage(endpointAttrs, endpointAddr, peerEndpointAddr,
+            SessionWire(generation, ClientConnect(userAddr, generation))), 0]
         else null fi)
     if generation > epochOf(endpointAttrs)
     [ print "(" currentTime ") IRC Session " endpointAddr " starts connection; epoch " generation ]
@@ -184,7 +211,8 @@ mod IRC-SESSION-INTERFACE is
       (sessionEndpoint(endpointAddr, (setSession(endpointAttrs, generation, false, true),
         peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
     (if getIsLinkUp(endpointAttrs)
-     then [oneWayDelay, (to peerEndpointAddr from endpointAddr : SessionRetired(generation)), 0]
+     then [oneWayDelay, ircWireMessage(endpointAttrs, endpointAddr, peerEndpointAddr,
+       SessionRetired(generation)), 0]
      else null fi)
     if generation == epochOf(endpointAttrs)
     [ print "(" currentTime ") IRC Session " endpointAddr " retires connection; epoch " generation ]
@@ -230,8 +258,9 @@ mod IRC-SESSION-INTERFACE is
         peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
        (if generation == epochOf(endpointAttrs)
         then (if liveSession(endpointAttrs) and not brokenSocket(endpointAttrs)
-              then (if getIsLinkUp(endpointAttrs) then [oneWayDelay, (to peerEndpointAddr from endpointAddr
-                : SessionWire(generation, ircMessage)), 0] else null fi)
+              then (if getIsLinkUp(endpointAttrs) then [oneWayDelay,
+                ircWireMessage(endpointAttrs, endpointAddr, peerEndpointAddr,
+                  SessionWire(generation, ircMessage)), 0] else null fi)
               else (if isLivenessPing(ircMessage) then [0.0, (to localIrcAddr from endpointAddr :
                 ClientConnLost(generation)), 0] else null fi) fi)
         else null fi)
@@ -250,7 +279,8 @@ mod IRC-SESSION-INTERFACE is
         peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
        (if generation == epochOf(endpointAttrs) and liveSession(endpointAttrs) and
          getIsLinkUp(endpointAttrs)
-        then [oneWayDelay, (to peerEndpointAddr from endpointAddr : SessionWire(generation, ircMessage)), 0]
+        then [oneWayDelay, ircWireMessage(endpointAttrs, endpointAddr, peerEndpointAddr,
+          SessionWire(generation, ircMessage)), 0]
           else null fi)
     [ print "(" currentTime ") IRC Session " endpointAddr " processes server output; epoch " generation ]
   .
@@ -266,13 +296,29 @@ mod IRC-SESSION-INTERFACE is
       (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: isClient, localIrcAddress: localIrcAddr,
         peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
        (if liveSession(endpointAttrs) and not brokenSocket(endpointAttrs)
-        then (if getIsLinkUp(endpointAttrs) then [oneWayDelay, (to peerEndpointAddr from endpointAddr :
-          SessionWire(epochOf(endpointAttrs), ircMessage)), 0] else null fi)
+        then (if getIsLinkUp(endpointAttrs) then [oneWayDelay,
+          ircWireMessage(endpointAttrs, endpointAddr, peerEndpointAddr,
+            SessionWire(epochOf(endpointAttrs), ircMessage)), 0] else null fi)
         else (if isClient and isLivenessPing(ircMessage)
               then [0.0, (to localIrcAddr from endpointAddr : ClientConnLost(epochOf(endpointAttrs))), 0]
                 else null fi) fi)
     if not isConnect(ircMessage)
     [ print "(" currentTime ") IRC Session " endpointAddr " processes protocol output" ]
+  .
+
+  --- HCS content managers may combine several writes into one ByteSeq. Restore
+  --- the peer identity and unpack each envelope before the normal epoch checks.
+  rl [session-hcs-receive]:
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs,
+        peerEndpointAddress: peerEndpointAddr, hcsReceiveAddress: hcsReceiver)) otherEndpoints) >
+    {currentTime, (to endpointAddr from hcsReceiver : bytes:ByteSeq)}
+  =>
+    < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
+      (sessionEndpoint(endpointAddr, (endpointAttrs,
+        peerEndpointAddress: peerEndpointAddr, hcsReceiveAddress: hcsReceiver)) otherEndpoints) >
+    scheduleSpreadIrcMsgs(ircHcsDeliver(bytes:ByteSeq, endpointAddr, peerEndpointAddr))
+    [ print "(" currentTime ") IRC Session " endpointAddr " received HCS bytes" ]
   .
 
   --- Accept a newer handshake, start the registration gate, and schedule idle scans.
@@ -356,7 +402,8 @@ mod IRC-SESSION-INTERFACE is
     < ownerAddr : ownerType | ownerAttrs, sessionEndpoints:
       (sessionEndpoint(endpointAddr, (endpointAttrs, clientSide: false,
         peerEndpointAddress: peerEndpointAddr, wireDelay: oneWayDelay)) otherEndpoints) >
-       [oneWayDelay, (to peerEndpointAddr from endpointAddr : SessionReset(generation)), 0]
+       [oneWayDelay, ircWireMessage(endpointAttrs, endpointAddr, peerEndpointAddr,
+         SessionReset(generation)), 0]
     if getIsLinkUp(endpointAttrs)
       /\ not liveSession(endpointAttrs)
       /\ generation == epochOf(endpointAttrs)

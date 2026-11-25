@@ -43,6 +43,7 @@ from contextlib import redirect_stdout, redirect_stderr
 
 from maude_hcs.lib import GLOBALS
 from maude_hcs.generate_cp3 import generate
+from maude_hcs import generate_cp4
 from umaudemc.command.scheck import scheck
 from maude_hcs import convert_markov_json_to_maude_v2
 from maude_hcs import convert_markov_json_to_maude_v1
@@ -166,6 +167,10 @@ def build_cli_parser():
 
     generate_parser.add_argument("--feats", help="select particular feature queries to enable", type=lambda x: x.split(','))
     generate_parser.add_argument("--vpts", help="select particular vantage points that the adversary can observe", type=lambda x: x.split(','))
+
+    cp4_parser = cmd_subparsers.add_parser(
+        'generate-cp4', help='Generate an IRC/HCS model from CP4 reference-architecture YAML')
+    generate_cp4.add_arguments(cp4_parser)
 
     # Markov generation subcommands
     markov_v2_parser = cmd_subparsers.add_parser('markov-v2')
@@ -297,6 +302,13 @@ def handle_command(command, parser, args: argparse.Namespace):
     match command:
         case "generate":
             generate(args)
+        case "generate-cp4":
+            try:
+                result = generate_cp4.generate(args)
+            except (ValueError, OSError) as error:
+                parser.error(str(error))
+            print(f"Generated {result.scenario}\nRun: maude {result.runner}\nManifest: {result.manifest}")
+            return result
         case "scheck":
             run_scheck(args)
         case "markov-v2":

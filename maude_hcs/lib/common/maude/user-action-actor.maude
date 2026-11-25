@@ -240,6 +240,12 @@ op umRcvStatus : AttributeSet Msg Nat ->
                  AttributeSetMsgsNat .
 eq umRcvStatus(attrs, msg, j) = {attrs,null,j} [owise] .
 
+--- CP4 conversion inserts waits for an action's post-completion sleep. These
+--- waits are scheduling details rather than additional testbed model steps.
+op consumesModelStep : Map{String,JV} -> Bool .
+eq consumesModelStep((("cp4_internal_wait" |-> jb(true)), ract)) = false .
+eq consumesModelStep(ract) = true [owise] .
+
 ceq umRcvStatus(attrs, msg0, j) =
     {attrs2,dmsg,(s j1)}  
   if (to umAddr from addr : actionR(str)) := msg0 
@@ -264,7 +270,8 @@ ceq umRcvStatus(attrs, msg0, j) =
   /\ dmsg := (if b and sleepT > 0.0 
               then [sleepT, msg, 0] 
               else [noiseD, msg, 0] fi)
-  /\ attrs2 := attrs1, w4: msg, curState: sid1, nsteps: n
+  /\ attrs2 := attrs1, w4: msg, curState: sid1,
+       nsteps: (if consumesModelStep(ract) then n else s n fi)
   .                       
 
 op chooseNextState : JV JV Float  Nat String -> String .

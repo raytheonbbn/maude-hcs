@@ -502,6 +502,23 @@ mod IODINE_NODE is
   --- The maximum fragment length (or fragment size).
   op maxUpFragmentLen : -> Nat .
   op maxDownFragmentLen : -> Nat .
+  --- Per-channel limits allow independent CP4 connections to coexist.  Legacy
+  --- actors retain the scenario-wide parameters when no override is attached.
+  op iodineUpFragmentLimit:_ : Nat -> Attribute [ctor] .
+  op iodineDownFragmentLimit:_ : Nat -> Attribute [ctor] .
+  op iodineUpFragmentLimit : AttributeSet -> Nat .
+  op iodineDownFragmentLimit : AttributeSet -> Nat .
+  eq iodineUpFragmentLimit((wattrs, iodineUpFragmentLimit: N)) = N .
+  eq iodineUpFragmentLimit(wattrs) = maxUpFragmentLen [owise] .
+  eq iodineDownFragmentLimit((wattrs, iodineDownFragmentLimit: N)) = N .
+  eq iodineDownFragmentLimit(wattrs) = maxDownFragmentLen [owise] .
+  op withIodineFragmentLimits : Actor Nat Nat -> Actor .
+  eq withIodineFragmentLimits(< ADDR : WClient | wattrs >, N, N1) =
+    < ADDR : WClient | wattrs, iodineUpFragmentLimit: N,
+      iodineDownFragmentLimit: N1 > .
+  eq withIodineFragmentLimits(< ADDR : WNameserver | wattrs >, N, N1) =
+    < ADDR : WNameserver | wattrs, iodineUpFragmentLimit: N,
+      iodineDownFragmentLimit: N1 > .
   --- The maximum number of fragment transmission tries.
   op maxFragmentTx : -> Nat .
 
@@ -665,7 +682,7 @@ mod IODINE_NODE is
   op handleAndSend : AttributeSet Address Packet -> AttributeSetMsgs .
   ceq handleAndSend(wattrs, ADDR, PACKET) =
     {wattrsNext, msgOut}
-    if wattrsTrans := handleNewPacket(wattrs, PACKET, maxUpFragmentLen)
+    if wattrsTrans := handleNewPacket(wattrs, PACKET, iodineUpFragmentLimit(wattrs))
       /\ {wattrsNext, msgOut} := sendFragment(wattrsTrans, ADDR)
     .
 
