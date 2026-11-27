@@ -65,8 +65,8 @@ def build(build_cfg: BuildConfig, run_cfg: RunConfig, src_dir: Path, build_dir: 
     
     assert run_cfg.temp_dir in build_dir.resolve().parents
 
-    logger.warning(src_dir)
-    logger.warning(build_dir)
+    logger.info("source directory to copy build items from: %s", src_dir)
+    logger.info("target build directory: %s", build_dir)
     shutil.copytree(src_dir, build_dir, dirs_exist_ok=True, symlinks=False)
 
     for dir, proto in build_cfg.markov_v1_dirs:

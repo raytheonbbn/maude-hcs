@@ -18,9 +18,9 @@ import logging
 import os
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, Flag, auto
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Self
 
 from dataclasses_json import dataclass_json
 from ..runners.maude_runner import maude_runner
@@ -29,6 +29,22 @@ from ..runners.smc_runner import smc_runner
 from maude_hcs.result import SimParams
 
 logger = logging.getLogger(__name__)
+
+class TestSuiteType(Flag):
+    """Which test suite (or suites) to run"""
+    REGRESSION = auto()
+    COMPOSITION = auto()
+    CONFIDENTIALITY = auto()
+    ALL = REGRESSION | COMPOSITION | CONFIDENTIALITY
+
+    @staticmethod
+    def from_name(name: str) -> TestSuiteType:
+        match name.lower():
+            case "regression": return TestSuiteType.REGRESSION
+            case "composition": return TestSuiteType.COMPOSITION
+            case "confidentiality": return TestSuiteType.CONFIDENTIALITY
+            case "all": return TestSuiteType.ALL
+            case _: raise ValueError(f"{name} is not a valid name for any TestSuiteType")
 
 class TestRunner(Enum):
     """Enum to indicate which test runner a TestConfig should use"""
@@ -47,25 +63,25 @@ class TestRunner(Enum):
 @dataclass(frozen=True)
 class RunConfig:
     """Args for the entire test run, mostly set through command-line args"""
+
+    suite: TestSuiteType
+
+    # General (apply to all (or many) kinds of test suites)
     temp_dir: Path
-
-    runner: TestRunner | None
-
-    composition: bool = False
-    characterization: bool = False
-    known_answer: bool = False
-
-    # log_level: None = None
-    # log_filter: None = None
-    pp: bool = False
-
     build_only: bool = False
     persist: bool = False
     results_dir: str | None = None
-
     override_run_time: int | None = None
     timeout: int | None = None
-    partial_smc_comp : bool = False
+
+    # Specific to regression test suite
+    runner: TestRunner | None = None
+    characterization: bool = False
+    known_answer: bool = False
+    partial_smc_comp: bool = False
+
+    # Specific to confidentiality test suite
+    smoke: bool = False
 
     def __post_init__(self) -> None:
         assert not (self.characterization and self.known_answer), "cannot select both only characterization and only known-answer"
